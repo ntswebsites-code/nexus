@@ -1,0 +1,9 @@
+.git
+.github
+Dockerfile
+docker-compose.yml
+nginx.conf
+.dockerignore
+DEPLOYMENT_MANIFEST.txt
+START_HERE.md
+README.md

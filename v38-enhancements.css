@@ -1,0 +1,86 @@
+/* Matanho Nexus V38 - functional trading toolbar, modern risk visualisation, equal-height paired cards */
+:root{--v38-blue:#2158f4;--v38-indigo:#6657e8;--v38-cyan:#0394a6;--v38-good:#0a8468;--v38-warn:#c37a11;--v38-bad:#c7354e;--v38-grid:#e5eaf1;--v38-ink:#0b1422;--v38-muted:#617187}
+
+/* Orders / chart controls */
+#page-orders .v36-tv-shell{position:relative;overflow:visible}
+#page-orders .v36-tv-toolbar{display:flex!important;align-items:center;gap:5px;flex-wrap:wrap;padding:7px 9px!important;min-height:43px;background:linear-gradient(180deg,#fbfcfe,#f6f8fb);border-bottom:1px solid #e2e8f0}
+#page-orders .v36-tv-tool{height:29px!important;min-width:0;padding:0 10px!important;border:1px solid transparent!important;border-radius:7px!important;background:transparent!important;color:#405169!important;font-size:10px!important;font-weight:800!important;white-space:nowrap;transition:.14s}
+#page-orders .v36-tv-tool:hover{background:#fff!important;border-color:#d7e0eb!important;color:#111d2e!important}
+#page-orders .v36-tv-tool.active,#page-orders .v36-tv-tool.v38-active{background:#fff!important;border-color:#cbd7e7!important;color:#174ed5!important;box-shadow:0 1px 3px rgba(17,35,62,.08)}
+#page-orders .v36-tv-divider{height:20px!important;margin:0 1px!important}
+.v38-chart-tools-panel{display:none;border-bottom:1px solid #e2e8f0;background:#fff;padding:10px 11px;gap:10px;align-items:center;flex-wrap:wrap;box-shadow:0 5px 14px rgba(10,28,53,.045)}
+.v38-chart-tools-panel.show{display:flex}
+.v38-tool-section{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.v38-tool-section>strong{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:#7a8799;margin-right:3px}
+.v38-tool-chip{height:30px;border:1px solid #d9e1eb;background:#fff;border-radius:7px;padding:0 9px;font-size:10px;font-weight:800;color:#526278;cursor:pointer}
+.v38-tool-chip.active{border-color:#8da9f8;background:#f2f6ff;color:#2257cb}
+.v38-tool-input{height:31px;border:1px solid #d8e1eb;border-radius:7px;background:#fff;padding:0 9px;font-size:10px;min-width:115px;outline:none}
+.v38-tool-input:focus{border-color:#7ca0ff;box-shadow:0 0 0 3px rgba(33,88,244,.08)}
+.v38-replay-row{display:grid;grid-template-columns:auto minmax(140px,1fr) auto auto;gap:7px;align-items:center;width:100%}
+.v38-replay-row input[type=range]{width:100%;accent-color:var(--v38-blue)}
+.v38-replay-state{font-size:10px;font-weight:800;color:#506176;min-width:64px;text-align:right}
+.v38-chart-mode-menu{display:flex;gap:5px;align-items:center;flex-wrap:wrap}
+.v38-compare-badge,.v38-alert-badge,.v38-scale-badge{display:inline-flex;align-items:center;gap:5px;height:25px;padding:0 8px;border-radius:999px;background:#eef4ff;color:#2355bf;font-size:9px;font-weight:800}
+.v38-alert-badge{background:#fff5e6;color:#9a6209}.v38-scale-badge{background:#eef8f5;color:#08745d}
+
+#page-orders .v36-tv-stage{position:relative!important;background:linear-gradient(180deg,#fff 0,#fbfcfe 100%);min-height:390px}
+#page-orders .v38-trading-svg{width:100%;height:100%;display:block;min-height:390px}
+#page-orders .v38-trading-svg text{font-size:11px!important;fill:#5a6b82!important;font-weight:650!important;stroke:rgba(255,255,255,.9);stroke-width:1px;paint-order:stroke}
+#page-orders .v38-trading-svg .v38-axis-title{font-size:10px!important;fill:#34465e!important;font-weight:850!important;letter-spacing:.04em}
+.v38-chart-tooltip{position:absolute;z-index:8;pointer-events:none;display:none;min-width:195px;background:rgba(7,17,31,.94);color:#fff;border-radius:8px;padding:8px 9px;font-size:9.5px;box-shadow:0 8px 24px rgba(4,14,29,.24)}
+.v38-chart-tooltip strong,.v38-chart-tooltip span{display:block}.v38-chart-tooltip strong{font-size:10px;margin-bottom:4px}.v38-chart-tooltip span{color:#d2dbea;line-height:1.45}
+.v38-chart-crosshair{position:absolute;inset:0;pointer-events:none;display:none}.v38-chart-crosshair:before,.v38-chart-crosshair:after{content:"";position:absolute;background:#8d9cb0;opacity:.6}.v38-chart-crosshair:before{width:1px;top:0;bottom:0;left:var(--x)}.v38-chart-crosshair:after{height:1px;left:0;right:0;top:var(--y)}
+.v38-chart-status{position:absolute;left:10px;bottom:9px;display:flex;gap:6px;flex-wrap:wrap;z-index:5}
+.v38-chart-status span{font-size:9px;font-weight:800;color:#53647a;background:rgba(255,255,255,.9);border:1px solid #dde5ef;border-radius:6px;padding:4px 6px}
+.v38-price-alert-label{font-size:9px!important;fill:#9a5d06!important;font-weight:850!important}
+
+/* Risk - equal-height paired cards */
+#page-risk .v37-risk-grid{align-items:stretch!important}
+#page-risk .v37-risk-card{height:100%;display:flex;flex-direction:column;min-height:0}
+#page-risk .v37-risk-card-head{flex:0 0 auto}
+#page-risk .v37-risk-card-body{flex:1 1 auto;display:flex;flex-direction:column;min-height:0}
+#page-risk .v37-chart-box{flex:1 1 auto;min-height:285px;border:1px solid #edf1f6;border-radius:10px;background:linear-gradient(180deg,#fff,#fbfcff);padding:2px;overflow:hidden}
+#page-risk .v38-risk-svg{width:100%;height:100%;min-height:280px;display:block}
+#page-risk .v38-risk-svg text{font-size:11px!important;fill:#55677e!important;font-weight:650!important;stroke:rgba(255,255,255,.88);stroke-width:1px;paint-order:stroke}
+#page-risk .v38-risk-svg .title{font-size:10px!important;fill:#33475f!important;font-weight:850!important;letter-spacing:.04em}
+#page-risk .v37-chart-legend{min-height:42px;display:flex!important;align-items:center;gap:14px;flex-wrap:wrap;padding:9px 13px!important;background:#fbfcfe;border-top:1px solid #e9eef4}
+#page-risk .v37-chart-legend span{font-size:10px!important;color:#52637a!important;white-space:nowrap}
+#page-risk .v37-chart-legend i{width:16px!important;height:3px!important;border-radius:3px!important;display:inline-block;margin-right:5px!important;vertical-align:middle}
+#page-risk .v37-risk-kpi{position:relative;overflow:hidden}
+#page-risk .v37-risk-kpi:after{content:"";position:absolute;left:12px;right:12px;bottom:8px;height:2px;border-radius:2px;background:linear-gradient(90deg,rgba(33,88,244,.85),rgba(3,148,166,.22))}
+.v38-risk-insights{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:9px}
+.v38-risk-insights>div{border:1px solid #e3e9f1;background:#f9fbfd;border-radius:8px;padding:8px 9px}
+.v38-risk-insights span,.v38-risk-insights strong,.v38-risk-insights small{display:block}.v38-risk-insights span{font-size:8.5px;text-transform:uppercase;letter-spacing:.04em;color:#77859a;font-weight:850}.v38-risk-insights strong{font-size:11.5px;margin:4px 0}.v38-risk-insights small{font-size:9px;color:#758397;line-height:1.35}
+.v38-stress-chart{margin-top:10px;border:1px solid #e4eaf2;border-radius:9px;background:#fbfcfe;padding:8px}
+.v38-stress-chart-head{display:flex;justify-content:space-between;gap:8px;align-items:center;margin-bottom:4px}.v38-stress-chart-head strong{font-size:10.5px}.v38-stress-chart-head span{font-size:9px;color:#718096}
+.v38-stress-chart svg{width:100%;height:165px;display:block}.v38-stress-chart svg text{font-size:10px!important}
+.v38-risk-hover{cursor:crosshair}
+
+@media(max-width:900px){
+  #page-orders .v36-tv-toolbar{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:thin;overscroll-behavior-x:contain}
+  #page-orders .v36-tv-tool{flex:0 0 auto}
+  .v38-chart-tools-panel{position:relative}
+  #page-risk .v37-risk-card{height:auto}
+  .v38-risk-insights{grid-template-columns:1fr 1fr 1fr}
+}
+@media(max-width:640px){
+  #page-orders .v36-tv-toolbar{padding:6px!important;gap:4px}
+  #page-orders .v36-tv-tool{height:30px!important;padding:0 9px!important;font-size:9.5px!important}
+  .v38-chart-tools-panel{padding:8px}
+  .v38-replay-row{grid-template-columns:auto minmax(105px,1fr) auto}
+  .v38-replay-state{grid-column:1/-1;text-align:left}
+  #page-orders .v36-tv-stage,#page-orders .v38-trading-svg{min-height:330px}
+  .v38-risk-insights{grid-template-columns:1fr}
+  #page-risk .v37-chart-box{min-height:245px}
+  #page-risk .v38-risk-svg{min-height:240px}
+  #page-risk .v37-chart-legend{gap:8px;padding:8px 9px!important}
+}
+#page-orders .v38-ma20{fill:none;stroke:#255cff;stroke-width:2;vector-effect:non-scaling-stroke}
+#page-orders .v38-ema9{fill:none;stroke:#7357e8;stroke-width:1.8;vector-effect:non-scaling-stroke}
+#page-orders .v38-vwap{fill:none;stroke:#d58b18;stroke-width:1.8;stroke-dasharray:6 4;vector-effect:non-scaling-stroke}
+#page-orders .v38-compare{fill:none;stroke:#0596a7;stroke-width:2.1;stroke-dasharray:8 5;vector-effect:non-scaling-stroke}
+#page-orders .v38-rsi{fill:none;stroke:#7659db;stroke-width:2;vector-effect:non-scaling-stroke}
+#page-orders .v38-tv-legend i{display:inline-block;width:15px;height:3px;border-radius:3px;margin-right:5px;vertical-align:middle;background:#255cff}
+#page-orders .v38-tv-legend i.ema{background:#7357e8}#page-orders .v38-tv-legend i.vwap{background:#d58b18}#page-orders .v38-tv-legend i.compare{background:#0596a7}#page-orders .v38-tv-legend i.volume{background:#8da4c8}
+#page-orders .v33-orders-top{align-items:stretch!important}
+#page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{height:100%}

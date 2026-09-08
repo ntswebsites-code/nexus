@@ -1,0 +1,168 @@
+/* Matanho Nexus V40 - layout fit, unobscured controls, chart utilisation and paired-card alignment */
+:root{
+  --v40-line:#e2e8f0;
+  --v40-soft:#f8fafe;
+  --v40-blue:#2458e8;
+  --v40-ink:#0b1524;
+  --v40-muted:#68778b;
+}
+
+/* ---------- Structural fit: nothing should sit on top of working content ---------- */
+.main-area,.page,.v33-workspace,.v35-shell,.v36-ops-shell,.v37-risk-shell{min-width:0}
+.page.active{overflow-x:clip}
+.page-head>div,.v33-head>div,.v36-ops-head>div,.v37-risk-head>div,.card-head>div,.v33-card-head>div,.v37-risk-card-head>div{min-width:0}
+.page-head,.v33-head,.v36-ops-head,.v37-risk-head,.card-head,.v33-card-head,.v37-risk-card-head{flex-wrap:wrap}
+.page-actions,.v33-actions,.v36-ops-actions,.v37-risk-actions{max-width:100%;flex-wrap:wrap}
+.card,.v33-card,.v35-card,.v36-card,.v36-chart-card,.v37-risk-card{min-width:0}
+.table-wrap,.v33-table-wrap,.v37-limit-table{max-width:100%}
+
+/* Dock Copilot into the top bar instead of floating over charts/tables. */
+.v15-copilot-fab.v40-copilot-docked{
+  position:static!important;right:auto!important;bottom:auto!important;top:auto!important;
+  width:38px!important;height:38px!important;min-width:38px!important;padding:0!important;
+  border-radius:10px!important;box-shadow:none!important;justify-content:center!important;flex:0 0 auto;
+}
+.v15-copilot-fab.v40-copilot-docked>span{width:28px!important;height:28px!important;border-radius:8px!important}
+.v15-copilot-fab.v40-copilot-docked strong,.v15-copilot-fab.v40-copilot-docked small{display:none!important}
+.topbar-right{min-width:0}
+
+/* ---------- Orders: use the chart column fully and keep both workstation columns aligned ---------- */
+#page-orders .v33-orders-top{align-items:stretch!important;grid-auto-rows:1fr}
+#page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{height:100%;min-height:0}
+#page-orders .v33-orders-top>aside{display:flex;flex-direction:column}
+#page-orders .v33-instruments{flex:1 1 auto;max-height:none!important;min-height:0}
+#page-orders .v33-orders-top>main{display:flex;flex-direction:column}
+#page-orders #v33SecurityPane{display:flex;flex-direction:column;flex:1 1 auto;min-height:0}
+#page-orders .v33-chartbox{height:auto!important;min-height:0!important;display:flex;flex-direction:column;flex:1 1 auto}
+#page-orders .v36-tv-shell{display:flex!important;flex-direction:column;flex:1 1 auto;min-height:0}
+#page-orders .v36-tv-stage{
+  height:clamp(410px,34vw,490px)!important;min-height:410px!important;flex:1 1 auto;
+  overflow:hidden!important;border-top:1px solid #edf1f5;
+}
+#page-orders .v38-trading-svg{min-height:0!important;height:100%!important;width:100%!important}
+#page-orders .v36-tv-toolbar{position:relative;z-index:4;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin}
+#page-orders .v38-chart-tools-panel{position:relative;z-index:3;max-width:100%;overflow-x:auto}
+#page-orders .v38-chart-status{max-width:calc(100% - 18px);pointer-events:none}
+#page-orders .v35-depth-board{align-items:stretch;grid-template-columns:minmax(0,1.45fr) minmax(220px,.55fr)}
+#page-orders .v35-depth-table,#page-orders .v35-depth-side,#page-orders .v35-tradeability{height:100%}
+#page-orders .v35-depth-side{display:flex;flex-direction:column}
+#page-orders .v35-depth-row{flex:1 1 auto;align-items:center}
+#page-orders .v35-tradeability{display:flex;flex-direction:column}
+#page-orders .v35-tradeability .v35-btn{margin-top:auto!important}
+#page-orders .v33-security-head{flex:0 0 auto}
+#page-orders .v33-security-head>div:first-child{min-width:0}
+#page-orders .v33-security-head h2,#page-orders .v33-security-head small{overflow-wrap:anywhere}
+
+/* ---------- Risk: charts fill their own cards while paired side cards use the same vertical space ---------- */
+#page-risk .v37-risk-grid{align-items:stretch!important;grid-auto-flow:row dense}
+#page-risk .v37-risk-card{height:100%;display:flex;flex-direction:column}
+#page-risk .v37-risk-card-body{flex:1 1 auto;min-height:0}
+#page-risk .v40-risk-liquidity .v37-risk-card-body{display:grid!important;grid-template-rows:minmax(330px,1fr) auto;gap:10px}
+#page-risk .v40-risk-liquidity .v37-chart-box{height:auto!important;min-height:330px!important;width:100%;padding:0!important}
+#page-risk .v40-risk-liquidity .v38-risk-svg{height:100%!important;min-height:330px!important;width:100%!important}
+#page-risk .v40-risk-liquidity .v38-risk-insights{margin-top:0!important}
+
+#page-risk .v40-risk-budget .v37-risk-card-body{padding:16px!important;display:flex!important;flex-direction:column;justify-content:space-between;gap:16px}
+#page-risk .v40-risk-budget .v37-ring-grid{grid-template-columns:minmax(148px,.9fr) minmax(0,1.15fr)!important;gap:18px!important;align-items:center;flex:1 1 auto}
+#page-risk .v40-risk-budget .v37-ring{width:146px!important;height:146px!important;margin:auto}
+#page-risk .v40-risk-budget .v37-ring:before{width:96px!important;height:96px!important}
+#page-risk .v40-risk-budget .v37-ring strong{font-size:22px!important}
+#page-risk .v40-risk-budget .v37-ring small{font-size:10.5px!important}
+#page-risk .v40-risk-budget .v37-risk-bars{gap:15px!important;align-self:stretch}
+#page-risk .v40-risk-budget .v37-risk-bar>i{height:7px!important;margin-top:7px!important}
+.v40-budget-footer{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;border-top:1px solid #edf1f5;padding-top:11px}
+.v40-budget-footer>div{border:1px solid #e4eaf2;background:#f9fbfe;border-radius:9px;padding:9px;min-width:0}
+.v40-budget-footer span,.v40-budget-footer strong,.v40-budget-footer small{display:block}
+.v40-budget-footer span{font-size:9px;font-weight:850;color:#77859a;text-transform:uppercase;letter-spacing:.04em}
+.v40-budget-footer strong{font-size:12px;margin:4px 0;color:#101b2a}
+.v40-budget-footer small{font-size:9.5px;color:#748399;line-height:1.35}
+
+#page-risk .v40-risk-factor .v37-risk-card-body{display:flex!important;flex-direction:column}
+#page-risk .v40-risk-factor .v37-chart-box{height:auto!important;min-height:310px!important;flex:1 1 auto;padding:0!important}
+#page-risk .v40-risk-factor .v38-risk-svg{height:100%!important;min-height:310px!important}
+#page-risk .v40-risk-heatmap .v37-risk-card-body{display:flex!important;align-items:stretch}
+#page-risk .v40-risk-heatmap .v37-heat{width:100%;align-self:stretch;grid-auto-rows:minmax(54px,1fr);align-content:stretch}
+#page-risk .v40-risk-heatmap .v37-heat .cell{min-height:54px}
+
+#page-risk .v40-risk-scenario .v37-risk-card-body{display:flex!important;flex-direction:column}
+#page-risk .v40-risk-scenario .v38-stress-chart{flex:1 1 auto;min-height:210px;display:flex;flex-direction:column}
+#page-risk .v40-risk-scenario #v38StressSvg{flex:1 1 auto;min-height:165px}
+#page-risk .v40-risk-scenario .v38-stress-chart svg{height:100%!important;min-height:165px!important}
+#page-risk .v40-risk-sources .v37-risk-card-body{display:flex!important;flex-direction:column}
+#page-risk .v40-risk-sources .v37-import-sources{flex:1 1 auto;grid-auto-rows:minmax(0,1fr);align-items:stretch}
+#page-risk .v40-risk-sources .v37-source-card{height:100%;min-height:92px}
+.v40-source-footer{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:10px}
+.v40-source-footer>div{border-top:1px solid #e8edf3;padding-top:8px;min-width:0}
+.v40-source-footer span,.v40-source-footer strong{display:block}.v40-source-footer span{font-size:9px;color:#77869a;font-weight:800;text-transform:uppercase}.v40-source-footer strong{font-size:10.5px;margin-top:3px;color:#172335}
+
+/* ---------- Operations: paired charts line up and use card height ---------- */
+#page-operations .v36-ops-grid,#page-operations .v36-chart-grid{align-items:stretch!important}
+#page-operations .v36-ops-grid>.v36-card,#page-operations .v36-chart-grid>.v36-chart-card{height:100%;display:flex;flex-direction:column}
+#page-operations .v36-chart-card .v36-chart-stage{height:310px!important;min-height:310px!important;flex:1 1 auto;padding:0 10px 7px!important}
+#page-operations .v36-chart-card .v36-chart-stage svg{width:100%!important;height:100%!important}
+#page-operations .v36-chart-legend{min-height:42px!important;padding:9px 13px 11px!important;font-size:10.5px!important}
+#page-operations .v36-chart-stage text{font-size:10.5px!important}
+#page-operations .v36-chart-stage .v36-axis-title,#page-operations .v36-axis-label{font-size:10px!important}
+
+/* Common paired visual cards */
+.v33-grid,.v35-grid,.v36-chart-grid,.v37-risk-grid,.dashboard-grid,.research-grid,.risk-page-grid{align-items:stretch!important}
+.v33-grid>.v33-card,.v35-grid>.v35-card,.v36-chart-grid>.v36-chart-card,.v37-risk-grid>.v37-risk-card{height:100%}
+
+@media(max-width:1180px){
+  .v15-copilot-fab.v40-copilot-docked{display:none!important}
+  #page-orders .v36-tv-stage{height:430px!important;min-height:390px!important}
+}
+@media(max-width:900px){
+  #page-risk .v40-risk-budget .v37-ring-grid{grid-template-columns:150px minmax(0,1fr)!important}
+  #page-risk .v40-risk-sources .v37-import-sources{grid-auto-rows:auto}
+  #page-orders .v35-depth-board{grid-template-columns:1fr}
+  #page-operations .v36-chart-card .v36-chart-stage{height:280px!important;min-height:280px!important}
+}
+@media(max-width:680px){
+  #page-orders .v36-tv-stage{height:350px!important;min-height:350px!important}
+  #page-orders .v33-instruments{max-height:62vh!important}
+  #page-risk .v40-risk-liquidity .v37-risk-card-body{grid-template-rows:minmax(270px,auto) auto}
+  #page-risk .v40-risk-liquidity .v37-chart-box,#page-risk .v40-risk-liquidity .v38-risk-svg{min-height:270px!important}
+  #page-risk .v40-risk-budget .v37-ring-grid{grid-template-columns:1fr!important}
+  #page-risk .v40-risk-budget .v37-risk-bars{width:100%}
+  .v40-budget-footer,.v40-source-footer{grid-template-columns:1fr}
+  #page-risk .v40-risk-factor .v37-chart-box,#page-risk .v40-risk-factor .v38-risk-svg{min-height:270px!important}
+  #page-operations .v36-chart-card .v36-chart-stage{height:250px!important;min-height:250px!important}
+}
+@media(max-width:430px){
+  #page-orders .v36-tv-stage{height:320px!important;min-height:320px!important}
+  #page-orders .v38-chart-status{display:none!important}
+  #page-risk .v40-risk-budget .v37-ring{width:132px!important;height:132px!important}
+  #page-risk .v40-risk-budget .v37-ring:before{width:86px!important;height:86px!important}
+}
+
+/* V40.1 corrections after full-page browser QA */
+@media(min-width:901px){
+  .page-head,.v33-head,.v36-ops-head,.v37-risk-head{flex-wrap:nowrap!important}
+  .page-actions,.v33-actions,.v36-ops-actions,.v37-risk-actions{margin-left:auto}
+  #page-orders .v33-orders-top{grid-auto-rows:auto!important;height:940px}
+  #page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{height:940px!important;max-height:940px!important;overflow:hidden}
+  #page-orders .v33-orders-top>main{display:block!important}
+  #page-orders #v33SecurityPane{display:block!important;height:auto!important}
+  #page-orders .v33-chartbox{display:block!important;flex:none!important;height:510px!important;min-height:510px!important}
+  #page-orders .v36-tv-shell{display:grid!important;grid-template-rows:43px 28px minmax(0,1fr)!important;height:100%!important;min-height:0!important;flex:none!important}
+  #page-orders .v36-tv-stage{height:auto!important;min-height:0!important;flex:none!important}
+  #page-orders .v33-instruments{overflow:auto!important;min-height:0!important;max-height:none!important}
+}
+@media(max-width:900px){
+  .page-head,.v33-head,.v36-ops-head,.v37-risk-head{flex-wrap:wrap!important}
+  #page-orders .v33-orders-top{height:auto!important}
+  #page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{height:auto!important;max-height:none!important;overflow:visible}
+  #page-orders #v33SecurityPane{display:block!important}
+  #page-orders .v33-chartbox{display:block!important;flex:none!important;height:470px!important;min-height:470px!important}
+  #page-orders .v36-tv-shell{display:grid!important;grid-template-rows:43px 28px minmax(0,1fr)!important;height:100%!important}
+  #page-orders .v36-tv-stage{height:auto!important;min-height:0!important}
+}
+@media(max-width:680px){
+  #page-orders .v33-chartbox{height:410px!important;min-height:410px!important}
+}
+@media(max-width:430px){
+  #page-orders #v33OrderMainTabs{display:grid!important;grid-template-columns:1fr 1fr!important;width:100%!important;overflow:visible!important;gap:4px!important}
+  #page-orders #v33OrderMainTabs button{width:100%!important;min-width:0!important;padding:0 6px!important;text-align:center}
+  #page-orders .v33-chartbox{height:380px!important;min-height:380px!important}
+}

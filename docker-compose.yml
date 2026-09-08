@@ -1,0 +1,17 @@
+services:
+  web:
+    build: .
+    restart: unless-stopped
+    networks:
+      - lms_lms-network
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=lms_lms-network
+      - traefik.http.routers.matanho-nexus.rule=Host(`nexus.matanho.com`)
+      - traefik.http.routers.matanho-nexus.entrypoints=websecure
+      - traefik.http.routers.matanho-nexus.tls.certresolver=le
+      - traefik.http.services.matanho-nexus.loadbalancer.server.port=80
+
+networks:
+  lms_lms-network:
+    external: true

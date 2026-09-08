@@ -1,0 +1,108 @@
+/* Matanho Nexus V53 — responsive workflows, counterparty source hub, real previews, calmer charts. */
+:root{--v53-blue:#315fe9;--v53-violet:#6b55e8;--v53-teal:#08a7b8;--v53-ink:#111827;--v53-muted:#66758a;--v53-line:#e3e8ef;--v53-soft:#f7f9fc}
+
+/* Sidebar collapse belongs at the bottom, not in the brand row. */
+.sidebar .brand-wrap>.collapse-btn{display:none!important}
+.sidebar-footer{position:relative!important}
+.v53-collapse-dock{margin-top:10px;padding-top:10px;border-top:1px solid #e7ebf1;display:flex;align-items:center;justify-content:flex-end}
+.v53-collapse-dock .collapse-btn{position:static!important;display:inline-grid!important;right:auto!important;top:auto!important;width:34px!important;height:34px!important;background:#fff!important;border:1px solid #dce3eb!important;box-shadow:none!important}
+.app-shell.collapsed .v53-collapse-dock{justify-content:center;border-top:0;padding-top:4px;margin-top:4px}
+.app-shell.collapsed .v53-collapse-dock .collapse-btn{position:static!important;right:auto!important;top:auto!important}
+
+/* Chart system: responsive by default and keep data marks prominent. */
+#page-risk svg,#page-private-markets svg,#page-financing svg,#page-orders svg,#page-operations svg,.bi-chart-frame svg{width:100%!important;max-width:100%!important;height:auto!important;display:block!important;overflow:visible}
+#page-risk svg text,#page-private-markets svg text,#page-financing svg text,#page-orders svg text,#page-operations svg text,.bi-chart-frame svg text{font-weight:500!important;paint-order:normal!important;stroke:none!important}
+/* Decorative chart grid lines are never allowed to compete with the data. */
+#page-risk svg .grid,#page-risk svg .gridline,#page-risk svg .grid-line,
+#page-private-markets svg .grid,#page-private-markets svg .gridline,#page-private-markets svg .grid-line,
+#page-financing svg .grid,#page-financing svg .gridline,#page-financing svg .grid-line,
+#page-orders svg .grid,#page-orders svg .gridline,#page-orders svg .grid-line,
+#page-operations svg .grid,#page-operations svg .gridline,#page-operations svg .grid-line,
+.bi-chart-frame svg .grid,.bi-chart-frame svg .gridline,.bi-chart-frame svg .grid-line{display:none!important}
+.v53-chart-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:8px 12px 10px;color:#59687c;font-size:10.5px;line-height:1.3}
+.v53-chart-legend span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.v53-chart-legend i{width:18px;height:3px;border-radius:999px;background:var(--v53-blue);display:inline-block}
+.v53-chart-legend i.violet{background:var(--v53-violet)}.v53-chart-legend i.teal{background:var(--v53-teal)}.v53-chart-legend i.dash{height:0;border-top:2px dashed #9aa6b5;background:none}
+.v53-chart-tip{position:absolute;z-index:12;pointer-events:none;background:#111827;color:#fff;border-radius:8px;padding:7px 9px;font-size:10px;line-height:1.45;box-shadow:0 8px 24px rgba(16,24,40,.18);display:none;max-width:210px}
+.v53-chart-tip strong,.v53-chart-tip span{display:block}.v53-chart-tip span{color:#dbe4f0;margin-top:2px}
+
+/* Orders: place execution actions next to the chart/security, not far away in the page header. */
+#page-orders .v33-head .v33-actions #v33NewOrder,#page-orders .v33-head .v33-actions #v39OrdersMetricsToggle{display:none!important}
+#page-orders .v52-trade-actions{display:none!important}
+#page-orders .v53-chart-actionbar{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 10px;border-bottom:1px solid #edf1f5;background:#fbfcfe;min-height:45px}
+#page-orders .v53-chart-actionbar .left{display:flex;align-items:center;gap:8px;min-width:0}
+#page-orders .v53-chart-actionbar .left strong{font-size:11px;font-weight:680;color:#243148;white-space:nowrap}
+#page-orders .v53-chart-actionbar .left small{font-size:10px;color:#7b8797;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#page-orders .v53-chart-actionbar .right{display:flex;align-items:center;gap:7px;flex:none}
+#page-orders .v53-chart-actionbar button{height:33px;border:1px solid #d9e1eb;border-radius:8px;background:#fff;color:#273548;padding:0 10px;font-size:10.5px;font-weight:650}
+#page-orders .v53-chart-actionbar button.primary{background:linear-gradient(135deg,#315fe9,#6b55e8);border-color:transparent;color:#fff;box-shadow:0 4px 12px rgba(49,95,233,.16)}
+#page-orders .v33-chartbox{border-top:0!important}
+
+/* Order ticket: interactive chart + responsive action workflow. */
+#v44OrderTicket .v44-order-chart-stage{position:relative!important;overflow:hidden!important;border-radius:0!important}
+#v44OrderTicket .v44-order-chart-stage svg{width:100%!important;height:100%!important;min-height:280px!important}
+#v44OrderTicket .v44-order-chart-stage svg line[data-v52-vertical],#v44OrderTicket .v44-order-chart-stage svg line[stroke="#e7ecf2"],#v44OrderTicket .v44-order-chart-stage svg line[stroke="#edf1f5"]{display:none!important}
+#v44OrderTicket .v44-order-chart-stage svg path[data-v52-price-line]{stroke-width:3.1!important;filter:drop-shadow(0 3px 5px rgba(49,95,233,.12))}
+#v44OrderTicket .v53-order-status{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 13px 0;font-size:10px;color:#657389}
+#v44OrderTicket .v53-order-status b{font-size:10px;color:#1d2b40;background:#f0f4fa;border:1px solid #dce4ee;border-radius:999px;padding:4px 8px}
+#v44OrderTicket .v53-order-status b.good{color:#176848;background:#ecf9f2;border-color:#ccebdc}
+#v44OrderTicket .v44-order-footer{position:sticky!important;bottom:0;z-index:8;background:rgba(255,255,255,.98)!important;backdrop-filter:blur(12px);padding:10px 13px!important;border-top:1px solid #dfe5ec!important;display:flex!important;align-items:center!important;justify-content:flex-end!important}
+#v44OrderTicket .v44-order-footer>div{display:grid!important;grid-template-columns:repeat(3,minmax(135px,1fr));gap:8px;width:min(620px,100%)}
+#v44OrderTicket .v44-order-footer button{height:39px!important;border-radius:9px!important;font-size:10.8px!important;font-weight:680!important;min-width:0!important;white-space:normal!important;line-height:1.2!important;padding:0 10px!important}
+#v44OrderTicket .v44-order-footer button:focus-visible{outline:3px solid rgba(49,95,233,.2);outline-offset:2px}
+#v44OrderTicket #v44OrderSubmit:disabled{background:#e7ebf1!important;color:#7c8798!important;border-color:#dce2e9!important;box-shadow:none!important}
+#v44OrderTicket .v52-order-picker{position:relative!important;z-index:6}
+#v44OrderTicket .v52-order-results{max-height:300px!important;overflow:auto!important;box-shadow:0 16px 34px rgba(16,24,40,.14)!important}
+
+/* Reconciliation: one obvious counterpart-data entry point. */
+#page-reconciliations .v44-recon-head{align-items:flex-start!important}
+#page-reconciliations .v44-recon-actions #v44ReconSourceRuns,#page-reconciliations .v44-recon-actions #v44ReconImport{display:none!important}
+#page-reconciliations .v53-recon-source-strip{display:grid;grid-template-columns:minmax(0,1.35fr) repeat(3,minmax(150px,.55fr));gap:8px;margin:0 0 10px}
+#page-reconciliations .v53-source-intro,#page-reconciliations .v53-source-mini{border:1px solid #e1e7ef;border-radius:10px;background:#fff;padding:11px 12px;min-width:0}
+#page-reconciliations .v53-source-intro{display:flex;align-items:center;justify-content:space-between;gap:12px;background:linear-gradient(135deg,#f7faff,#fbf9ff)}
+#page-reconciliations .v53-source-intro strong,#page-reconciliations .v53-source-mini strong{display:block;font-size:11px;color:#19263a;font-weight:680}
+#page-reconciliations .v53-source-intro small,#page-reconciliations .v53-source-mini small{display:block;font-size:10px;color:#6f7d90;margin-top:3px;line-height:1.35}
+#page-reconciliations .v53-source-intro button{height:34px;border:0;border-radius:8px;padding:0 12px;background:linear-gradient(135deg,#315fe9,#6b55e8);color:#fff;font-size:10.5px;font-weight:680;white-space:nowrap}
+#page-reconciliations .v53-source-mini span{display:block;font-size:9.5px;color:#8a96a6;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}
+#page-reconciliations .v53-source-mini.good strong{color:#176848}.v53-source-mini.warn strong{color:#9b5d0d}
+
+/* Source hub */
+#v53SourceBackdrop{position:fixed;inset:0;background:rgba(8,18,34,.44);z-index:1500;display:none}
+#v53SourceHub{position:fixed;z-index:1501;left:50%;top:50%;transform:translate(-50%,-50%);width:min(980px,calc(100vw - 28px));max-height:88vh;background:#fff;border:1px solid #dbe2eb;border-radius:14px;box-shadow:0 30px 80px rgba(8,18,34,.26);display:none;overflow:hidden}
+#v53SourceBackdrop.show,#v53SourceHub.show{display:block}
+.v53-hub-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:14px 16px;border-bottom:1px solid #e8edf3;background:#fbfcfe}.v53-hub-head h2{font-size:15px;margin:2px 0 3px}.v53-hub-head p{font-size:10.5px;color:#69778a;margin:0;max-width:690px;line-height:1.45}.v53-hub-head button{width:34px;height:34px;border:1px solid #dbe2eb;background:#fff;border-radius:8px;font-size:19px}
+.v53-hub-tabs{display:flex;gap:4px;padding:8px 12px;border-bottom:1px solid #edf1f5;background:#fff}.v53-hub-tabs button{height:31px;border:0;background:transparent;border-radius:7px;padding:0 11px;font-size:10.5px;color:#617086;font-weight:650}.v53-hub-tabs button.active{background:#eef3ff;color:#244fc0}
+.v53-hub-body{padding:13px 14px 16px;overflow:auto;max-height:calc(88vh - 105px)}
+.v53-connectors{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.v53-connector{border:1px solid #e1e7ef;border-radius:10px;padding:11px 12px;background:#fff}.v53-connector header{display:flex;justify-content:space-between;gap:10px}.v53-connector h3{font-size:11px;margin:0 0 3px}.v53-connector p{font-size:10px;color:#6f7c8e;margin:0;line-height:1.4}.v53-connector .state{font-size:9px;font-weight:700;border-radius:999px;background:#edf8f2;color:#176848;padding:4px 7px;height:max-content}.v53-connector dl{display:grid;grid-template-columns:105px 1fr;gap:6px 8px;margin:10px 0 0}.v53-connector dt{font-size:9.5px;color:#7c8999}.v53-connector dd{margin:0;font-size:9.8px;color:#243148}.v53-connector footer{display:flex;gap:6px;margin-top:10px}.v53-hub-btn{height:32px;border:1px solid #dce3ec;background:#fff;border-radius:8px;padding:0 10px;font-size:10px;font-weight:650;color:#2c3a4d}.v53-hub-btn.primary{background:#315fe9;border-color:#315fe9;color:#fff}
+.v53-upload-grid{display:grid;grid-template-columns:minmax(0,.75fr) minmax(0,1.25fr);gap:12px}.v53-upload-card,.v53-preview-card{border:1px solid #e1e7ef;border-radius:10px;padding:12px;background:#fff}.v53-upload-card label{display:block;margin-bottom:9px}.v53-upload-card label span{display:block;font-size:9.5px;color:#637188;font-weight:650;margin-bottom:4px}.v53-upload-card select,.v53-upload-card input[type=file]{width:100%;min-height:37px;border:1px solid #d8e0ea;border-radius:8px;background:#fff;padding:7px 9px;font-size:10.5px}.v53-file-drop{border:1px dashed #bac7d8;border-radius:10px;background:#f9fbfd;padding:16px;text-align:center;color:#66758a;font-size:10.5px;line-height:1.5}.v53-file-preview{min-height:230px;background:#fbfcfe;border:1px solid #e6ebf1;border-radius:8px;padding:10px;overflow:auto;font:10px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#2d3b4f;white-space:pre-wrap}.v53-upload-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:9px}.v53-upload-summary div{background:#f7f9fc;border-radius:8px;padding:8px}.v53-upload-summary span,.v53-upload-summary strong{display:block}.v53-upload-summary span{font-size:9px;color:#7a8798}.v53-upload-summary strong{font-size:11px;margin-top:3px}.v53-hub-actions{display:flex;justify-content:flex-end;gap:7px;margin-top:10px}
+.v53-recent-list{display:grid;gap:7px}.v53-recent-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:10px;align-items:center;padding:10px 11px;border:1px solid #e5eaf0;border-radius:9px;background:#fff}.v53-recent-row strong,.v53-recent-row small{display:block}.v53-recent-row strong{font-size:10.5px}.v53-recent-row small{font-size:9.5px;color:#768497;margin-top:2px}
+
+/* Industry-format document preview */
+#v53DocBackdrop{position:fixed;inset:0;background:rgba(7,16,30,.5);z-index:1550;display:none}
+#v53DocViewer{position:fixed;z-index:1551;left:50%;top:50%;transform:translate(-50%,-50%);width:min(1080px,calc(100vw - 26px));height:min(84vh,820px);background:#eef2f6;border-radius:14px;box-shadow:0 32px 90px rgba(8,18,34,.3);display:none;overflow:hidden;border:1px solid #d6dee8}
+#v53DocBackdrop.show,#v53DocViewer.show{display:block}
+.v53-doc-head{height:56px;background:#fff;border-bottom:1px solid #dfe5ec;display:flex;align-items:center;justify-content:space-between;padding:0 13px 0 16px;gap:12px}.v53-doc-head strong,.v53-doc-head small{display:block}.v53-doc-head strong{font-size:11px}.v53-doc-head small{font-size:9.5px;color:#718094;margin-top:2px}.v53-doc-head button{width:34px;height:34px;border:1px solid #dce3ec;background:#fff;border-radius:8px;font-size:18px}.v53-doc-stage{height:calc(100% - 56px);overflow:auto;padding:20px;display:flex;justify-content:center}.v53-doc-paper{width:min(780px,100%);min-height:940px;background:#fff;box-shadow:0 8px 30px rgba(15,31,55,.11);padding:44px 48px;color:#172033;font-family:Arial,Helvetica,sans-serif}.v53-doc-paper .letterhead{display:flex;justify-content:space-between;gap:18px;padding-bottom:18px;border-bottom:2px solid #172033}.v53-doc-paper .letterhead .mark{font-size:24px;font-weight:800;letter-spacing:-.04em}.v53-doc-paper .letterhead small{display:block;font-size:10px;line-height:1.5;color:#4d5969;text-align:right}.v53-doc-paper h1{font-size:18px;margin:26px 0 4px}.v53-doc-paper .sub{font-size:10px;color:#66758a;margin-bottom:20px}.v53-doc-paper h2{font-size:11px;margin:22px 0 7px;text-transform:uppercase;letter-spacing:.05em}.v53-doc-paper p{font-size:10.5px;line-height:1.6;margin:7px 0}.v53-doc-paper table{width:100%;border-collapse:collapse;min-width:0!important}.v53-doc-paper th,.v53-doc-paper td{font-size:10px;padding:8px 7px;border-bottom:1px solid #dfe5ec;text-align:left;white-space:normal!important}.v53-doc-paper th{background:#f5f7fa;text-transform:none;letter-spacing:0;color:#334155}.v53-doc-paper .amount{text-align:right;font-variant-numeric:tabular-nums}.v53-doc-paper .stamp{margin-top:24px;display:inline-block;border:2px solid #315fe9;color:#315fe9;border-radius:4px;padding:8px 12px;font-size:10px;font-weight:700;transform:rotate(-2deg)}.v53-doc-paper .foot{margin-top:34px;padding-top:10px;border-top:1px solid #dfe5ec;font-size:9px;color:#7b8796;line-height:1.5}
+.v53-doc-raw{width:100%;height:100%;background:#fff;border:0}
+
+/* Applicant evidence controls must be tappable and visibly functional. */
+.v35-evidence-actions{display:flex!important;gap:7px!important;flex-wrap:wrap!important;margin-top:8px!important}.v35-evidence-actions button{min-height:34px!important;padding:0 11px!important;border-radius:8px!important;font-size:10.5px!important;flex:0 1 auto!important}.v35-evidence-card{min-width:0!important}.v35-evidence-card>div:nth-child(2){min-width:0!important}.v35-evidence-card small{white-space:normal!important;overflow-wrap:anywhere!important}.v35-card-head{gap:10px!important;flex-wrap:wrap!important}.v35-card-head #v35RequestEvidence{min-height:35px!important}
+
+/* Client portal shell is simplified by v53-client-portal.css/js. */
+
+@media(max-width:1050px){
+ #page-reconciliations .v53-recon-source-strip{grid-template-columns:repeat(3,minmax(0,1fr))}#page-reconciliations .v53-source-intro{grid-column:1/-1}
+ .v53-upload-grid{grid-template-columns:1fr}
+}
+@media(max-width:760px){
+ #page-orders .v53-chart-actionbar{align-items:flex-start;flex-direction:column}.v53-chart-actionbar .right{width:100%}#page-orders .v53-chart-actionbar button{flex:1}
+ #v44OrderTicket .v44-order-footer>div{grid-template-columns:1fr!important;width:100%}#v44OrderTicket .v44-order-footer{padding:9px!important}
+ #page-reconciliations .v53-recon-source-strip{grid-template-columns:1fr}.v53-connectors{grid-template-columns:1fr}.v53-upload-summary{grid-template-columns:1fr}.v53-recent-row{grid-template-columns:1fr}
+ #v53SourceHub{top:12px;transform:translateX(-50%);max-height:calc(100vh - 24px)}.v53-hub-body{max-height:calc(100vh - 130px)}
+ #v53DocViewer{top:10px;transform:translateX(-50%);height:calc(100vh - 20px)}.v53-doc-stage{padding:8px}.v53-doc-paper{padding:25px 20px;min-height:860px}
+ .v35-evidence-actions button{flex:1 1 120px!important}
+}
+@media(max-width:430px){
+ #page-orders .v53-chart-actionbar .left small{display:none}#page-orders .v53-chart-actionbar .right{display:grid;grid-template-columns:1fr 1fr}
+ .v53-hub-tabs{overflow:auto}.v53-hub-tabs button{white-space:nowrap}
+ .v35-card-head #v35RequestEvidence{width:100%!important}.v35-evidence-actions{display:grid!important;grid-template-columns:1fr 1fr!important}.v35-evidence-actions button{width:100%!important}
+}

@@ -1,0 +1,4 @@
+BookingDate,ValueDate,EntryReference,Account,TransactionCode,Currency,Amount,DebitCredit,RemittanceInformation,ClosingBalance,Bank
+2026-09-01,2026-09-01,FCB-20260901-008841,001234567890,SETR,USD,8814.00,DBIT,"ZSE settlement ORD-49217 / INN",2411120.35,First Capital Bank Zimbabwe
+2026-09-01,2026-09-01,FCB-20260901-008853,001234567890,CHRG,USD,19.50,DBIT,"Broker and settlement charges ORD-49217",2411100.85,First Capital Bank Zimbabwe
+2026-09-01,2026-09-01,FCB-20260901-008872,001234567890,DIST,USD,185000.00,CRDT,"Fund distribution receipt",2596100.85,First Capital Bank Zimbabwe

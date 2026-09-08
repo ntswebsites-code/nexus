@@ -1,0 +1,150 @@
+/* Matanho Nexus V51 — analyse, decide, execute. Calm charts with no decorative grid. */
+
+:root{--v51-line:#e4e9f0;--v51-muted:#66758a;--v51-ink:#101828;--v51-soft:#f7f9fc}
+
+/* --------------------------------------------------------------------------
+   CHART CLARITY — remove decorative grid lines, preserve data/reference marks
+   -------------------------------------------------------------------------- */
+svg .grid,
+svg .gridline,
+svg .grid-line,
+.grid-lines line,
+.v36-chart-stage svg .grid,
+.v36-tv-stage svg .v36-grid,
+.v44-order-chart-stage svg .v48-order-hgrid{display:none!important}
+
+/* TradingView-style workstation: remove only the generated background grid. */
+#page-orders .v36-tv-stage svg line[stroke="#e6ebf2"],
+#page-orders .v36-tv-stage svg line[stroke="#f0f3f7"]{display:none!important}
+
+/* Risk / operations / reporting chart grids should not dominate the data. */
+.v38-risk-svg line[stroke="#e7ecf2"],
+.v44-risk-chart-wrap svg line[stroke="#e7ecf2"],
+.v44-risk-chart-wrap svg line[stroke="#edf1f5"],
+.v44-liq-chart svg line[stroke="#e7ecf2"],
+.v44-liq-chart svg line[stroke="#edf1f5"],
+.v36-chart-stage svg line.grid,
+.command-chart-stage-v7 svg line.grid,
+.bi-chart-frame svg line.grid,
+.chart-wrap svg .grid-lines line{display:none!important}
+
+/* New-order price chart: zero grid. Previous close is text context, not a line. */
+#v44OrderTicket .v44-order-chart-stage svg .v48-order-hgrid,
+#v44OrderTicket .v44-order-chart-stage svg .v48-order-prev{display:none!important}
+#v44OrderTicket .v44-order-chart-stage{height:370px!important;background:#fff!important;border-bottom:1px solid #eef2f6}
+#v44OrderTicket .v44-order-chart-stage svg path[stroke="#2d63ef"]{stroke-width:2.55!important}
+#v44OrderTicket .v44-order-chart-stage svg text{font-weight:500!important;fill:#6b778a!important}
+#v44OrderTicket .v48-order-legend-row{border-bottom:0!important;padding:8px 14px 2px!important;background:#fff!important}
+#v44OrderTicket .v48-order-legend{gap:14px!important}
+#v44OrderTicket .v48-order-legend span{font-size:10px!important;font-weight:620!important;color:#526174!important}
+#v44OrderTicket .v48-order-legend .prev{display:none!important}
+
+/* --------------------------------------------------------------------------
+   ORDERS — make analysis + execution the primary job
+   -------------------------------------------------------------------------- */
+#page-orders .v33-kpis,
+#page-orders .v35-order-market-strip,
+#page-orders .v34-order-provenance,
+#page-orders .v35-order-visuals,
+#page-orders #v45OrderFlow,
+#page-orders #v39OrderHelper,
+#page-orders #v33OrderImport,
+#page-orders [data-v33-order-main="posttrade"]{display:none!important}
+
+#page-orders .v33-shell{max-width:none!important}
+#page-orders .v33-head{margin-bottom:8px!important;padding-bottom:0!important}
+#page-orders .v33-head h1{font-size:22px!important;letter-spacing:-.025em!important}
+#page-orders .v33-head p{max-width:760px!important;font-size:11px!important;line-height:1.5!important;color:#657389!important}
+#page-orders .v33-actions{align-items:center!important}
+#page-orders #v33NewOrder{min-width:112px;height:38px;border-radius:9px!important;font-size:11px!important;font-weight:700!important}
+
+#page-orders #v33OrderMainTabs{margin:0 0 10px!important;padding:3px!important;border:1px solid #e1e7ef!important;border-radius:10px!important;background:#f7f9fc!important;width:max-content;max-width:100%;overflow:auto}
+#page-orders #v33OrderMainTabs button{height:30px!important;padding:0 14px!important;border-radius:7px!important;font-size:10.5px!important;font-weight:620!important;white-space:nowrap}
+#page-orders #v33OrderMainTabs button.active{background:#fff!important;box-shadow:0 1px 4px rgba(16,24,40,.07)!important;color:#0f3fb8!important}
+
+#page-orders .v33-orders-top{grid-template-columns:minmax(235px,275px) minmax(0,1fr)!important;gap:10px!important;height:760px!important;align-items:stretch!important}
+#page-orders .v33-orders-top>aside,
+#page-orders .v33-orders-top>main{height:760px!important;max-height:760px!important;border-radius:11px!important;box-shadow:none!important;border-color:#e1e7ef!important;overflow:hidden!important}
+#page-orders .v33-orders-top>aside{background:#fbfcfe!important}
+#page-orders .v33-orders-top>aside .v33-card-head{padding:12px 12px 7px!important}
+#page-orders .v33-orders-top>aside .v33-card-head p{display:none!important}
+#page-orders .v33-orders-top>aside .v33-card-head h2{font-size:12px!important;font-weight:680!important}
+#page-orders .v33-orders-top>aside .v33-card-body{padding:7px 10px!important}
+#page-orders .v33-instruments{padding:5px 8px 10px!important;gap:2px!important;overflow:auto!important}
+#page-orders .v33-instrument{min-height:54px!important;border-radius:8px!important;padding:7px 8px!important;border-color:transparent!important;background:transparent!important}
+#page-orders .v33-instrument:hover{background:#f2f5f9!important}
+#page-orders .v33-instrument.active{background:#eef3ff!important;border-color:#d9e4ff!important}
+#page-orders .v33-instrument strong{font-weight:680!important}
+
+#page-orders .v33-security-head{min-height:72px!important;padding:12px 14px!important;border-bottom:1px solid #edf1f5!important}
+#page-orders .v33-security-head h2{font-size:15px!important;font-weight:690!important}
+#page-orders .v33-price strong{font-size:18px!important;font-weight:700!important}
+#page-orders #v33SecurityTabs{gap:3px!important}
+#page-orders #v33SecurityTabs button{font-size:10.5px!important;font-weight:620!important;padding:0 11px!important}
+#page-orders .v33-chartbox{height:536px!important;min-height:536px!important;border:0!important;background:#fff!important}
+#page-orders .v36-tv-shell{height:100%!important}
+#page-orders .v36-tv-toolbar{min-height:38px!important;padding:4px 8px!important;border-bottom:1px solid #f0f2f5!important;background:#fff!important}
+#page-orders .v36-tv-tool{font-size:10px!important;font-weight:600!important}
+#page-orders .v36-tv-ohlc{min-height:28px!important;border-bottom:1px solid #f3f5f8!important;background:#fff!important}
+#page-orders .v36-tv-stage{background:#fff!important}
+#page-orders .v36-tv-stage svg text{font-weight:500!important;fill:#69778b!important}
+#page-orders .v36-tv-legend{font-size:10px!important;background:rgba(255,255,255,.92)!important;border-radius:6px!important;padding:4px 6px!important}
+#page-orders .v33-chart-controls{min-height:46px!important;padding:8px 12px!important;border-top:1px solid #edf1f5!important;background:#fff!important}
+#page-orders #v33OrderAtPrice,
+#page-orders #v35QuickDeal,
+#page-orders #v33SellPosition{display:none!important}
+
+/* Market depth is useful, but only when requested. */
+#page-orders .v51-depth-details{border-top:1px solid #edf1f5;background:#fff}
+#page-orders .v51-depth-details>summary{list-style:none;display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 13px;cursor:pointer;font-size:10.5px;font-weight:650;color:#46556a}
+#page-orders .v51-depth-details>summary::-webkit-details-marker{display:none}
+#page-orders .v51-depth-details>summary:after{content:'+';font-size:16px;font-weight:400;color:#7a8798}
+#page-orders .v51-depth-details[open]>summary:after{content:'−'}
+#page-orders .v51-depth-details .v35-depth-board{border-top:1px solid #f0f2f5!important;margin:0!important;padding:10px!important}
+
+/* Blotter/approval screens should feel subordinate to the analysis workspace. */
+#page-orders #v33OrdersView>.v33-card,
+#page-orders #v33OrdersView>.v33-grid{margin-top:0!important}
+#page-orders .v33-table th{font-weight:650!important;color:#657389!important}
+#page-orders .v33-table td{font-weight:500!important}
+
+/* Order ticket: analysis left, execution right, without unnecessary prose. */
+#v44OrderTicket{width:min(1220px,calc(100vw - 26px))!important}
+#v44OrderTicket .v44-order-body{grid-template-columns:minmax(0,1.34fr) minmax(390px,.66fr)!important;gap:10px!important;padding:10px!important}
+#v44OrderTicket .v44-order-card{border-radius:10px!important;box-shadow:none!important}
+#v44OrderTicket .v44-order-card-head{padding:11px 13px!important}
+#v44OrderTicket .v44-order-card-head h3{font-size:13px!important;font-weight:680!important}
+#v44OrderTicket .v44-order-card-head p{display:none!important}
+#v44OrderTicket .v44-order-market-stats{grid-template-columns:repeat(3,minmax(0,1fr))!important;background:#f4f6f9!important;gap:1px!important}
+#v44OrderTicket .v44-order-market-stats>div{background:#fff!important;padding:9px 11px!important}
+#v44OrderTicket .v44-order-chart-note{display:none!important}
+#v44OrderTicket .v44-order-form-wrap{padding:12px 13px!important}
+#v44OrderTicket .v44-order-form{gap:8px!important}
+#v44OrderTicket .v44-order-field>span{font-weight:620!important}
+#v44OrderTicket .v44-order-control{padding:8px 9px!important}
+#v44OrderTicket .v44-order-control small{display:none!important}
+#v44OrderTicket .v44-order-footer>small{display:none!important}
+
+@media(max-width:1100px){
+  #page-orders .v33-orders-top{grid-template-columns:235px minmax(0,1fr)!important;height:720px!important}
+  #page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{height:720px!important;max-height:720px!important}
+  #page-orders .v33-chartbox{height:500px!important;min-height:500px!important}
+  #v44OrderTicket .v44-order-body{grid-template-columns:1fr!important}
+}
+@media(max-width:760px){
+  #page-orders .v33-orders-top{display:block!important;height:auto!important}
+  #page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{height:auto!important;max-height:none!important;overflow:visible!important}
+  #page-orders .v33-instruments{max-height:48vh!important}
+  #page-orders .v33-chartbox{height:430px!important;min-height:430px!important}
+  #page-orders #v33OrderMainTabs{width:100%!important}
+  #page-orders #v33OrderMainTabs button{flex:1!important}
+  #v44OrderTicket .v44-order-chart-stage{height:285px!important}
+  #v44OrderTicket .v44-order-market-stats{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+}
+@media(max-width:430px){
+  #page-orders .v33-head{align-items:flex-start!important}
+  #page-orders .v33-actions{width:100%!important}
+  #page-orders #v33NewOrder{width:100%!important}
+  #page-orders .v33-chartbox{height:370px!important;min-height:370px!important}
+  #v44OrderTicket .v44-order-chart-stage{height:240px!important}
+}

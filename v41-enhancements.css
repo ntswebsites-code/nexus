@@ -1,0 +1,154 @@
+/* Matanho Nexus V41 - chart clarity, full-space plots, unobscured labels and row alignment */
+:root{
+  --v41-line:#e3e9f1;
+  --v41-muted:#637287;
+  --v41-ink:#0d1726;
+}
+
+/* General fit: allow copy to wrap instead of hiding behind adjacent controls. */
+.page.active,.v33-workspace,.v36-ops-shell,.v37-risk-shell{overflow-x:clip}
+.page-head>*,.v33-head>*,.v36-ops-head>*,.v37-risk-head>*,
+.card-head>*,.v33-card-head>*,.v36-card-head>*,.v36-chart-head>*,.v37-risk-card-head>*{min-width:0}
+.v33-kpi small,.v36-ops-kpi small,.v37-risk-kpi small,.kpi-card small,
+.v33-card small,.v36-card small,.v37-risk-card small{white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
+.v33-card h2,.v36-card h2,.v36-chart-card h2,.v37-risk-card h2{overflow-wrap:anywhere}
+.v33-grid,.v35-grid,.v36-ops-grid,.v36-chart-grid,.v37-risk-grid,.dashboard-grid,.research-grid,.risk-page-grid{align-items:stretch!important}
+.v33-grid>* ,.v35-grid>* ,.v36-ops-grid>* ,.v36-chart-grid>* ,.v37-risk-grid>*{min-width:0}
+
+/* Chart typography: remove the white outline that made smaller labels look heavy/blurred. */
+#page-orders svg text,#page-risk svg text,#page-operations svg text,
+.bi-svg-chart svg text,.perf-svg-wrap svg text,.chart-wrap svg text{
+  font-weight:500!important;
+  paint-order:normal!important;
+  stroke:none!important;
+  text-rendering:geometricPrecision;
+}
+#page-orders .v38-axis-title,#page-risk .v37-axis-title,#page-operations .v36-axis-label{
+  font-weight:650!important;
+  letter-spacing:.015em!important;
+}
+
+/* ORDERS ------------------------------------------------------------------ */
+/* Keep the security browser and workstation aligned while letting the plot own more of the card. */
+@media(min-width:901px){
+  #page-orders .v33-orders-top{height:920px!important;align-items:stretch!important}
+  #page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{height:920px!important;max-height:920px!important}
+  #page-orders .v33-chartbox{height:552px!important;min-height:552px!important}
+}
+#page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{border-radius:12px!important}
+#page-orders .v33-instruments{overscroll-behavior:contain}
+#page-orders .v36-tv-shell.v41-chart-shell{
+  display:grid!important;
+  grid-template-rows:43px 29px 34px minmax(0,1fr)!important;
+  height:100%!important;
+  min-height:0!important;
+}
+#page-orders .v41-chart-key{
+  position:static!important;
+  left:auto!important;top:auto!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:space-between!important;
+  gap:10px!important;
+  min-width:0;
+  padding:5px 10px!important;
+  border:0!important;
+  border-bottom:1px solid #e8edf3!important;
+  border-radius:0!important;
+  background:#fbfcfe!important;
+  color:#617086!important;
+  font-size:10px!important;
+  pointer-events:auto!important;
+  overflow:hidden;
+}
+#page-orders .v41-chart-key .v41-key-series{display:flex;align-items:center;gap:12px;min-width:0;overflow-x:auto;scrollbar-width:none}
+#page-orders .v41-chart-key .v41-key-series::-webkit-scrollbar{display:none}
+#page-orders .v41-chart-key span{white-space:nowrap;display:inline-flex;align-items:center;gap:5px}
+#page-orders .v41-chart-key i{width:16px;height:2px;display:inline-block;border-radius:3px;background:#3158e8}
+#page-orders .v41-chart-key i.ema{background:#7257ff}
+#page-orders .v41-chart-key i.volume{height:7px;background:#9bb0cb}
+#page-orders .v41-chart-key .v38-chart-status{
+  position:static!important;left:auto!important;bottom:auto!important;
+  display:flex!important;align-items:center!important;justify-content:flex-end!important;
+  gap:5px!important;flex-wrap:nowrap!important;z-index:auto!important;max-width:48%;
+}
+#page-orders .v41-chart-key .v38-chart-status span{
+  padding:2px 5px!important;font-size:9px!important;font-weight:600!important;background:#fff!important;
+}
+#page-orders .v36-tv-stage{overflow:hidden!important;min-height:0!important;background:#fff!important}
+#page-orders .v38-trading-svg{width:100%!important;height:100%!important;display:block!important}
+#page-orders .v36-tv-stage .v38-axis-title{font-size:9.5px!important;fill:#526175!important}
+#page-orders .v36-tv-toolbar{min-width:0;overscroll-behavior-x:contain}
+#page-orders .v38-chart-tools-panel{max-width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+#page-orders .v33-security-head{min-height:75px;align-items:center}
+#page-orders .v33-security-head h2{line-height:1.16}
+#page-orders .v33-security-head small{line-height:1.35}
+#page-orders .v35-depth-board{align-items:stretch!important}
+#page-orders .v35-depth-board>*{height:100%}
+
+/* RISK -------------------------------------------------------------------- */
+#page-risk .v37-risk-grid{align-items:stretch!important;grid-auto-flow:row dense}
+#page-risk .v37-risk-card{height:100%!important;display:flex!important;flex-direction:column!important}
+#page-risk .v37-risk-card-head{min-height:68px;flex:0 0 auto}
+#page-risk .v37-risk-card-body{flex:1 1 auto!important;min-height:0!important;overflow:visible!important}
+#page-risk .v37-chart-box{width:100%!important;max-width:none!important;overflow:visible!important}
+#page-risk .v37-chart-box svg{width:100%!important;height:100%!important;display:block!important;overflow:visible!important}
+#page-risk .v40-risk-liquidity .v37-risk-card-body{grid-template-rows:minmax(360px,1fr) auto!important}
+#page-risk .v40-risk-liquidity .v37-chart-box,#page-risk .v40-risk-liquidity .v38-risk-svg{min-height:360px!important}
+#page-risk .v40-risk-factor .v37-chart-box,#page-risk .v40-risk-factor .v38-risk-svg{min-height:340px!important}
+#page-risk .v37-chart-legend{min-height:42px;align-content:center;padding:9px 13px!important;font-size:10.5px!important}
+#page-risk .v38-risk-insights{grid-template-columns:repeat(3,minmax(0,1fr))!important;align-items:stretch}
+#page-risk .v38-risk-insights>div{height:100%}
+#page-risk .v40-risk-budget .v37-risk-card-body{justify-content:space-between!important}
+#page-risk .v40-risk-budget .v37-ring-grid{height:100%;align-items:center!important}
+#page-risk .v40-risk-factor .v37-risk-card-body,#page-risk .v40-risk-scenario .v37-risk-card-body{display:flex!important;flex-direction:column!important}
+#page-risk .v40-risk-factor .v37-chart-box,#page-risk .v40-risk-scenario .v38-stress-chart{flex:1 1 auto!important}
+#page-risk .v40-risk-heatmap .v37-heat{height:100%;align-content:stretch!important}
+#page-risk .v40-risk-heatmap .v37-heat .cell{display:grid;align-content:center}
+
+/* OPERATIONS -------------------------------------------------------------- */
+#page-operations .v36-ops-grid,#page-operations .v36-chart-grid{align-items:stretch!important}
+#page-operations .v36-ops-grid>.v36-card,#page-operations .v36-chart-grid>.v36-chart-card{height:100%!important;display:flex!important;flex-direction:column!important}
+#page-operations .v36-chart-grid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:12px!important}
+#page-operations .v36-chart-head{min-height:72px;align-items:flex-start}
+#page-operations .v36-chart-stage{
+  height:350px!important;
+  min-height:350px!important;
+  flex:1 1 auto!important;
+  padding:7px 12px 8px 14px!important;
+  overflow:visible!important;
+}
+#page-operations .v36-chart-stage svg{width:100%!important;height:100%!important;display:block!important;overflow:visible!important}
+#page-operations .v36-chart-stage text{font-size:10.5px!important;fill:#58687d!important}
+#page-operations .v36-chart-stage .v36-axis-label{font-size:9.5px!important;fill:#44556d!important}
+#page-operations .v36-chart-legend{min-height:44px!important;padding:9px 13px 11px!important;align-content:center}
+#page-operations .v36-card-body{flex:1 1 auto;min-height:0}
+
+/* Equal-height paired visual cards across the wider application. */
+.dashboard-grid>.card,.research-grid>.card,.risk-page-grid>.card,.v33-grid>.v33-card,.v35-grid>.v35-card{height:100%}
+
+@media(max-width:1000px){
+  #page-operations .v36-chart-grid{grid-template-columns:1fr!important}
+  #page-operations .v36-chart-stage{height:320px!important;min-height:320px!important}
+  #page-risk .v40-risk-liquidity .v37-chart-box,#page-risk .v40-risk-liquidity .v38-risk-svg{min-height:320px!important}
+  #page-risk .v40-risk-factor .v37-chart-box,#page-risk .v40-risk-factor .v38-risk-svg{min-height:300px!important}
+}
+@media(max-width:900px){
+  #page-orders .v33-orders-top,#page-orders .v33-orders-top>aside,#page-orders .v33-orders-top>main{height:auto!important;max-height:none!important}
+  #page-orders .v33-chartbox{height:510px!important;min-height:510px!important}
+}
+@media(max-width:680px){
+  #page-orders .v33-chartbox{height:455px!important;min-height:455px!important}
+  #page-orders .v36-tv-shell.v41-chart-shell{grid-template-rows:40px 28px 32px minmax(0,1fr)!important}
+  #page-orders .v41-chart-key{padding:4px 8px!important}
+  #page-orders .v41-chart-key .v38-chart-status{display:none!important}
+  #page-risk .v38-risk-insights{grid-template-columns:1fr!important}
+  #page-risk .v40-risk-liquidity .v37-chart-box,#page-risk .v40-risk-liquidity .v38-risk-svg{min-height:285px!important}
+  #page-risk .v40-risk-factor .v37-chart-box,#page-risk .v40-risk-factor .v38-risk-svg{min-height:280px!important}
+  #page-operations .v36-chart-stage{height:285px!important;min-height:285px!important;padding:5px 6px 8px 9px!important}
+}
+@media(max-width:430px){
+  #page-orders .v33-chartbox{height:420px!important;min-height:420px!important}
+  #page-orders .v41-chart-key{font-size:9px!important}
+  #page-operations .v36-chart-stage{height:255px!important;min-height:255px!important}
+}
