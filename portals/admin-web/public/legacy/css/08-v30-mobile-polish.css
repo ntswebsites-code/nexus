@@ -1,0 +1,12 @@
+
+@media(max-width:560px){
+  #page-command .gio-context-group-v29{display:flex;flex-wrap:wrap;gap:6px}
+  #page-command .gio-context-label-v29{width:100%;margin-bottom:2px}
+  #page-command .gio-context-group-v29 button{flex:1 1 calc(50% - 6px);min-width:0}
+  #page-command .gio-context-group-v29 button:last-child{flex-basis:100%}
+  #page-command .gio-tabs-v29{display:grid;grid-template-columns:1fr 1fr;width:100%;max-width:none;overflow:visible;gap:5px}
+  #page-command .gio-tabs-v29 button{height:auto;min-height:38px;padding:7px 8px;white-space:normal;line-height:1.15;text-align:center}
+  #page-command .gio-tabs-v29 button span{display:inline-block;margin-left:3px}
+  #page-command .gio-performance-v29{min-height:0}
+  #page-command .gio-chart-stage-v29{height:230px;min-height:230px}
+}

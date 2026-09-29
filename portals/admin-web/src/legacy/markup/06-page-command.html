@@ -1,0 +1,97 @@
+<section class="page active command-v7 gio-v29" data-page="command" id="page-command">
+<div class="page-head gio-head-v29">
+  <div>
+    <div class="eyebrow">GLOBAL INVESTMENT OFFICE · <span id="todayLabel">28 AUG 2026</span> · <span id="pageClock">13:55 CAT</span></div>
+    <h1>Global Investment Office</h1>
+    <p>One decision surface for capital, performance, risk, liquidity and enterprise controls.</p>
+  </div>
+  <div class="page-actions gio-head-actions-v29">
+    <button class="btn secondary" data-page-jump="risk">Run scenario</button>
+    <button class="btn secondary" data-layer-open="work-queue">My work</button>
+    <button class="btn primary" data-action="generate-investment-pack"><svg><use href="#i-reports"></use></svg>Investment pack</button>
+  </div>
+</div>
+
+<section class="gio-context-v29" aria-label="Global Investment Office context">
+  <div class="gio-context-group-v29">
+    <span class="gio-context-label-v29">Portfolio scope</span>
+    <button class="active" data-gio-scope="whole">Whole portfolio</button>
+    <button data-gio-scope="listed">Listed equity</button>
+    <button data-gio-scope="fixed">Fixed income</button>
+    <button data-gio-scope="private">Private markets</button>
+    <button data-gio-scope="liquidity">Liquidity</button>
+  </div>
+  <div class="gio-context-meta-v29"><i></i><span>Books synchronized</span><strong id="gioAsOf">15:43 CAT</strong></div>
+</section>
+
+<section class="gio-kpi-grid-v29" aria-label="Enterprise investment state">
+  <button class="gio-kpi-v29" data-page-jump="portfolios"><span>Assets under management</span><strong id="gioAum">US$ 84.62M</strong><small id="gioAumNote">6,842 books · public + private</small><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M2 22 L13 18 L24 19 L35 12 L46 14 L57 8 L68 10 L79 5 L90 7 L98 3"/></svg></button>
+  <button class="gio-kpi-v29" data-page-jump="performance"><span>Active return</span><strong id="gioActive">+2.10%</strong><small id="gioActiveNote">12.84% composite vs 10.74% benchmark</small><svg viewBox="0 0 100 28" aria-hidden="true"><path d="M2 24 L14 22 L26 17 L38 19 L50 13 L62 15 L74 8 L86 10 L98 4"/></svg></button>
+  <button class="gio-kpi-v29" data-page-jump="risk"><span>One-day risk</span><strong id="gioRisk">2.18%</strong><small id="gioRiskNote">99% portfolio VaR</small><svg class="violet" viewBox="0 0 100 28" aria-hidden="true"><path d="M2 20 L14 13 L26 18 L38 8 L50 12 L62 10 L74 16 L86 9 L98 12"/></svg></button>
+  <button class="gio-kpi-v29" data-page-jump="cash"><span>Liquidity cover</span><strong id="gioLiquidity">1.84×</strong><small id="gioLiquidityNote">30-day stressed · floor 1.25×</small><svg class="cyan" viewBox="0 0 100 28" aria-hidden="true"><path d="M2 20 L14 19 L26 16 L38 17 L50 13 L62 11 L74 12 L86 8 L98 7"/></svg></button>
+  <button class="gio-kpi-v29" data-page-jump="private-markets"><span>Private NAV</span><strong id="gioPrivate">21.4%</strong><small id="gioPrivateNote">Calls + distributions current</small><svg class="amber" viewBox="0 0 100 28" aria-hidden="true"><path d="M2 23 L14 22 L26 18 L38 19 L50 14 L62 14 L74 9 L86 8 L98 6"/></svg></button>
+  <button class="gio-kpi-v29 attention" data-page-jump="operations"><span>Control exceptions</span><strong id="gioExceptions">9</strong><small id="gioExceptionsNote">1 critical · 3 overdue</small><svg class="red" viewBox="0 0 100 28" aria-hidden="true"><path d="M2 9 L14 14 L26 10 L38 17 L50 13 L62 19 L74 16 L86 22 L98 20"/></svg></button>
+</section>
+
+<nav class="gio-tabs-v29" aria-label="Global Investment Office views">
+  <button class="active" data-gio-tab="overview">Overview</button>
+  <button data-gio-tab="performance">Performance</button>
+  <button data-gio-tab="risk">Risk &amp; liquidity</button>
+  <button data-gio-tab="controls">Decisions &amp; controls <span>9</span></button>
+</nav>
+
+<div class="gio-tab-stage-v29">
+  <section class="gio-pane-v29 active" data-gio-pane="overview">
+    <div class="gio-primary-grid-v29">
+      <article class="gio-panel-v29 gio-performance-v29">
+        <div class="gio-panel-head-v29">
+          <div><span class="section-kicker">WHOLE PORTFOLIO PULSE</span><h2>Performance vs benchmark</h2><p id="gioPerfSubtitle">Composite net return across the governed whole portfolio.</p></div>
+          <div class="command-range-v7" id="commandRangeTabs"><button data-command-range="1M">1M</button><button data-command-range="3M">3M</button><button class="active" data-command-range="YTD">YTD</button><button data-command-range="1Y">1Y</button></div>
+        </div>
+        <div class="command-chart-metrics-v7 gio-chart-metrics-v29"><div><span>Composite</span><strong id="commandCompositeValue">12.84%</strong></div><div><span>Benchmark</span><strong id="commandBenchmarkValue">10.74%</strong></div><div><span>Active</span><strong class="positive-text" id="commandActiveValue">+2.10%</strong></div><div><span>Volatility</span><strong id="gioVolatility">8.6%</strong></div></div>
+        <div class="command-chart-stage-v7 gio-chart-stage-v29"><svg aria-label="Portfolio performance against benchmark" id="commandPerformanceSvg" role="img" viewbox="0 0 920 300"></svg><div class="command-chart-tip-v7" id="commandChartTip"></div></div>
+        <div class="gio-chart-footer-v29"><div><span><i class="portfolio"></i>Composite</span><span><i class="benchmark"></i>Benchmark</span></div><button class="text-btn" data-page-jump="performance">Open attribution →</button></div>
+      </article>
+
+      <aside class="gio-panel-v29 gio-decisions-v29">
+        <div class="gio-panel-head-v29"><div><span class="section-kicker">DECISION PULSE</span><h2>What needs action now</h2><p>Ranked by financial impact, urgency and control state.</p></div><button class="text-btn" data-gio-tab-target="controls">All work →</button></div>
+        <div class="gio-impact-v29"><span>Capital affected by open decisions</span><strong>US$ 6.70M</strong><small>4 material items in the current window</small><div><i style="width:82%"></i><i style="width:55%"></i><i style="width:35%"></i><i style="width:18%"></i></div></div>
+        <div class="command-worklist-v7 gio-worklist-v29">
+          <button data-layer-open="settlement"><span class="priority-mark-v7 critical">1</span><p><strong>Resolve VFEX settlement break</strong><small>Zimplats · US$ 412k · cash short T+1</small></p><em>Critical</em></button>
+          <button data-layer-open="risk-limit"><span class="priority-mark-v7 warn">2</span><p><strong>Protect Delta issuer headroom</strong><small>91% of single-issuer limit</small></p><em>0.90% left</em></button>
+          <button data-layer-open="order-approval"><span class="priority-mark-v7 info">3</span><p><strong>Approve high-conviction rebalance</strong><small>4 proposed orders · controls evaluated</small></p><em>+38 bps</em></button>
+          <button data-page-jump="private-markets"><span class="priority-mark-v7 info">4</span><p><strong>Fund private-market calls</strong><small>September net capital outflow</small></p><em>US$ 1.46M</em></button>
+        </div>
+      </aside>
+    </div>
+
+    <div class="gio-overview-lower-v29">
+      <article class="gio-panel-v29 gio-allocation-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">CAPITAL TOPOLOGY</span><h2>Allocation &amp; liquidity</h2></div><button class="text-btn" data-page-jump="portfolios">Whole portfolio →</button></div><div class="gio-allocation-body-v29"><button class="gio-allocation-ring-v29" data-page-jump="portfolios"><div><strong id="gioInvested">91.6%</strong><span>invested</span></div></button><div class="allocation-list-v7" id="gioAllocationList"><div><span><i style="--c:#2f6df6"></i>Zimbabwe equities</span><strong>32.4%</strong></div><div><span><i style="--c:#7357f6"></i>Fixed income</span><strong>28.8%</strong></div><div><span><i style="--c:#00a6ba"></i>USD equities</span><strong>14.8%</strong></div><div><span><i style="--c:#d08a20"></i>Private / property</span><strong>10.2%</strong></div><div><span><i style="--c:#9ba7b8"></i>Cash &amp; money market</span><strong>13.8%</strong></div></div></div></article>
+      <article class="gio-panel-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">RISK CAPACITY</span><h2>Mandate headroom</h2></div><button class="text-btn" data-gio-tab-target="risk">Inspect risk →</button></div><div class="headroom-list-v7"><div><label><span>Single issuer · Delta</span><b>91%</b></label><i><u style="width:91%"></u></i><small>0.90% absolute headroom</small></div><div><label><span>Total equities</span><b>93%</b></label><i><u class="amber" style="width:93%"></u></i><small>2.80% absolute headroom</small></div><div><label><span>USD exposure</span><b>84%</b></label><i><u class="teal" style="width:84%"></u></i><small>10.30% absolute headroom</small></div><div><label><span>Illiquid assets</span><b>62%</b></label><i><u class="teal" style="width:62%"></u></i><small>9.60% absolute headroom</small></div></div></article>
+      <article class="gio-panel-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">LIQUIDITY HORIZON</span><h2>Near-term cash capacity</h2></div><button class="text-btn" data-page-jump="cash">Cash ledger →</button></div><div class="gio-mini-liquidity-v29" id="gioMiniLiquidity"></div><div class="gio-liquidity-footer-v29"><span>Minimum stressed cover</span><strong>1.25×</strong><em>Current 1.84×</em></div></article>
+    </div>
+  </section>
+
+  <section class="gio-pane-v29" data-gio-pane="performance">
+    <div class="gio-two-grid-v29">
+      <article class="gio-panel-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">ACTIVE RETURN ENGINE</span><h2>Where excess return came from</h2><p>Contribution bridge for the current portfolio scope.</p></div><button class="text-btn" data-page-jump="performance">Full performance →</button></div><div class="gio-svg-chart-v29" id="gioAttributionChart"></div><div class="gio-chart-callout-v29" id="gioAttributionCallout"><span>Active return</span><strong>+2.10%</strong><small>Security selection remains the largest positive driver.</small></div></article>
+      <article class="gio-panel-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">FORWARD DISTRIBUTION</span><h2>Scenario fan</h2><p>Expected path with widening upside/downside confidence bands.</p></div><button class="text-btn" data-page-jump="risk">Stress lab →</button></div><div class="gio-svg-chart-v29" id="gioScenarioChart"></div><div class="gio-chart-callout-v29"><span>Expected 1Y path</span><strong>+1.92%</strong><small>Downside remains within approved risk appetite in base conditions.</small></div></article>
+    </div>
+  </section>
+
+  <section class="gio-pane-v29" data-gio-pane="risk">
+    <div class="gio-risk-grid-v29">
+      <article class="gio-panel-v29 gio-risk-surface-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">FACTOR × SLEEVE</span><h2>Risk concentration surface</h2><p>Click a cell to set the active factor and sleeve.</p></div><button class="text-btn" data-page-jump="risk">Risk workspace →</button></div><div class="gio-risk-heat-v29" id="gioRiskHeat"></div><div class="gio-risk-detail-v29" id="gioRiskDetail"><div><span>Selected factor</span><strong>Growth</strong></div><div><span>Selected sleeve</span><strong>Listed equity</strong></div><div><span>Relative intensity</span><strong>90/100</strong></div><div><span>Action</span><strong>Within capacity</strong></div></div></article>
+      <article class="gio-panel-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">LIQUIDITY WATERFALL</span><h2>Cash before commitments</h2><p>Known flows before discretionary deployment.</p></div><button class="text-btn" data-page-jump="cash">Cash →</button></div><div class="gio-svg-chart-v29" id="gioLiquidityWaterfall"></div><div class="gio-chart-callout-v29"><span>Projected closing cash</span><strong>US$ 5.36M</strong><small>Above minimum operating buffer after known commitments.</small></div></article>
+    </div>
+  </section>
+
+  <section class="gio-pane-v29" data-gio-pane="controls">
+    <div class="gio-controls-grid-v29">
+      <article class="gio-panel-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">BOOKS &amp; DATA</span><h2>Authoritative operating state</h2><p>Books, data and calculation freshness before decisions are promoted.</p></div></div><div class="gio-book-grid-v29"><button data-page-jump="ibor"><span>IBOR</span><strong>Current</strong><small>438 positions · 4 exceptions</small><i class="ok"></i></button><button data-page-jump="accounting"><span>ABOR</span><strong>Provisional</strong><small>2 journals pending</small><i class="warn"></i></button><button data-page-jump="performance"><span>PBOR</span><strong>Current</strong><small>Returns calculated 15:30</small><i class="ok"></i></button><button data-page-jump="data"><span>Data quality</span><strong>99.98%</strong><small>3 material exceptions</small><i class="warn"></i></button></div></article>
+      <article class="gio-panel-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">CONTROL QUEUE</span><h2>Exceptions by operating chain</h2><p>Open populations that can affect close, liquidity or client reporting.</p></div><button class="text-btn" data-page-jump="operations">Reconciliations →</button></div><div class="gio-exception-list-v29"><button data-page-jump="operations"><span>Settlement</span><strong>3</strong><i style="--w:84%"></i><em>US$ 412k material</em></button><button data-page-jump="operations"><span>Cash</span><strong>2</strong><i style="--w:58%"></i><em>1 aged &gt; 8h</em></button><button data-page-jump="operations"><span>Holdings</span><strong>2</strong><i style="--w:44%"></i><em>Custodian mismatch</em></button><button data-page-jump="operations"><span>Income / fees</span><strong>2</strong><i style="--w:34%"></i><em>Low materiality</em></button></div></article>
+      <article class="gio-panel-v29 gio-control-decisions-v29"><div class="gio-panel-head-v29"><div><span class="section-kicker">APPROVALS</span><h2>Decision queue</h2><p>Only work requiring judgement or independent control.</p></div></div><div class="command-worklist-v7 gio-worklist-v29"><button data-layer-open="settlement"><span class="priority-mark-v7 critical">1</span><p><strong>VFEX settlement failure</strong><small>Zimplats · US$ 412k · 2h overdue</small></p><em>Resolve</em></button><button data-layer-open="order-approval"><span class="priority-mark-v7 warn">2</span><p><strong>Dealing instructions</strong><small>2 orders · issuer headroom checked</small></p><em>Approve</em></button><button data-layer-open="research-case"><span class="priority-mark-v7 info">3</span><p><strong>Innscor IC decision</strong><small>2 votes outstanding</small></p><em>Review</em></button></div></article>
+    </div>
+  </section>
+</div>
+</section>

@@ -1,0 +1,2 @@
+
+body{--portal-focus:#3158e8}.page-head p,.card-head p,.hero-copy p,.context-copy{display:none!important}.page-head{margin-bottom:12px}.page-head h1{font-size:23px}.card{box-shadow:none!important}.nav-btn span{font-size:11px}.top-search input::placeholder{color:transparent}.top-search:focus-within input::placeholder{color:#738096}.portal-focus-note{font-size:11px;color:#687486}.request-template-grid button{min-height:72px!important}.sidebar .section-label{font-size:11px!important}.metric small{font-size:11px!important}@media(max-width:720px){.page-head h1{font-size:21px}}

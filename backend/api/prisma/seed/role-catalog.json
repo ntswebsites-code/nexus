@@ -1,0 +1,281 @@
+{
+  "_comment": "Roles and permission codes discovered in the original prototype (index.html rolePermissions/roleLabels and client-portal.html data-entitlement). They are seeded as-is; nothing here is invented.",
+  "roles": [
+    {
+      "portal": "admin",
+      "key": "investment_director",
+      "label": "Investment Director",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "orders.view",
+        "orders.create",
+        "orders.approve",
+        "research.view",
+        "research.edit",
+        "risk.view",
+        "clients.view",
+        "onboarding.view",
+        "reports.view",
+        "reports.create",
+        "documents.view",
+        "documents.edit",
+        "operations.view",
+        "valuation.view",
+        "audit.view",
+        "cash.view",
+        "cash.approve"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "portfolio_manager",
+      "label": "Portfolio Manager",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "orders.view",
+        "orders.create",
+        "research.view",
+        "research.edit",
+        "risk.view",
+        "clients.view",
+        "onboarding.view",
+        "reports.view",
+        "reports.create",
+        "documents.view",
+        "documents.edit",
+        "operations.view",
+        "valuation.view",
+        "cash.view",
+        "cash.reservation"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "dealer",
+      "label": "Dealer / Trader",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "orders.view",
+        "orders.create",
+        "orders.route",
+        "research.view",
+        "risk.view",
+        "documents.view",
+        "operations.view",
+        "cash.view",
+        "cash.reservation"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "analyst",
+      "label": "Investment Analyst",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "research.view",
+        "research.edit",
+        "risk.view",
+        "reports.view",
+        "reports.create",
+        "documents.view",
+        "documents.edit"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "compliance",
+      "label": "Compliance Officer",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "orders.view",
+        "risk.view",
+        "risk.manage",
+        "clients.view",
+        "clients.edit",
+        "onboarding.view",
+        "reports.view",
+        "reports.create",
+        "documents.view",
+        "documents.edit",
+        "operations.view",
+        "valuation.view",
+        "audit.view",
+        "cash.view",
+        "cash.approve"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "operations",
+      "label": "Operations",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "orders.view",
+        "risk.view",
+        "clients.view",
+        "onboarding.view",
+        "documents.view",
+        "documents.edit",
+        "operations.view",
+        "valuation.view",
+        "audit.view",
+        "cash.view",
+        "cash.journal.create",
+        "cash.journal.approve",
+        "cash.reservation",
+        "cash.import",
+        "cash.close"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "fund_accountant",
+      "label": "Fund Accountant",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "orders.view",
+        "risk.view",
+        "reports.view",
+        "reports.create",
+        "documents.view",
+        "documents.edit",
+        "operations.view",
+        "valuation.view",
+        "audit.view",
+        "cash.view",
+        "cash.journal.create",
+        "cash.journal.approve",
+        "cash.import",
+        "cash.close"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "client_services",
+      "label": "Client Services",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "clients.view",
+        "clients.edit",
+        "onboarding.view",
+        "reports.view",
+        "reports.create",
+        "documents.view",
+        "documents.edit",
+        "cash.view"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "auditor",
+      "label": "Auditor",
+      "permissions": [
+        "portfolio.view",
+        "orders.view",
+        "risk.view",
+        "clients.view",
+        "onboarding.view",
+        "reports.view",
+        "documents.view",
+        "operations.view",
+        "valuation.view",
+        "audit.view",
+        "cash.view"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "system_admin",
+      "label": "System Administrator",
+      "permissions": [
+        "dashboard.view",
+        "portfolio.view",
+        "orders.view",
+        "research.view",
+        "research.edit",
+        "risk.view",
+        "risk.manage",
+        "clients.view",
+        "clients.edit",
+        "onboarding.view",
+        "reports.view",
+        "reports.create",
+        "documents.view",
+        "documents.edit",
+        "operations.view",
+        "valuation.view",
+        "audit.view",
+        "admin.rbac",
+        "admin.settings",
+        "cash.view"
+      ]
+    },
+    {
+      "portal": "investor",
+      "key": "admin",
+      "label": "Investor Admin",
+      "permissions": [
+        "overview.view",
+        "investments.view",
+        "performance.view",
+        "capital.view",
+        "holdings.view",
+        "documents.view",
+        "requests.view",
+        "messages.view",
+        "profile.view",
+        "users.invite"
+      ]
+    },
+    {
+      "portal": "investor",
+      "key": "investment",
+      "label": "Investment Viewer",
+      "permissions": [
+        "overview.view",
+        "investments.view",
+        "performance.view",
+        "holdings.view",
+        "documents.view",
+        "messages.view",
+        "profile.view"
+      ]
+    },
+    {
+      "portal": "investor",
+      "key": "finance",
+      "label": "Finance / Treasury",
+      "permissions": [
+        "overview.view",
+        "investments.view",
+        "capital.view",
+        "holdings.view",
+        "documents.view",
+        "requests.view",
+        "messages.view",
+        "profile.view"
+      ]
+    },
+    {
+      "portal": "investor",
+      "key": "auditor",
+      "label": "Auditor",
+      "permissions": [
+        "overview.view",
+        "investments.view",
+        "performance.view",
+        "holdings.view",
+        "documents.view",
+        "profile.view"
+      ]
+    }
+  ]
+}

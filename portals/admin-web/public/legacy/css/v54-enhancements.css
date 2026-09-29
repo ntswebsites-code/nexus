@@ -1,0 +1,52 @@
+/* Matanho Nexus V54 — default compact navigation and live order cash balance. */
+:root{--v54-blue:#315fe9;--v54-teal:#079aa9;--v54-violet:#6b55e8;--v54-ink:#172033;--v54-muted:#6d7a8e;--v54-line:#e2e7ee}
+
+/* Sidebar is intentionally compact by default and the toggle lives at the true bottom. */
+.sidebar{display:flex!important;flex-direction:column!important}
+.side-nav{flex:1 1 auto!important;min-height:0!important;overflow-y:auto!important}
+.sidebar-footer{margin-top:auto!important;flex:0 0 auto!important}
+.v54-collapse-dock{margin-top:10px;padding-top:10px;border-top:1px solid #e6ebf1;display:flex;justify-content:flex-end;align-items:center}
+.v54-collapse-dock .collapse-btn{position:static!important;inset:auto!important;width:36px!important;height:36px!important;border-radius:10px!important;background:#fff!important;border:1px solid #dce3eb!important;box-shadow:none!important;display:grid!important;place-items:center!important}
+.app-shell.collapsed .v54-collapse-dock{justify-content:center;border-top:0;padding-top:5px;margin-top:5px}
+.app-shell.collapsed .v54-collapse-dock .collapse-btn{position:static!important;inset:auto!important}
+.app-shell.collapsed .v54-collapse-dock .collapse-btn svg{transform:none!important}
+
+/* Live funding / cash impact inside the dealer ticket. */
+#v44OrderTicket .v54-balance-panel{grid-column:1/-1;border:1px solid #dfe6ef;border-radius:12px;background:linear-gradient(135deg,#f8fbff 0%,#fbfaff 100%);padding:11px 12px;margin-top:2px;overflow:hidden}
+#v44OrderTicket .v54-balance-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;margin-bottom:9px}
+#v44OrderTicket .v54-balance-head>div{min-width:0}
+#v44OrderTicket .v54-balance-head strong{display:block;font-size:11px;font-weight:700;color:#1d2a3d}
+#v44OrderTicket .v54-balance-head small{display:block;font-size:9.7px;line-height:1.4;color:#748196;margin-top:2px}
+#v44OrderTicket .v54-balance-source{flex:none;font-size:9px;color:#52647d;border:1px solid #dce5ef;background:#fff;border-radius:999px;padding:4px 8px;white-space:nowrap}
+#v44OrderTicket .v54-balance-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));border:1px solid #e2e7ef;border-radius:10px;background:#fff;overflow:hidden}
+#v44OrderTicket .v54-balance-grid>div{padding:10px 11px;min-width:0;border-right:1px solid #e7ebf1}
+#v44OrderTicket .v54-balance-grid>div:last-child{border-right:0}
+#v44OrderTicket .v54-balance-grid span,#v44OrderTicket .v54-balance-grid strong,#v44OrderTicket .v54-balance-grid small{display:block}
+#v44OrderTicket .v54-balance-grid span{font-size:9.4px;color:#748196;text-transform:uppercase;letter-spacing:.035em}
+#v44OrderTicket .v54-balance-grid strong{font-size:15px;line-height:1.2;color:#182235;margin-top:4px;font-weight:720;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#v44OrderTicket .v54-balance-grid small{font-size:9.2px;color:#7a8799;margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#v44OrderTicket .v54-balance-grid .effect strong{color:#244fc0}
+#v44OrderTicket .v54-balance-grid .after.good strong{color:#16704d}
+#v44OrderTicket .v54-balance-grid .after.warn strong{color:#a15c0a}
+#v44OrderTicket .v54-balance-grid .after.fail strong{color:#bd2e2e}
+#v44OrderTicket .v54-balance-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;font-size:9.2px;color:#718097;line-height:1.35}
+#v44OrderTicket .v54-balance-foot b{font-weight:650;color:#36475f}
+#v44OrderTicket .v54-cash-bar{height:5px;flex:1;max-width:220px;border-radius:999px;background:#e9eef5;overflow:hidden}
+#v44OrderTicket .v54-cash-bar i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--v54-blue),var(--v54-teal));transition:width .18s ease}
+#v44OrderTicket .v54-cash-bar.fail i{background:linear-gradient(90deg,#d44a4a,#ee7b55)}
+
+/* Keep the action row usable at all sizes. */
+#v44OrderTicket .v44-order-footer>div{width:min(680px,100%)!important}
+#v44OrderTicket .v44-order-footer button{min-height:40px!important}
+
+@media(max-width:760px){
+ #v44OrderTicket .v54-balance-head{flex-direction:column;gap:6px}
+ #v44OrderTicket .v54-balance-source{white-space:normal}
+ #v44OrderTicket .v54-balance-grid{grid-template-columns:1fr}
+ #v44OrderTicket .v54-balance-grid>div{border-right:0;border-bottom:1px solid #e7ebf1}
+ #v44OrderTicket .v54-balance-grid>div:last-child{border-bottom:0}
+ #v44OrderTicket .v54-balance-grid strong{font-size:14px}
+ #v44OrderTicket .v54-balance-foot{align-items:flex-start;flex-direction:column}
+ #v44OrderTicket .v54-cash-bar{max-width:none;width:100%}
+ #v44OrderTicket .v44-order-footer>div{grid-template-columns:1fr!important;width:100%!important}
+}

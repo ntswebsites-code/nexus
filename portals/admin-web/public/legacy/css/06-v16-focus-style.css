@@ -1,0 +1,31 @@
+
+/* V16 Focus UX: dense information, low noise, progressive disclosure */
+:root{--v16-focus:#3158e8}
+body.focus-mode .page-head p,
+body.focus-mode .card-head p,
+body.focus-mode .v15-panel-head p,
+body.focus-mode .v14-card-head p,
+body.focus-mode .control-caption,
+body.focus-mode .v14-form-note,
+body.focus-mode .v15-control-note,
+body.focus-mode .account-state-card small,
+body.focus-mode .platform-control-bar small{display:none!important}
+body.focus-mode .page-head{margin-bottom:12px}
+body.focus-mode .page-head h1{font-size:23px}
+body.focus-mode .eyebrow{font-size:11px;letter-spacing:.085em;margin-bottom:5px}
+body.focus-mode .card,body.focus-mode .v15-panel,body.focus-mode .v14-card{box-shadow:none}
+body.focus-mode .card-head,body.focus-mode .v15-panel-head,body.focus-mode .v14-card-head{margin-bottom:9px}
+body.focus-mode .page{padding-top:18px}
+body.focus-mode .kpi-card{min-height:108px}
+body.focus-mode .v15-panel,body.focus-mode .v14-card{padding-top:13px}
+.v16-focus-btn{height:36px;border:1px solid #dce2eb;background:#fff;border-radius:9px;padding:0 10px;font-size:11px;font-weight:750;display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+.v16-focus-btn.on{border-color:#aebcf2;background:#f2f5ff;color:#2949c7}
+.v16-focus-dot{width:7px;height:7px;border-radius:50%;background:#9aa6b7}.v16-focus-btn.on .v16-focus-dot{background:#3158e8}
+.v16-nav-tools{padding:0 8px 8px;display:grid;gap:6px}.v16-nav-tools button{width:100%;height:34px;border:1px solid #e1e6ee;background:#fafbfc;border-radius:9px;text-align:left;padding:0 10px;font-size:11px;font-weight:720;color:#111;display:flex;justify-content:space-between;align-items:center}.v16-nav-tools button:hover{background:#f4f6fb}.v16-nav-tools small{font-size:11px;color:#6d7785}
+.side-nav.v16-focused .nav-section{display:none}.side-nav.v16-focused .nav-item.v16-secondary{display:none}.side-nav.v16-focused .nav-item{margin:2px 0}.side-nav.v16-focused:before{content:'YOUR WORKSPACE';display:block;padding:7px 10px 6px;font-size:11px;font-weight:800;letter-spacing:.09em;color:#6d7785}
+.app-shell.collapsed .v16-nav-tools{display:none}
+.v16-hub{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:0 0 11px}.v16-hub button{min-width:0;border:1px solid #e2e7ef;background:#fff;border-radius:11px;padding:11px 12px;text-align:left;display:grid;gap:3px;transition:.15s ease}.v16-hub button:hover{border-color:#bec9df;background:#fbfcff;transform:translateY(-1px)}.v16-hub span{font-size:11px;color:#5d6877;text-transform:uppercase;letter-spacing:.06em;font-weight:750}.v16-hub strong{font-size:12px;color:#000}.v16-hub small{font-size:11px;color:#687486;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.v16-hub .risk strong{color:#b72d43}.v16-hub .warn strong{color:#9a6515}
+.v16-drawer-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.v16-mini-card{border:1px solid #e1e6ee;border-radius:10px;padding:11px;background:#fff}.v16-mini-card span,.v16-mini-card strong,.v16-mini-card small{display:block}.v16-mini-card span{font-size:11px;color:#677284}.v16-mini-card strong{font-size:14px;margin:4px 0}.v16-mini-card small{font-size:11px;color:#677284}.v16-table{width:100%;border-collapse:collapse}.v16-table th,.v16-table td{font-size:11px;padding:9px 8px;border-bottom:1px solid #edf0f4;text-align:left}.v16-table th{color:#657184;background:#fafbfd}.v16-table td{color:#000}.v16-status{display:inline-flex;padding:4px 7px;border-radius:999px;background:#f1f4f8;font-size:11px;font-weight:750}.v16-status.good{background:#eaf8f2;color:#0c7b59}.v16-status.warn{background:#fff4df;color:#936014}.v16-status.risk{background:#fff0f2;color:#b72d43}
+.v16-security-card{margin-top:10px;border:1px solid #dfe5ef;border-radius:12px;background:#fff;padding:12px;display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center}.v16-security-card h3{font-size:12px;margin:0 0 3px}.v16-security-card p{font-size:11px;color:#687486;margin:0}.v16-security-pills{display:flex;gap:6px;flex-wrap:wrap}.v16-security-pills span{font-size:11px;border:1px solid #e0e5ed;border-radius:999px;padding:5px 7px;background:#fafbfd}
+@media(max-width:1100px){.v16-hub{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:720px){.v16-hub,.v16-drawer-grid{grid-template-columns:1fr}.v16-focus-btn{display:none}}

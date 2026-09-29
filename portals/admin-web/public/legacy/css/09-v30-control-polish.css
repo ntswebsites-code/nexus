@@ -1,0 +1,28 @@
+
+#page-command .gio-book-grid-v29,#page-command .gio-exception-list-v29{display:grid;gap:8px;margin-top:12px}
+#page-command .gio-book-grid-v29 button,#page-command .gio-exception-list-v29 button{appearance:none;-webkit-appearance:none;width:100%;border:1px solid #e3e9f2;border-radius:11px;background:#fbfcff;color:#0d1726;text-align:left;cursor:pointer;transition:border-color .16s ease,box-shadow .16s ease,transform .16s ease}
+#page-command .gio-book-grid-v29 button:hover,#page-command .gio-exception-list-v29 button:hover{border-color:#b9caf0;box-shadow:0 8px 22px rgba(31,70,135,.08);transform:translateY(-1px)}
+#page-command .gio-book-grid-v29 button{position:relative;display:grid;grid-template-columns:minmax(70px,.7fr) minmax(80px,.8fr) minmax(0,1.5fr) 10px;align-items:center;gap:10px;padding:11px 12px}
+#page-command .gio-book-grid-v29 span,#page-command .gio-exception-list-v29 span{font-size:11px;font-weight:850;letter-spacing:.035em;text-transform:uppercase;color:#65748b}
+#page-command .gio-book-grid-v29 strong{font-size:12px;color:#111b2b}
+#page-command .gio-book-grid-v29 small{font-size:11px;color:#728096;white-space:normal}
+#page-command .gio-book-grid-v29 i{width:8px;height:8px;border-radius:50%;background:#10a37f;box-shadow:0 0 0 4px rgba(16,163,127,.10)}
+#page-command .gio-book-grid-v29 i.warn{background:#e39a25;box-shadow:0 0 0 4px rgba(227,154,37,.11)}
+#page-command .gio-exception-list-v29 button{display:grid;grid-template-columns:minmax(92px,.8fr) 34px minmax(90px,1.2fr) minmax(120px,1fr);align-items:center;gap:10px;padding:10px 12px}
+#page-command .gio-exception-list-v29 strong{font-size:16px;line-height:1;color:#111b2b}
+#page-command .gio-exception-list-v29 i{position:relative;height:5px;border-radius:999px;background:#edf1f6;overflow:hidden}
+#page-command .gio-exception-list-v29 i:after{content:"";display:block;width:var(--w);height:100%;border-radius:inherit;background:linear-gradient(90deg,#2f6df6,#7a56f6)}
+#page-command .gio-exception-list-v29 em{font-style:normal;font-size:11px;color:#6c7a90;text-align:right}
+html[data-v23-theme="dark"] #page-command.gio-v29{background:#07111f}
+html[data-v23-theme="dark"] #page-command .gio-book-grid-v29 button,html[data-v23-theme="dark"] #page-command .gio-exception-list-v29 button{background:#101d30;border-color:#26364e;color:#edf4ff}
+html[data-v23-theme="dark"] #page-command .gio-book-grid-v29 strong,html[data-v23-theme="dark"] #page-command .gio-exception-list-v29 strong{color:#f4f8ff}
+html[data-v23-theme="dark"] #page-command .gio-book-grid-v29 span,html[data-v23-theme="dark"] #page-command .gio-exception-list-v29 span,html[data-v23-theme="dark"] #page-command .gio-book-grid-v29 small,html[data-v23-theme="dark"] #page-command .gio-exception-list-v29 em{color:#90a1b8}
+html[data-v23-theme="dark"] #page-command .gio-worklist-v29 button p strong{color:#eef5ff}
+html[data-v23-theme="dark"] #page-command .gio-worklist-v29 button p small,html[data-v23-theme="dark"] #page-command .gio-worklist-v29 button em{color:#91a3bb}
+html[data-v23-theme="dark"] #page-command .gio-impact-v29{background:#101d30;border-color:#26364e}
+html[data-v23-theme="dark"] #page-command .gio-impact-v29 span,html[data-v23-theme="dark"] #page-command .gio-impact-v29 small{color:#8fa1b8}
+html[data-v23-theme="dark"] #page-command .gio-impact-v29 strong{color:#f7faff}
+html[data-v23-theme="dark"] #page-command .gio-context-v29{background:#0c1726;border-color:#233249}
+html[data-v23-theme="dark"] #page-command .gio-context-group-v29 button{background:#0e1b2c;border-color:#253650;color:#a8b7ca}
+html[data-v23-theme="dark"] #page-command .gio-context-group-v29 button.active{background:#2f6df6;border-color:#2f6df6;color:white}
+@media(max-width:720px){#page-command .gio-book-grid-v29 button{grid-template-columns:72px 1fr 10px}#page-command .gio-book-grid-v29 small{grid-column:1/-1}#page-command .gio-exception-list-v29 button{grid-template-columns:1fr auto}#page-command .gio-exception-list-v29 i{grid-column:1/-1}#page-command .gio-exception-list-v29 em{text-align:left}}

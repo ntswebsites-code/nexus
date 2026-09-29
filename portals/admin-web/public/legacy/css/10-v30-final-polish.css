@@ -1,0 +1,11 @@
+
+#page-command .gio-exception-list-v29 button{grid-template-columns:84px 28px minmax(0,1fr);grid-template-rows:auto auto;column-gap:10px;row-gap:5px}
+#page-command .gio-exception-list-v29 button>span{grid-column:1;grid-row:1 / span 2;align-self:center}
+#page-command .gio-exception-list-v29 button>strong{grid-column:2;grid-row:1 / span 2;align-self:center}
+#page-command .gio-exception-list-v29 button>i{grid-column:3;grid-row:1}
+#page-command .gio-exception-list-v29 button>em{grid-column:3;grid-row:2;text-align:left;white-space:normal;overflow:visible}
+html[data-v23-theme="dark"] #page-command .gio-head-v29 h1{color:#f6f9ff}
+html[data-v23-theme="dark"] #page-command .gio-head-v29 p{color:#93a4bb}
+html[data-v23-theme="dark"] #page-command .gio-risk-list-v29 span,html[data-v23-theme="dark"] #page-command .gio-risk-list-v29 small{color:#9aaac0}
+html[data-v23-theme="dark"] #page-command .gio-risk-list-v29 strong{color:#eef5ff}
+@media(max-width:720px){#page-command .gio-exception-list-v29 button{grid-template-columns:76px 24px minmax(0,1fr)}.v15-copilot-fab{display:none!important}}

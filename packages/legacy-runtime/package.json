@@ -1,0 +1,24 @@
+{
+  "name": "@matanho/legacy-runtime",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Mounts the original imperative-DOM Matanho prototypes inside Next.js without changing their markup, styles or behaviour.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./server": "./src/server.tsx"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "peerDependencies": {
+    "react": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "typescript": "~5.9.3"
+  }
+}

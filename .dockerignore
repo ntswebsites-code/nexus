@@ -1,9 +1,9 @@
 .git
 .github
-Dockerfile
-docker-compose.yml
-nginx.conf
-.dockerignore
-DEPLOYMENT_MANIFEST.txt
-START_HERE.md
-README.md
+node_modules
+**/node_modules
+**/.next
+**/dist
+.env
+.env.*
+!.env.example

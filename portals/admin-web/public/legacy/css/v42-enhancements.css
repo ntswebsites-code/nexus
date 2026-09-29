@@ -1,0 +1,38 @@
+/* Matanho Nexus V42 - chart control flyout visibility hotfix */
+body>.v42-chart-tools-portal{
+  box-sizing:border-box!important;
+  position:fixed!important;
+  z-index:12000!important;
+  display:none;
+  max-width:min(620px,calc(100vw - 20px))!important;
+  max-height:min(340px,calc(100vh - 20px))!important;
+  overflow:auto!important;
+  overscroll-behavior:contain;
+  padding:11px 12px!important;
+  border:1px solid #d9e2ee!important;
+  border-radius:12px!important;
+  background:rgba(255,255,255,.985)!important;
+  box-shadow:0 18px 48px rgba(20,38,67,.18),0 3px 10px rgba(20,38,67,.08)!important;
+  backdrop-filter:blur(14px);
+}
+body>.v42-chart-tools-portal.show{display:flex!important}
+body>.v42-chart-tools-portal .v38-tool-section{min-width:0}
+body>.v42-chart-tools-portal .v38-tool-section>strong{font-size:10px!important;color:#5b6b80!important}
+body>.v42-chart-tools-portal .v38-tool-chip{height:34px!important;font-size:10.5px!important;padding:0 11px!important}
+body>.v42-chart-tools-portal .v38-tool-input{height:34px!important;font-size:10.5px!important;min-width:145px}
+body>.v42-chart-tools-portal .v38-replay-row{min-width:min(520px,calc(100vw - 44px))}
+body>.v42-chart-tools-portal .v42-tool-title{width:100%;justify-content:space-between}
+#page-orders .v36-tv-tool[aria-haspopup="dialog"]{position:relative}
+#page-orders .v36-tv-tool[aria-haspopup="dialog"]:focus-visible{outline:2px solid #7ea1ff;outline-offset:2px}
+@media(max-width:640px){
+  body>.v42-chart-tools-portal{
+    border-radius:12px!important;
+    padding:10px!important;
+    max-height:46vh!important;
+  }
+  body>.v42-chart-tools-portal.show{display:grid!important;gap:9px!important}
+  body>.v42-chart-tools-portal .v38-tool-section{width:100%;display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+  body>.v42-chart-tools-portal .v38-tool-section>strong{width:100%;margin-bottom:1px}
+  body>.v42-chart-tools-portal .v38-tool-input{min-width:0;flex:1 1 130px}
+  body>.v42-chart-tools-portal .v38-replay-row{min-width:0;width:100%;grid-template-columns:auto minmax(110px,1fr) auto}
+}

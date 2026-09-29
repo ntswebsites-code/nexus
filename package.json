@@ -1,0 +1,38 @@
+{
+  "name": "matanho-nexus",
+  "version": "56.1.0",
+  "private": true,
+  "description": "Matanho Nexus - institutional investment platform (portals + shared API)",
+  "engines": {
+    "node": ">=22.9.0"
+  },
+  "workspaces": [
+    "backend/api",
+    "packages/*",
+    "portals/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,admin,investor,onboarding,company -c gray,blue,green,magenta,yellow \"npm run dev:api\" \"npm run dev:admin\" \"npm run dev:investor\" \"npm run dev:onboarding\" \"npm run dev:company\"",
+    "dev:api": "npm run dev -w @matanho/api",
+    "dev:admin": "npm run dev -w @matanho/admin-web",
+    "dev:investor": "npm run dev -w @matanho/investor-web",
+    "dev:onboarding": "npm run dev -w @matanho/onboarding-web",
+    "dev:company": "npm run dev -w @matanho/company-web",
+    "build": "npm run build -w @matanho/api && npm run build -w @matanho/admin-web && npm run build -w @matanho/investor-web && npm run build -w @matanho/onboarding-web && npm run build -w @matanho/company-web",
+    "start:api": "npm run start -w @matanho/api",
+    "start:portals": "concurrently -k -n admin,investor,onboarding,company \"npm run start -w @matanho/admin-web\" \"npm run start -w @matanho/investor-web\" \"npm run start -w @matanho/onboarding-web\" \"npm run start -w @matanho/company-web\"",
+    "typecheck": "npm run typecheck -w @matanho/shared -w @matanho/api -w @matanho/legacy-runtime -w @matanho/portal-kit",
+    "db:generate": "npm run db:generate -w @matanho/api",
+    "db:migrate": "npm run db:migrate -w @matanho/api",
+    "db:deploy": "npm run db:deploy -w @matanho/api",
+    "db:seed": "npm run db:seed -w @matanho/api",
+    "db:studio": "npm run db:studio -w @matanho/api",
+    "legacy:extract": "node tools/extract-legacy.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "parse5": "^8.0.0",
+    "typescript": "~5.9.3"
+  }
+}
+

@@ -1,0 +1,19 @@
+
+/* === V12.1 TASK FOCUS POLISH === */
+#marketTradePanel.quick-order-drawer-v4{align-items:stretch!important}
+#marketTradePanel.quick-order-drawer-v4 .quick-order-head-v3{height:auto!important;width:100%!important}
+.institutional-review-v12-hidden{display:none!important}
+.recon-support-v12{border:1px solid #dfe6ee;border-radius:10px;background:#fff;margin-top:10px;overflow:hidden}
+.recon-support-v12>summary{list-style:none;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:11px 13px;background:#fbfcfe}
+.recon-support-v12>summary::-webkit-details-marker{display:none}
+.recon-support-v12>summary span strong,.recon-support-v12>summary span small{display:block}
+.recon-support-v12>summary span strong{font-size:11px;color:#172235}
+.recon-support-v12>summary span small{font-size:11px;color:#738093;margin-top:2px}
+.recon-support-v12>summary em{font-style:normal;font-size:11px;color:#3262d5;border:1px solid #c7d5f8;border-radius:999px;padding:4px 8px}
+.recon-support-v12[open]>summary{border-bottom:1px solid #e8edf3}
+.recon-support-v12>.recon-support-body-v12{padding:10px}
+.recon-support-v12 .cash-recon-proof{margin-top:0!important}
+.recon-support-v12 .period-close-bar{margin-top:10px}
+.order-review-reveal-v12{display:flex;align-items:center;gap:7px;margin:8px 0 0;padding:8px 10px;border:1px solid #dce5f2;border-radius:8px;background:#f8faff;color:#51647f;font-size:11px}.order-review-reveal-v12[hidden]{display:none!important}
+.order-review-reveal-v12 strong{color:#1d2b40;font-size:11px}
+@media(max-width:700px){.recon-support-v12>summary{align-items:flex-start}.recon-support-v12>summary em{white-space:nowrap}}

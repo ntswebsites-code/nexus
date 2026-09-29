@@ -1,0 +1,78 @@
+/* Matanho Nexus V48 — progressive disclosure and clearer chart reading */
+
+/* One primary order CTA only. */
+#page-orders #v39QuickOrder{display:none!important}
+#page-orders .v39-order-helper{padding:8px 11px;background:#fbfcfe;box-shadow:none}
+#page-orders .v39-order-helper-icon{width:26px;height:26px;border-radius:7px}
+#page-orders .v39-order-helper strong{font-weight:650}
+#page-orders .v39-order-helper small{font-size:10.5px;max-width:760px}
+
+/* New-order chart: clean line, no obstructive vertical guides. */
+#v44OrderTicket .v44-order-chart-stage{height:350px;background:#fff}
+#v44OrderTicket .v44-order-chart-stage svg line:not(.v48-order-hgrid):not(.v48-order-prev){display:none!important}
+#v44OrderTicket .v44-order-chart-stage svg .v48-order-hgrid{stroke:#edf1f5!important;stroke-width:.65px!important;opacity:.8!important}
+#v44OrderTicket .v44-order-chart-stage svg .v48-order-prev{stroke:#aab7c8!important;stroke-width:.75px!important;opacity:.76!important}
+#v44OrderTicket .v44-order-chart-stage svg text{font-size:10.5px!important;font-weight:500!important;fill:#64748a!important}
+#v44OrderTicket .v44-order-chart-stage svg path[stroke="#2d63ef"]{stroke-width:2.35!important}
+.v48-order-legend-row{min-height:32px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:6px 12px;border-bottom:1px solid #edf1f5;background:#fbfcfe}
+.v48-order-legend{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.v48-order-legend span{display:flex;align-items:center;gap:6px;font-size:10.5px;color:#526276}.v48-order-legend i{display:inline-block;width:18px;height:2px;border-radius:2px}.v48-order-legend i.price{background:#2d63ef}.v48-order-legend i.prev{height:0;border-top:1px dashed #8999ad}.v48-order-legend-row>small{font-size:10px;color:#78869a}
+
+/* All existing legends should remain visible, readable and calm. */
+.v48-legend{display:flex!important;visibility:visible!important;opacity:1!important;gap:12px!important;flex-wrap:wrap!important;color:#556579!important;font-size:10.5px!important;font-weight:500!important}
+.v48-legend span{font-size:10.5px!important;font-weight:500!important}
+
+/* Onboarding: three decisions first, everything else one level deeper. */
+#page-onboarding #v35KycKpis{display:none!important}
+#page-onboarding #v35KycRefresh,#page-onboarding #v35KycPublic,#page-onboarding #v35KycExport{display:none!important}
+#page-onboarding .v33-head{margin-bottom:0}
+#page-onboarding .v33-head h1{font-size:24px}
+#page-onboarding .v33-head p{max-width:720px}
+.v48-kyc-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:10px 0}
+.v48-kyc-summary button{min-width:0;text-align:left;border:1px solid #e0e6ee;background:#fff;border-radius:10px;padding:10px 12px;cursor:pointer;box-shadow:none}.v48-kyc-summary button:hover{border-color:#c5d0df;background:#fbfcff}.v48-kyc-summary button.active{border-color:#9eb7f8;background:#f5f8ff}
+.v48-kyc-summary span,.v48-kyc-summary strong,.v48-kyc-summary small{display:block}.v48-kyc-summary span{font-size:10px;color:#69798d}.v48-kyc-summary strong{font-size:17px;font-weight:680;margin:3px 0}.v48-kyc-summary small{font-size:10px;color:#7b8899}
+#page-onboarding .v35-kyc-layout{gap:10px}
+#page-onboarding .v35-card{box-shadow:none!important;border-color:#e2e7ed!important}
+#page-onboarding .v35-card-head p{font-size:10.5px;line-height:1.4}
+#page-onboarding .v35-profile-summary>p{display:none}
+#page-onboarding .v35-profile-band{gap:10px}
+#page-onboarding .v35-donuts{gap:7px}
+#page-onboarding .v35-donut-card{padding:8px!important}
+#page-onboarding .v35-donut-card small{display:none}
+.v48-kyc-controls{border:1px solid #e4e9ef;border-radius:9px;background:#fbfcfe;margin-top:9px}.v48-kyc-controls>summary{cursor:pointer;list-style:none;padding:9px 11px;font-size:10.5px;font-weight:650;color:#48596f}.v48-kyc-controls>summary::-webkit-details-marker{display:none}.v48-kyc-controls>summary:after{content:'+';float:right;color:#718096}.v48-kyc-controls[open]>summary:after{content:'−'}.v48-kyc-controls-body{padding:0 10px 10px}.v48-kyc-controls-body .v35-control-symbols{margin-top:0}.v48-kyc-controls-body .v35-kyc-journey{margin-top:8px}
+.v48-more{position:relative}.v48-more>summary{list-style:none;cursor:pointer}.v48-more>summary::-webkit-details-marker{display:none}.v48-more-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:30;min-width:180px;padding:5px;border:1px solid #dfe5ed;background:#fff;border-radius:9px;box-shadow:0 14px 34px rgba(16,30,52,.13)}.v48-more-menu button{width:100%;border:0;background:transparent;text-align:left;padding:9px 10px;border-radius:6px;font-size:10.5px;color:#253247;cursor:pointer}.v48-more-menu button:hover{background:#f5f7fa}
+
+/* Private markets: reduce first-frame choices and metrics. */
+#page-private-markets #v16PrivateHub{display:none!important}
+#page-private-markets .page-head{margin-bottom:10px}
+#page-private-markets .page-head .page-actions button[hidden]{display:none!important}
+#page-private-markets .v15-statebar{grid-template-columns:repeat(3,minmax(0,1fr));margin-bottom:10px}
+#page-private-markets .v15-statebar>div:nth-child(n+4){display:none!important}
+#page-private-markets .v15-statebar>div{padding:10px 12px}
+#page-private-markets .v15-statebar strong{font-size:16px!important;font-weight:680!important}
+#page-private-markets .v15-statebar small{font-size:10px!important}
+#page-private-markets .v15-tabs{margin-bottom:10px}
+#page-private-markets .v15-tabs .v48-private-advanced{display:none}
+#page-private-markets.v48-private-more-open .v15-tabs .v48-private-advanced{display:inline-flex}
+#page-private-markets .v48-private-more{border:0;background:transparent;color:#53647a;font-size:10.5px;padding:0 11px;cursor:pointer}
+#page-private-markets .v15-panel{box-shadow:none!important;border-color:#e2e7ed!important}
+#page-private-markets .v15-panel-head p{display:none}
+#page-private-markets .v44-liq-head p{max-width:620px;font-size:10.5px}
+#page-private-markets .v44-liq-kpis{grid-template-columns:repeat(3,minmax(0,1fr))}
+#page-private-markets .v44-liq-kpi:nth-child(n+4){display:none}
+#page-private-markets .v44-liq-main{grid-template-columns:minmax(0,1.9fr) minmax(230px,.55fr)}
+#page-private-markets .v44-liq-chart{height:410px;min-width:720px}
+#page-private-markets .v44-liq-legend{font-size:10.5px!important;gap:12px!important}
+#page-private-markets [data-v15-pane="overview"] .v15-table th:nth-child(3),#page-private-markets [data-v15-pane="overview"] .v15-table td:nth-child(3),#page-private-markets [data-v15-pane="overview"] .v15-table th:nth-child(8),#page-private-markets [data-v15-pane="overview"] .v15-table td:nth-child(8),#page-private-markets [data-v15-pane="overview"] .v15-table th:nth-child(9),#page-private-markets [data-v15-pane="overview"] .v15-table td:nth-child(9){display:none!important}
+
+@media(max-width:900px){
+  .v48-kyc-summary{grid-template-columns:1fr 1fr 1fr}
+  #page-private-markets .v15-statebar{grid-template-columns:1fr 1fr 1fr}
+  #page-private-markets .v44-liq-main{grid-template-columns:1fr}
+}
+@media(max-width:620px){
+  #v44OrderTicket .v44-order-chart-stage{height:255px}
+  .v48-order-legend-row{align-items:flex-start;flex-direction:column;gap:4px}
+  .v48-kyc-summary{grid-template-columns:1fr}.v48-kyc-summary button{display:grid;grid-template-columns:1fr auto;gap:2px 10px}.v48-kyc-summary button small{grid-column:1/-1}
+  #page-private-markets .v15-statebar{grid-template-columns:1fr}
+  #page-private-markets .v15-tabs{display:grid;grid-template-columns:1fr 1fr}.v48-private-more{min-height:34px}
+}

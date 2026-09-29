@@ -1,5 +1,43 @@
+# OS
 .DS_Store
 Thumbs.db
+
+# Logs
 *.log
+npm-debug.log*
+
+# Dependencies
 node_modules/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Build output
+dist/
+build/
+out/
+.next/
+*.tsbuildinfo
+next-env.d.ts
+
+# Generated
+backend/api/src/generated/
+coverage/
+
+# Local database artifacts
+*.sqlite
+*.sqlite3
+*.db
+*.sql.gz
+mysql-data/
+.mysql/
+
+# Hosting tooling
 .vercel/
+
+# Editor / machine specific
+.idea/
+.vscode/
+*.swp

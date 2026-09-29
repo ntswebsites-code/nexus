@@ -1,0 +1,93 @@
+// Matanho Nexus - shared database schema.
+//
+// Scope is intentionally limited to the authentication / authorisation
+// foundation. The business domain (orders, clients, cash, KYC, ...) is still a
+// browser-side prototype; see docs/DOMAIN-ENTITIES.md for the entities that the
+// UI implies and that will become tables once their workflows are specified.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider          = "mysql"
+  url               = env("DATABASE_URL")
+  shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
+}
+
+/// A person who can sign in to one or more portals. One account for all portals.
+model User {
+  id           String    @id @default(uuid()) @db.Char(36)
+  email        String    @unique @db.VarChar(254)
+  /// bcrypt hash. Never selected into API responses.
+  passwordHash String    @map("password_hash") @db.VarChar(100)
+  name         String?   @db.VarChar(120)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  sessions Session[]
+  roles    UserRole[]
+
+  @@map("users")
+}
+
+/// Server-side session. The browser only holds an opaque random token in an
+/// httpOnly cookie; we store its SHA-256 so a database leak cannot be replayed.
+model Session {
+  id         String   @id @default(uuid()) @db.Char(36)
+  userId     String   @map("user_id") @db.Char(36)
+  tokenHash  String   @unique @map("token_hash") @db.Char(64)
+  expiresAt  DateTime @map("expires_at")
+  createdAt  DateTime @default(now()) @map("created_at")
+  lastUsedAt DateTime @default(now()) @map("last_used_at")
+  userAgent  String?  @map("user_agent") @db.VarChar(255)
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// A role scoped to one portal, e.g. admin/compliance or investor/finance.
+/// Rows are seeded from the roles that already exist in the prototype
+/// (prisma/seed/role-catalog.json) - no roles are invented.
+model Role {
+  id     String @id @default(uuid()) @db.Char(36)
+  portal String @db.VarChar(32)
+  key    String @db.VarChar(64)
+  label  String @db.VarChar(120)
+
+  permissions RolePermission[]
+  users       UserRole[]
+
+  @@unique([portal, key])
+  @@map("roles")
+}
+
+/// Permission code (e.g. "orders.approve") granted by a role.
+model RolePermission {
+  roleId     String @map("role_id") @db.Char(36)
+  permission String @db.VarChar(80)
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permission])
+  @@map("role_permissions")
+}
+
+model UserRole {
+  userId     String   @map("user_id") @db.Char(36)
+  roleId     String   @map("role_id") @db.Char(36)
+  assignedAt DateTime @default(now()) @map("assigned_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_roles")
+}
