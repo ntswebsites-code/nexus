@@ -45,14 +45,16 @@ const DRAFT_TTL_MS = 30 * 86_400_000;
 /** Version of the consent wording shown on the V65 review step (FR-ONB-038). */
 const CONSENT_VERSION = 'v65-2026-10';
 
-const formSchema = z.record(z.string(), z.string().max(4000)).default({});
+// No `.default()` on these: zod 4 applies defaults even under `.optional()`, which would turn
+// a bare `{ consent: true }` submit into an empty form that overwrites the draft.
+const formFields = z.record(z.string(), z.string().max(4000));
 const ownerObject = z.object({
   name: z.string().max(200).default(''),
   nationality: z.string().max(80).optional(),
   id: z.string().max(80).optional(),
   pct: z.union([z.string().max(20), z.number()]).optional(),
 });
-const ownersSchema = z.array(z.union([z.array(z.string().max(200)).max(3), ownerObject])).max(20).default([]);
+const ownersSchema = z.array(z.union([z.array(z.string().max(200)).max(3), ownerObject])).max(20);
 const signatoriesSchema = z
   .array(z.object({ name: z.string().max(160).default(''), role: z.string().max(120).default(''), email: z.string().max(254).default('') }))
   .max(20);
@@ -206,7 +208,7 @@ publicOnboardingRoutes.get('/applications/:id', async (req, res) => {
   res.json({ application: await view(app) });
 });
 
-const patchSchema = z.object({ form: formSchema, owners: ownersSchema.optional(), signatories: signatoriesSchema.optional() });
+const patchSchema = z.object({ form: formFields, owners: ownersSchema.optional(), signatories: signatoriesSchema.optional() });
 
 /** Draft autosave. Not audited per keystroke; creation, evidence and submission are. */
 publicOnboardingRoutes.patch('/applications/:id', validateBody(patchSchema), async (req, res) => {
@@ -263,7 +265,7 @@ publicOnboardingRoutes.post('/applications/:id/evidence', uploadFiles('file', 1)
 
 const submitSchema = z.object({
   consent: z.literal(true),
-  form: formSchema.optional(),
+  form: formFields.optional(),
   owners: ownersSchema.optional(),
   signatories: signatoriesSchema.optional(),
 });
