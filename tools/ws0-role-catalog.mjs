@@ -39,7 +39,7 @@ const STAFF = {
   investment_director: ['funds.view', 'capital.view', 'capital.approve', 'distributions.approve', 'notices.view', 'dealing.view', 'dealing.approve', 'term_sheets.view', 'term_sheets.approve', 'custodian.view'],
   portfolio_manager: ['funds.view', 'capital.view', 'capital.create', 'distributions.create', 'notices.view', 'dealing.view', 'term_sheets.view', 'term_sheets.create'],
   analyst: ['funds.view', 'term_sheets.view', 'term_sheets.create'],
-  compliance: ['funds.view', 'capital.view', 'capital.approve', 'distributions.approve', 'notices.view', 'notices.publish', 'dealing.view', 'dealing.approve', 'term_sheets.view', 'custodian.view'],
+  compliance: ['funds.view', 'capital.view', 'capital.approve', 'distributions.approve', 'notices.view', 'notices.publish', 'dealing.view', 'dealing.approve', 'term_sheets.view', 'term_sheets.approve', 'custodian.view'],
   operations: ['funds.view', 'funds.manage', 'capital.view', 'capital.create', 'capital.settle', 'distributions.create', 'distributions.settle', 'notices.view', 'dealing.view', 'dealing.process', 'custodian.view', 'custodian.review'],
   fund_accountant: ['funds.view', 'funds.manage', 'capital.view', 'capital.create', 'capital.settle', 'distributions.create', 'distributions.settle', 'dealing.view', 'dealing.process', 'custodian.view', 'custodian.review'],
   client_services: ['funds.view', 'capital.view', 'notices.view', 'notices.create', 'notices.publish', 'dealing.view'],

@@ -139,6 +139,7 @@
         "dealing.view",
         "dealing.approve",
         "term_sheets.view",
+        "term_sheets.approve",
         "custodian.view"
       ]
     },
