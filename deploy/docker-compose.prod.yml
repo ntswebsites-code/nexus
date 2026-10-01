@@ -5,6 +5,15 @@
 # Secrets live in ../.env.production (see deploy/.env.production.example) and
 # ../secrets/users.json - both stay on the server and are never committed.
 # App ports bind to 127.0.0.1 only; the host nginx terminates TLS.
+#
+# Every app service reads ../.env.production through `env_file`, so the runtime flags
+# (LP_LIVE_DOMAINS, INVESTEE_LIVE_ACTIONS, CUSTODIAN_LIVE, ONBOARDING_LIVE), the portal
+# URLs (incl. CUSTODIAN_PORTAL_URL) and SMTP_* pass straight through. They are not repeated
+# under `environment:` on purpose: an `environment:` entry would override the env file, and
+# an unset interpolation would silently blank a flag. Flag rollback = edit the env file and
+# `up -d --no-deps api` (deploy/rollback.sh --flags-off does both).
+#
+# Deploy and rollback: deploy/deploy.sh and deploy/rollback.sh (DEV-PLAN section 8).
 name: matanho-nexus
 
 x-app-env: &app-env
@@ -149,6 +158,21 @@ services:
     ports:
       - "127.0.0.1:3104:3104"
     depends_on: [api]
+
+  # UAT mail capture (DEV-PLAN D9): the API and worker send to mailpit:1025 on the compose
+  # network (SMTP_HOST=mailpit, SMTP_PORT=1025) and nothing leaves the host. No hostname and
+  # no certificate: the web UI / API is bound to 127.0.0.1 only and is reached through an SSH
+  # tunnel (ssh -L 8625:127.0.0.1:8625 root@<host>), or from inside the network at
+  # http://mailpit:8025 (the smoke suite's S12 check uses that).
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "5000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8625}:8025"
 
 volumes:
   mysql-data:
