@@ -31,6 +31,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/ops/dealing', label: 'Dealing queue', perms: ['dealing.view'] },
       { href: '/ops/term-sheets', label: 'Term sheets', perms: ['term_sheets.view'] },
       { href: '/ops/investee-requests', label: 'Investee requests', perms: ['research.edit'] },
+      { href: '/ops/reporting', label: 'Reporting packs', perms: ['portfolio.view', 'research.edit'] },
     ],
   },
   {

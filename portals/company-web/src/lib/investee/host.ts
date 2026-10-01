@@ -635,7 +635,14 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         cashFlowNet: num(values.operatingCash) - num(values.capex) + num(values.financing),
       });
     }
-    await api.submitReport(draftIds[0]);
+    const noteParts = [
+      ...Object.values(report.notes ?? {}).flatMap((v) => (typeof v === 'string' && v.trim() ? [v.trim()] : [])),
+      ...['executiveSummary', 'keyWins', 'keyRisks', 'submissionNote', 'nextPeriodFocus'].flatMap((k) => {
+        const text = values[k];
+        return typeof text === 'string' && text.trim() ? [text.trim()] : [];
+      }),
+    ];
+    await api.submitReport(draftIds[0], noteParts.join('\n').slice(0, 10_000) || undefined);
     ui()?.closeOverlays?.();
     await reload();
     return { message: 'Investor report submitted', detail: `${label} for ${period.label} was sent for review.` };

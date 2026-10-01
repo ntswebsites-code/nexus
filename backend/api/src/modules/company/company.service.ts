@@ -6,6 +6,7 @@ import { num } from '../../lib/http';
 import { writeAudit, type AuditContext } from '../../lib/audit';
 import { enqueue } from '../../lib/outbox';
 import { storeFile } from '../../lib/storage';
+import { renderPdf } from '../ops/pdf';
 import { fmtDate, fmtDay, fmtShort, fmtSize, fmtTime } from '../../lib/format';
 
 /** Monthly pack template (SRD 8.4). Items are copied onto each period when it is opened. */
@@ -403,9 +404,49 @@ async function assertRevenueVariance(period: PeriodRow, input: DraftInput) {
   }
 }
 
-/** Submits the pack for review: every required item needs a file; notifies the investment team. */
+/** Builds the file a required pack item is missing when the investee submits figures from the portal. */
+function packFile(period: PeriodRow, item: { key: string; title: string; accept: string }) {
+  const values = period.kpiValues && typeof period.kpiValues === 'object' ? (period.kpiValues as Record<string, unknown>) : {};
+  const rows = Object.entries(values).filter(([, v]) => typeof v === 'number' || typeof v === 'string');
+  if (item.accept.includes('.csv')) {
+    const lines = ['metric,value', ...(rows.length ? rows.map(([k, v]) => `${k},${v}`) : ['note,submitted from the investee portal'])];
+    return { name: `${period.period}-${item.key}.csv`, mime: 'text/csv', data: Buffer.from(`${lines.join('\n')}\n`) };
+  }
+  return {
+    name: `${period.period}-${item.key}.pdf`,
+    mime: 'application/pdf',
+    data: renderPdf(
+      `${period.label} · ${item.title}`,
+      rows.length ? rows.slice(0, 24).map(([k, v]) => ({ text: `${k}: ${v}` })) : [{ text: 'Submitted from the investee portal.' }],
+    ),
+  };
+}
+
+async function attachGeneratedPackFiles(actor: PackActor, period: PeriodRow) {
+  const missing = period.items.filter((i) => i.required && i.submissions.length === 0);
+  if (!missing.length) return period;
+  await prisma.$transaction(async (tx) => {
+    for (const item of missing) {
+      const file = packFile(period, item);
+      const stored = await storeFile({ name: file.name, mime: file.mime, data: file.data, uploadedById: actor.userId }, tx);
+      await tx.reportingSubmission.create({
+        data: { itemId: item.id, fileId: stored.id, name: stored.name, size: stored.size, uploadedById: actor.userId },
+      });
+      await tx.reportingItem.update({ where: { id: item.id }, data: { status: 'Complete' } });
+    }
+    await writeAudit(tx, actor.audit, {
+      action: 'reporting.files.generated',
+      objectType: 'reporting_period',
+      objectId: period.id,
+      after: { items: missing.map((i) => i.key) },
+    });
+  });
+  return loadPeriod(period.companyId, period.period);
+}
+
 export async function submitPack(actor: PackActor, company: { name: string }, period: PeriodRow, input: DraftInput) {
   assertEditable(period);
+  period = await attachGeneratedPackFiles(actor, period);
   const missing = period.items.filter((i) => i.required && i.submissions.length === 0);
   if (missing.length) {
     throw HttpError.badRequest(`Still needed: ${missing.map((i) => i.title).join(', ')}`, { missing: missing.map((i) => i.key) });

@@ -296,7 +296,10 @@ export function createInvesteeApi(liveActions: readonly string[]) {
       form.append('file', file);
       return call<FinancialReport>('reports.upload', 'POST', `/financial-reports/${id(reportId)}/file`, { body: form });
     },
-    submitReport: (reportId: string) => call<unknown>('reports.submit', 'POST', `/financial-reports/submit/${id(reportId)}`, { body: {} }),
+    submitReport: (reportId: string, notes?: string) =>
+      call<unknown>('reports.submit', 'POST', `/financial-reports/submit/${id(reportId)}`, {
+        body: notes ? { notes } : {},
+      }),
     submitPeriodKpis: (body: SubmitPeriodKpisRequest) => call<PeriodKpis>('kpis.submit', 'POST', '/financial-reports/period-kpis', { body }),
 
     getTermSheets: async (): Promise<TermSheet[]> => {
