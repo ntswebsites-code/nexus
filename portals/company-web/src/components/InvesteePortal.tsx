@@ -53,7 +53,7 @@ export function InvesteePortal() {
   const user = useSessionUser();
   const [livePages, setLivePages] = useState<string[] | null>(null);
   const [flagsNote, setFlagsNote] = useState<string | undefined>();
-  const [stepUp, setStepUp] = useState<{ reason: string; resolve: (ok: boolean) => void } | null>(null);
+  const [stepUp, setStepUp] = useState<{ reason: string; mode: 'verify' | 'enroll'; resolve: (ok: boolean) => void } | null>(null);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -64,7 +64,10 @@ export function InvesteePortal() {
 
     window.__CLIENT_DESIGN_SIGN_OUT__ = () => void signOut();
     setStepUpHandler(
-      (err) => new Promise<boolean>((resolve) => setStepUp({ reason: err.message, resolve })),
+      (err) =>
+        new Promise<boolean>((resolve) =>
+          setStepUp({ reason: err.message, mode: err.code === 'mfa_enrolment_required' ? 'enroll' : 'verify', resolve }),
+        ),
     );
 
     void loadLiveActions().then(({ liveActions, note }) => {
@@ -157,6 +160,7 @@ export function InvesteePortal() {
       {stepUp && (
         <StepUpDialog
           reason={stepUp.reason}
+          mode={stepUp.mode}
           onDone={(ok) => {
             stepUp.resolve(ok);
             setStepUp(null);

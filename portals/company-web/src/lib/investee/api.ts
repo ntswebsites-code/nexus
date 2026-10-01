@@ -171,6 +171,26 @@ export async function confirmStepUp(code: string): Promise<void> {
   }
 }
 
+/** POST /api/auth/mfa/enroll — the factor stays inactive until `confirmEnrolment`. */
+export async function startEnrolment(): Promise<{ secret: string; otpauthUri: string }> {
+  try {
+    return await createApiClient({ baseUrl: apiBaseUrl() }).mfaEnroll();
+  } catch (e) {
+    const err = e as { status?: number; code?: string; message?: string };
+    throw new InvesteeApiError(err.status ?? 0, err.code ?? 'enrol_failed', err.message ?? 'Could not start two-factor setup');
+  }
+}
+
+/** POST /api/auth/mfa/verify — confirms the first code and counts as a fresh step-up. */
+export async function confirmEnrolment(code: string): Promise<void> {
+  try {
+    await createApiClient({ baseUrl: apiBaseUrl() }).mfaVerify(code);
+  } catch (e) {
+    const err = e as { status?: number; code?: string; message?: string };
+    throw new InvesteeApiError(err.status ?? 0, err.code ?? 'enrol_failed', err.message ?? 'That code could not be confirmed');
+  }
+}
+
 /** GET /api/v1/platform/flags */
 export async function loadPlatformFlags(): Promise<PlatformFlags> {
   const res = await fetch(`${apiBaseUrl()}/api/v1/platform/flags`, {
@@ -257,7 +277,7 @@ export function createInvesteeApi(liveActions: readonly string[]) {
     let res = await send();
     if (!res.ok) {
       let err = await toError(res, action);
-      if (err.status === 401 && err.code === 'step_up_required' && stepUpHandler) {
+      if (err.status === 401 && (err.code === 'step_up_required' || err.code === 'mfa_enrolment_required') && stepUpHandler) {
         const confirmed = await stepUpHandler(err);
         if (!confirmed) throw new InvesteeApiError(401, 'step_up_cancelled', 'Signing was cancelled: the authentication code was not confirmed.', undefined, action);
         res = await send();

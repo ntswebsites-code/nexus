@@ -708,7 +708,14 @@ async function seedCompanies() {
     const userId = users.get(p.key);
     const cid = companyId.get(p.company!);
     if (!userId || !cid) continue;
-    const data = { profile: p.profile ?? 'read_only', status: 'active', title: p.title ?? null };
+    const profile = p.profile ?? 'read_only';
+    const canSign = profile === 'executive_approver' || profile === 'workspace_administrator';
+    const data = {
+      profile,
+      status: 'active',
+      title: p.title ?? null,
+      ...(canSign ? { signingAuthority: { label: p.title ?? 'Authorised signatory' } } : {}),
+    };
     await prisma.companyUser.upsert({ where: { companyId_userId: { companyId: cid, userId } }, update: data, create: { companyId: cid, userId, ...data } });
     links++;
   }
