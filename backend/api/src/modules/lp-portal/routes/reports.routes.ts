@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import type { LpReport } from '@matanho/shared';
 import { prisma } from '../../../lib/prisma';
+import { writeAudit } from '../../../lib/audit';
 import { param } from '../../../lib/http';
 import { lp, requireLp } from '../lp.context';
 import { day, lpOk } from '../lp.http';
-import { queryFund } from '../services/common';
+import { lpAudit, queryFund } from '../services/common';
 import { docCategory, lpDocInclude, lpDocWhere, sendDocument } from '../services/documents';
+import { loadPerformanceJob, renderPerformanceReport } from '../services/performance';
 import { loadPositions } from '../services/positions';
 
 /** Domain `reports`: legacy thin reports list (WS1), backed by published report/statement documents. */
@@ -79,5 +81,25 @@ lpReportsRoutes.get('/reports', requireLp('lp.documents.view'), async (req, res)
 });
 
 lpReportsRoutes.get('/reports/:jobId/download', requireLp('lp.documents.download'), async (req, res) => {
-  await sendDocument(req, res, lp(req), param(req, 'jobId'), 'download', (data) => lpOk(req, res, data));
+  const ctx = lp(req);
+  const jobId = param(req, 'jobId');
+  const job = await loadPerformanceJob(ctx, jobId);
+  if (job) {
+    const pdf = renderPerformanceReport(ctx.client.name, job);
+    await prisma.$transaction((tx) =>
+      writeAudit(tx, lpAudit(req), {
+        action: 'lp_report.downloaded',
+        objectType: 'lp_job',
+        objectId: jobId,
+        after: { period: typeof job.request.period === 'string' ? job.request.period : null },
+      }),
+    );
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Length', String(pdf.length));
+    res.setHeader('Content-Disposition', 'attachment; filename="lp-performance-report.pdf"');
+    res.setHeader('Cache-Control', 'private, no-store');
+    res.status(200).send(pdf);
+    return;
+  }
+  await sendDocument(req, res, ctx, jobId, 'download', (data) => lpOk(req, res, data));
 });

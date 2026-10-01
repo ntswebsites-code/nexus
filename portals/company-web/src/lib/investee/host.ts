@@ -542,7 +542,29 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     const draftIds: string[] = [];
     for (const kind of statements) {
       const data: Record<string, unknown> = Object.fromEntries(STATEMENT_FIELDS[kind].map((k) => [k, num(values[k])]));
-      data.notes = report.notes ?? {};
+      const noteSlice = Object.fromEntries(
+        Object.entries(report.notes ?? {}).flatMap(([k, v]) =>
+          STATEMENT_FIELDS[kind].includes(k) && typeof v === 'string' && v.trim() ? [[k, v.trim()]] : [],
+        ),
+      );
+      if (Object.keys(noteSlice).length) data.notes = noteSlice;
+      if (kind === statements[0]) {
+        const narrative = Object.fromEntries(
+          ['executiveSummary', 'keyWins', 'keyRisks', 'submissionNote', 'nextPeriodFocus'].flatMap((k) => {
+            const text = values[k];
+            return typeof text === 'string' && text.trim() ? [[k, text.trim()]] : [];
+          }),
+        );
+        if (Object.keys(narrative).length) data.narrative = narrative;
+      }
+      if (submit && kind === 'balance-sheet') {
+        const assets = ['cashAndEquivalents', 'tradeReceivables', 'otherCurrentAssets', 'fixedAssets', 'otherAssets'].reduce((s, k) => s + num(values[k]), 0);
+        const liabilities = ['tradePayables', 'accruedExpenses', 'debt', 'otherLiabilities'].reduce((s, k) => s + num(values[k]), 0);
+        const equity = num(values.shareCapital) + num(values.retainedEarnings);
+        data.totalAssets = assets;
+        data.totalLiabilities = liabilities;
+        data.totalEquity = equity;
+      }
       const body: FinancialReportDraftRequest = {
         reportingPeriod: period.periodEnd,
         periodType: 'MONTHLY',
@@ -572,7 +594,7 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         periodEnd: period.periodEnd,
         totalRevenue,
         netProfit: totalRevenue - costs,
-        cashFlowNet: num(values.operatingCash) + num(values.capex) + num(values.financing),
+        cashFlowNet: num(values.operatingCash) - num(values.capex) + num(values.financing),
       });
     }
     await api.submitReport(draftIds[0]);

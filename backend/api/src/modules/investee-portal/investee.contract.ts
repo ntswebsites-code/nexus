@@ -361,6 +361,8 @@ export type InvesteeFinancialReport = z.infer<typeof financialReportSchema>;
 
 export const financialReportDetailSchema = financialReportSchema.extend({
   data: z.record(z.string(), z.number()),
+  lineNotes: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+  narrative: z.record(z.string(), z.string()).optional(),
 });
 
 export const financialReportPageSchema = z.object({

@@ -399,9 +399,13 @@ async function main() {
     const bench = await m.get(`${LP}/performance/benchmarks`);
     check('benchmarks unconfigured, honest note', bench.body?.data?.configured === false && bench.body.data.series.length === 0 && typeof bench.body.data.note === 'string', bench.body);
     const job = await m.call('POST', `${LP}/jobs/performance-report`, { period: 'SI' }, key('job'));
-    check('performance job 202 READY', job.status === 202 && job.body?.data?.status === 'READY', job.body);
+    check('performance job 202 COMPLETED', job.status === 202 && job.body?.data?.status === 'COMPLETED' && typeof job.body?.data?.downloadUrl === 'string', job.body);
     const jobGet = await m.get(`${LP}/jobs/${job.body?.data?.jobId}`);
-    check('job detail carries result', jobGet.body?.data?.result?.metrics?.paidIn === '290000.00', jobGet.body);
+    check('job detail carries result', jobGet.body?.data?.result?.metrics?.paidIn === '290000.00' && jobGet.body?.data?.status === 'COMPLETED', jobGet.body);
+    const reportPdf = await m.get(`${LP}/reports/${job.body?.data?.jobId}/download`);
+    check('performance report downloads as PDF', reportPdf.status === 200 && /pdf/.test(reportPdf.headers.get('content-type') ?? '') && reportPdf.body.toString('latin1').startsWith('%PDF') && reportPdf.body.toString('latin1').includes('Paid in'), reportPdf.status);
+    const reportPdfB = await ob.get(`${LP}/reports/${job.body?.data?.jobId}/download`);
+    check('IDOR: other client report download -> 404', reportPdfB.status === 404, reportPdfB.status);
     const jobB = await ob.get(`${LP}/jobs/${job.body?.data?.jobId}`);
     check('IDOR: other client job -> 404', jobB.status === 404, jobB.body);
     const reports = await m.get(`${LP}/reports`);

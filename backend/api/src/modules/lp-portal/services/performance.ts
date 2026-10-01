@@ -7,6 +7,7 @@ import { writeAudit } from '../../../lib/audit';
 import { LpError } from '../lp.http';
 import type { LpContext } from '../lp.context';
 import { VISIBLE_CALL_STATUSES, VISIBLE_DISTRIBUTION_STATUSES, asRecord, jsonDec, lpAudit } from './common';
+import { renderPdf, type PdfLine } from '../../ops/pdf';
 import { consolidate, fixed, latestAsOf, loadPositions, type FundPosition } from './positions';
 
 const ZERO = new Prisma.Decimal(0);
@@ -170,7 +171,7 @@ export async function createPerformanceJob(req: Request, ctx: LpContext, input: 
     clientId: ctx.client.id,
     userId: ctx.userId,
     jobType: 'PERFORMANCE_REPORT',
-    status: 'READY',
+    status: 'COMPLETED',
     request: { fundId: input.fundId ?? null, period: input.period },
     result,
     createdAt: now,
@@ -180,12 +181,56 @@ export async function createPerformanceJob(req: Request, ctx: LpContext, input: 
     await tx.setting.create({ data: { ownerId: jobId, key: JOB_KEY, value: job as unknown as Prisma.InputJsonValue } });
     await writeAudit(tx, lpAudit(req), { action: 'lp_report.requested', objectType: 'lp_job', objectId: jobId, after: { jobType: job.jobType, ...job.request } });
   });
-  return { jobId, status: job.status, createdAt: now };
+  return { jobId, status: job.status, createdAt: now, downloadUrl: reportDownloadPath(jobId) };
+}
+
+/** A performance job this client owns, or null when the id is not a job (it may still be a published report document). */
+export async function loadPerformanceJob(ctx: LpContext, jobId: string): Promise<StoredJob | null> {
+  const row = await prisma.setting.findUnique({ where: { ownerId_key: { ownerId: jobId, key: JOB_KEY } } });
+  if (!row) return null;
+  const job = row.value as unknown as StoredJob;
+  if (!job || job.jobType !== 'PERFORMANCE_REPORT' || job.clientId !== ctx.client.id) throw new LpError(404, 'LP_NOT_FOUND', 'Job not found');
+  return job;
+}
+
+export function reportDownloadPath(jobId: string) {
+  return `/api/v1/lp-portal/reports/${jobId}/download`;
+}
+
+/** One-page PDF of the figures stored on the job, so a later download matches the completed result. */
+export function renderPerformanceReport(clientName: string, job: StoredJob): Buffer {
+  const result = (job.result ?? {}) as LpPerformanceData;
+  const m = result.metrics;
+  const lines: PdfLine[] = [
+    { text: clientName, bold: true },
+    { text: `Period ${result.period ?? ''}    As of ${result.asOfDate ?? ''}    ${result.valuationStatus ?? ''}` },
+    { text: `Reporting currency ${result.reportingCurrency ?? ''}` },
+    { text: `Commitment ${m?.totalCommitment ?? '-'}    Paid in ${m?.paidIn ?? '-'}` },
+    { text: `Distributions ${m?.distributions ?? '-'}    NAV ${m?.currentNav ?? '-'}` },
+    { text: `Net IRR ${m?.netIrr ?? '-'}    TVPI ${m?.tvpi ?? '-'}    DPI ${m?.dpi ?? '-'}    RVPI ${m?.rvpi ?? '-'}` },
+  ];
+  if (result.openEndedMetrics) {
+    const o = result.openEndedMetrics;
+    lines.push({ text: `Units ${o.unitsHeld}    NAV per unit ${o.navPerUnit}    Account value ${o.accountValue}` });
+  }
+  for (const fund of (result.byFund ?? []).slice(0, 10)) {
+    lines.push({ text: `${fund.fundName} (${fund.structure}): NAV ${fund.nav}    Paid in ${fund.paidIn}    TVPI ${fund.tvpi ?? '-'}` });
+  }
+  lines.push({ text: 'Published fund position. This file does not create a new valuation.', size: 9 });
+  return renderPdf('PERFORMANCE REPORT', lines);
 }
 
 export async function getJob(ctx: LpContext, jobId: string): Promise<LpJobStatus> {
-  const row = await prisma.setting.findUnique({ where: { ownerId_key: { ownerId: jobId, key: JOB_KEY } } });
-  const job = row ? (row.value as unknown as StoredJob) : null;
-  if (!job || job.clientId !== ctx.client.id) throw new LpError(404, 'LP_NOT_FOUND', 'Job not found');
-  return { jobId, jobType: job.jobType, status: job.status, result: job.result, downloadUrl: null, errorMessage: null, createdAt: job.createdAt, completedAt: job.completedAt };
+  const job = await loadPerformanceJob(ctx, jobId);
+  if (!job) throw new LpError(404, 'LP_NOT_FOUND', 'Job not found');
+  return {
+    jobId,
+    jobType: job.jobType,
+    status: job.status,
+    result: job.result,
+    downloadUrl: reportDownloadPath(jobId),
+    errorMessage: null,
+    createdAt: job.createdAt,
+    completedAt: job.completedAt,
+  };
 }

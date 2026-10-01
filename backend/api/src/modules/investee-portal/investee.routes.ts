@@ -72,6 +72,8 @@ import {
   periodKey,
   profileView,
   reportData,
+  statementAnnotations,
+  statementExtras,
   reportingRequestView,
   type LetterheadJson,
 } from './investee.service';
@@ -512,7 +514,8 @@ investeePortalRoutes.post('/financial-reports/:kind/draft', requireProfile('edit
   const full = await loadPeriod(c.company.id, key);
   assertEditable(full);
   const values = flattenDraft(kind.data, body.data);
-  await saveDraft(packActor(req), full, { kpis: values }, { source: `${kind.data}-draft`, title: body.title });
+  const extras = statementExtras(kind.data, body.data, values);
+  await saveDraft(packActor(req), full, { kpis: { ...values, ...extras } }, { source: `${kind.data}-draft`, title: body.title });
   const slot = DRAFT_SLOT[kind.data];
   const item = full.items.find((i) => i.key === slot);
   if (!item) throw HttpError.notFound('Report not found');
@@ -572,7 +575,8 @@ investeePortalRoutes.delete('/financial-reports/:id/files/:fileId', requireProfi
 investeePortalRoutes.get('/financial-reports/:id', async (req, res) => {
   const c = inv(req);
   const { period, item } = await loadReport(c.company.id, param(req, 'id'));
-  ok(res, { ...financialReportView(period, item, c.company, c.profile), data: reportData(period, item.key) });
+  const notes = statementAnnotations(period.kpiValues);
+  ok(res, { ...financialReportView(period, item, c.company, c.profile), data: reportData(period, item.key), lineNotes: notes.lineNotes, narrative: notes.narrative });
 });
 
 // ---------------------------------------------------------------- KPIs

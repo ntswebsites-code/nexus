@@ -340,12 +340,90 @@ export function periodKey(...candidates: (string | undefined)[]): string | null 
 
 export const NUMERIC_ERROR = 'Invalid Input: Please enter a numerical value for this KPI.';
 
-/** Flattens draft data into prefixed numeric KPI values. Blank -> 0; anything non-numeric is rejected. */
+const SKIP_OBJECTS = new Set(['notes', 'narrative']);
+
+function textMap(raw: unknown): Record<string, string> | null {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value !== 'string') continue;
+    const text = value.trim().slice(0, 2000);
+    if (text) out[key.slice(0, 60)] = text;
+  }
+  return Object.keys(out).length ? out : null;
+}
+
+function parseTextMap(raw: unknown): Record<string, string> | null {
+  if (typeof raw !== 'string' || !raw.startsWith('{')) return null;
+  try {
+    return textMap(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+}
+
+function hasKey(values: Record<string, number>, keys: string[]) {
+  return keys.some((key) => values[key] !== undefined);
+}
+
+function sumKeys(values: Record<string, number>, keys: string[]) {
+  return keys.reduce((sum, key) => sum + (values[key] ?? 0), 0);
+}
+
+/**
+ * Copies statement lines into the totals the pack, variance rule and forecast actuals already read.
+ * Cash movement matches the on-screen statement: operating cash minus capex plus financing.
+ */
+export function statementRollup(kind: DraftKind, values: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  if (kind === 'income-statement') {
+    const parts = ['IS.merchantRevenue', 'IS.enterpriseRevenue', 'IS.otherRevenue'];
+    if (values['IS.totalRevenue'] === undefined && hasKey(values, parts)) out['IS.totalRevenue'] = sumKeys(values, parts);
+    const revenue = values['IS.totalRevenue'] ?? out['IS.totalRevenue'];
+    if (revenue !== undefined && values.totalRevenue === undefined) out.totalRevenue = revenue;
+    const costs = ['IS.processingCosts', 'IS.supportLosses', 'IS.salesMarketing', 'IS.productEngineering', 'IS.generalAdmin'];
+    if (values['IS.netProfit'] === undefined && revenue !== undefined && hasKey(values, costs)) out['IS.netProfit'] = revenue - sumKeys(values, costs);
+    const net = values['IS.netProfit'] ?? out['IS.netProfit'];
+    if (net !== undefined && values.netProfit === undefined) out.netProfit = net;
+  }
+  if (kind === 'cash-flow') {
+    const parts = ['CF.operatingCash', 'CF.capex', 'CF.financing'];
+    if (values['CF.cashFlowNet'] === undefined && hasKey(values, parts)) {
+      out['CF.cashFlowNet'] = (values['CF.operatingCash'] ?? 0) - (values['CF.capex'] ?? 0) + (values['CF.financing'] ?? 0);
+    }
+    const net = values['CF.cashFlowNet'] ?? out['CF.cashFlowNet'];
+    if (net !== undefined && values.cashFlowNet === undefined) out.cashFlowNet = net;
+  }
+  return out;
+}
+
+/** Line notes and narrative travel with the numeric draft. Empty maps are omitted. */
+export function statementExtras(kind: DraftKind, data: Record<string, unknown>, values: Record<string, number>): Record<string, number | string> {
+  const extras: Record<string, number | string> = { ...statementRollup(kind, values) };
+  const notes = textMap(data.notes);
+  const narrative = textMap(data.narrative);
+  if (notes) extras[`${DRAFT_PREFIX[kind]}.lineNotes`] = JSON.stringify(notes);
+  if (narrative) extras.narrative = JSON.stringify(narrative);
+  return extras;
+}
+
+export function statementAnnotations(kpiValues: unknown): { lineNotes: Record<string, Record<string, string>>; narrative: Record<string, string> } {
+  const values = (kpiValues as Record<string, unknown> | null) ?? {};
+  const lineNotes: Record<string, Record<string, string>> = {};
+  for (const prefix of ['IS', 'BS', 'CF', 'OK']) {
+    const notes = parseTextMap(values[`${prefix}.lineNotes`]);
+    if (notes) lineNotes[prefix] = notes;
+  }
+  return { lineNotes, narrative: parseTextMap(values.narrative) ?? {} };
+}
+
+/** Flattens draft data into prefixed numeric KPI values. Blank -> 0; anything non-numeric is rejected. Notes and narrative objects are stored separately. */
 export function flattenDraft(kind: DraftKind, data: Record<string, unknown>) {
   const prefix = DRAFT_PREFIX[kind];
   const out: Record<string, number> = {};
   const bad: string[] = [];
   for (const [key, raw] of Object.entries(data)) {
+    if (SKIP_OBJECTS.has(key) && raw !== null && typeof raw === 'object') continue;
     let value: number;
     if (raw === '' || raw === null || raw === undefined) value = 0;
     else if (typeof raw === 'number') value = raw;

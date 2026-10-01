@@ -308,7 +308,7 @@ export function assertEditable(p: { status: string; label: string }) {
   }
 }
 
-type KpiValues = Record<string, number | ''>;
+type KpiValues = Record<string, number | string | ''>;
 export interface DraftInput {
   kpis?: KpiValues;
   notes?: string;
