@@ -1,3 +1,4 @@
+import { DemoDataRibbon } from "@/components/lp-portal/demo-data-ribbon"
 import { LpSubscriptionsRedemptionsScreen } from "@/components/lp-portal/screens/lp-subscriptions-redemptions-screen"
 
 export default async function SubscriptionsRedemptionsPage({
@@ -9,5 +10,10 @@ export default async function SubscriptionsRedemptionsPage({
   const highlight =
     params.type === "redemptions" ? "redemptions" : params.type === "subscriptions" ? "subscriptions" : undefined
 
-  return <LpSubscriptionsRedemptionsScreen highlight={highlight} initialRequestId={params.request} />
+  return (
+    <>
+      <DemoDataRibbon domains={["dealing"]} />
+      <LpSubscriptionsRedemptionsScreen highlight={highlight} initialRequestId={params.request} />
+    </>
+  )
 }

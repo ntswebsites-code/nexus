@@ -1,55 +1,50 @@
 /**
- * LP Portal data source.
+ * LP Portal data source, resolved per domain.
  *
- * This used to be a single boolean that swapped the entire API surface between the mock store
- * and the live client. That made migration all-or-nothing: eleven screens and seventy methods
- * moved together, so a single bad response anywhere meant reverting the whole portal and there
- * was no way to verify one area at a time.
+ * Each domain maps to a group of `lpPortalApi` methods (see `LP_METHOD_DOMAIN` in
+ * `lib/api/lp-portal-api.ts`), so a domain can be moved to live once its endpoints work against
+ * the running API, and rolled back on its own if something is wrong.
  *
- * It is now resolved per domain. Each domain maps to a group of `lpPortalApi` methods (see
- * `LP_METHOD_DOMAIN` in `lib/api/lp-portal-api.ts`), so a domain can be moved to live only once
- * its endpoints have actually been round-tripped against the running API, and rolled back on its
- * own if something is wrong.
- *
- * `false` here means "keep serving this domain from the mock store".
+ * Which domains are live is decided by the API at runtime (`GET /api/v1/platform/flags`, see
+ * `lib/lp-portal/flags.ts`); rollback is an env change on the API plus a restart, with no portal
+ * rebuild. A domain that is not live is served from the mock store and shows the "Demo data"
+ * ribbon.
  */
-export type LpDataDomain =
-  | "session"
-  | "dashboard"
-  | "capital"
-  | "activity"
-  | "dealing"
-  | "performance"
-  | "documents"
-  | "notices"
-  | "requests"
-  | "organisation"
-  | "settings"
-  | "reports"
+import type { LpDomain } from "@matanho/shared"
 
-/** Every domain is served from the demo store: this portal has no live API connection. */
-export const LP_LIVE_DOMAINS: Record<LpDataDomain, boolean> = {
-  session: false,
-  dashboard: false,
-  capital: false,
-  activity: false,
-  dealing: false,
-  performance: false,
-  documents: false,
-  notices: false,
-  requests: false,
-  organisation: false,
-  settings: false,
-  reports: false,
+export type LpDataDomain = LpDomain
+
+export const LP_DATA_DOMAINS: readonly LpDataDomain[] = [
+  "session",
+  "dashboard",
+  "capital",
+  "activity",
+  "dealing",
+  "performance",
+  "documents",
+  "notices",
+  "requests",
+  "organisation",
+  "settings",
+  "reports",
+]
+
+export const LP_DOMAIN_LABELS: Record<LpDataDomain, string> = {
+  session: "Account & session",
+  dashboard: "Dashboard",
+  capital: "Capital calls & distributions",
+  activity: "Account activity",
+  dealing: "Subscriptions & redemptions",
+  performance: "Performance",
+  documents: "Documents",
+  notices: "Notices",
+  requests: "Requests & messages",
+  organisation: "Organisation",
+  settings: "Settings",
+  reports: "Reports",
 }
 
-/** True when the given domain should hit the real API. */
-export function isLpDomainLive(domain: LpDataDomain): boolean {
-  return LP_LIVE_DOMAINS[domain] === true
+/** Safe default: nothing live, everything served from the demo store. */
+export function allDemoDomains(): Record<LpDataDomain, boolean> {
+  return Object.fromEntries(LP_DATA_DOMAINS.map((d) => [d, false])) as Record<LpDataDomain, boolean>
 }
-
-/**
- * Back-compat: some code (notably `realtime.ts`) only needs to know whether the portal is
- * running fully on mock data. True only when every domain is still mocked.
- */
-export const LP_PORTAL_USE_MOCK = Object.values(LP_LIVE_DOMAINS).every((v) => v === false)

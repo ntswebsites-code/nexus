@@ -1,3 +1,4 @@
+import { DemoDataRibbon } from "@/components/lp-portal/demo-data-ribbon"
 import { LpCapitalActivityScreen } from "@/components/lp-portal/screens/lp-capital-activity-screen"
 
 export default async function CapitalActivityPage({
@@ -7,9 +8,12 @@ export default async function CapitalActivityPage({
 }) {
   const params = (await searchParams) ?? {}
   return (
-    <LpCapitalActivityScreen
-      initialTab={params.tab === "distributions" ? "distributions" : "calls"}
-      initialCallId={params.call}
-    />
+    <>
+      <DemoDataRibbon domains={["capital"]} />
+      <LpCapitalActivityScreen
+        initialTab={params.tab === "distributions" ? "distributions" : "calls"}
+        initialCallId={params.call}
+      />
+    </>
   )
 }
