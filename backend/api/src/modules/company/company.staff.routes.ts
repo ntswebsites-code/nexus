@@ -37,7 +37,7 @@ async function companyByRef(ref: string) {
 
 function notifyCompany(companyId: string, title: string, body: string, link: string) {
   return async (tx: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]) => {
-    const users = await tx.companyUser.findMany({ where: { companyId }, select: { userId: true } });
+    const users = await tx.companyUser.findMany({ where: { companyId, status: 'active' }, select: { userId: true } });
     if (users.length) await enqueue(tx, 'notify.users', { userIds: users.map((u) => u.userId), type: 'reporting.review', title, body, link });
   };
 }
@@ -86,6 +86,7 @@ companyStaffRoutes.get('/companies/:ref', VIEW, async (req, res) => {
 const openSchema = z.object({
   period: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
   due: z.coerce.date(),
+  periodType: z.enum(['WEEKLY', 'MONTHLY', 'QUARTERLY', 'ANNUAL']).optional(),
 });
 
 companyStaffRoutes.post('/companies/:ref/periods', REVIEW, validateBody(openSchema), async (req, res) => {
@@ -94,7 +95,7 @@ companyStaffRoutes.post('/companies/:ref/periods', REVIEW, validateBody(openSche
   const exists = await prisma.reportingPeriod.findUnique({ where: { companyId_period: { companyId: company.id, period: b.period } } });
   if (exists) throw HttpError.conflict('That period is already open', 'duplicate');
   const row = await prisma.$transaction(async (tx) => {
-    const p = await openPeriod(tx, company.id, b.period, b.due);
+    const p = await openPeriod(tx, company.id, b.period, b.due, b.periodType);
     await writeAudit(tx, audit(req), { action: 'reporting.period.opened', objectType: 'reporting_period', objectId: p.id, after: { period: b.period, due: b.due } });
     await notifyCompany(company.id, `${p.label} reporting pack opened`, `Due ${b.due.toISOString().slice(0, 10)}.`, '/reporting')(tx);
     return p;

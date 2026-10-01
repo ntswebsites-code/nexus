@@ -3,6 +3,9 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { num } from '../../lib/http';
+import { writeAudit, type AuditContext } from '../../lib/audit';
+import { enqueue } from '../../lib/outbox';
+import { storeFile } from '../../lib/storage';
 import { fmtDate, fmtDay, fmtShort, fmtSize, fmtTime } from '../../lib/format';
 
 /** Monthly pack template (SRD 8.4). Items are copied onto each period when it is opened. */
@@ -24,13 +27,24 @@ function monthName(period: string) {
   return new Date(Date.UTC(y!, m! - 1, 1)).toLocaleDateString('en-GB', { month: 'long', timeZone: 'UTC' });
 }
 
-export async function openPeriod(tx: Prisma.TransactionClient, companyId: string, period: string, due: Date) {
+/** First and last calendar day (UTC) of a `YYYY-MM` period key. */
+export function periodBounds(period: string) {
+  const [y, m] = period.split('-').map(Number);
+  return { start: new Date(Date.UTC(y!, m! - 1, 1)), end: new Date(Date.UTC(y!, m!, 0)) };
+}
+
+export async function openPeriod(tx: Prisma.TransactionClient, companyId: string, period: string, due: Date, periodType = 'MONTHLY') {
+  const { start, end } = periodBounds(period);
   return tx.reportingPeriod.create({
     data: {
       companyId,
       period,
       label: periodLabel(period),
       dueDate: due,
+      periodType,
+      periodStart: start,
+      periodEnd: end,
+      requestedAt: new Date(),
       status: 'open',
       items: { create: REPORTING_ITEMS.map((i, sort) => ({ ...i, sort })) },
     },
@@ -39,13 +53,68 @@ export async function openPeriod(tx: Prisma.TransactionClient, companyId: string
 
 /** The company the signed-in portal user belongs to (company users are linked, not role-based). */
 export async function companyContext(req: Request) {
-  const link = await prisma.companyUser.findFirst({
-    where: { userId: req.user!.id },
+  return (await companyMembership(req)).company;
+}
+
+/** The caller's active company link (first by creation, or `?company=<ref>` when linked to several). */
+export async function companyMembership(req: Request) {
+  const requested = typeof req.query.company === 'string' ? req.query.company : undefined;
+  const links = await prisma.companyUser.findMany({
+    where: { userId: req.user!.id, status: 'active' },
     include: { company: true },
     orderBy: { createdAt: 'asc' },
   });
+  const link = requested ? links.find((l) => l.company.ref === requested) : links[0];
   if (!link) throw HttpError.forbidden('This account is not linked to a portfolio company', 'no_company_access');
-  return link.company;
+  return link;
+}
+
+// ---------------------------------------------------------------- access profiles (SRD 5D roles)
+
+export const COMPANY_PROFILES = [
+  'workspace_administrator',
+  'executive_approver',
+  'report_contributor',
+  'kpi_owner',
+  'finance_editor',
+  'read_only',
+] as const;
+export type CompanyProfile = (typeof COMPANY_PROFILES)[number];
+
+export type CompanyCapability = 'view' | 'edit_draft' | 'submit_pack' | 'submit_kpis' | 'sign' | 'post_messages' | 'manage_company';
+
+const CAPABILITIES: Record<CompanyCapability, readonly CompanyProfile[]> = {
+  view: COMPANY_PROFILES,
+  edit_draft: ['workspace_administrator', 'executive_approver', 'report_contributor', 'finance_editor'],
+  submit_pack: ['workspace_administrator', 'executive_approver'],
+  submit_kpis: ['workspace_administrator', 'executive_approver', 'kpi_owner', 'finance_editor'],
+  sign: ['workspace_administrator', 'executive_approver'],
+  post_messages: ['workspace_administrator', 'executive_approver', 'report_contributor', 'kpi_owner', 'finance_editor'],
+  manage_company: ['workspace_administrator'],
+};
+
+export function asProfile(value: string | null | undefined): CompanyProfile {
+  return (COMPANY_PROFILES as readonly string[]).includes(value ?? '') ? (value as CompanyProfile) : 'read_only';
+}
+
+export function profileCan(profile: CompanyProfile, capability: CompanyCapability) {
+  return CAPABILITIES[capability].includes(profile);
+}
+
+const CAPABILITY_TEXT: Record<CompanyCapability, string> = {
+  view: 'view this workspace',
+  edit_draft: 'edit report drafts',
+  submit_pack: 'submit the reporting pack (approver or administrator only)',
+  submit_kpis: 'submit period KPIs',
+  sign: 'sign documents',
+  post_messages: 'post messages',
+  manage_company: 'change company settings (workspace administrator only)',
+};
+
+export function assertProfile(profile: CompanyProfile, capability: CompanyCapability) {
+  if (!profileCan(profile, capability)) {
+    throw HttpError.forbidden(`Your access profile does not allow you to ${CAPABILITY_TEXT[capability]}`, 'permission_denied');
+  }
 }
 
 type CompanyRow = Prisma.PortfolioCompanyGetPayload<object>;
@@ -212,4 +281,135 @@ export async function workspace(companyId: string, viewer: 'company' | 'staff') 
       size: fmtSize(d.versions[0] ? sizes.get(d.versions[0].fileId) : null),
     })),
   };
+}
+
+// ---------------------------------------------------------------- pack flow (shared by /company and /investee-portal)
+
+export const EDITABLE_STATUSES = ['open', 'returned'];
+
+export interface PackActor {
+  userId: string;
+  name: string;
+  audit: AuditContext;
+}
+
+export async function loadPeriod(companyId: string, period: string) {
+  const row = await prisma.reportingPeriod.findUnique({
+    where: { companyId_period: { companyId, period } },
+    include: periodInclude,
+  });
+  if (!row) throw HttpError.notFound('Reporting period not found');
+  return row;
+}
+
+export function assertEditable(p: { status: string; label: string }) {
+  if (!EDITABLE_STATUSES.includes(p.status)) {
+    throw HttpError.conflict(`The ${p.label} pack is ${p.status} and can no longer be changed`, 'invalid_state');
+  }
+}
+
+type KpiValues = Record<string, number | ''>;
+export interface DraftInput {
+  kpis?: KpiValues;
+  notes?: string;
+}
+
+/** Attaches files to one pack item; the period must be editable and the extensions must match the item. */
+export async function uploadItemFiles(actor: PackActor, period: PeriodRow, itemKey: string, files: Express.Multer.File[]) {
+  assertEditable(period);
+  const item = period.items.find((i) => i.key === itemKey);
+  if (!item) throw HttpError.notFound('Reporting item not found');
+  if (!files.length) throw HttpError.badRequest('Attach at least one file');
+  const exts = item.accept.split(',').map((e) => e.trim().toLowerCase());
+  const bad = files.find((f) => !exts.some((e) => f.originalname.toLowerCase().endsWith(e)));
+  if (bad) throw HttpError.badRequest(`${bad.originalname} is not an accepted format (${item.accept})`);
+
+  const created: string[] = [];
+  await prisma.$transaction(async (tx) => {
+    for (const f of files) {
+      const stored = await storeFile({ name: f.originalname, mime: f.mimetype, data: f.buffer, uploadedById: actor.userId }, tx);
+      const sub = await tx.reportingSubmission.create({
+        data: { itemId: item.id, fileId: stored.id, name: stored.name, size: stored.size, uploadedById: actor.userId },
+      });
+      created.push(sub.id);
+    }
+    await tx.reportingItem.update({ where: { id: item.id }, data: { status: 'Complete' } });
+    await writeAudit(tx, actor.audit, {
+      action: 'reporting.files.uploaded',
+      objectType: 'reporting_period',
+      objectId: period.id,
+      after: { item: item.key, files: files.map((f) => f.originalname) },
+    });
+  });
+  return created;
+}
+
+function mergedKpis(period: PeriodRow, kpis?: KpiValues) {
+  return kpis ? { kpiValues: { ...((period.kpiValues as object | null) ?? {}), ...kpis } } : {};
+}
+
+/** Saves KPI values and notes on an editable pack (optimistic version bump). */
+export async function saveDraft(actor: PackActor, period: PeriodRow, input: DraftInput, auditAfter?: Record<string, unknown>) {
+  assertEditable(period);
+  await prisma.$transaction(async (tx) => {
+    await tx.reportingPeriod.update({
+      where: { id: period.id },
+      data: {
+        ...mergedKpis(period, input.kpis),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+        version: { increment: 1 },
+      },
+    });
+    await writeAudit(tx, actor.audit, {
+      action: 'reporting.draft.saved',
+      objectType: 'reporting_period',
+      objectId: period.id,
+      after: { kpis: input.kpis ? Object.keys(input.kpis) : undefined, notes: input.notes !== undefined, ...auditAfter },
+    });
+  });
+}
+
+/** Submits the pack for review: every required item needs a file; notifies the investment team. */
+export async function submitPack(actor: PackActor, company: { name: string }, period: PeriodRow, input: DraftInput) {
+  assertEditable(period);
+  const missing = period.items.filter((i) => i.required && i.submissions.length === 0);
+  if (missing.length) {
+    throw HttpError.badRequest(`Still needed: ${missing.map((i) => i.title).join(', ')}`, { missing: missing.map((i) => i.key) });
+  }
+  const now = new Date();
+  await prisma.$transaction(async (tx) => {
+    await tx.reportingPeriod.update({
+      where: { id: period.id },
+      data: {
+        status: 'submitted',
+        submittedAt: now,
+        submittedById: actor.userId,
+        reviewNote: null,
+        reviewedAt: null,
+        reviewedById: null,
+        reviewerName: null,
+        ...mergedKpis(period, input.kpis),
+        ...(input.notes !== undefined ? { notes: input.notes } : {}),
+        version: { increment: 1 },
+      },
+    });
+    await tx.reportingSubmission.updateMany({
+      where: { itemId: { in: period.items.map((i) => i.id) }, status: { in: ['Draft', 'Returned'] } },
+      data: { status: 'Submitted' },
+    });
+    await writeAudit(tx, actor.audit, {
+      action: 'reporting.pack.submitted',
+      objectType: 'reporting_period',
+      objectId: period.id,
+      before: { status: period.status },
+      after: { status: 'submitted', period: period.period },
+    });
+    await enqueue(tx, 'notify.permission', {
+      permission: 'research.edit',
+      type: 'reporting.submitted',
+      title: `${company.name} · ${period.label} pack submitted`,
+      body: `${actor.name} submitted the ${period.label} reporting pack for review.`,
+      link: '/?page=private-markets',
+    });
+  });
 }
