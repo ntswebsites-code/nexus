@@ -1,5 +1,7 @@
 # Domain entities implied by the prototype (NOT yet modelled)
 
+> Superseded by the proposed schema in [`SRD.md`](SRD.md) section 10; kept for history.
+
 The four portals are still a browser-side prototype: business data lives in
 JavaScript arrays and `localStorage`. Per the project rules the database schema
 is **not** invented up-front - only authentication / authorisation is modelled

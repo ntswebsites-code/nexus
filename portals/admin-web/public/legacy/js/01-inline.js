@@ -3,7 +3,7 @@ const $ = (s, root=document) => root.querySelector(s);
 const $$ = (s, root=document) => [...root.querySelectorAll(s)];
 
 const state = {
-  role: 'investment_director',
+  role: window.__mxData&&window.__mxData.role||'investment_director',
   currentPage: 'command',
   currentFolder: 'all',
   currentDocument: null,
@@ -11,12 +11,12 @@ const state = {
   currentOrder: null
 };
 
-const roleLabels = {
+const roleLabels = window.__mxData&&window.__mxData.roleLabels||{
   investment_director:'Investment Director', portfolio_manager:'Portfolio Manager', dealer:'Dealer / Trader', analyst:'Investment Analyst',
   compliance:'Compliance Officer', operations:'Operations', fund_accountant:'Fund Accountant', client_services:'Client Services', auditor:'Auditor', system_admin:'System Administrator'
 };
 
-const rolePermissions = {
+const rolePermissions = window.__mxData&&window.__mxData.rolePermissions||{
   investment_director:['dashboard.view','portfolio.view','orders.view','orders.create','orders.approve','research.view','research.edit','risk.view','clients.view','onboarding.view','reports.view','reports.create','documents.view','documents.edit','operations.view','valuation.view','audit.view','cash.view','cash.approve'],
   portfolio_manager:['dashboard.view','portfolio.view','orders.view','orders.create','research.view','research.edit','risk.view','clients.view','onboarding.view','reports.view','reports.create','documents.view','documents.edit','operations.view','valuation.view','cash.view','cash.reservation'],
   dealer:['dashboard.view','portfolio.view','orders.view','orders.create','orders.route','research.view','risk.view','documents.view','operations.view','cash.view','cash.reservation'],
@@ -47,7 +47,7 @@ let orders = [
   {id:'ORD-260826-009', time:'10:18', security:'ECO.ZW', name:'Econet Wireless Zimbabwe', market:'ZSE', side:'Sell', qty:'80,000', limit:'Market', notional:'ZWG 1.23M', broker:'IH Securities', portfolio:'Balanced Growth Fund', status:'Filled', owner:'T. Moyo', fill:100, filledQty:'80,000', avg:'ZWG 15.39', control:'Within', approval:'Approved', route:'IH Securities', settlement:'T+3 · 31 Aug', tif:'Day', urgency:'High', allocation:'Single portfolio', age:'5h 08m', slippage:'-11 bps', decisionPrice:'ZWG 15.41', risk:'Settlement ready'}
 ];
 
-const clients = [
+const clients = window.__mxData&&window.__mxData.clients||[
   {name:'Horizon Pension Fund', id:'CL-00418', type:'Pension Fund', accounts:3, value:'US$ 16.82M', ccy:'USD', kyc:'Current', risk:'Medium', mandate:'Institutional B', owner:'L. Chuma'},
   {name:'Makombe Family Office', id:'CL-00371', type:'Family Office', accounts:2, value:'US$ 7.44M', ccy:'USD', kyc:'Current', risk:'Low', mandate:'Discretionary 02', owner:'P. Ncube'},
   {name:'Cedar Insurance Limited', id:'CL-00402', type:'Insurance', accounts:4, value:'US$ 12.16M', ccy:'USD', kyc:'Review due', risk:'Medium', mandate:'Insurance Liquidity', owner:'L. Chuma'},
@@ -56,7 +56,7 @@ const clients = [
   {name:'Stonebridge Holdings', id:'CL-00433', type:'Corporate', accounts:2, value:'US$ 4.66M', ccy:'USD', kyc:'Enhanced review', risk:'High', mandate:'Corporate Treasury', owner:'R. Marufu'}
 ];
 
-const cashAccounts = [
+const cashAccounts = window.__mxData&&window.__mxData.cashAccounts||[
   {id:'CCA-1001',legalEntity:'Matanho Managed Funds',client:'Horizon Pension Fund',clientId:'CL-00418',mandate:'Institutional B',portfolio:'Balanced Growth Fund',ownership:'SEGREGATED',moneyClass:'CLIENT_MONEY',type:'CUSTODY_CASH',provider:'Stanbic Custody',masked:'••••1001',currency:'USD',effective:'01 Jul 2026',calendar:'Custodian / Africa/Harare',tolerance:'USD-CASH-STD',gl:'USD custody cash control',status:'ACTIVE',posted:'10,000.00',reserved:'3,000.00',blocked:'0.00',expected:'+480.00',available:'7,000.00',withdrawable:'7,000.00',recon:'Balanced · 99.2%',statement:'26 Aug · 15:12',maker:'L. Chuma',version:12},
   {id:'CCA-1042',legalEntity:'Matanho Managed Funds',client:'Horizon Pension Fund',clientId:'CL-00418',mandate:'Institutional B',portfolio:'USD Equity Fund',ownership:'SEGREGATED',moneyClass:'CLIENT_MONEY',type:'CLIENT_BANK',provider:'Stanbic Bank',masked:'••••0042',currency:'USD',effective:'01 Jul 2026',calendar:'Bank / Africa/Harare',tolerance:'USD-BANK-STD',gl:'USD bank cash control',status:'ACTIVE',posted:'1,424,088.00',reserved:'184,000.00',blocked:'0.00',expected:'-52,000.00',available:'1,188,088.00',withdrawable:'1,188,088.00',recon:'Break · US$ 6,420',statement:'26 Aug · 15:12',maker:'P. Ncube',version:9},
   {id:'CCA-1188',legalEntity:'Matanho Managed Funds',client:'Cedar Insurance Limited',clientId:'CL-00402',mandate:'Insurance Liquidity',portfolio:'Liquidity Plus',ownership:'SEGREGATED',moneyClass:'CLIENT_MONEY',type:'CLIENT_BANK',provider:'CABS',masked:'••••1188',currency:'USD',effective:'15 Jun 2026',calendar:'Bank / Africa/Harare',tolerance:'USD-BANK-STD',gl:'USD bank cash control',status:'ACTIVE',posted:'882,114.00',reserved:'0.00',blocked:'25,000.00',expected:'+110,000.00',available:'857,114.00',withdrawable:'832,114.00',recon:'Break · US$ 412',statement:'26 Aug · 15:04',maker:'L. Chuma',version:7},
@@ -100,7 +100,7 @@ let reports = [
   {name:'Cedar Insurance — Q2 Account Review', type:'Client Account', period:'Q2 2026', owner:'P. Ncube', edited:'15 Jul · 11:30', version:'v2', status:'Published'}
 ];
 
-let documents = [
+let documents = window.__mxData&&window.__mxData.documents||[
   {name:'Innscor Investment Thesis — Aug 2026', type:'research', related:'INN.ZW', owner:'T. Ncube', updated:'25 Aug 2026', version:'v3', access:'Investment team', status:'Approved', format:'DOC'},
   {name:'IC Minutes — 20 August 2026', type:'ic', related:'Investment Committee', owner:'T. Moyo', updated:'21 Aug 2026', version:'v2', access:'IC members', status:'Approved', format:'PDF'},
   {name:'Horizon Pension Fund — July Account Report', type:'clients', related:'CL-00418', owner:'L. Chuma', updated:'25 Aug 2026', version:'v3', access:'Client + Investment', status:'In review', format:'DOC'},

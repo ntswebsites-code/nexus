@@ -1,0 +1,19 @@
+# 1.4 (from the backend draft)
+
+### 1.4 Current implementation baseline **[O]** (as of 30 Sep 2026)
+
+| Area | State today |
+| --- | --- |
+| Admin portal (3100) | Next.js 16. It renders the V56 prototype through `legacy-runtime`, and the **API bridge is active**. These screens persist through `/api/v1`: clients, cash accounts, onboarding/KYC queue, document vault, investor services, private-markets company review, RBAC, policy, settings and audit. All other pages still use prototype arrays and `localStorage`. |
+| Investor portal (3101) | Next.js 16. The page was replaced by a newer prototype (V59 "LP portal"), and **its API bridge is disabled**. The investor API (`/api/v1/investor/*`) is built and tested but not called by the running UI, which shows demo data. |
+| Onboarding portal (3102) | Next.js 16 on a newer prototype page. **The bridge is disabled**, so the wizard persists to `localStorage` and IndexedDB only. The public onboarding API (`/api/v1/public/applications/*`) is built and tested but not called by the running UI. |
+| Company portal (3103) | Native React. Fully wired to `/api/v1/company/*`. |
+| Custodian portal (3104) | Next.js static prototype ("custodian submissions"). No API calls, no auth gate, not a registered portal id in the shared registry, and not in the default CORS allow-list. |
+| Shared login | `portal-kit` provides the login, MFA, invitation-accept and reset-password screens. Route protection is opt-in per portal through `REQUIRE_AUTH_PORTALS`. |
+| Backend | Express 5 + TypeScript modular API on port 4100. `/api/health` and `/api/auth/*` (login, logout, me, register, MFA, password reset, invitations) plus the `/api/v1` domain API: public onboarding, KYC, clients and cash accounts, documents, investor services (staff and investor), company reporting, private-markets review, admin (RBAC, policy, settings, audit), notifications, files. About 140 route handlers. Hash-chained audit on every audited write. |
+| Worker | `worker.js` polls the transactional outbox every 2 s. It handles in-app notifications, email (SMTP, or console logging when SMTP is unset) and KYC screening. The screening provider is a stub. It runs as its own container in production and is **not** started by `npm run dev`. |
+| File storage | Local disk volume. AES-256-GCM encrypted at rest. Downloads use HMAC-signed URLs that expire after 5 minutes. No malware scanning. |
+| Database | MySQL 8 via Prisma. Two migrations (`init`, `phase1_core`) create 55 tables: identity, platform (policies, settings, notifications, audit, outbox, sequences, files), documents, parties, onboarding/KYC, investor services, published investor snapshots and company reporting. The seed loads 14 roles (10 admin, 4 investor). `SEED_DEMO=1` loads the V56 demo client CL-00418 and company PC-100. |
+| Business data | Server-backed: onboarding/KYC, clients, mandates, cash-account master (balances are display values only), documents and publications, e-signatures, capital notices, service requests, secure messages, investor portfolio snapshots (a stand-in for IBOR/PBOR), company reporting, RBAC/policy/settings, audit. Prototype-only: portfolios, orders, research, risk, cash ledger, reconciliations, NAV, accounting, financing, corporate actions, regulatory, data fabric, models, copilot (Appendix C). |
+| Deployment | `deploy/`: Docker Compose runs mysql, migrate (migrate deploy plus seed), api, worker and 5 portal containers, all bound to 127.0.0.1. Host nginx serves six `*.nexus.matanho.com` hostnames, with certbot issuing Let's Encrypt certificates. The legacy static-prototype stack (Traefik `docker-compose.yml`, GitHub Pages workflow) is still in the repository. |
+| Tests | `npm run smoke`: auth, portal access, CORS/CSRF. `npm run e2e`: cross-portal Phase 1 journey against a running API and a disposable DB. No unit tests, no test runner, no CI pipeline. |

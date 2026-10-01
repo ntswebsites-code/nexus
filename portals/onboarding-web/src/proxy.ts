@@ -5,5 +5,5 @@ import { createPortalProxy } from '@matanho/portal-kit/proxy';
 export const proxy = createPortalProxy('onboarding', { requirePortalRole: false });
 
 export const config = {
-  matcher: ['/((?!_next/|legacy/|assets/|login|favicon.ico).*)'],
+  matcher: ['/((?!_next/|legacy/|assets/|login|invite|reset-password|favicon.ico).*)'],
 };

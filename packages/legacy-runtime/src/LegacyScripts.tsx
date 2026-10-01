@@ -13,22 +13,63 @@ interface CapturedListener {
 declare global {
   interface Window {
     __matanhoLegacyBooted?: Record<string, boolean>;
+    /** Set by bridge scripts: resolves once live API data is in `window.__mxData`. */
+    __matanhoBridgeReady?: Promise<unknown>;
   }
 }
 
-function loadScript(src: string): Promise<void> {
+/** Bridge scripts (public/legacy/js/bridge/*) run before the prototype scripts. */
+const BRIDGE_PREFIX = '/legacy/js/bridge/';
+const BRIDGE_TIMEOUT_MS = 15_000;
+
+async function awaitBridge() {
+  const ready = window.__matanhoBridgeReady;
+  if (!ready) return;
+  let timer: number | undefined;
+  try {
+    await Promise.race([
+      ready,
+      new Promise((resolve) => {
+        timer = window.setTimeout(() => {
+          console.warn('[legacy-runtime] bridge data not ready in time; continuing with prototype data');
+          resolve(undefined);
+        }, BRIDGE_TIMEOUT_MS);
+      }),
+    ]);
+  } catch (error) {
+    console.error('[legacy-runtime] bridge failed', error);
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+/**
+ * Insert every script at once with `async=false`. The browser downloads them in
+ * parallel and still evaluates them strictly in document order, which is what
+ * the prototype's patch chain (v33 → v56) depends on.
+ */
+function loadScriptsInOrder(srcs: string[]): Promise<void> {
   return new Promise((resolve) => {
-    const el = document.createElement('script');
-    el.src = src;
-    // Dynamically inserted scripts are async by default; the prototypes rely on
-    // strict, sequential execution order (v33 -> v56 patch each other).
-    el.async = false;
-    el.onload = () => resolve();
-    el.onerror = () => {
-      console.error(`[legacy-runtime] failed to load ${src}`);
+    if (srcs.length === 0) {
       resolve();
+      return;
+    }
+    let remaining = srcs.length;
+    const done = () => {
+      remaining -= 1;
+      if (remaining <= 0) resolve();
     };
-    document.body.appendChild(el);
+    for (const src of srcs) {
+      const el = document.createElement('script');
+      el.src = src;
+      el.async = false;
+      el.onload = done;
+      el.onerror = () => {
+        console.error(`[legacy-runtime] failed to load ${src}`);
+        done();
+      };
+      document.body.appendChild(el);
+    }
   });
 }
 
@@ -39,6 +80,10 @@ function callListener(listener: Listener, target: EventTarget, event: Event) {
   } catch (error) {
     console.error('[legacy-runtime] listener failed', error);
   }
+}
+
+function markReady() {
+  document.documentElement.dataset.legacyReady = '1';
 }
 
 /**
@@ -56,10 +101,14 @@ export function LegacyScripts({ portalId, scripts }: { portalId: string; scripts
   useEffect(() => {
     const booted = (window.__matanhoLegacyBooted ??= {});
     // React StrictMode runs effects twice in development; boot exactly once.
-    if (booted[portalId]) return;
+    if (booted[portalId]) {
+      markReady();
+      return;
+    }
     booted[portalId] = true;
 
     let cancelled = false;
+    const failSafe = window.setTimeout(markReady, 12_000 + BRIDGE_TIMEOUT_MS);
 
     const run = async () => {
       const captured: CapturedListener[] = [];
@@ -100,11 +149,13 @@ export function LegacyScripts({ portalId, scripts }: { portalId: string; scripts
       };
 
       try {
-        for (const src of scripts) {
-          if (cancelled) break;
-          await loadScript(src);
-        }
+        // Bridge first: it fetches live API data that the prototype scripts read
+        // while they evaluate (window.__mxData), so it must be in place before them.
+        await loadScriptsInOrder(scripts.filter((s) => s.startsWith(BRIDGE_PREFIX)));
+        await awaitBridge();
+        await loadScriptsInOrder(scripts.filter((s) => !s.startsWith(BRIDGE_PREFIX)));
       } finally {
+        if (cancelled) return;
         // -> readyState "interactive": fire DOMContentLoaded (+ readystatechange)
         readyState = 'interactive';
         for (const c of captured.filter((x) => x.type === 'readystatechange')) {
@@ -132,6 +183,8 @@ export function LegacyScripts({ portalId, scripts }: { portalId: string; scripts
           }
         }
         window.dispatchEvent(new CustomEvent('matanho:legacy-ready', { detail: { portalId } }));
+        window.clearTimeout(failSafe);
+        markReady();
       }
     };
 

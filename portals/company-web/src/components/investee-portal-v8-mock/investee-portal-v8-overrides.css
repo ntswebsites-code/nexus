@@ -1,0 +1,131 @@
+/* Investee Portal V8: expanded sidebar, full-height shell, topbar fills right. */
+
+.investee-portal-v8-root {
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.investee-portal-v8-root .app {
+  height: 100%;
+  min-height: 0;
+  max-height: none;
+}
+
+.investee-portal-v8-root .shell {
+  min-height: 0;
+  height: 100%;
+}
+
+/* Mobile only: the base stylesheet's `.app.mobile-open .sidebar{transform:none}` rule (meant to
+   slide the off-canvas sidebar into view when the hamburger menu is toggled) was losing the
+   cascade — the sidebar stayed translated off-screen and the menu button appeared to do nothing.
+   !important guarantees the open state wins regardless of stylesheet chunk order. */
+@media (max-width: 760px) {
+  .investee-portal-v8-root .app.mobile-open .sidebar {
+    transform: none !important;
+  }
+}
+
+/* Desktop only: below 761px the base stylesheet makes .sidebar a fixed, off-canvas drawer
+   (position:fixed + transform). Applying position:relative/min-height:100% at all widths
+   undid that — the sidebar kept reserving its full-height box in the mobile `.app{display:block}`
+   layout, pushing .shell (and all real content) a full viewport below the fold. */
+@media (min-width: 761px) {
+  .investee-portal-v8-root .sidebar {
+    position: relative;
+    z-index: 20;
+    min-height: 100%;
+  }
+}
+
+.investee-portal-v8-root .topbar {
+  background: var(--surface);
+  backdrop-filter: none;
+  width: 100%;
+  justify-content: flex-start;
+}
+
+.investee-portal-v8-root .search-trigger {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: none;
+}
+
+.investee-portal-v8-root .topbar [data-arcus-modules] {
+  margin-left: auto;
+}
+
+@media (min-width: 761px) {
+  .investee-portal-v8-root {
+    --sidebar: 258px;
+  }
+  .investee-portal-v8-root .app.collapsed {
+    --sidebar: 78px;
+  }
+  .investee-portal-v8-root .app:not(.collapsed) .brand-module,
+  .investee-portal-v8-root .app:not(.collapsed) .company-copy,
+  .investee-portal-v8-root .app:not(.collapsed) .company-card > svg,
+  .investee-portal-v8-root .app:not(.collapsed) .nav-item .label,
+  .investee-portal-v8-root .app:not(.collapsed) .system-health span {
+    display: block;
+  }
+  .investee-portal-v8-root .app:not(.collapsed) .nav-count {
+    display: grid;
+  }
+  .investee-portal-v8-root .app:not(.collapsed) .brand-mark img {
+    display: block;
+  }
+  .investee-portal-v8-root .app:not(.collapsed) .brand-mark::after {
+    content: none;
+    display: none;
+  }
+  .investee-portal-v8-root .app:not(.collapsed) .brand-mark {
+    min-width: 154px !important;
+    width: auto !important;
+    height: 42px !important;
+    padding: 6px 8px !important;
+    overflow: hidden !important;
+  }
+  .investee-portal-v8-root .app:not(.collapsed) .company-card,
+  .investee-portal-v8-root .app:not(.collapsed) .nav-item,
+  .investee-portal-v8-root .app:not(.collapsed) .system-health {
+    justify-content: flex-start;
+  }
+  .investee-portal-v8-root .app:not(.collapsed) .nav-item {
+    padding: 0 10px;
+  }
+}
+
+.investee-portal-v8-root .toasts {
+  z-index: 200;
+}
+
+/* Live hydrate skeletons — mirror portfolio-v11 shimmer; never flash seed as real data */
+.investee-portal-v8-root .ip8-skeleton {
+  display: block;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #eef2f7 0%, #f8fafc 45%, #eef2f7 90%);
+  background-size: 200% 100%;
+  animation: ip8-shimmer 1.2s ease-in-out infinite;
+}
+.investee-portal-v8-root .ip8-skeleton-card {
+  border: 1px solid rgba(15, 23, 42, 0.06);
+  border-radius: 16px;
+  background: var(--surface, #fff);
+  padding: 14px;
+}
+.investee-portal-v8-root.is-hydrating .workspace {
+  min-height: 60vh;
+}
+.investee-portal-v8-root.is-hydrating .page-head h1::after {
+  content: " · Loading";
+  font-weight: 500;
+  font-size: 0.65em;
+  color: var(--muted, #8190aa);
+}
+@keyframes ip8-shimmer {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}

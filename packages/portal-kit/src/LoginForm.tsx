@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
-import { ApiError, PORTALS, createApiClient, type AuthUser, type PortalId } from '@matanho/shared';
+import { PORTALS, createApiClient, type AuthUser, type PortalId } from '@matanho/shared';
+import { AuthCard, ErrorNote, errorMessage, safeNext } from './AuthCard';
+import { MfaStep } from './MfaStep';
 
 export interface LoginFormProps {
   portal: PortalId;
@@ -15,10 +17,7 @@ export interface LoginFormProps {
   enforcePortalAccess?: boolean;
 }
 
-/** Only allow same-site relative redirects after sign-in. */
-function safeNext(value: string | null): string {
-  return value && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\') ? value : '/';
-}
+type Step = 'password' | 'forgot' | 'forgot-sent' | { mfa: 'verify' | 'enroll' };
 
 /**
  * Sign-in for a portal. Every portal renders this same form and talks to the
@@ -30,6 +29,7 @@ export function LoginForm({ portal, apiUrl, enforcePortalAccess = true }: LoginF
   const [checking, setChecking] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<Step>('password');
 
   useEffect(() => {
     let alive = true;
@@ -51,14 +51,33 @@ export function LoginForm({ portal, apiUrl, enforcePortalAccess = true }: LoginF
     setBusy(true);
     const form = new FormData(event.currentTarget);
     try {
-      await api.login({
+      const r = await api.login({
         email: String(form.get('email') ?? ''),
         password: String(form.get('password') ?? ''),
         ...(enforcePortalAccess ? { portal } : {}),
       });
+      if (r.mfa) {
+        setStep({ mfa: r.mfa });
+        setBusy(false);
+        return;
+      }
       window.location.assign(next());
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : 'Unable to reach the sign-in service. Try again shortly.');
+      setError(errorMessage(e));
+      setBusy(false);
+    }
+  }
+
+  async function onForgot(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setBusy(true);
+    try {
+      await api.forgotPassword(String(new FormData(event.currentTarget).get('email') ?? ''), portal);
+      setStep('forgot-sent');
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
       setBusy(false);
     }
   }
@@ -67,78 +86,97 @@ export function LoginForm({ portal, apiUrl, enforcePortalAccess = true }: LoginF
     setBusy(true);
     await api.logout().catch(() => undefined);
     setUser(null);
+    setStep('password');
     setBusy(false);
   }
 
   const def = PORTALS[portal];
+  const hasAccess = !enforcePortalAccess || (user?.roles.some((r) => r.portal === portal) ?? false);
 
-  return (
-    <main className="mx-login">
-      <style>{css}</style>
-      <section className="mx-card" aria-labelledby="mx-title">
-        <div className="mx-brand">matanho</div>
-        <div className="mx-eyebrow">{def.name.toUpperCase()}</div>
-        <h1 id="mx-title">Sign in</h1>
+  if (typeof step === 'object') {
+    return (
+      <AuthCard portal={portal} title={step.mfa === 'enroll' ? 'Set up two-factor' : 'Two-factor check'}>
+        <MfaStep api={api} mode={step.mfa} onDone={() => window.location.assign(next())} onCancel={onSignOut} />
+      </AuthCard>
+    );
+  }
 
-        {checking ? (
-          <p className="mx-muted">Checking session…</p>
-        ) : user ? (
-          <>
-            <p className="mx-muted">
-              Signed in as <strong>{user.email}</strong>.
-            </p>
-            <div className="mx-actions">
-              <a className="mx-btn primary" href={next()}>
-                Continue
-              </a>
-              <button className="mx-btn" onClick={onSignOut} disabled={busy} type="button">
-                Sign out
-              </button>
-            </div>
-          </>
+  if (step === 'forgot' || step === 'forgot-sent') {
+    return (
+      <AuthCard portal={portal} title="Reset password">
+        {step === 'forgot-sent' ? (
+          <p className="mx-ok">If that email belongs to an active account, a reset link is on its way. It is valid for one hour.</p>
         ) : (
-          <form onSubmit={onSubmit} noValidate={false}>
+          <form onSubmit={onForgot}>
+            <p className="mx-muted">Enter your account email and we will send you a link to choose a new password.</p>
             <label>
               Email
               <input name="email" type="email" autoComplete="username" required autoFocus />
             </label>
-            <label>
-              Password
-              <input name="password" type="password" autoComplete="current-password" required />
-            </label>
-            {error && (
-              <p className="mx-error" role="alert">
-                {error}
-              </p>
-            )}
+            <ErrorNote error={error} />
             <button className="mx-btn primary block" type="submit" disabled={busy}>
-              {busy ? 'Signing in…' : 'Sign in'}
+              {busy ? 'Sending…' : 'Send reset link'}
             </button>
           </form>
         )}
-        <p className="mx-foot">One Matanho account works across every portal you are authorised to use.</p>
-      </section>
-    </main>
+        <p className="mx-foot">
+          <button className="mx-link" type="button" onClick={() => (setError(null), setStep('password'))}>
+            Back to sign in
+          </button>
+        </p>
+      </AuthCard>
+    );
+  }
+
+  return (
+    <AuthCard portal={portal} title="Sign in">
+      {checking ? (
+        <p className="mx-muted">Checking session…</p>
+      ) : user && hasAccess ? (
+        <>
+          <p className="mx-muted">
+            Signed in as <strong>{user.email}</strong>.
+          </p>
+          <div className="mx-actions">
+            <a className="mx-btn primary" href={next()}>
+              Continue
+            </a>
+            <button className="mx-btn" onClick={onSignOut} disabled={busy} type="button">
+              Sign out
+            </button>
+          </div>
+        </>
+      ) : user && !hasAccess ? (
+        <>
+          <p className="mx-muted">
+            Signed in as <strong>{user.email}</strong>, but this account does not have access to the {def.name}.
+          </p>
+          <p className="mx-muted">Sign in with a different account that is authorised for this portal.</p>
+          <div className="mx-actions">
+            <button className="mx-btn primary" onClick={onSignOut} disabled={busy} type="button">
+              Sign in with a different account
+            </button>
+          </div>
+        </>
+      ) : (
+        <form onSubmit={onSubmit} noValidate={false}>
+          <label>
+            Email
+            <input name="email" type="email" autoComplete="username" required autoFocus />
+          </label>
+          <label>
+            Password
+            <input name="password" type="password" autoComplete="current-password" required />
+          </label>
+          <ErrorNote error={error} />
+          <button className="mx-btn primary block" type="submit" disabled={busy}>
+            {busy ? 'Signing in…' : 'Sign in'}
+          </button>
+          <button className="mx-link" type="button" onClick={() => (setError(null), setStep('forgot'))}>
+            Forgot password?
+          </button>
+        </form>
+      )}
+    </AuthCard>
   );
 }
-
-const css = `
-.mx-login{min-height:100vh;display:grid;place-items:center;padding:24px;background:#f5f7fa;color:#000;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-.mx-login *{box-sizing:border-box}
-.mx-card{width:min(420px,100%);background:#fff;border:1px solid #e1e7ef;border-radius:14px;padding:26px;box-shadow:0 8px 28px rgba(15,34,65,.07)}
-.mx-brand{font-size:25px;font-weight:850;letter-spacing:-.055em;margin-bottom:14px}
-.mx-eyebrow{font-size:11px;color:#5364a9;letter-spacing:.12em;font-weight:850}
-.mx-card h1{font-size:25px;letter-spacing:-.035em;margin:6px 0 16px;font-weight:790}
-.mx-card form{display:grid;gap:12px}
-.mx-card label{display:grid;gap:5px;font-size:11px;color:#4b586b;font-weight:700}
-.mx-card input{border:1px solid #d5dde8;border-radius:8px;min-height:38px;padding:8px 10px;font:inherit;font-size:13px;outline:0}
-.mx-card input:focus{border-color:#8297e9;box-shadow:0 0 0 3px rgba(49,88,232,.08)}
-.mx-btn{height:38px;border:1px solid #d7dee8;border-radius:9px;padding:0 14px;background:#fff;color:#1d2a3b;font:inherit;font-size:12px;font-weight:760;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
-.mx-btn.primary{background:linear-gradient(135deg,#3158e8,#4d68e7);border-color:transparent;color:#fff}
-.mx-btn.block{width:100%}
-.mx-btn:disabled{opacity:.55;cursor:not-allowed}
-.mx-actions{display:flex;gap:8px}
-.mx-muted{font-size:12px;color:#4d5868;margin:0 0 14px}
-.mx-error{margin:0;font-size:12px;color:#a9253e;background:#fff0f3;border:1px solid #edc7cf;border-radius:8px;padding:8px 10px}
-.mx-foot{margin:18px 0 0;font-size:11px;color:#6f7b8c;line-height:1.5}
-`;

@@ -45,6 +45,15 @@ export const manifest: LegacyManifest = {
     "/legacy/css/12-v13-user-focus-css.css"
   ],
   "scripts": [
+    "/legacy/js/bridge/mx-core.js",
+    "/legacy/js/bridge/admin-00-common.js",
+    "/legacy/js/bridge/admin-10-kyc.js",
+    "/legacy/js/bridge/admin-20-clients.js",
+    "/legacy/js/bridge/admin-30-investor-services.js",
+    "/legacy/js/bridge/admin-40-documents.js",
+    "/legacy/js/bridge/admin-50-company-reporting.js",
+    "/legacy/js/bridge/admin-60-access.js",
+    "/legacy/js/bridge/admin-99-boot.js",
     "/legacy/js/00-runtime-config.js",
     "/legacy/js/01-inline.js",
     "/legacy/js/02-v7-institutional-enhancement-js.js",

@@ -39,7 +39,7 @@ export function readSessionToken(req: Request): string | undefined {
   return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
-export async function createSession(userId: string, req: Request) {
+export async function createSession(userId: string, req: Request, opts: { mfaPending?: boolean } = {}) {
   const token = generateSessionToken();
   const expiresAt = new Date(Date.now() + config.session.ttlMs);
   await prisma.session.create({
@@ -49,9 +49,15 @@ export async function createSession(userId: string, req: Request) {
       expiresAt,
       userAgent: req.get('user-agent')?.slice(0, 255) ?? null,
       ipAddress: req.ip?.slice(0, 45) ?? null,
+      mfaPending: opts.mfaPending ?? false,
     },
   });
   return { token, expiresAt };
+}
+
+/** Ends every session for a user (password reset, deactivation). */
+export async function destroyUserSessions(userId: string) {
+  await prisma.session.deleteMany({ where: { userId } });
 }
 
 export async function destroySession(token: string) {

@@ -1,0 +1,326 @@
+{
+ "_comment": "Demo data from the V56 company portal prototype. Loaded only when SEED_DEMO=1.",
+ "company": {
+  "name": "Africa Payments Holdings",
+  "legalName": "Africa Payments Holdings (Private) Limited",
+  "ticker": "APH",
+  "sector": "Payments / Fintech",
+  "country": "Zimbabwe",
+  "founded": 2018,
+  "employees": 186,
+  "website": "https://africapayments.example",
+  "address": "12th Floor, Joina City, Harare",
+  "relationship": {
+   "fund": "Matanho Growth Partners I",
+   "ownership": "28.4% fully diluted",
+   "invested": 12400000,
+   "entry": "Mar 2024",
+   "owner": "Tendai Moyo",
+   "ownerRole": "Investment Director",
+   "associate": "Rumbidzai Ncube",
+   "associateRole": "Investment Associate"
+  },
+  "contacts": [
+   {
+    "name": "Chipo Dube",
+    "role": "Chief Financial Officer",
+    "email": "chipo.dube@aph.example",
+    "phone": "+263 77 214 8801"
+   },
+   {
+    "name": "Farai Mutasa",
+    "role": "Chief Operating Officer",
+    "email": "farai.mutasa@aph.example",
+    "phone": "+263 77 441 2290"
+   },
+   {
+    "name": "Nyasha Gondo",
+    "role": "Head of Compliance",
+    "email": "nyasha.gondo@aph.example",
+    "phone": "+263 71 556 0188"
+   }
+  ]
+ },
+ "periods": [
+  {
+   "id": "2026-08",
+   "label": "Aug 2026",
+   "due": "2026-09-05",
+   "status": "open"
+  },
+  {
+   "id": "2026-07",
+   "label": "Jul 2026",
+   "due": "2026-08-05",
+   "status": "accepted"
+  },
+  {
+   "id": "2026-06",
+   "label": "Jun 2026",
+   "due": "2026-07-05",
+   "status": "accepted"
+  },
+  {
+   "id": "2026-05",
+   "label": "May 2026",
+   "due": "2026-06-05",
+   "status": "returned"
+  }
+ ],
+ "kpiDefs": [
+  {
+   "id": "revenue",
+   "label": "Revenue (USD 000s)",
+   "unit": "k",
+   "prev": 1840,
+   "budget": 1920,
+   "invert": false,
+   "series": [
+    1410,
+    1488,
+    1520,
+    1612,
+    1695,
+    1760,
+    1840
+   ]
+  },
+  {
+   "id": "customers",
+   "label": "Active merchants",
+   "unit": "",
+   "prev": 4120,
+   "budget": 4300,
+   "invert": false,
+   "series": [
+    3180,
+    3340,
+    3510,
+    3688,
+    3840,
+    3995,
+    4120
+   ]
+  },
+  {
+   "id": "churn",
+   "label": "Monthly churn %",
+   "unit": "%",
+   "prev": 2.4,
+   "budget": 2.2,
+   "invert": true,
+   "series": [
+    3.1,
+    2.9,
+    2.8,
+    2.6,
+    2.5,
+    2.4,
+    2.4
+   ]
+  },
+  {
+   "id": "tpv",
+   "label": "TPV (USD m)",
+   "unit": "m",
+   "prev": 48.6,
+   "budget": 52,
+   "invert": false,
+   "series": [
+    31.2,
+    34.8,
+    37.1,
+    40.4,
+    43.9,
+    46.2,
+    48.6
+   ]
+  }
+ ],
+ "cashRunway": [
+  11.4,
+  10.8,
+  10.2,
+  9.9,
+  9.6,
+  9.4,
+  9.1
+ ],
+ "volumeSeries": [
+  2.1,
+  2.3,
+  2.2,
+  2.6,
+  2.8,
+  2.9,
+  3.1
+ ],
+ "covenants": [
+  {
+   "id": "leverage",
+   "name": "Net debt / EBITDA",
+   "threshold": "≤ 2.50x",
+   "actual": 1.84,
+   "limit": 2.5,
+   "unit": "x",
+   "headroom": 0.66,
+   "evidence": "current"
+  },
+  {
+   "id": "cash",
+   "name": "Minimum cash",
+   "threshold": "≥ US$ 4.0m",
+   "actual": 6.2,
+   "limit": 4,
+   "unit": "m",
+   "headroom": 2.2,
+   "evidence": "current"
+  },
+  {
+   "id": "insurance",
+   "name": "Directors & officers cover",
+   "threshold": "In force",
+   "actual": 1,
+   "limit": 1,
+   "unit": "",
+   "headroom": 0,
+   "evidence": "expiring",
+   "note": "Renewal due 18 Oct 2026"
+  },
+  {
+   "id": "tax",
+   "name": "ZIMRA tax clearance",
+   "threshold": "Current",
+   "actual": 1,
+   "limit": 1,
+   "unit": "",
+   "headroom": 0,
+   "evidence": "current"
+  }
+ ],
+ "threads": [
+  {
+   "id": "Q-2041",
+   "title": "Working-capital swing in July",
+   "from": "Rumbidzai Ncube",
+   "role": "Investment Associate",
+   "opened": "28 Aug 2026",
+   "status": "open",
+   "messages": [
+    {
+     "who": "them",
+     "name": "Rumbidzai Ncube",
+     "at": "28 Aug · 09:14 CAT",
+     "text": "Trade receivables jumped US$ 1.1m vs June. Was that a large merchant settlement delay, or a change in terms?"
+    }
+   ]
+  },
+  {
+   "id": "Q-2038",
+   "title": "VFEX listing timeline",
+   "from": "Tendai Moyo",
+   "role": "Investment Director",
+   "opened": "22 Aug 2026",
+   "status": "open",
+   "messages": [
+    {
+     "who": "them",
+     "name": "Tendai Moyo",
+     "at": "22 Aug · 16:40 CAT",
+     "text": "Can you confirm whether the VFEX advisers still target a Q4 2026 filing? We need it for the IC pack."
+    },
+    {
+     "who": "me",
+     "name": "You",
+     "at": "23 Aug · 08:05 CAT",
+     "text": "Advisers are still aiming for November. Board wants one more month of TPV before we lock the prospectus numbers."
+    }
+   ]
+  },
+  {
+   "id": "Q-2019",
+   "title": "Insurance certificate wording",
+   "from": "Nyasha Gondo",
+   "role": "Head of Compliance (APH)",
+   "opened": "04 Aug 2026",
+   "status": "resolved",
+   "messages": [
+    {
+     "who": "me",
+     "name": "You",
+     "at": "04 Aug · 11:22 CAT",
+     "text": "Updated D&O certificate uploaded. Loss-payee clause now names the fund."
+    },
+    {
+     "who": "them",
+     "name": "Rumbidzai Ncube",
+     "at": "04 Aug · 14:01 CAT",
+     "text": "Received — closing this thread."
+    }
+   ]
+  }
+ ],
+ "library": [
+  {
+   "id": "g1",
+   "kind": "guide",
+   "title": "Monthly reporting guide",
+   "date": "12 Jan 2026",
+   "size": "420 KB"
+  },
+  {
+   "id": "g2",
+   "kind": "template",
+   "title": "KPI workbook template (xlsx)",
+   "date": "12 Jan 2026",
+   "size": "88 KB"
+  },
+  {
+   "id": "g3",
+   "kind": "template",
+   "title": "Debt & cash schedule",
+   "date": "12 Jan 2026",
+   "size": "64 KB"
+  },
+  {
+   "id": "g4",
+   "kind": "legal",
+   "title": "Shareholders’ agreement extract",
+   "date": "18 Mar 2024",
+   "size": "1.2 MB"
+  },
+  {
+   "id": "g5",
+   "kind": "board",
+   "title": "Q2 2026 board minutes",
+   "date": "21 Jul 2026",
+   "size": "760 KB"
+  }
+ ],
+ "history": [
+  {
+   "id": "2026-07",
+   "label": "Jul 2026",
+   "submitted": "04 Aug 2026 16:12 CAT",
+   "status": "accepted",
+   "reviewer": "Rumbidzai Ncube",
+   "note": "Pack complete. Working-capital comment logged as Q-2041."
+  },
+  {
+   "id": "2026-06",
+   "label": "Jun 2026",
+   "submitted": "03 Jul 2026 11:48 CAT",
+   "status": "accepted",
+   "reviewer": "Tendai Moyo",
+   "note": "Accepted with no follow-ups."
+  },
+  {
+   "id": "2026-05",
+   "label": "May 2026",
+   "submitted": "06 Jun 2026 09:02 CAT",
+   "status": "returned",
+   "reviewer": "Rumbidzai Ncube",
+   "note": "Board pack was the draft pack. Please upload the signed version."
+  }
+ ]
+}

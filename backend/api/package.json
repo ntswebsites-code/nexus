@@ -16,7 +16,8 @@
     "db:status": "dotenv -e ../../.env -- prisma migrate status --schema prisma/schema.prisma",
     "db:seed": "tsx --env-file-if-exists=../../.env prisma/seed.ts",
     "db:studio": "dotenv -e ../../.env -- prisma studio --schema prisma/schema.prisma",
-    "smoke": "tsx --env-file-if-exists=../../.env scripts/smoke-auth.ts"
+    "smoke": "tsx --env-file-if-exists=../../.env scripts/smoke-auth.ts",
+    "e2e": "tsx --env-file-if-exists=../../.env scripts/e2e-phase1.ts"
   },
   "prisma": {
     "schema": "prisma/schema.prisma"
@@ -30,13 +31,17 @@
     "express": "^5.1.0",
     "express-rate-limit": "^8.1.0",
     "helmet": "^8.1.0",
+    "multer": "^2.4.0",
+    "nodemailer": "^7.0.13",
     "zod": "^4.1.0"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.9",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",
+    "@types/multer": "^2.3.0",
     "@types/node": "^22.0.0",
+    "@types/nodemailer": "^8.0.2",
     "dotenv-cli": "^10.0.0",
     "prisma": "^6.19.0",
     "tsup": "^8.5.0",

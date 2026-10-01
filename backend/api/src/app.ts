@@ -5,7 +5,13 @@ import { config } from './config';
 import { createCors } from './config/cors';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { originGuard } from './middleware/originGuard';
+import { requestId } from './middleware/requestId';
 import { apiRouter } from './routes';
+
+// Audit/outbox ids are BIGINT; serialise them as strings in JSON responses.
+(BigInt.prototype as unknown as { toJSON(): string }).toJSON = function (this: bigint) {
+  return this.toString();
+};
 
 export function createApp() {
   const app = express();
@@ -21,6 +27,7 @@ export function createApp() {
       hsts: config.isProduction,
     }),
   );
+  app.use(requestId);
   app.use(createCors(config));
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());

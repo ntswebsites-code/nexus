@@ -67,7 +67,7 @@ const permissionCatalogV8=[
  ['Workspace','dashboard.view','Command Centre'],['Investment','portfolio.view','Whole Portfolio & Construction'],['Trading','orders.view','View orders'],['Trading','orders.create','Create orders'],['Trading','orders.approve','Approve orders'],['Trading','orders.route','Route broker instructions'],['Research','research.view','View research'],['Research','research.edit','Edit research & models'],['Risk','risk.view','View risk'],['Risk','risk.manage','Manage risk/compliance cases'],['Clients','clients.view','View clients'],['Clients','clients.edit','Edit client master'],['KYC','onboarding.view','Onboarding & KYC'],['Reporting','reports.view','View reports'],['Reporting','reports.create','Create reports'],['Documents','documents.view','View documents'],['Documents','documents.edit','Edit documents'],['Operations','operations.view','Operations & reconciliations'],['Valuation','valuation.view','NAV & valuation'],['Audit','audit.view','Audit evidence'],['Cash','cash.view','View cash & ledger'],['Cash','cash.journal.create','Create/reverse cash journals'],['Cash','cash.journal.approve','Approve cash journals'],['Cash','cash.reservation','Manage cash reservations'],['Cash','cash.import','Commit external statements'],['Cash','cash.close','Close cash periods']
 ];
 const defaultRolePermissionsV8=JSON.parse(JSON.stringify(rolePermissions));
-let rbacUsersV8=[
+let rbacUsersV8=window.__mxData&&window.__mxData.rbacUsers||[
  {name:'Tendai Moyo',email:'t.moyo@matanho.demo',role:'investment_director',access:'Active',last:'15:08'},
  {name:'Rudo Dube',email:'r.dube@matanho.demo',role:'portfolio_manager',access:'Active',last:'14:56'},
  {name:'N. Dube',email:'n.dube@matanho.demo',role:'dealer',access:'Active',last:'15:02'},
@@ -79,7 +79,7 @@ let rbacUsersV8=[
  {name:'Internal Audit',email:'audit@matanho.demo',role:'auditor',access:'Read only',last:'13:20'},
  {name:'Platform Administrator',email:'admin@matanho.demo',role:'system_admin',access:'Privileged',last:'15:09'}
 ];
-let accessPolicyV8={orderApproval:'independent',cashApproval:'independent',navApproval:'independent',bankApproval:'dual',sessionTimeout:30,mfa:true};
+let accessPolicyV8=window.__mxData&&window.__mxData.accessPolicy||{orderApproval:'independent',cashApproval:'independent',navApproval:'independent',bankApproval:'dual',sessionTimeout:30,mfa:true};
 let platformSettingsV8={startPage:'command',density:'compact',timezone:'Africa/Harare',breadcrumbs:true,defaultPortfolio:'Balanced Growth Fund',defaultOrderType:'Limit',advCap:15,researchEvidence:true,riskHorizon:'10 days',liquidityHorizon:'30 calendar days',riskWarning:80,autoRisk:true,issuerIngest:true,exchangeIngest:true,thirdPartyResearch:true,researchAge:14,notifyRisk:true,notifyOrders:true,notifySettlement:true,notifyResearch:false,lastSaved:null};
 let settingsAuditV8=[];
 let portfolioScenariosV8=[
@@ -88,7 +88,7 @@ let portfolioScenariosV8=[
  {id:'SCN-GRW',name:'Growth tilt',portfolio:'Balanced Growth Fund',objective:'active',te:8.5,cash:5,turnover:15,targets:[38,20,24,10,8],style:'growth',saved:'13:25'}
 ];
 let activeScenarioIdV8='SCN-04';
-function localLoadV8(){try{const r=JSON.parse(localStorage.getItem('matanho-rbac-v8')||'null');if(r?.rolePermissions)Object.keys(r.rolePermissions).forEach(k=>{rolePermissions[k]=r.rolePermissions[k]});if(r?.roleLabels)Object.assign(roleLabels,r.roleLabels);if(Array.isArray(r?.users))rbacUsersV8=r.users;if(r?.policy)accessPolicyV8={...accessPolicyV8,...r.policy};const st=JSON.parse(localStorage.getItem('matanho-settings-v8')||'null');if(st)platformSettingsV8={...platformSettingsV8,...st};const sc=JSON.parse(localStorage.getItem('matanho-scenarios-v8')||'null');if(Array.isArray(sc?.items)&&sc.items.length){portfolioScenariosV8=sc.items;activeScenarioIdV8=sc.active||sc.items[0].id}}catch(e){console.warn('Local configuration reset',e)}}
+function localLoadV8(){try{const r=window.mx&&window.mx.live?null:JSON.parse(localStorage.getItem('matanho-rbac-v8')||'null');if(r?.rolePermissions)Object.keys(r.rolePermissions).forEach(k=>{rolePermissions[k]=r.rolePermissions[k]});if(r?.roleLabels)Object.assign(roleLabels,r.roleLabels);if(Array.isArray(r?.users))rbacUsersV8=r.users;if(r?.policy)accessPolicyV8={...accessPolicyV8,...r.policy};const st=window.mx&&window.mx.live?null:JSON.parse(localStorage.getItem('matanho-settings-v8')||'null');if(st)platformSettingsV8={...platformSettingsV8,...st};const sc=JSON.parse(localStorage.getItem('matanho-scenarios-v8')||'null');if(Array.isArray(sc?.items)&&sc.items.length){portfolioScenariosV8=sc.items;activeScenarioIdV8=sc.active||sc.items[0].id}}catch(e){console.warn('Local configuration reset',e)}}
 function localSaveRbacV8(){try{localStorage.setItem('matanho-rbac-v8',JSON.stringify({rolePermissions,roleLabels,users:rbacUsersV8,policy:accessPolicyV8}))}catch(e){}}
 function localSaveSettingsV8(){try{localStorage.setItem('matanho-settings-v8',JSON.stringify(platformSettingsV8))}catch(e){}}
 function localSaveScenariosV8(){try{localStorage.setItem('matanho-scenarios-v8',JSON.stringify({active:activeScenarioIdV8,items:portfolioScenariosV8}))}catch(e){}}

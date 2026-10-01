@@ -54,6 +54,39 @@ export interface AuthUser {
 
 export interface AuthResponse {
   user: AuthUser;
+  /** Present when the session still needs a second factor: verify a code, or enrol first. */
+  mfa?: 'verify' | 'enroll';
+}
+
+export const mfaCodeSchema = z.object({ code: z.string().trim().regex(/^\d{6}$/, 'Enter the 6-digit code') });
+
+export const forgotPasswordSchema = z.object({
+  email: emailSchema,
+  portal: z.enum(PORTAL_IDS).optional(),
+});
+
+export const resetPasswordSchema = z.object({
+  token: z.string().min(20).max(200),
+  password: passwordSchema,
+});
+
+export const acceptInvitationSchema = z.object({
+  token: z.string().min(20).max(200),
+  name: z.string().trim().min(1).max(120).optional(),
+  password: passwordSchema,
+});
+
+export interface MfaEnrollResponse {
+  secret: string;
+  otpauthUri: string;
+}
+
+export interface InvitationPreview {
+  email: string;
+  name: string | null;
+  portal: string;
+  existingAccount: boolean;
+  expiresAt: string;
 }
 
 export interface ApiErrorBody {

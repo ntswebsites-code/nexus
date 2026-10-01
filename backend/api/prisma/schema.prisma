@@ -1,9 +1,10 @@
 // Matanho Nexus - shared database schema.
 //
-// Scope is intentionally limited to the authentication / authorisation
-// foundation. The business domain (orders, clients, cash, KYC, ...) is still a
-// browser-side prototype; see docs/DOMAIN-ENTITIES.md for the entities that the
-// UI implies and that will become tables once their workflows are specified.
+// Identity/RBAC foundation plus the SRD Phase 1 "cross-portal core":
+// onboarding & KYC, clients, documents & publications, investor services,
+// portfolio-company reporting, audit, outbox and notifications.
+// Conventions follow docs/SRD.md section 10.1 (UUID ids, human `ref` columns,
+// audit columns, optimistic `version`, DECIMAL money + currency).
 
 generator client {
   provider = "prisma-client-js"
@@ -14,6 +15,8 @@ datasource db {
   url               = env("DATABASE_URL")
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
+
+// ============================================================ identity =====
 
 /// A person who can sign in to one or more portals. One account for all portals.
 model User {
@@ -27,8 +30,13 @@ model User {
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
 
-  sessions Session[]
-  roles    UserRole[]
+  sessions       Session[]
+  roles          UserRole[]
+  mfaFactors     UserMfaFactor[]
+  passwordResets PasswordReset[]
+  notifications  Notification[]
+  clientLinks    ClientUser[]
+  companyLinks   CompanyUser[]
 
   @@map("users")
 }
@@ -36,14 +44,17 @@ model User {
 /// Server-side session. The browser only holds an opaque random token in an
 /// httpOnly cookie; we store its SHA-256 so a database leak cannot be replayed.
 model Session {
-  id         String   @id @default(uuid()) @db.Char(36)
-  userId     String   @map("user_id") @db.Char(36)
-  tokenHash  String   @unique @map("token_hash") @db.Char(64)
-  expiresAt  DateTime @map("expires_at")
-  createdAt  DateTime @default(now()) @map("created_at")
-  lastUsedAt DateTime @default(now()) @map("last_used_at")
-  userAgent  String?  @map("user_agent") @db.VarChar(255)
-  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  id            String    @id @default(uuid()) @db.Char(36)
+  userId        String    @map("user_id") @db.Char(36)
+  tokenHash     String    @unique @map("token_hash") @db.Char(64)
+  expiresAt     DateTime  @map("expires_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  lastUsedAt    DateTime  @default(now()) @map("last_used_at")
+  userAgent     String?   @map("user_agent") @db.VarChar(255)
+  ipAddress     String?   @map("ip_address") @db.VarChar(45)
+  /// Set while a second factor is still required for this session.
+  mfaPending    Boolean   @default(false) @map("mfa_pending")
+  mfaVerifiedAt DateTime? @map("mfa_verified_at")
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -53,13 +64,14 @@ model Session {
 }
 
 /// A role scoped to one portal, e.g. admin/compliance or investor/finance.
-/// Rows are seeded from the roles that already exist in the prototype
-/// (prisma/seed/role-catalog.json) - no roles are invented.
 model Role {
   id     String @id @default(uuid()) @db.Char(36)
   portal String @db.VarChar(32)
   key    String @db.VarChar(64)
   label  String @db.VarChar(120)
+  /// Locked roles (system_admin) cannot have their bundle edited.
+  locked Boolean @default(false)
+  custom Boolean @default(false)
 
   permissions RolePermission[]
   users       UserRole[]
@@ -90,4 +102,1003 @@ model UserRole {
   @@id([userId, roleId])
   @@index([roleId])
   @@map("user_roles")
+}
+
+model UserMfaFactor {
+  id         String    @id @default(uuid()) @db.Char(36)
+  userId     String    @map("user_id") @db.Char(36)
+  type       String    @default("totp") @db.VarChar(16)
+  secretEnc  String    @map("secret_enc") @db.Text
+  verifiedAt DateTime? @map("verified_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_mfa_factors")
+}
+
+/// Single-use invitation to a portal (investor admin, company user, staff).
+model Invitation {
+  id          String    @id @default(uuid()) @db.Char(36)
+  email       String    @db.VarChar(254)
+  name        String?   @db.VarChar(120)
+  portal      String    @db.VarChar(32)
+  /// Role keys within `portal` granted on acceptance.
+  roleKeys    Json      @map("role_keys")
+  clientId    String?   @map("client_id") @db.Char(36)
+  companyId   String?   @map("company_id") @db.Char(36)
+  scope       String?   @db.VarChar(32)
+  tokenHash   String    @unique @map("token_hash") @db.Char(64)
+  expiresAt   DateTime  @map("expires_at")
+  acceptedAt  DateTime? @map("accepted_at")
+  revokedAt   DateTime? @map("revoked_at")
+  invitedById String?   @map("invited_by_id") @db.Char(36)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([email])
+  @@map("invitations")
+}
+
+model PasswordReset {
+  id        String    @id @default(uuid()) @db.Char(36)
+  userId    String    @map("user_id") @db.Char(36)
+  tokenHash String    @unique @map("token_hash") @db.Char(64)
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
+
+// ============================================================ platform =====
+
+/// Security/workflow policy toggles (order_approval, cash_approval, mfa_required ...).
+model Policy {
+  key       String   @id @db.VarChar(64)
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  updatedBy String?  @map("updated_by") @db.Char(36)
+
+  @@map("policies")
+}
+
+/// Platform settings (ownerId = "platform") and per-user preferences (ownerId = user id).
+model Setting {
+  ownerId   String   @map("owner_id") @db.VarChar(36)
+  key       String   @db.VarChar(80)
+  value     Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([ownerId, key])
+  @@map("settings")
+}
+
+model Notification {
+  id        String    @id @default(uuid()) @db.Char(36)
+  userId    String    @map("user_id") @db.Char(36)
+  type      String    @db.VarChar(64)
+  title     String    @db.VarChar(200)
+  body      String?   @db.Text
+  link      String?   @db.VarChar(500)
+  readAt    DateTime? @map("read_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model NotificationPreference {
+  userId  String  @map("user_id") @db.Char(36)
+  channel String  @db.VarChar(16)
+  type    String  @db.VarChar(64)
+  enabled Boolean @default(true)
+
+  @@id([userId, channel, type])
+  @@map("notification_preferences")
+}
+
+/// Append-only, hash-chained audit trail. No update/delete path exists in code.
+model AuditEvent {
+  id         BigInt   @id @default(autoincrement())
+  occurredAt DateTime @default(now()) @map("occurred_at") @db.DateTime(3)
+  actorId    String?  @map("actor_id") @db.Char(36)
+  actorRole  String?  @map("actor_role") @db.VarChar(120)
+  portal     String?  @db.VarChar(32)
+  action     String   @db.VarChar(80)
+  objectType String   @map("object_type") @db.VarChar(64)
+  objectId   String   @map("object_id") @db.VarChar(64)
+  before     Json?
+  after      Json?
+  reason     String?  @db.Text
+  ip         String?  @db.VarChar(45)
+  requestId  String?  @map("request_id") @db.VarChar(64)
+  prevHash   String   @map("prev_hash") @db.Char(64)
+  hash       String   @db.Char(64)
+
+  @@index([objectType, objectId])
+  @@index([actorId, occurredAt])
+  @@index([occurredAt])
+  @@map("audit_events")
+}
+
+/// Transactional outbox; the worker publishes rows to notification/email/screening handlers.
+model OutboxEvent {
+  id          BigInt    @id @default(autoincrement())
+  type        String    @db.VarChar(80)
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at")
+  publishedAt DateTime? @map("published_at")
+  attempts    Int       @default(0)
+  lastError   String?   @map("last_error") @db.Text
+
+  @@index([publishedAt, id])
+  @@map("outbox_events")
+}
+
+/// Named counters for human references (CL-00418, ONB-104829, REQ-2051 ...).
+model Sequence {
+  name  String @id @db.VarChar(32)
+  value Int
+
+  @@map("sequences")
+}
+
+// ============================================================ files ========
+
+/// An encrypted binary in the file store. Referenced by documents, evidence, submissions.
+model FileObject {
+  id            String   @id @default(uuid()) @db.Char(36)
+  storageKey    String   @unique @map("storage_key") @db.VarChar(200)
+  name          String   @db.VarChar(255)
+  mime          String   @db.VarChar(120)
+  size          Int
+  sha256        String   @db.Char(64)
+  scanStatus    String   @default("clean") @map("scan_status") @db.VarChar(16)
+  uploadedById  String?  @map("uploaded_by_id") @db.Char(36)
+  /// Set when uploaded anonymously through an onboarding draft.
+  applicationId String?  @map("application_id") @db.Char(36)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([applicationId])
+  @@map("files")
+}
+
+// ============================================================ documents ====
+
+model Document {
+  id                String    @id @default(uuid()) @db.Char(36)
+  ref               String    @unique @db.VarChar(32)
+  name              String    @db.VarChar(255)
+  /// report | statement | capital | legal | tax | kyc | company | other
+  type              String    @db.VarChar(32)
+  label             String?   @db.VarChar(120)
+  /// Public | Client | Internal | Restricted
+  classification    String    @default("Internal") @db.VarChar(16)
+  /// Draft | In review | Approved | Published | Superseded | Restricted
+  status            String    @default("Draft") @db.VarChar(24)
+  ownerName         String?   @map("owner_name") @db.VarChar(120)
+  relatedType       String?   @map("related_type") @db.VarChar(32)
+  relatedId         String?   @map("related_id") @db.Char(36)
+  relatedLabel      String?   @map("related_label") @db.VarChar(160)
+  clientId          String?   @map("client_id") @db.Char(36)
+  companyId         String?   @map("company_id") @db.Char(36)
+  year              Int?
+  documentDate      DateTime? @map("document_date")
+  requiresSignature Boolean   @default(false) @map("requires_signature")
+  retentionYears    Int       @default(7) @map("retention_years")
+  makerId           String?   @map("maker_id") @db.Char(36)
+  checkerId         String?   @map("checker_id") @db.Char(36)
+  approvedAt        DateTime? @map("approved_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  createdBy         String?   @map("created_by") @db.Char(36)
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  updatedBy         String?   @map("updated_by") @db.Char(36)
+  version           Int       @default(1)
+
+  versions          DocumentVersion[]
+  publications      Publication[]
+  reads             DocumentRead[]
+  signatureRequests SignatureRequest[]
+
+  @@index([clientId])
+  @@index([companyId])
+  @@index([relatedType, relatedId])
+  @@map("documents")
+}
+
+model DocumentVersion {
+  id           String   @id @default(uuid()) @db.Char(36)
+  documentId   String   @map("document_id") @db.Char(36)
+  version      Int
+  fileId       String   @map("file_id") @db.Char(36)
+  sha256       String   @db.Char(64)
+  uploadedById String?  @map("uploaded_by_id") @db.Char(36)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, version])
+  @@map("document_versions")
+}
+
+/// Makes an approved document visible to one client's investor users.
+model Publication {
+  id            String    @id @default(uuid()) @db.Char(36)
+  documentId    String    @map("document_id") @db.Char(36)
+  clientId      String    @map("client_id") @db.Char(36)
+  publishedAt   DateTime  @default(now()) @map("published_at")
+  publishedById String?   @map("published_by_id") @db.Char(36)
+  withdrawnAt   DateTime? @map("withdrawn_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, clientId])
+  @@index([clientId])
+  @@map("publications")
+}
+
+model DocumentRead {
+  documentId String   @map("document_id") @db.Char(36)
+  userId     String   @map("user_id") @db.Char(36)
+  readAt     DateTime @default(now()) @map("read_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@id([documentId, userId])
+  @@map("document_reads")
+}
+
+model SignatureRequest {
+  id            String   @id @default(uuid()) @db.Char(36)
+  documentId    String   @map("document_id") @db.Char(36)
+  clientId      String   @map("client_id") @db.Char(36)
+  /// Pending | Signed | Cancelled
+  status        String   @default("Pending") @db.VarChar(16)
+  requestedById String?  @map("requested_by_id") @db.Char(36)
+  dueDate       DateTime? @map("due_date")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  document   Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  signatures Signature[]
+
+  @@index([clientId, status])
+  @@map("signature_requests")
+}
+
+model Signature {
+  id           String   @id @default(uuid()) @db.Char(36)
+  requestId    String   @map("request_id") @db.Char(36)
+  signerUserId String   @map("signer_user_id") @db.Char(36)
+  signerName   String   @map("signer_name") @db.VarChar(120)
+  authority    String   @db.VarChar(160)
+  consentAt    DateTime @map("consent_at")
+  mfaAt        DateTime? @map("mfa_at")
+  docSha256    String   @map("doc_sha256") @db.Char(64)
+  ip           String?  @db.VarChar(45)
+  signedAt     DateTime @default(now()) @map("signed_at")
+
+  request SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("signatures")
+}
+
+// ============================================================ parties ======
+
+model Client {
+  id                 String    @id @default(uuid()) @db.Char(36)
+  ref                String    @unique @db.VarChar(16)
+  name               String    @db.VarChar(200)
+  type               String    @db.VarChar(64)
+  baseCurrency       String    @default("USD") @map("base_currency") @db.Char(3)
+  riskRating         String    @default("Medium") @map("risk_rating") @db.VarChar(16)
+  /// Pending | Current | Review due | Enhanced review
+  kycStatus          String    @default("Pending") @map("kyc_status") @db.VarChar(24)
+  mandateLabel       String?   @map("mandate_label") @db.VarChar(120)
+  ownerName          String?   @map("owner_name") @db.VarChar(120)
+  relationshipOwnerId String?  @map("relationship_owner_id") @db.Char(36)
+  email              String?   @db.VarChar(254)
+  phone              String?   @db.VarChar(40)
+  registrationRef    String?   @map("registration_ref") @db.VarChar(80)
+  address            String?   @db.VarChar(255)
+  notes              String?   @db.Text
+  valueLabel         String?   @map("value_label") @db.VarChar(40)
+  accountsCount      Int       @default(0) @map("accounts_count")
+  nextReviewDate     DateTime? @map("next_review_date")
+  portalEnabled      Boolean   @default(false) @map("portal_enabled")
+  archivedAt         DateTime? @map("archived_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  createdBy          String?   @map("created_by") @db.Char(36)
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  updatedBy          String?   @map("updated_by") @db.Char(36)
+  version            Int       @default(1)
+
+  users           ClientUser[]
+  mandates        Mandate[]
+  cashAccounts    CashAccount[]
+  capitalEvents   CapitalEvent[]
+  serviceRequests ServiceRequest[]
+  threads         MessageThread[]
+  snapshots       InvestorSnapshot[]
+  bankInstructions BankInstruction[]
+
+  @@map("clients")
+}
+
+/// Links an investor-portal user to a client relationship with a role and account scope.
+model ClientUser {
+  id           String   @id @default(uuid()) @db.Char(36)
+  clientId     String   @map("client_id") @db.Char(36)
+  userId       String   @map("user_id") @db.Char(36)
+  investorRole String   @default("admin") @map("investor_role") @db.VarChar(32)
+  accountScope String   @default("all") @map("account_scope") @db.VarChar(32)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, userId])
+  @@map("client_users")
+}
+
+model Mandate {
+  id        String   @id @default(uuid()) @db.Char(36)
+  ref       String   @unique @db.VarChar(16)
+  clientId  String   @map("client_id") @db.Char(36)
+  name      String   @db.VarChar(160)
+  /// discretionary | cis | private_markets | treasury | advisory
+  type      String   @db.VarChar(32)
+  /// Shell | Active | Closed
+  status    String   @default("Shell") @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at")
+  createdBy String?  @map("created_by") @db.Char(36)
+  updatedAt DateTime @updatedAt @map("updated_at")
+  version   Int      @default(1)
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("mandates")
+}
+
+model CashAccount {
+  id            String    @id @default(uuid()) @db.Char(36)
+  ref           String    @unique @db.VarChar(16)
+  clientId      String    @map("client_id") @db.Char(36)
+  mandateId     String?   @map("mandate_id") @db.Char(36)
+  legalEntity   String    @map("legal_entity") @db.VarChar(200)
+  /// SEGREGATED | OMNIBUS | HYBRID
+  ownership     String    @default("SEGREGATED") @db.VarChar(16)
+  moneyClass    String    @default("Client money") @map("money_class") @db.VarChar(40)
+  type          String    @default("Settlement") @db.VarChar(40)
+  provider      String    @default("Pending") @db.VarChar(120)
+  identifierEnc String?   @map("identifier_enc") @db.Text
+  masked        String    @default("Pending") @db.VarChar(40)
+  currency      String    @default("USD") @db.Char(3)
+  /// Portfolio mapping, GL/tolerance policy and last imported statement balances
+  /// (stand-in until the Phase 2 cash ledger derives balances from journals).
+  meta          Json?
+  /// DRAFT | PENDING_APPROVAL | ACTIVE | SUSPENDED | CLOSING | CLOSED
+  status        String    @default("DRAFT") @db.VarChar(20)
+  makerId       String?   @map("maker_id") @db.Char(36)
+  checkerId     String?   @map("checker_id") @db.Char(36)
+  submittedAt   DateTime? @map("submitted_at")
+  approvedAt    DateTime? @map("approved_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  version       Int       @default(1)
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@map("cash_accounts")
+}
+
+// ============================================================ onboarding ===
+
+model OnboardingApplication {
+  id                  String    @id @default(uuid()) @db.Char(36)
+  /// ONB-###### assigned on submit.
+  ref                 String?   @unique @db.VarChar(16)
+  /// Investor portal | Assisted
+  channel             String    @default("Investor portal") @db.VarChar(32)
+  applicantType       String    @default("Individual") @map("applicant_type") @db.VarChar(64)
+  legalName           String?   @map("legal_name") @db.VarChar(200)
+  email               String    @db.VarChar(254)
+  emailVerifiedAt     DateTime? @map("email_verified_at")
+  phone               String?   @db.VarChar(40)
+  country             String?   @db.VarChar(80)
+  registrationRef     String?   @map("registration_ref") @db.VarChar(80)
+  expectedInvestment  Decimal?  @map("expected_investment") @db.Decimal(20, 4)
+  relationship        String?   @db.VarChar(80)
+  classification      String?   @db.VarChar(80)
+  baseCurrency        String?   @map("base_currency") @db.VarChar(8)
+  riskProfile         String?   @map("risk_profile") @db.VarChar(40)
+  liquidityNeed       String?   @map("liquidity_need") @db.VarChar(40)
+  purpose             String?   @db.Text
+  sourceOfFunds       String?   @map("source_of_funds") @db.Text
+  sourceOfWealth      String?   @map("source_of_wealth") @db.Text
+  taxResidence        String?   @map("tax_residence") @db.VarChar(80)
+  taxIdEnc            String?   @map("tax_id_enc") @db.Text
+  taxStatus           String?   @map("tax_status") @db.VarChar(80)
+  pep                 String?   @db.VarChar(16)
+  bankJurisdiction    String?   @map("bank_jurisdiction") @db.VarChar(80)
+  signingAuthority    String?   @map("signing_authority") @db.VarChar(160)
+  expectedActivity    String?   @map("expected_activity") @db.Text
+  /// Full form payload used to restore the draft exactly as typed (tax id removed).
+  formData            Json?     @map("form_data")
+  consentAt           DateTime? @map("consent_at")
+  /// Draft | Submitted
+  status              String    @default("Draft") @db.VarChar(16)
+  submittedAt         DateTime? @map("submitted_at")
+  draftTokenHash      String?   @unique @map("draft_token_hash") @db.Char(64)
+  draftTokenExpiresAt DateTime? @map("draft_token_expires_at")
+  clientId            String?   @map("client_id") @db.Char(36)
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  owners  BeneficialOwner[]
+  kycCase KycCase?
+
+  @@index([email])
+  @@map("onboarding_applications")
+}
+
+model BeneficialOwner {
+  id            String   @id @default(uuid()) @db.Char(36)
+  applicationId String?  @map("application_id") @db.Char(36)
+  clientId      String?  @map("client_id") @db.Char(36)
+  fullName      String   @map("full_name") @db.VarChar(160)
+  idNumberEnc   String?  @map("id_number_enc") @db.Text
+  ownershipPct  Decimal? @map("ownership_pct") @db.Decimal(7, 4)
+  isController  Boolean  @default(false) @map("is_controller")
+  pep           Boolean  @default(false)
+
+  application OnboardingApplication? @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@map("beneficial_owners")
+}
+
+model KycCase {
+  id                  String    @id @default(uuid()) @db.Char(36)
+  ref                 String    @unique @db.VarChar(16)
+  applicationId       String    @unique @map("application_id") @db.Char(36)
+  clientId            String?   @map("client_id") @db.Char(36)
+  /// Submitted | Screening | ComplianceReview | ClientAction | EnhancedReview | Approved | Rejected | Activation | Active
+  stage               String    @default("Submitted") @db.VarChar(24)
+  /// Pending | Low | Medium | High
+  risk                String    @default("Pending") @db.VarChar(16)
+  slaState            String    @default("New") @map("sla_state") @db.VarChar(24)
+  slaDueAt            DateTime? @map("sla_due_at")
+  ownerId             String?   @map("owner_id") @db.Char(36)
+  ownerName           String    @default("Client Services intake") @map("owner_name") @db.VarChar(120)
+  preparedById        String?   @map("prepared_by_id") @db.Char(36)
+  decision            String?   @db.VarChar(24)
+  decisionReason      String?   @map("decision_reason") @db.Text
+  decidedById         String?   @map("decided_by_id") @db.Char(36)
+  decidedAt           DateTime? @map("decided_at")
+  enhancedReviewDoneAt DateTime? @map("enhanced_review_done_at")
+  fundsApproved       Boolean   @default(false) @map("funds_approved")
+  checklist           Json?
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  version             Int       @default(1)
+
+  application OnboardingApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  evidence    KycEvidence[]
+  screening   ScreeningResult[]
+  events      KycCaseEvent[]
+
+  @@index([stage])
+  @@map("kyc_cases")
+}
+
+model KycEvidence {
+  id         String    @id @default(uuid()) @db.Char(36)
+  caseId     String?   @map("case_id") @db.Char(36)
+  applicationId String @map("application_id") @db.Char(36)
+  /// doc1..doc8 slot keys from the onboarding form.
+  slot       String    @db.VarChar(16)
+  label      String    @db.VarChar(80)
+  fileId     String?   @map("file_id") @db.Char(36)
+  /// Missing | Received | Accepted | Rejected
+  status     String    @default("Received") @db.VarChar(16)
+  reviewerId String?   @map("reviewer_id") @db.Char(36)
+  reviewedAt DateTime? @map("reviewed_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  kycCase KycCase? @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@unique([applicationId, slot])
+  @@map("kyc_evidence")
+}
+
+model ScreeningResult {
+  id         String   @id @default(uuid()) @db.Char(36)
+  caseId     String   @map("case_id") @db.Char(36)
+  provider   String   @db.VarChar(64)
+  /// sanctions | pep | adverse_media | document
+  type       String   @db.VarChar(24)
+  /// Clear | Review | Match
+  outcome    String   @db.VarChar(16)
+  score      Int?
+  rawRef     String?  @map("raw_ref") @db.VarChar(120)
+  receivedAt DateTime @default(now()) @map("received_at")
+
+  kycCase KycCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@map("screening_results")
+}
+
+model KycCaseEvent {
+  id      String   @id @default(uuid()) @db.Char(36)
+  caseId  String   @map("case_id") @db.Char(36)
+  at      DateTime @default(now())
+  title   String   @db.VarChar(200)
+  detail  String?  @db.Text
+  actorId String?  @map("actor_id") @db.Char(36)
+
+  kycCase KycCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, at])
+  @@map("kyc_case_events")
+}
+
+// ============================================================ investor services
+
+model CapitalEvent {
+  id               String    @id @default(uuid()) @db.Char(36)
+  ref              String    @unique @db.VarChar(24)
+  clientId         String    @map("client_id") @db.Char(36)
+  investmentName   String    @map("investment_name") @db.VarChar(160)
+  /// Capital call | Distribution | Contribution | Withdrawal
+  type             String    @db.VarChar(24)
+  amount           Decimal   @db.Decimal(20, 4)
+  currency         String    @default("USD") @db.Char(3)
+  dueDate          DateTime? @map("due_date")
+  /// Draft | Approved | Expected | Due | Processing | Funded | Paid
+  status           String    @default("Draft") @db.VarChar(16)
+  purpose          String?   @db.Text
+  breakdown        Json?
+  bankText         String?   @map("bank_text") @db.VarChar(255)
+  evidenceName     String?   @map("evidence_name") @db.VarChar(255)
+  noticeDocumentId String?   @map("notice_document_id") @db.Char(36)
+  makerId          String?   @map("maker_id") @db.Char(36)
+  checkerId        String?   @map("checker_id") @db.Char(36)
+  approvedAt       DateTime? @map("approved_at")
+  publishedAt      DateTime? @map("published_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  version          Int       @default(1)
+
+  client   Client            @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  evidence FundingEvidence[]
+
+  @@index([clientId, status])
+  @@map("capital_events")
+}
+
+model FundingEvidence {
+  id             String    @id @default(uuid()) @db.Char(36)
+  capitalEventId String    @map("capital_event_id") @db.Char(36)
+  fileId         String    @map("file_id") @db.Char(36)
+  confirmedById  String    @map("confirmed_by_id") @db.Char(36)
+  confirmedAt    DateTime  @default(now()) @map("confirmed_at")
+  matchedAt      DateTime? @map("matched_at")
+  matchedById    String?   @map("matched_by_id") @db.Char(36)
+
+  capitalEvent CapitalEvent @relation(fields: [capitalEventId], references: [id], onDelete: Cascade)
+
+  @@map("funding_evidence")
+}
+
+model BankInstruction {
+  id            String    @id @default(uuid()) @db.Char(36)
+  clientId      String    @map("client_id") @db.Char(36)
+  version       Int       @default(1)
+  bank          String    @db.VarChar(120)
+  accountName   String?   @map("account_name") @db.VarChar(160)
+  identifierEnc String?   @map("identifier_enc") @db.Text
+  masked        String    @db.VarChar(40)
+  verifiedAt    DateTime? @map("verified_at")
+  /// Active | Superseded
+  status        String    @default("Active") @db.VarChar(16)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("bank_instructions")
+}
+
+model ServiceRequest {
+  id        String    @id @default(uuid()) @db.Char(36)
+  ref       String    @unique @db.VarChar(16)
+  clientId  String    @map("client_id") @db.Char(36)
+  type      String    @db.VarChar(64)
+  priority  String    @default("Normal") @db.VarChar(16)
+  title     String    @db.VarChar(200)
+  detail    String?   @db.Text
+  /// Open | In progress | Waiting on you | Closed
+  status    String    @default("Open") @db.VarChar(20)
+  ownerName String    @default("Client Services") @map("owner_name") @db.VarChar(120)
+  ownerId   String?   @map("owner_id") @db.Char(36)
+  progress  Int       @default(10)
+  slaDueAt  DateTime? @map("sla_due_at")
+  fileId    String?   @map("file_id") @db.Char(36)
+  openedById String?  @map("opened_by_id") @db.Char(36)
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+  version   Int       @default(1)
+
+  client Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  events ServiceRequestEvent[]
+
+  @@index([clientId, status])
+  @@map("service_requests")
+}
+
+model ServiceRequestEvent {
+  id        String   @id @default(uuid()) @db.Char(36)
+  requestId String   @map("request_id") @db.Char(36)
+  at        DateTime @default(now())
+  title     String   @db.VarChar(200)
+  detail    String?  @db.Text
+  actorId   String?  @map("actor_id") @db.Char(36)
+
+  request ServiceRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@map("service_request_events")
+}
+
+model MessageThread {
+  id        String   @id @default(uuid()) @db.Char(36)
+  clientId  String   @map("client_id") @db.Char(36)
+  title     String   @db.VarChar(200)
+  ownerName String   @map("owner_name") @db.VarChar(120)
+  ownerRole String?  @map("owner_role") @db.VarChar(120)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  messages Message[]
+  reads    MessageRead[]
+
+  @@index([clientId])
+  @@map("message_threads")
+}
+
+model Message {
+  id         String   @id @default(uuid()) @db.Char(36)
+  threadId   String   @map("thread_id") @db.Char(36)
+  authorId   String?  @map("author_id") @db.Char(36)
+  authorName String   @map("author_name") @db.VarChar(120)
+  /// true when written by an investor-portal user.
+  fromClient Boolean  @map("from_client")
+  body       String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  thread MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
+  @@map("messages")
+}
+
+model MessageRead {
+  threadId String   @map("thread_id") @db.Char(36)
+  userId   String   @map("user_id") @db.Char(36)
+  readAt   DateTime @default(now()) @map("read_at")
+
+  thread MessageThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@id([threadId, userId])
+  @@map("message_reads")
+}
+
+// ============================================================ published investor snapshots
+// Stand-in for IBOR/PBOR until Phase 2: staff import a valuation-dated snapshot
+// per client, a second approver publishes it, and the investor portal reads the
+// latest Published snapshot only.
+
+model InvestorSnapshot {
+  id                String    @id @default(uuid()) @db.Char(36)
+  clientId          String    @map("client_id") @db.Char(36)
+  valuationDate     DateTime  @map("valuation_date") @db.Date
+  /// Draft | Published | Superseded
+  status            String    @default("Draft") @db.VarChar(16)
+  reportingCurrency String    @default("USD") @map("reporting_currency") @db.Char(3)
+  fx                Json
+  /// NAV, unfunded, cash, net flows, YTD, benchmark, actions ...
+  metrics           Json
+  activity          Json?
+  makerId           String?   @map("maker_id") @db.Char(36)
+  checkerId         String?   @map("checker_id") @db.Char(36)
+  publishedAt       DateTime? @map("published_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  version           Int       @default(1)
+
+  client       Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  investments  SnapshotInvestment[]
+  holdings     SnapshotHolding[]
+  transactions SnapshotTransaction[]
+  performance  SnapshotPerformancePoint[]
+  allocation   SnapshotAllocation[]
+
+  @@index([clientId, status])
+  @@map("investor_snapshots")
+}
+
+model SnapshotInvestment {
+  id            String   @id @default(uuid()) @db.Char(36)
+  snapshotId    String   @map("snapshot_id") @db.Char(36)
+  key           String   @db.VarChar(24)
+  name          String   @db.VarChar(160)
+  kind          String   @db.VarChar(64)
+  value         Decimal  @db.Decimal(20, 4)
+  returnPct     Decimal? @map("return_pct") @db.Decimal(9, 4)
+  benchmarkPct  Decimal? @map("benchmark_pct") @db.Decimal(9, 4)
+  currency      String   @default("USD") @db.Char(3)
+  status        String   @db.VarChar(64)
+  commitment    Decimal? @db.Decimal(20, 4)
+  called        Decimal? @db.Decimal(20, 4)
+  unfunded      Decimal? @db.Decimal(20, 4)
+  distributions Decimal? @db.Decimal(20, 4)
+  irr           Decimal? @db.Decimal(9, 4)
+  tvpi          Decimal? @db.Decimal(9, 4)
+  dpi           Decimal? @db.Decimal(9, 4)
+  sort          Int      @default(0)
+
+  snapshot InvestorSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@map("snapshot_investments")
+}
+
+model SnapshotHolding {
+  id         String  @id @default(uuid()) @db.Char(36)
+  snapshotId String  @map("snapshot_id") @db.Char(36)
+  key        String  @db.VarChar(24)
+  security   String  @db.VarChar(160)
+  account    String  @db.VarChar(120)
+  asset      String  @db.VarChar(64)
+  quantity   String  @db.VarChar(40)
+  price      String  @db.VarChar(40)
+  value      Decimal @db.Decimal(20, 4)
+  weightPct  Decimal @map("weight_pct") @db.Decimal(9, 4)
+  ytdPct     Decimal @map("ytd_pct") @db.Decimal(9, 4)
+  sort       Int     @default(0)
+
+  snapshot InvestorSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@map("snapshot_holdings")
+}
+
+model SnapshotTransaction {
+  id          String   @id @default(uuid()) @db.Char(36)
+  snapshotId  String   @map("snapshot_id") @db.Char(36)
+  key         String   @db.VarChar(24)
+  tradeDate   DateTime @map("trade_date") @db.Date
+  type        String   @db.VarChar(32)
+  account     String   @db.VarChar(120)
+  description String   @db.VarChar(255)
+  quantity    String   @db.VarChar(40)
+  amount      Decimal  @db.Decimal(20, 4)
+  status      String   @db.VarChar(32)
+  sort        Int      @default(0)
+
+  snapshot InvestorSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@map("snapshot_transactions")
+}
+
+model SnapshotPerformancePoint {
+  id           String  @id @default(uuid()) @db.Char(36)
+  snapshotId   String  @map("snapshot_id") @db.Char(36)
+  /// 1M | 3M | YTD | 1Y | 3Y
+  range        String  @db.VarChar(8)
+  idx          Int
+  portfolioPct Decimal @map("portfolio_pct") @db.Decimal(9, 4)
+  benchmarkPct Decimal? @map("benchmark_pct") @db.Decimal(9, 4)
+
+  snapshot InvestorSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@index([snapshotId, range])
+  @@map("snapshot_performance_points")
+}
+
+model SnapshotAllocation {
+  id         String  @id @default(uuid()) @db.Char(36)
+  snapshotId String  @map("snapshot_id") @db.Char(36)
+  label      String  @db.VarChar(80)
+  pct        Decimal @db.Decimal(9, 4)
+  sort       Int     @default(0)
+
+  snapshot InvestorSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
+
+  @@map("snapshot_allocation")
+}
+
+// ============================================================ company reporting
+
+model PortfolioCompany {
+  id          String   @id @default(uuid()) @db.Char(36)
+  ref         String   @unique @db.VarChar(16)
+  name        String   @db.VarChar(200)
+  legalName   String   @map("legal_name") @db.VarChar(255)
+  ticker      String   @db.VarChar(16)
+  sector      String   @db.VarChar(120)
+  country     String   @db.VarChar(80)
+  founded     Int?
+  employees   Int?
+  website     String?  @db.VarChar(255)
+  address     String?  @db.VarChar(255)
+  /// Fund, ownership, invested, entry, deal team.
+  relationship Json
+  contacts    Json
+  cashRunway  Json?    @map("cash_runway")
+  volumeSeries Json?   @map("volume_series")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  version     Int      @default(1)
+
+  users     CompanyUser[]
+  periods   ReportingPeriod[]
+  kpis      CompanyKpi[]
+  covenants Covenant[]
+  questions ReportingQuestion[]
+
+  @@map("portfolio_companies")
+}
+
+model CompanyUser {
+  companyId String   @map("company_id") @db.Char(36)
+  userId    String   @map("user_id") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, userId])
+  @@map("company_users")
+}
+
+model CompanyKpi {
+  id        String   @id @default(uuid()) @db.Char(36)
+  companyId String   @map("company_id") @db.Char(36)
+  key       String   @db.VarChar(32)
+  label     String   @db.VarChar(120)
+  unit      String   @db.VarChar(8)
+  invert    Boolean  @default(false)
+  prev      Decimal  @db.Decimal(20, 4)
+  budget    Decimal  @db.Decimal(20, 4)
+  series    Json
+  sort      Int      @default(0)
+
+  company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@map("company_kpis")
+}
+
+model ReportingPeriod {
+  id            String    @id @default(uuid()) @db.Char(36)
+  companyId     String    @map("company_id") @db.Char(36)
+  /// YYYY-MM
+  period        String    @db.VarChar(7)
+  label         String    @db.VarChar(32)
+  dueDate       DateTime  @map("due_date") @db.Date
+  /// open | submitted | accepted | returned
+  status        String    @default("open") @db.VarChar(16)
+  kpiValues     Json?     @map("kpi_values")
+  notes         String?   @db.Text
+  submittedAt   DateTime? @map("submitted_at")
+  submittedById String?   @map("submitted_by_id") @db.Char(36)
+  reviewedById  String?   @map("reviewed_by_id") @db.Char(36)
+  reviewerName  String?   @map("reviewer_name") @db.VarChar(120)
+  reviewedAt    DateTime? @map("reviewed_at")
+  reviewNote    String?   @map("review_note") @db.Text
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  version       Int       @default(1)
+
+  company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  items   ReportingItem[]
+
+  @@unique([companyId, period])
+  @@map("reporting_periods")
+}
+
+model ReportingItem {
+  id        String    @id @default(uuid()) @db.Char(36)
+  periodId  String    @map("period_id") @db.Char(36)
+  /// accounts | kpis | debt | board | compliance
+  key       String    @db.VarChar(32)
+  title     String    @db.VarChar(120)
+  detail    String    @db.VarChar(255)
+  required  Boolean   @default(true)
+  accept    String    @db.VarChar(80)
+  /// Due | Complete | Expiring
+  status    String    @default("Due") @db.VarChar(16)
+  expiresAt DateTime? @map("expires_at")
+  sort      Int       @default(0)
+
+  period      ReportingPeriod       @relation(fields: [periodId], references: [id], onDelete: Cascade)
+  submissions ReportingSubmission[]
+
+  @@unique([periodId, key])
+  @@map("reporting_items")
+}
+
+model ReportingSubmission {
+  id           String   @id @default(uuid()) @db.Char(36)
+  itemId       String   @map("item_id") @db.Char(36)
+  fileId       String   @map("file_id") @db.Char(36)
+  name         String   @db.VarChar(255)
+  size         Int
+  /// Draft | Submitted | Accepted | Returned
+  status       String   @default("Draft") @db.VarChar(16)
+  uploadedById String?  @map("uploaded_by_id") @db.Char(36)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  item ReportingItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@map("reporting_submissions")
+}
+
+/// Question thread between the investment team and a portfolio company.
+model ReportingQuestion {
+  id        String   @id @default(uuid()) @db.Char(36)
+  ref       String   @unique @db.VarChar(16)
+  companyId String   @map("company_id") @db.Char(36)
+  periodId  String?  @map("period_id") @db.Char(36)
+  title     String   @db.VarChar(200)
+  fromName  String   @map("from_name") @db.VarChar(120)
+  fromRole  String   @map("from_role") @db.VarChar(120)
+  /// open | resolved
+  status    String   @default("open") @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  company  PortfolioCompany           @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  messages ReportingQuestionMessage[]
+
+  @@index([companyId, status])
+  @@map("reporting_questions")
+}
+
+model ReportingQuestionMessage {
+  id          String   @id @default(uuid()) @db.Char(36)
+  questionId  String   @map("question_id") @db.Char(36)
+  authorId    String?  @map("author_id") @db.Char(36)
+  authorName  String   @map("author_name") @db.VarChar(120)
+  fromCompany Boolean  @map("from_company")
+  body        String   @db.Text
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  question ReportingQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("reporting_question_messages")
+}
+
+model Covenant {
+  id        String   @id @default(uuid()) @db.Char(36)
+  companyId String   @map("company_id") @db.Char(36)
+  key       String   @db.VarChar(32)
+  name      String   @db.VarChar(160)
+  threshold String   @db.VarChar(120)
+  actual    Decimal  @db.Decimal(20, 4)
+  limit     Decimal  @db.Decimal(20, 4)
+  unit      String   @db.VarChar(8)
+  headroom  String   @db.VarChar(40)
+  /// current | expiring
+  evidence  String   @default("current") @db.VarChar(16)
+  note      String?  @db.VarChar(255)
+  sort      Int      @default(0)
+
+  company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, key])
+  @@map("covenants")
 }

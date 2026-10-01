@@ -30,14 +30,14 @@ function createPortfolioFromDraft(){const name=String(pf('name')||'').trim(),ccy
 function enhancePortfolioButton(){const old=$('#page-portfolios [data-action="create-portfolio"]');if(!old||old.dataset.v34==='1')return;const b=old.cloneNode(true);b.dataset.v34='1';b.removeAttribute('data-action');b.textContent='+ New portfolio';b.onclick=openPortfolioSetup;old.replaceWith(b)}
 
 /* ---------------- Investor Services ---------------- */
-const serviceRelationships=[
+const serviceRelationships=window.__mxData&&window.__mxData.serviceRelationships||[
 {id:'CL-00418',name:'Horizon Pension Fund',type:'Institutional mandate',value:'US$ 18.42m',commitment:'US$ 5.0m',unfunded:'US$ 1.25m',portal:'Active',owner:'R. Ndlovu',next:'Statement release',due:'Today',tone:'warn'},
 {id:'CL-00433',name:'Stonebridge Holdings',type:'Private markets LP',value:'US$ 8.90m',commitment:'US$ 10.0m',unfunded:'US$ 4.2m',portal:'Restricted',owner:'T. Moyo',next:'EDD evidence',due:'Today',tone:'bad'},
 {id:'CL-00402',name:'Cedar Insurance',type:'Segregated mandate',value:'US$ 12.60m',commitment:'—',unfunded:'—',portal:'Active',owner:'L. Dube',next:'Signatory update',due:'4h',tone:'warn'},
 {id:'CL-00451',name:'Makombe Family Office',type:'Wealth mandate',value:'US$ 4.76m',commitment:'—',unfunded:'—',portal:'Active',owner:'S. Chari',next:'Fee query response',due:'1d',tone:'blue'},
 {id:'CL-00469',name:'Baobab Endowment',type:'Institutional mandate',value:'US$ 6.22m',commitment:'—',unfunded:'—',portal:'Invited',owner:'R. Ndlovu',next:'Portal activation',due:'2d',tone:'blue'}
 ];
-const serviceTasks=[
+const serviceTasks=window.__mxData&&window.__mxData.serviceTasks||[
 {id:'SRV-8812',kind:'Money',title:'Release Growth Fund I capital call',detail:'14 LPs · US$ 1.86m · checker approved',due:'Today · 10:00',owner:'Investor Ops',severity:'critical'},
 {id:'SRV-8815',kind:'Publication',title:'Publish July managed-account statements',detail:'5 investor packs remain after NAV approval',due:'Today · 12:00',owner:'Client Services',severity:'warn'},
 {id:'SRV-8821',kind:'Request',title:'Answer Horizon capital-call clarification',detail:'Secure portal message · 34 minutes old',due:'SLA 1h 26m',owner:'R. Ndlovu',severity:'warn'},

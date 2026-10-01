@@ -1,15 +1,21 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
-import '../globals.css';
+import { InvesteePortal } from '@/components/InvesteePortal';
 
 export const metadata: Metadata = {
-  title: 'Matanho | Portfolio Company Portal',
+  title: 'Matanho | Investee Portal',
+  description: 'Reporting, KPIs, term sheets and capital requests for Matanho portfolio companies.',
 };
 
-export default function CompanyLayout({ children }: { children: ReactNode }) {
+export const viewport: Viewport = { width: 'device-width', initialScale: 1 };
+
+export default function InvesteeLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body style={{ margin: 0 }}>
+        <InvesteePortal />
+        <div hidden>{children}</div>
+      </body>
     </html>
   );
 }

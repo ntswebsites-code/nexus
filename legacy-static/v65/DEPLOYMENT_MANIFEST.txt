@@ -1,0 +1,27 @@
+Matanho Nexus V65 deployment package
+
+Primary entry points
+- index.html
+- client-portal.html
+- public-onboarding.html
+- company-portal.html
+- custodian-portal.html
+
+Runtime assets
+- v33-rebuild.css / v33-rebuild.js / v33-market-master.js
+- v59-lp-enhancements.css / v59-lp-enhancements.js
+- v60-enhancements.css / v60-enhancements.js
+- v61-enhancements.css / v61-enhancements.js
+- v62-enhancements.css / v62-enhancements.js
+- v63-enhancements.css / v63-enhancements.js
+- v64-enhancements.css / v64-enhancements.js
+- v65-enhancements.css / v65-enhancements.js
+
+Deployment
+- vercel.json
+- .nojekyll
+- .github/workflows/pages.yml
+
+V65 release notes
+- V65_CHANGES.md
+- V65_QA.md

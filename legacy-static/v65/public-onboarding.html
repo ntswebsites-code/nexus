@@ -1,0 +1,485 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Matanho | Institutional Investor Application</title>
+<meta name="description" content="Institutional investor and LP application with document OCR, KYC/AML declarations, AI-assisted triage and human compliance review.">
+<style>
+:root{
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --bg:#f3f5f8;--paper:#ffffff;--ink:#0a0d12;--muted:#667080;--soft:#f7f8fa;--line:#e1e5eb;
+  --accent:#1f5eff;--accent2:#6a4df5;--good:#148365;--warn:#b97813;--bad:#b53c50;
+  --shadow:0 22px 70px rgba(16,30,54,.08);--radius:18px;
+}
+*{box-sizing:border-box}
+html{background:var(--bg)}
+body{margin:0;background:var(--bg);color:var(--ink);font-feature-settings:"tnum" 1,"ss01" 1;font-variant-numeric:tabular-nums}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer}
+button:disabled{cursor:not-allowed;opacity:.52}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.shell{max-width:1380px;margin:0 auto;padding:18px 22px 56px}
+.topbar{height:62px;display:flex;align-items:center;justify-content:space-between;gap:18px}
+.brand{display:flex;align-items:center;gap:12px;font-weight:820;letter-spacing:-.04em;font-size:22px}
+.brand-mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#0b111c,#26344c);position:relative;overflow:hidden}
+.brand-mark:after{content:"";position:absolute;inset:5px 7px;border:2px solid #fff;border-top-color:transparent;border-radius:5px;transform:rotate(-18deg)}
+.top-meta{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:11px}
+.secure-pill{display:flex;align-items:center;gap:7px;padding:7px 9px;border:1px solid var(--line);border-radius:999px;background:#fff}
+.secure-dot{width:7px;height:7px;border-radius:50%;background:var(--good);box-shadow:0 0 0 3px rgba(20,131,101,.10)}
+.hero{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:end;gap:30px;padding:38px 4px 24px;border-bottom:1px solid var(--line)}
+.eyebrow{font-size:10px;letter-spacing:.13em;font-weight:780;color:#58657a;text-transform:uppercase}
+.hero h1{font-size:40px;line-height:1.03;letter-spacing:-.045em;margin:8px 0 10px;font-weight:710;max-width:760px}
+.hero p{margin:0;color:var(--muted);font-size:13px;line-height:1.6;max-width:760px}
+.hero-state{display:grid;grid-template-columns:repeat(3,minmax(120px,1fr));border:1px solid var(--line);border-radius:14px;background:#fff;overflow:hidden;min-width:430px}
+.hero-state>div{padding:12px 14px;border-right:1px solid var(--line)}.hero-state>div:last-child{border-right:0}
+.hero-state span,.hero-state strong,.hero-state small{display:block}.hero-state span{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.08em}.hero-state strong{font-size:13px;margin:4px 0}.hero-state small{font-size:10px;color:var(--muted)}
+.app-grid{display:grid;grid-template-columns:220px minmax(0,1fr) 310px;gap:14px;margin-top:14px;align-items:start}
+.step-rail,.side-panel,.form-card{background:var(--paper);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow)}
+.step-rail{position:sticky;top:14px;padding:10px}
+.step-rail button{width:100%;border:0;background:transparent;border-radius:11px;padding:10px 9px;display:grid;grid-template-columns:30px minmax(0,1fr) auto;align-items:center;gap:9px;text-align:left}
+.step-rail button:hover{background:var(--soft)}
+.step-rail button.active{background:#f0f4ff}
+.step-rail button.done .step-num{background:#0d1b2f;color:#fff}
+.step-num{width:30px;height:30px;border-radius:9px;background:#eef1f5;display:grid;place-items:center;font-size:10px;font-weight:800}
+.step-copy strong,.step-copy small{display:block}.step-copy strong{font-size:11px;font-weight:720}.step-copy small{font-size:10px;color:var(--muted);margin-top:2px;line-height:1.25}
+.step-check{font-size:11px;color:var(--good);opacity:0}.step-rail button.done .step-check{opacity:1}
+.rail-footer{border-top:1px solid var(--line);margin-top:8px;padding:11px 10px 6px}
+.rail-footer span,.rail-footer strong{display:block;font-size:10px}.rail-footer span{color:var(--muted)}.rail-footer strong{margin-top:4px;font-size:11px}
+.form-card{overflow:hidden}
+.form-head{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;padding:20px 22px 17px;border-bottom:1px solid var(--line)}
+.form-head h2{font-size:20px;letter-spacing:-.025em;margin:3px 0 5px}.form-head p{margin:0;color:var(--muted);font-size:11px;line-height:1.45;max-width:650px}
+.progress-wrap{min-width:170px}.progress-wrap span{display:block;text-align:right;font-size:10px;color:var(--muted);margin-bottom:6px}.progress-track{height:5px;border-radius:99px;background:#edf0f4;overflow:hidden}.progress-track i{display:block;height:100%;background:linear-gradient(90deg,var(--accent),var(--accent2));width:16.66%;transition:width .22s}
+.form-body{padding:22px}
+.pane{display:none}.pane.active{display:block}
+.section-title{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin:4px 0 12px}.section-title h3{margin:0;font-size:13px}.section-title p{margin:0;font-size:10px;color:var(--muted)}
+.fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:11px}.fields.three{grid-template-columns:repeat(3,minmax(0,1fr))}.wide{grid-column:1/-1}
+label.field{display:grid;gap:5px;font-size:10px;color:#566174;font-weight:690}
+label.field>span{display:flex;align-items:center;justify-content:space-between;gap:8px}
+label.field em{font-style:normal;color:#929baa;font-weight:540}
+input,select,textarea{width:100%;border:1px solid #dfe4eb;border-radius:9px;background:#fbfcfd;padding:10px 11px;font-size:12px;outline:none;transition:border-color .15s,box-shadow .15s,background .15s}
+input:focus,select:focus,textarea:focus{border-color:#8ba7ff;background:#fff;box-shadow:0 0 0 3px rgba(31,94,255,.08)}
+textarea{resize:vertical;min-height:86px;line-height:1.5}
+.inline-choice{display:flex;gap:6px;flex-wrap:wrap}.inline-choice button{border:1px solid var(--line);background:#fff;border-radius:999px;padding:7px 10px;font-size:10px;font-weight:680}.inline-choice button.active{border-color:#8da8ff;background:#eef3ff;color:#244cbd}
+.subsection{margin-top:19px;padding-top:18px;border-top:1px solid var(--line)}
+.repeater{display:grid;gap:8px}.repeater-row{display:grid;grid-template-columns:1.3fr .8fr .75fr .65fr 34px;gap:7px;align-items:end}.repeater-row.signatory{grid-template-columns:1.2fr 1fr .85fr 34px}.repeater-row button.remove{width:34px;height:38px;border:1px solid var(--line);border-radius:8px;background:#fff;color:#7d8796}.small-action{border:1px solid var(--line);border-radius:8px;background:#fff;padding:8px 10px;font-size:10px;font-weight:700}
+.declaration-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.declaration{border:1px solid var(--line);border-radius:11px;padding:11px 12px;display:flex;justify-content:space-between;gap:12px;align-items:center;background:#fff}.declaration strong,.declaration small{display:block}.declaration strong{font-size:11px}.declaration small{font-size:10px;color:var(--muted);margin-top:3px}.declaration select{width:150px;flex:0 0 auto;padding:8px 9px;background:#fff}
+.doc-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}.doc-card{border:1px solid var(--line);border-radius:12px;background:#fff;padding:12px;min-width:0}.doc-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.doc-head strong{font-size:11px}.doc-head small{display:block;font-size:10px;color:var(--muted);line-height:1.4;margin-top:3px}.doc-status{font-size:9px;border:1px solid var(--line);padding:4px 7px;border-radius:999px;color:var(--muted);white-space:nowrap}.doc-status.ready{border-color:#b9ddd3;color:var(--good);background:#f4fbf8}.doc-actions{display:flex;align-items:center;gap:6px;margin-top:10px;flex-wrap:wrap}.upload-btn{position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);border-radius:8px;background:#fbfcfd;padding:8px 9px;font-size:10px;font-weight:700}.upload-btn input{position:absolute;inset:0;opacity:0;cursor:pointer}.text-btn{border:0;background:transparent;padding:7px 4px;color:#3159cb;font-size:10px;font-weight:720}.ocr-bar{display:none;margin-top:9px;background:#f3f6fb;border-radius:999px;overflow:hidden;height:5px}.ocr-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .2s}.ocr-meta{display:none;margin-top:7px;font-size:10px;color:var(--muted);line-height:1.4}
+.review-card{border:1px solid var(--line);border-radius:12px;background:#fff;overflow:hidden;margin-bottom:9px}.review-head{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:11px 12px;border-bottom:1px solid var(--line)}.review-head strong{font-size:11px}.review-head button{border:0;background:transparent;color:#3159cb;font-size:10px;font-weight:720}.review-body{padding:11px 12px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.review-body div{min-width:0}.review-body span,.review-body strong,.review-body small{display:block}.review-body span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.review-body strong{font-size:11px;margin-top:3px;overflow-wrap:anywhere}.review-body small{font-size:10px;color:var(--muted);margin-top:2px}
+.consent{display:flex;align-items:flex-start;gap:9px;font-size:10px;line-height:1.5;color:var(--muted);font-weight:560;margin-top:12px}.consent input{width:auto;margin-top:2px}
+.signature-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:10px}
+.form-actions{display:flex;justify-content:space-between;align-items:center;gap:10px;border-top:1px solid var(--line);margin-top:20px;padding-top:16px}.form-actions>div{display:flex;gap:7px;flex-wrap:wrap}.btn{border:1px solid var(--line);border-radius:9px;background:#fff;padding:10px 13px;font-size:10px;font-weight:760}.btn.primary{background:#111827;color:#fff;border-color:#111827}.btn.accent{background:linear-gradient(135deg,#194fff,#6744ee);border-color:transparent;color:#fff}.btn.ghost{background:transparent}
+.side-panel{position:sticky;top:14px;overflow:hidden}.side-head{padding:15px 16px;border-bottom:1px solid var(--line)}.side-head h3{font-size:13px;margin:3px 0 4px}.side-head p{font-size:10px;color:var(--muted);margin:0;line-height:1.45}.score{padding:15px 16px;border-bottom:1px solid var(--line)}.score-top{display:flex;justify-content:space-between;gap:14px;align-items:flex-end}.score strong{font-size:28px;letter-spacing:-.04em}.score span{font-size:10px;color:var(--muted)}.score-bar{height:6px;background:#eef1f4;border-radius:99px;margin-top:8px;overflow:hidden}.score-bar i{display:block;height:100%;width:22%;background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .2s}.check-list{padding:7px 16px 12px}.check-row{display:grid;grid-template-columns:16px minmax(0,1fr) auto;gap:8px;align-items:start;padding:9px 0;border-bottom:1px solid #edf0f4}.check-row:last-child{border-bottom:0}.check-icon{width:16px;height:16px;border-radius:50%;background:#eef1f4;display:grid;place-items:center;font-size:9px;color:#7b8594}.check-icon.good{background:#eaf7f2;color:var(--good)}.check-icon.warn{background:#fff4e4;color:var(--warn)}.check-icon.bad{background:#fcecef;color:var(--bad)}.check-row strong,.check-row small{display:block}.check-row strong{font-size:10px}.check-row small{font-size:9px;color:var(--muted);line-height:1.35;margin-top:2px}.check-row em{font-size:9px;font-style:normal;color:var(--muted);white-space:nowrap}.side-actions{padding:12px 16px 15px;border-top:1px solid var(--line);display:grid;gap:7px}.side-actions .btn{width:100%}
+.ai-note{margin:0 16px 15px;border:1px solid #dfe6f7;background:#f7f9ff;border-radius:10px;padding:10px 11px;font-size:9px;color:#647087;line-height:1.45}.ai-note strong{color:#222c3d}
+.modal{position:fixed;inset:0;background:rgba(6,10,18,.55);z-index:50;display:none;align-items:center;justify-content:center;padding:18px}.modal.show{display:flex}.modal-card{width:min(1000px,96vw);max-height:92vh;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 30px 100px rgba(0,0,0,.22);display:flex;flex-direction:column}.modal-head{padding:13px 15px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;gap:12px;align-items:center}.modal-head strong{font-size:12px}.modal-head button{border:1px solid var(--line);background:#fff;width:32px;height:32px;border-radius:8px}.modal-body{padding:14px;overflow:auto}.preview-frame{width:100%;min-height:66vh;border:0;background:#f1f3f6;border-radius:10px}.preview-image{max-width:100%;display:block;margin:auto;border-radius:8px}.ocr-result{display:grid;grid-template-columns:1fr 1fr;gap:12px}.ocr-text{border:1px solid var(--line);border-radius:10px;background:#fbfcfd;padding:11px;white-space:pre-wrap;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;max-height:58vh;overflow:auto}.candidate-list{display:grid;gap:7px}.candidate{border:1px solid var(--line);border-radius:9px;padding:9px}.candidate span,.candidate strong,.candidate small{display:block}.candidate span{font-size:9px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}.candidate strong{font-size:11px;margin:3px 0}.candidate small{font-size:9px;color:var(--muted)}
+.success{display:none;padding:34px 24px;text-align:center}.success.show{display:block}.success-mark{width:52px;height:52px;border-radius:16px;margin:0 auto 15px;background:#0c1625;color:#fff;display:grid;place-items:center;font-size:22px}.success h2{font-size:27px;letter-spacing:-.035em;margin:0 0 7px}.success p{font-size:11px;color:var(--muted);line-height:1.5;max-width:600px;margin:0 auto}.success-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:760px;margin:18px auto 0}.success-grid>div{border:1px solid var(--line);border-radius:10px;padding:10px;background:#fbfcfd}.success-grid span,.success-grid strong,.success-grid small{display:block}.success-grid span{font-size:9px;color:var(--muted);text-transform:uppercase}.success-grid strong{font-size:12px;margin:3px}.success-grid small{font-size:9px;color:var(--muted)}
+@media(max-width:1120px){.app-grid{grid-template-columns:190px minmax(0,1fr)}.side-panel{grid-column:2;position:static}.hero-state{min-width:0}.fields.three{grid-template-columns:1fr 1fr}}
+@media(max-width:820px){.shell{padding:12px 12px 36px}.hero{grid-template-columns:1fr;padding-top:25px}.hero h1{font-size:32px}.hero-state{grid-template-columns:1fr 1fr 1fr}.app-grid{grid-template-columns:1fr}.step-rail{position:static;display:grid;grid-template-columns:repeat(3,1fr);gap:4px}.step-rail button{grid-template-columns:1fr;text-align:center}.step-num{margin:auto}.step-copy small,.step-check,.rail-footer{display:none}.side-panel{grid-column:auto}.fields,.fields.three,.doc-grid,.declaration-grid,.signature-row,.review-body{grid-template-columns:1fr}.wide{grid-column:auto}.repeater-row,.repeater-row.signatory{grid-template-columns:1fr 1fr}.repeater-row .remove{grid-column:auto}.form-head{padding:16px}.form-body{padding:16px}.progress-wrap{min-width:130px}.ocr-result{grid-template-columns:1fr}}
+@media(max-width:520px){.top-meta .secure-pill:first-child{display:none}.hero-state{grid-template-columns:1fr}.hero-state>div{border-right:0;border-bottom:1px solid var(--line)}.hero-state>div:last-child{border-bottom:0}.step-rail{grid-template-columns:repeat(2,1fr)}.form-head{display:block}.progress-wrap{margin-top:12px;min-width:0}.progress-wrap span{text-align:left}.repeater-row,.repeater-row.signatory{grid-template-columns:1fr}.form-actions{align-items:stretch;flex-direction:column}.form-actions>div,.form-actions .btn{width:100%}.form-actions>div{display:grid;grid-template-columns:1fr 1fr}.form-actions>div .accent{grid-column:1/-1}.success-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="shell">
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark" aria-hidden="true"></span><span>matanho</span></div>
+    <div class="top-meta">
+      <span class="secure-pill"><span class="secure-dot"></span>Encrypted submission workflow</span>
+      <span class="secure-pill">Institutional investor onboarding</span>
+    </div>
+  </header>
+
+  <section class="hero">
+    <div>
+      <div class="eyebrow">INVESTOR / LP APPLICATION</div>
+      <h1>One application. One verified investor record.</h1>
+      <p>Complete your institutional profile, beneficial ownership, tax and banking details, KYC/AML declarations and supporting evidence. Document OCR and AI-assisted triage reduce re-keying; an authorised compliance professional remains responsible for final acceptance.</p>
+    </div>
+    <div class="hero-state">
+      <div><span>Draft</span><strong id="draftStatus">Saved locally</strong><small>Resume on this device</small></div>
+      <div><span>Evidence</span><strong id="heroEvidence">0 uploaded</strong><small>OCR available</small></div>
+      <div><span>Decision</span><strong>Human controlled</strong><small>AI cannot approve</small></div>
+    </div>
+  </section>
+
+  <section class="app-grid">
+    <aside class="step-rail" id="stepRail" aria-label="Application steps"></aside>
+
+    <section class="form-card" id="applicationCard">
+      <header class="form-head">
+        <div><div class="eyebrow" id="stepEyebrow">STEP 1 OF 6</div><h2 id="stepTitle">Investor profile</h2><p id="stepHelp">Tell us exactly who the investor is and what relationship is being requested.</p></div>
+        <div class="progress-wrap"><span id="progressLabel">17% complete</span><div class="progress-track"><i id="progressBar"></i></div></div>
+      </header>
+
+      <form id="applicationForm" class="form-body" novalidate>
+        <section class="pane active" data-pane="0">
+          <div class="section-title"><div><h3>Investor identity</h3><p>Use legal / registry details, not abbreviated trading names.</p></div></div>
+          <div class="fields three">
+            <label class="field"><span>Investor type</span><select id="investorType" required><option>Institutional investor</option><option>Pension / provident fund</option><option>Corporate treasury</option><option>Investment company / family office</option><option>Trust / foundation</option><option>Fund / collective investment vehicle</option><option>Individual / HNW</option></select></label>
+            <label class="field"><span>Legal name</span><input id="legalName" required autocomplete="organization"></label>
+            <label class="field"><span>Registration / identity number</span><input id="registrationRef" required></label>
+            <label class="field"><span>Jurisdiction of incorporation / residence</span><input id="jurisdiction" value="Zimbabwe" required></label>
+            <label class="field"><span>Date incorporated / date of birth</span><input id="incorporationDate" type="date"></label>
+            <label class="field"><span>Regulatory status</span><select id="regulatedStatus"><option>Not a regulated financial institution</option><option>Regulated financial institution</option><option>Pension / retirement arrangement</option><option>Government / public institution</option><option>Other regulated entity</option></select></label>
+            <label class="field"><span>Regulator / supervisory body <em>if applicable</em></span><input id="regulator"></label>
+            <label class="field"><span>Licence / registration reference <em>if applicable</em></span><input id="licenceRef"></label>
+            <label class="field"><span>Website <em>optional</em></span><input id="website" type="url" placeholder="https://"></label>
+            <label class="field wide"><span>Registered address</span><textarea id="registeredAddress" required rows="2"></textarea></label>
+          </div>
+
+          <div class="subsection">
+            <div class="section-title"><div><h3>Investment relationship</h3><p>Used for account setup and suitability / mandate routing.</p></div></div>
+            <div class="fields three">
+              <label class="field"><span>Relationship requested</span><select id="relationship"><option>Discretionary managed account</option><option>Fund / LP subscription</option><option>Segregated mandate</option><option>Advisory relationship</option><option>Cash / liquidity mandate</option></select></label>
+              <label class="field"><span>Fund / mandate</span><input id="mandate" value="Growth Fund I"></label>
+              <label class="field"><span>Expected commitment / initial investment</span><input id="initialInvestment" type="number" min="0" step="1000" value="250000"></label>
+              <label class="field"><span>Base currency</span><select id="baseCurrency"><option>USD</option><option>ZWG</option><option>ZAR</option><option>GBP</option><option>EUR</option></select></label>
+              <label class="field"><span>Investor classification</span><select id="investorClassification"><option>Institutional / professional investor</option><option>Qualified / sophisticated investor</option><option>Retail / individual investor</option><option>To be confirmed by Compliance</option></select></label>
+              <label class="field"><span>Primary contact email</span><input id="primaryEmail" type="email" required autocomplete="email"></label>
+              <label class="field"><span>Primary contact name</span><input id="primaryContact" required></label>
+              <label class="field"><span>Telephone</span><input id="telephone" autocomplete="tel"></label>
+              <label class="field"><span>Relationship purpose</span><select id="purpose"><option>Long-term capital growth</option><option>Income / preservation</option><option>Liquidity management</option><option>Pension / liability matching</option><option>Strategic allocation</option><option>Other</option></select></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="1">
+          <div class="section-title"><div><h3>Beneficial owners and controllers</h3><p>Capture natural persons who ultimately own or control the investor, or the governing persons where no ownership applies.</p></div><button type="button" class="small-action" id="addOwner">+ Add owner / controller</button></div>
+          <div class="repeater" id="ownerList"></div>
+          <div class="subsection">
+            <div class="section-title"><div><h3>Authorised signatories</h3><p>People permitted to execute instructions or legal documents for this relationship.</p></div><button type="button" class="small-action" id="addSignatory">+ Add signatory</button></div>
+            <div class="repeater" id="signatoryList"></div>
+          </div>
+          <div class="subsection">
+            <div class="fields">
+              <label class="field"><span>Ownership structure description</span><textarea id="ownershipNarrative" placeholder="Describe parent entities, trustees, beneficiaries, controllers and any nominee arrangements."></textarea></label>
+              <label class="field"><span>Authority to invest</span><textarea id="authorityNarrative" placeholder="Board / trustee / investment committee authority and any signing rules."></textarea></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="2">
+          <div class="section-title"><div><h3>KYC / AML declarations</h3><p>These declarations support screening and determine whether enhanced due diligence is required.</p></div></div>
+          <div class="declaration-grid">
+            <div class="declaration"><div><strong>Politically exposed person (PEP)</strong><small>Applicant, owner, controller or close associate.</small></div><select id="pep"><option value="no">No</option><option value="yes">Yes / possible</option><option value="unknown">Unsure</option></select></div>
+            <div class="declaration"><div><strong>Sanctions exposure</strong><small>Known current or historic sanctions designation / restriction.</small></div><select id="sanctions"><option value="no">No known exposure</option><option value="yes">Yes / possible</option><option value="unknown">Unsure</option></select></div>
+            <div class="declaration"><div><strong>Adverse media / legal matters</strong><small>Material fraud, corruption, financial-crime or regulatory concerns.</small></div><select id="adverseMedia"><option value="no">No known concern</option><option value="yes">Yes / disclose</option><option value="unknown">Unsure</option></select></div>
+            <div class="declaration"><div><strong>Enhanced-risk jurisdictions</strong><small>Material business, ownership or funds nexus requiring EDD under manager policy.</small></div><select id="highRiskJurisdiction"><option value="no">No</option><option value="yes">Yes / possible</option><option value="unknown">Unsure</option></select></div>
+          </div>
+          <div class="subsection">
+            <div class="fields three">
+              <label class="field"><span>Primary source of funds</span><select id="sourceFunds"><option>Operating revenue / treasury funds</option><option>Investment proceeds</option><option>Pension contributions / member assets</option><option>Sale of business / asset</option><option>Employment / professional income</option><option>Inheritance / family wealth</option><option>Capital call / investor contributions</option><option>Other</option></select></label>
+              <label class="field"><span>Primary source of wealth / capital</span><select id="sourceWealth"><option>Business / operating activity</option><option>Investments / accumulated savings</option><option>Pension / institutional assets</option><option>Property / asset ownership</option><option>Inheritance / family capital</option><option>Other</option></select></label>
+              <label class="field"><span>Expected annual transaction volume · USD eq.</span><input id="annualVolume" type="number" min="0" step="1000" value="500000"></label>
+              <label class="field"><span>Expected transaction frequency</span><select id="transactionFrequency"><option>Monthly or less</option><option>2–5 per month</option><option>Weekly</option><option>Daily / treasury activity</option></select></label>
+              <label class="field"><span>Primary funding jurisdictions</span><input id="fundingJurisdictions" value="Zimbabwe"></label>
+              <label class="field"><span>Primary investment / payment currencies</span><input id="expectedCurrencies" value="USD"></label>
+              <label class="field wide"><span>Source of funds explanation</span><textarea id="sourceFundsNarrative" required placeholder="Explain where the money for this investment comes from and the economic activity that generated it."></textarea></label>
+              <label class="field wide"><span>Expected account activity</span><textarea id="expectedActivity" required placeholder="Describe expected subscriptions, withdrawals, transfers, counterparties and any cross-border activity."></textarea></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="3">
+          <div class="section-title"><div><h3>Tax and bank verification</h3><p>Required for tax classification, payment controls and verified subscription / redemption instructions.</p></div></div>
+          <div class="fields three">
+            <label class="field"><span>Primary tax residence</span><input id="taxResidence" value="Zimbabwe" required></label>
+            <label class="field"><span>Tax identification number</span><input id="taxId"></label>
+            <label class="field"><span>FATCA classification</span><select id="fatca"><option>Non-US entity / individual</option><option>Participating FFI</option><option>Active NFFE</option><option>Passive NFFE</option><option>US person / US entity</option><option>To be confirmed</option></select></label>
+            <label class="field"><span>GIIN <em>if applicable</em></span><input id="giin"></label>
+            <label class="field"><span>CRS classification</span><select id="crs"><option>Financial institution</option><option>Active non-financial entity</option><option>Passive non-financial entity</option><option>Individual</option><option>To be confirmed</option></select></label>
+            <label class="field"><span>US indicia present?</span><select id="usIndicia"><option value="no">No</option><option value="yes">Yes / possible</option></select></label>
+          </div>
+          <div class="subsection">
+            <div class="section-title"><div><h3>Verified funding account</h3><p>Subscriptions and redemptions should use an account held in the investor's name unless Compliance approves an exception.</p></div></div>
+            <div class="fields three">
+              <label class="field"><span>Bank / financial institution</span><input id="bankName" required></label>
+              <label class="field"><span>Account holder</span><input id="bankHolder" required></label>
+              <label class="field"><span>Bank jurisdiction</span><input id="bankCountry" value="Zimbabwe" required></label>
+              <label class="field"><span>Account / IBAN reference</span><input id="bankAccount" required></label>
+              <label class="field"><span>SWIFT / BIC <em>if applicable</em></span><input id="swift"></label>
+              <label class="field"><span>Account currency</span><select id="bankCurrency"><option>USD</option><option>ZWG</option><option>ZAR</option><option>GBP</option><option>EUR</option></select></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="4">
+          <div class="section-title"><div><h3>Supporting evidence</h3><p>Upload the original evidence. OCR reads images/PDFs to reduce re-keying; the original file remains the evidence of record.</p></div><button type="button" class="small-action" id="runAllOcr">Run OCR on uploaded files</button></div>
+          <div class="doc-grid" id="documentGrid"></div>
+          <div class="subsection">
+            <div class="fields">
+              <label class="field"><span>Additional evidence / explanation <em>optional</em></span><textarea id="evidenceNote" placeholder="Use this field to explain unusual ownership, funding, tax or document circumstances."></textarea></label>
+              <label class="field"><span>Compliance contact <em>optional</em></span><textarea id="complianceContact" placeholder="Name, role, email and telephone of the person we may contact about KYC / AML questions."></textarea></label>
+            </div>
+          </div>
+        </section>
+
+        <section class="pane" data-pane="5">
+          <div class="section-title"><div><h3>Review and submit</h3><p>Check the application pack. AI ATS is advisory; external sanctions/PEP/adverse-media screening must come from an approved provider.</p></div></div>
+          <div id="reviewSummary"></div>
+          <div class="subsection">
+            <div class="section-title"><div><h3>Electronic declaration</h3><p>Submission records the typed signatory and timestamp in this prototype.</p></div></div>
+            <div class="signature-row">
+              <label class="field"><span>Authorised signatory name</span><input id="signatureName" required></label>
+              <label class="field"><span>Capacity / title</span><input id="signatureCapacity" required placeholder="e.g. Trustee, Director, CIO"></label>
+            </div>
+            <label class="consent"><input id="consent" type="checkbox" required><span>I confirm that I am authorised to submit this application, the information is accurate to the best of my knowledge, and Matanho / the investment manager may verify identity, ownership, source of funds, source of wealth, tax status, sanctions, PEP and adverse-media information for KYC/AML purposes. I understand that automated extraction and AI-assisted triage support the review but do not make the final client-acceptance decision.</span></label>
+          </div>
+        </section>
+
+        <div class="form-actions" id="formActions">
+          <button type="button" class="btn ghost" id="backBtn">Back</button>
+          <div><button type="button" class="btn" id="saveBtn">Save draft</button><button type="button" class="btn accent" id="nextBtn">Continue</button><button type="submit" class="btn accent" id="submitBtn" hidden>Submit application</button></div>
+        </div>
+      </form>
+
+      <section class="success" id="successPanel">
+        <div class="success-mark">✓</div><div class="eyebrow">APPLICATION RECEIVED</div><h2>Your investor record is now in review.</h2>
+        <p>Document OCR, completeness checks and AI-assisted triage have been packaged with the original evidence. Approved sanctions/PEP/adverse-media providers and a human Compliance reviewer complete the controlled KYC/AML decision.</p>
+        <div class="success-grid"><div><span>Application</span><strong id="successRef">—</strong><small>Use this reference in correspondence</small></div><div><span>AI ATS</span><strong id="successAi">Queued</strong><small>Advisory pre-screen</small></div><div><span>Final decision</span><strong>Human review</strong><small>Mandatory control</small></div></div>
+      </section>
+    </section>
+
+    <aside class="side-panel" id="sidePanel">
+      <div class="side-head"><div class="eyebrow">AI ATS · ASSISTED TRIAGE & SCREENING</div><h3>Application readiness</h3><p>Continuously checks completeness, OCR consistency and risk declarations. External watchlist screening remains provider-controlled.</p></div>
+      <div class="score"><div class="score-top"><div><span>Readiness score</span><strong id="readinessScore">22%</strong></div><span id="riskBadge">Risk pending</span></div><div class="score-bar"><i id="scoreBar"></i></div></div>
+      <div class="check-list" id="checkList"></div>
+      <div class="side-actions"><button type="button" class="btn primary" id="runAiBtn">Run AI-assisted pre-screen</button><button type="button" class="btn" id="viewAiBtn">View triage details</button></div>
+      <div class="ai-note"><strong>Production control.</strong> Real sanctions, PEP and adverse-media results require approved external screening providers, audit references and server-side evidence retention. This client-side prototype does not fabricate external matches.</div>
+    </aside>
+  </section>
+</main>
+
+<div class="modal" id="previewModal" role="dialog" aria-modal="true" aria-labelledby="previewTitle"><div class="modal-card"><div class="modal-head"><strong id="previewTitle">Document preview</strong><button type="button" data-close-modal="previewModal">×</button></div><div class="modal-body" id="previewBody"></div></div></div>
+<div class="modal" id="ocrModal" role="dialog" aria-modal="true" aria-labelledby="ocrTitle"><div class="modal-card"><div class="modal-head"><strong id="ocrTitle">OCR extraction</strong><button type="button" data-close-modal="ocrModal">×</button></div><div class="modal-body" id="ocrBody"></div></div></div>
+<div class="modal" id="aiModal" role="dialog" aria-modal="true" aria-labelledby="aiTitle"><div class="modal-card"><div class="modal-head"><strong id="aiTitle">AI-assisted triage details</strong><button type="button" data-close-modal="aiModal">×</button></div><div class="modal-body" id="aiBody"></div></div></div>
+
+<script>
+(()=>{
+'use strict';
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const DRAFT='matanho-public-onboarding-draft-v57';
+const BOOK='matanho-onboarding-v10';
+const steps=[
+  ['Investor','Profile & relationship'],['Ownership','UBOs & signatories'],['KYC / AML','Funds & declarations'],['Tax & bank','Tax + funding account'],['Evidence','Documents + OCR'],['Review','AI triage + submit']
+];
+const meta=[
+  ['Investor profile','Tell us exactly who the investor is and what relationship is being requested.'],
+  ['Ownership and authority','Identify the people who ultimately own, control and are authorised to act for the investor.'],
+  ['KYC / AML declarations','Capture the economic purpose, source of funds, source of wealth and risk declarations used in due diligence.'],
+  ['Tax and bank verification','Record FATCA / CRS classification and the verified bank account used for funding.'],
+  ['Supporting evidence','Upload original documents, preview them in place and use OCR to reduce re-keying.'],
+  ['Review and submit','Review the application pack, run AI-assisted triage and make the authorised declaration.']
+];
+const documentDefs=[
+  {id:'legal',title:'Legal existence / identity',help:'Certificate of incorporation, trust deed, fund constitution or government ID.',required:true},
+  {id:'registry',title:'Registry / constitutional extract',help:'Current registry extract, governing document or equivalent legal profile.',required:true},
+  {id:'ownership',title:'Ownership / control evidence',help:'Share register, ownership chart, trustee / beneficiary schedule or controller record.',required:true},
+  {id:'identity',title:'Owners / signatories ID',help:'Passport / national identity evidence for required natural persons.',required:true},
+  {id:'address',title:'Address evidence',help:'Registered-office or residential address evidence, as applicable.',required:true},
+  {id:'bank',title:'Bank verification',help:'Recent bank statement, bank letter or controlled account confirmation.',required:true},
+  {id:'funds',title:'Source-of-funds evidence',help:'Bank-origin evidence, audited record, transaction evidence or equivalent support.',required:true},
+  {id:'tax',title:'Tax / FATCA / CRS',help:'Tax residence, W-8/W-9 or self-certification evidence where applicable.',required:true},
+  {id:'authority',title:'Authority to invest',help:'Board, trustee, IC or authorised-signatory resolution / mandate.',required:true},
+  {id:'subscription',title:'Subscription / investment mandate',help:'Subscription agreement, IPS or investment mandate, if available.',required:false},
+  {id:'additional',title:'Additional supporting evidence',help:'Any other document relevant to KYC, AML, tax or account opening.',required:false}
+];
+let step=0, lastAiResult=null;
+const docs={};
+documentDefs.forEach(d=>docs[d.id]={...d,file:null,url:null,ocrText:'',ocrConfidence:null,candidates:{},ocrState:'Not run'});
+
+function esc(v=''){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
+function value(id){return $('#'+id)?.value?.trim?.() ?? $('#'+id)?.value ?? ''}
+function setValue(id,v){const el=$('#'+id);if(el&&v!=null&&v!=='')el.value=v}
+function money(v){return new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(Number(v||0))}
+function todayTime(){return new Date().toLocaleString('en-GB',{dateStyle:'medium',timeStyle:'short'})}
+function debounce(fn,ms=180){let t;return(...a)=>{clearTimeout(t);t=setTimeout(()=>fn(...a),ms)}}
+
+function renderRail(){
+  $('#stepRail').innerHTML=steps.map((s,i)=>`<button type="button" data-step="${i}" class="${i===step?'active':''} ${i<step?'done':''}"><span class="step-num">${i+1}</span><span class="step-copy"><strong>${s[0]}</strong><small>${s[1]}</small></span><span class="step-check">✓</span></button>`).join('')+`<div class="rail-footer"><span>Application state</span><strong id="railState">Draft saved</strong></div>`;
+  $$('#stepRail [data-step]').forEach(b=>b.addEventListener('click',()=>{const target=Number(b.dataset.step);if(target<=step||validatePane(step,false)){step=target;render()}}));
+}
+function render(){
+  $$('.pane').forEach((p,i)=>p.classList.toggle('active',i===step));
+  renderRail();
+  $('#stepEyebrow').textContent=`STEP ${step+1} OF ${steps.length}`;
+  $('#stepTitle').textContent=meta[step][0];$('#stepHelp').textContent=meta[step][1];
+  const pct=Math.round(((step+1)/steps.length)*100);$('#progressLabel').textContent=`${pct}% complete`;$('#progressBar').style.width=pct+'%';
+  $('#backBtn').disabled=step===0;$('#nextBtn').hidden=step===steps.length-1;$('#submitBtn').hidden=step!==steps.length-1;
+  if(step===5)renderReview();
+  updateReadiness();
+  window.scrollTo({top:Math.max(0,$('#applicationCard').offsetTop-14),behavior:'smooth'});
+}
+
+function addOwner(data={}){
+  const row=document.createElement('div');row.className='repeater-row';
+  row.innerHTML=`<label class="field"><span>Full legal name</span><input data-owner="name" required value="${esc(data.name||'')}"></label><label class="field"><span>Nationality</span><input data-owner="nationality" value="${esc(data.nationality||'Zimbabwe')}"></label><label class="field"><span>ID / passport</span><input data-owner="id" value="${esc(data.id||'')}"></label><label class="field"><span>Ownership %</span><input data-owner="pct" type="number" min="0" max="100" step="0.01" value="${esc(data.pct||'')}"></label><button type="button" class="remove" aria-label="Remove owner">×</button>`;
+  row.querySelector('.remove').addEventListener('click',()=>{if($$('#ownerList .repeater-row').length>1)row.remove();saveDraft(false);updateReadiness()});
+  row.querySelectorAll('input').forEach(i=>i.addEventListener('input',onChange));$('#ownerList').appendChild(row);
+}
+function addSignatory(data={}){
+  const row=document.createElement('div');row.className='repeater-row signatory';
+  row.innerHTML=`<label class="field"><span>Full name</span><input data-signatory="name" required value="${esc(data.name||'')}"></label><label class="field"><span>Role / capacity</span><input data-signatory="role" value="${esc(data.role||'')}"></label><label class="field"><span>Email</span><input data-signatory="email" type="email" value="${esc(data.email||'')}"></label><button type="button" class="remove" aria-label="Remove signatory">×</button>`;
+  row.querySelector('.remove').addEventListener('click',()=>{if($$('#signatoryList .repeater-row').length>1)row.remove();saveDraft(false);updateReadiness()});
+  row.querySelectorAll('input').forEach(i=>i.addEventListener('input',onChange));$('#signatoryList').appendChild(row);
+}
+function collectRepeaters(){
+  const owners=$$('#ownerList .repeater-row').map(r=>({name:r.querySelector('[data-owner=name]').value.trim(),nationality:r.querySelector('[data-owner=nationality]').value.trim(),id:r.querySelector('[data-owner=id]').value.trim(),pct:Number(r.querySelector('[data-owner=pct]').value||0)}));
+  const signatories=$$('#signatoryList .repeater-row').map(r=>({name:r.querySelector('[data-signatory=name]').value.trim(),role:r.querySelector('[data-signatory=role]').value.trim(),email:r.querySelector('[data-signatory=email]').value.trim()}));
+  return{owners,signatories};
+}
+
+function renderDocuments(){
+  $('#documentGrid').innerHTML=documentDefs.map(d=>`<article class="doc-card" data-doc="${d.id}"><div class="doc-head"><div><strong>${d.title}${d.required?' *':''}</strong><small>${d.help}</small></div><span class="doc-status" id="status-${d.id}">Not uploaded</span></div><div class="doc-actions"><label class="upload-btn">Choose file<input type="file" data-doc-input="${d.id}" accept="application/pdf,image/png,image/jpeg,image/webp"></label><button type="button" class="text-btn" data-preview="${d.id}" disabled>Preview</button><button type="button" class="text-btn" data-ocr="${d.id}" disabled>Extract with OCR</button></div><div class="ocr-bar" id="ocrbar-${d.id}"><i></i></div><div class="ocr-meta" id="ocrmeta-${d.id}"></div></article>`).join('');
+  $$('[data-doc-input]').forEach(inp=>inp.addEventListener('change',e=>handleFile(e.currentTarget.dataset.doc,e.currentTarget.files?.[0])));
+  $$('[data-preview]').forEach(b=>b.addEventListener('click',()=>previewDoc(b.dataset.preview)));
+  $$('[data-ocr]').forEach(b=>b.addEventListener('click',()=>runOcr(b.dataset.ocr)));
+  refreshDocumentCards();
+}
+function refreshDocumentCards(){
+  let uploaded=0;
+  documentDefs.forEach(d=>{
+    const rec=docs[d.id],card=$(`[data-doc="${d.id}"]`);if(!card)return;
+    const status=$('#status-'+d.id),preview=card.querySelector('[data-preview]'),ocr=card.querySelector('[data-ocr]'),meta=$('#ocrmeta-'+d.id);
+    if(rec.file){uploaded++;status.textContent=rec.ocrState==='Complete'?'OCR complete':rec.file.name;status.className='doc-status ready';preview.disabled=false;ocr.disabled=false;meta.style.display='block';meta.textContent=rec.ocrState==='Complete'?`OCR ${rec.ocrConfidence??'—'}% · ${Object.keys(rec.candidates||{}).length} field candidate(s)`:`${Math.round(rec.file.size/1024).toLocaleString()} KB · OCR not yet run`;}
+    else{status.textContent='Not uploaded';status.className='doc-status';preview.disabled=true;ocr.disabled=true;meta.style.display='none'}
+  });
+  $('#heroEvidence').textContent=`${uploaded} uploaded`;
+}
+function handleFile(id,file){
+  if(!file)return;const rec=docs[id];if(rec.url)URL.revokeObjectURL(rec.url);rec.file=file;rec.url=URL.createObjectURL(file);rec.ocrText='';rec.ocrConfidence=null;rec.candidates={};rec.ocrState='Not run';refreshDocumentCards();saveDraft(false);updateReadiness();
+}
+function previewDoc(id){
+  const rec=docs[id];if(!rec.file)return;$('#previewTitle').textContent=`${rec.title} · ${rec.file.name}`;
+  const type=rec.file.type||'';if(type==='application/pdf')$('#previewBody').innerHTML=`<iframe class="preview-frame" src="${rec.url}" title="${esc(rec.file.name)}"></iframe>`;else $('#previewBody').innerHTML=`<img class="preview-image" src="${rec.url}" alt="Preview of ${esc(rec.file.name)}">`;
+  openModal('previewModal');
+}
+function openModal(id){$('#'+id).classList.add('show')}
+function closeModal(id){$('#'+id).classList.remove('show')}
+$$('[data-close-modal]').forEach(b=>b.addEventListener('click',()=>closeModal(b.dataset.closeModal)));
+$$('.modal').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)closeModal(m.id)}));
+document.addEventListener('keydown',e=>{if(e.key==='Escape')$$('.modal.show').forEach(m=>closeModal(m.id))});
+
+function loadScriptOnce(src,globalName){return new Promise((resolve,reject)=>{if(globalName&&window[globalName])return resolve(window[globalName]);const old=[...document.scripts].find(s=>s.src===src);if(old){old.addEventListener('load',()=>resolve(globalName?window[globalName]:true),{once:true});old.addEventListener('error',reject,{once:true});return}const s=document.createElement('script');s.src=src;s.async=true;s.onload=()=>resolve(globalName?window[globalName]:true);s.onerror=()=>reject(new Error('Unable to load '+src));document.head.appendChild(s)})}
+async function fileToOcrImage(file){
+  if(file.type==='application/pdf'){
+    await loadScriptOnce('https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js','pdfjsLib');
+    if(!window.pdfjsLib)throw new Error('PDF reader unavailable');
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const buf=await file.arrayBuffer(),pdf=await window.pdfjsLib.getDocument({data:buf}).promise,page=await pdf.getPage(1),vp=page.getViewport({scale:1.6}),canvas=document.createElement('canvas');canvas.width=vp.width;canvas.height=vp.height;await page.render({canvasContext:canvas.getContext('2d'),viewport:vp}).promise;return canvas;
+  }
+  return URL.createObjectURL(file);
+}
+function parseOcrText(text){
+  const out={};const lines=text.split(/\n+/).map(s=>s.trim()).filter(Boolean);
+  const patterns=[
+    ['registrationRef',/(?:registration|company|reg\.?|certificate)\s*(?:no\.?|number|#)?\s*[:\-]?\s*([A-Z0-9\/\-.]{5,})/i],
+    ['taxId',/(?:tax|tin|taxpayer)\s*(?:id|number|no\.)?\s*[:\-]?\s*([A-Z0-9\/\-.]{5,})/i],
+    ['bankAccount',/(?:account|a\/c)\s*(?:number|no\.|#)?\s*[:\-]?\s*([A-Z0-9\-.]{5,})/i],
+    ['swift',/(?:swift|bic)\s*[:\-]?\s*([A-Z0-9]{8,11})/i]
+  ];
+  patterns.forEach(([key,re])=>{const m=text.match(re);if(m)out[key]=m[1]});
+  const nameLine=lines.find(l=>/^(?:legal\s+name|name|account\s+holder|entity)\s*[:\-]/i.test(l));if(nameLine){const v=nameLine.replace(/^[^:\-]+[:\-]\s*/, '').trim();if(v.length>3)out.legalName=v}
+  const addressIdx=lines.findIndex(l=>/^address\s*[:\-]?$/i.test(l)||/^registered address/i.test(l));if(addressIdx>=0&&lines[addressIdx+1])out.registeredAddress=lines.slice(addressIdx+1,addressIdx+3).join(', ');
+  return out;
+}
+async function runOcr(id,showResult=true){
+  const rec=docs[id];if(!rec.file)return;const bar=$('#ocrbar-'+id),fill=bar.querySelector('i'),meta=$('#ocrmeta-'+id);bar.style.display='block';fill.style.width='3%';meta.style.display='block';meta.textContent='Loading OCR engine…';rec.ocrState='Running';
+  try{
+    await loadScriptOnce('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js','Tesseract');
+    const source=await fileToOcrImage(rec.file);
+    const result=await window.Tesseract.recognize(source,'eng',{logger:m=>{if(m.status==='recognizing text'){fill.style.width=Math.max(6,Math.round((m.progress||0)*100))+'%';meta.textContent=`OCR ${Math.round((m.progress||0)*100)}% · ${rec.file.name}`}}});
+    if(typeof source==='string'&&source.startsWith('blob:'))URL.revokeObjectURL(source);
+    rec.ocrText=result.data.text||'';rec.ocrConfidence=Math.round(result.data.confidence||0);rec.candidates=parseOcrText(rec.ocrText);rec.ocrState='Complete';fill.style.width='100%';refreshDocumentCards();if(showResult)showOcrResult(id);updateReadiness();saveDraft(false);
+  }catch(err){rec.ocrState='Unavailable';fill.style.width='0';meta.textContent='OCR could not run in this browser. The original document is still attached. '+err.message;console.warn(err)}
+}
+function showOcrResult(id){
+  const rec=docs[id];$('#ocrTitle').textContent=`OCR extraction · ${rec.file?.name||rec.title}`;const entries=Object.entries(rec.candidates||{});
+  $('#ocrBody').innerHTML=`<div class="ocr-result"><div><div class="eyebrow">EXTRACTED TEXT · CONFIDENCE ${rec.ocrConfidence??'—'}%</div><div class="ocr-text">${esc(rec.ocrText||'No readable text extracted.')}</div></div><div><div class="eyebrow">FIELD CANDIDATES</div><div class="candidate-list">${entries.length?entries.map(([k,v])=>`<div class="candidate"><span>${esc(k)}</span><strong>${esc(v)}</strong><small>Candidate only · verify against the original document</small><button type="button" class="text-btn" data-apply-ocr="${esc(k)}" data-value="${esc(v)}">Apply to application</button></div>`).join(''):'<div class="candidate"><strong>No structured candidates detected</strong><small>The full OCR text remains available for human review.</small></div>'}</div></div></div>`;
+  $$('[data-apply-ocr]').forEach(b=>b.addEventListener('click',()=>{const key=b.dataset.applyOcr,val=b.dataset.value;if($('#'+key)){$('#'+key).value=val;saveDraft(false);updateReadiness();b.textContent='Applied ✓'}}));openModal('ocrModal');
+}
+async function runAllOcr(){const ids=documentDefs.filter(d=>docs[d.id].file&&docs[d.id].ocrState!=='Complete').map(d=>d.id);if(!ids.length)return alert('Upload at least one document that still needs OCR.');for(const id of ids)await runOcr(id,false);alert(`${ids.length} document(s) processed. Open any document to review its OCR candidates.`)}
+
+const dataIds=['investorType','legalName','registrationRef','jurisdiction','incorporationDate','regulatedStatus','regulator','licenceRef','website','registeredAddress','relationship','mandate','initialInvestment','baseCurrency','investorClassification','primaryEmail','primaryContact','telephone','purpose','ownershipNarrative','authorityNarrative','pep','sanctions','adverseMedia','highRiskJurisdiction','sourceFunds','sourceWealth','annualVolume','transactionFrequency','fundingJurisdictions','expectedCurrencies','sourceFundsNarrative','expectedActivity','taxResidence','taxId','fatca','giin','crs','usIndicia','bankName','bankHolder','bankCountry','bankAccount','swift','bankCurrency','evidenceNote','complianceContact','signatureName','signatureCapacity'];
+function collect(){const d={};dataIds.forEach(id=>d[id]=value(id));Object.assign(d,collectRepeaters());d.documents=documentDefs.filter(def=>docs[def.id].file).map(def=>({id:def.id,title:def.title,name:docs[def.id].file.name,type:docs[def.id].file.type,size:docs[def.id].file.size,ocrState:docs[def.id].ocrState,ocrConfidence:docs[def.id].ocrConfidence,candidates:docs[def.id].candidates}));return d}
+function saveDraft(show=true){const d=collect();try{localStorage.setItem(DRAFT,JSON.stringify(d));$('#draftStatus').textContent='Saved just now';const rs=$('#railState');if(rs)rs.textContent='Saved just now'}catch(e){}if(show){const b=$('#saveBtn'),old=b.textContent;b.textContent='Saved ✓';setTimeout(()=>b.textContent=old,800)}}
+function restoreDraft(){try{const d=JSON.parse(localStorage.getItem(DRAFT)||'null');if(!d)return;dataIds.forEach(id=>setValue(id,d[id]));$('#ownerList').innerHTML='';(d.owners?.length?d.owners:[{}]).forEach(addOwner);$('#signatoryList').innerHTML='';(d.signatories?.length?d.signatories:[{}]).forEach(addSignatory)}catch(e){console.warn('Draft not restored',e)}}
+const onChange=debounce(()=>{saveDraft(false);updateReadiness()},120);
+
+function validatePane(index,report=true){const pane=$(`[data-pane="${index}"]`);if(!pane)return true;for(const el of pane.querySelectorAll('[required]')){if(!el.checkValidity()){if(report)el.reportValidity();return false}}if(index===1){const owners=collectRepeaters().owners;if(!owners.some(o=>o.name)){if(report)alert('Add at least one beneficial owner, controller, trustee or governing person.');return false}}if(index===4){const missing=documentDefs.filter(d=>d.required&&!docs[d.id].file);if(missing.length&&report){alert(`Supporting evidence still missing: ${missing.slice(0,4).map(x=>x.title).join(', ')}${missing.length>4?'…':''}`);return false}}return true}
+
+function computeReadiness(){
+  const d=collect(), requiredFields=['legalName','registrationRef','jurisdiction','registeredAddress','primaryEmail','primaryContact','sourceFundsNarrative','expectedActivity','taxResidence','bankName','bankHolder','bankCountry','bankAccount'];
+  const fieldComplete=requiredFields.filter(k=>String(d[k]||'').trim()).length/requiredFields.length;
+  const requiredDocs=documentDefs.filter(x=>x.required), uploaded=requiredDocs.filter(x=>docs[x.id].file).length/requiredDocs.length;
+  const owners=d.owners?.filter(o=>o.name).length?1:0, signatories=d.signatories?.filter(s=>s.name).length?1:0;
+  const score=Math.round((fieldComplete*.42+uploaded*.34+owners*.12+signatories*.07+(lastAiResult?1:0)*.05)*100);
+  return Math.min(100,Math.max(0,score));
+}
+function buildChecks(){
+  const d=collect(),requiredDocs=documentDefs.filter(x=>x.required),missingDocs=requiredDocs.filter(x=>!docs[x.id].file),ocrDone=documentDefs.filter(x=>docs[x.id].ocrState==='Complete').length;
+  const bankMatch=!d.legalName||!d.bankHolder?null:normaliseName(d.legalName)===normaliseName(d.bankHolder)||normaliseName(d.bankHolder).includes(normaliseName(d.legalName).split(' ')[0]);
+  return[
+    {name:'Core application',state:value('legalName')&&value('registrationRef')&&value('sourceFundsNarrative')?'good':'warn',detail:value('legalName')?'Profile captured':'Legal profile incomplete',right:value('registrationRef')?'Ready':'Incomplete'},
+    {name:'Beneficial ownership',state:d.owners?.some(o=>o.name)?'good':'warn',detail:d.owners?.filter(o=>o.name).length?`${d.owners.filter(o=>o.name).length} person(s) captured`:'Owner / controller required',right:d.owners?.some(o=>o.name)?'Captured':'Required'},
+    {name:'Required evidence',state:missingDocs.length?'warn':'good',detail:missingDocs.length?`${missingDocs.length} required document(s) outstanding`:'Required evidence uploaded',right:`${requiredDocs.length-missingDocs.length}/${requiredDocs.length}`},
+    {name:'OCR extraction',state:ocrDone?'good':'',detail:ocrDone?`${ocrDone} document(s) extracted`:'Run OCR after upload',right:ocrDone?'Active':'Optional'},
+    {name:'Bank holder consistency',state:bankMatch===true?'good':bankMatch===false?'warn':'',detail:bankMatch===true?'Holder broadly aligns to legal name':bankMatch===false?'Possible name mismatch — human review required':'Waiting for bank details',right:bankMatch===false?'Review':bankMatch===true?'Pass':'Pending'},
+    {name:'Sanctions / PEP / adverse media',state:lastAiResult?.externalProvider==='connected'?'good':'warn',detail:lastAiResult?.externalProvider==='connected'?'Approved provider result attached':'External screening provider result not yet attached',right:lastAiResult?.externalProvider==='connected'?'Provider':'Pending'},
+    {name:'Human compliance decision',state:'',detail:'Required before account activation',right:'Mandatory'}
+  ];
+}
+function normaliseName(s=''){return s.toLowerCase().replace(/[^a-z0-9]/g,' ').replace(/\s+/g,' ').trim()}
+function updateReadiness(){
+  const score=computeReadiness();$('#readinessScore').textContent=score+'%';$('#scoreBar').style.width=score+'%';
+  const checks=buildChecks();$('#checkList').innerHTML=checks.map(c=>`<div class="check-row"><span class="check-icon ${c.state}">${c.state==='good'?'✓':c.state==='warn'?'!':'•'}</span><span><strong>${c.name}</strong><small>${c.detail}</small></span><em>${c.right}</em></div>`).join('');
+  const risk=lastAiResult?.risk||'Pending';$('#riskBadge').textContent=risk==='Pending'?'Risk pending':`${risk} review risk`;
+  refreshDocumentCards();
+}
+function runAiTriage(show=true){
+  const d=collect(),flags=[];
+  if(d.pep!=='no')flags.push({severity:'high',code:'PEP_REVIEW',message:'PEP / public-office relationship requires enhanced human review and provider screening.'});
+  if(d.sanctions!=='no')flags.push({severity:'high',code:'SANCTIONS_DECLARATION',message:'Applicant declared possible sanctions exposure. Do not proceed without provider evidence and Compliance review.'});
+  if(d.adverseMedia!=='no')flags.push({severity:'medium',code:'ADVERSE_MEDIA',message:'Applicant disclosed possible adverse media / legal matters.'});
+  if(d.highRiskJurisdiction!=='no')flags.push({severity:'medium',code:'JURISDICTION_EDD',message:'Enhanced-risk jurisdiction nexus requires policy-driven EDD.'});
+  const pct=(d.owners||[]).reduce((s,o)=>s+Number(o.pct||0),0);if(pct>100.01)flags.push({severity:'medium',code:'OWNERSHIP_TOTAL',message:`Declared ownership totals ${pct.toFixed(1)}%, above 100%.`});
+  if(Number(d.initialInvestment||0)>=1000000)flags.push({severity:'medium',code:'VALUE_EDD',message:'Large initial investment should be checked against the manager\'s enhanced-review threshold and source-of-funds policy.'});
+  if(d.legalName&&d.bankHolder&&normaliseName(d.legalName)!==normaliseName(d.bankHolder)&&!normaliseName(d.bankHolder).includes(normaliseName(d.legalName).split(' ')[0]))flags.push({severity:'medium',code:'BANK_NAME_MISMATCH',message:'Funding-account holder does not clearly match the investor legal name.'});
+  documentDefs.forEach(def=>{const rec=docs[def.id];if(rec.candidates?.legalName&&d.legalName&&normaliseName(rec.candidates.legalName)!==normaliseName(d.legalName))flags.push({severity:'medium',code:'OCR_NAME_MISMATCH',message:`${def.title}: OCR name candidate differs from the entered legal name.`});if(rec.candidates?.registrationRef&&d.registrationRef&&normaliseName(rec.candidates.registrationRef)!==normaliseName(d.registrationRef))flags.push({severity:'medium',code:'OCR_REG_MISMATCH',message:`${def.title}: OCR registration candidate differs from the entered reference.`})});
+  const missing=documentDefs.filter(x=>x.required&&!docs[x.id].file);if(missing.length)flags.push({severity:'medium',code:'MISSING_EVIDENCE',message:`${missing.length} required evidence item(s) are still missing.`});
+  const high=flags.filter(x=>x.severity==='high').length,med=flags.filter(x=>x.severity==='medium').length;
+  const risk=high?'High':med>=2?'High':med===1?'Medium':'Low';
+  lastAiResult={runAt:new Date().toISOString(),risk,flags,externalProvider:'not_connected',readiness:computeReadiness(),model:'ATS v57 · deterministic prototype triage',humanReviewRequired:true};
+  updateReadiness();saveDraft(false);if(show)showAiDetails();return lastAiResult;
+}
+function showAiDetails(){
+  const r=lastAiResult||runAiTriage(false),d=collect(),flags=r.flags||[];
+  $('#aiBody').innerHTML=`<div class="review-card"><div class="review-head"><strong>AI-assisted triage result</strong><span class="doc-status ${r.risk==='Low'?'ready':''}">${r.risk} review risk</span></div><div class="review-body"><div><span>Readiness</span><strong>${computeReadiness()}%</strong><small>Form + evidence completeness</small></div><div><span>Model</span><strong>${esc(r.model)}</strong><small>Advisory triage only</small></div><div><span>External screening</span><strong>Provider result required</strong><small>No fabricated sanctions / PEP / media result</small></div></div></div><div class="section-title"><div><h3>Exceptions and review prompts</h3><p>Every item below should be resolved against original evidence and approved provider data.</p></div></div><div class="candidate-list">${flags.length?flags.map(f=>`<div class="candidate"><span>${esc(f.code.replaceAll('_',' '))}</span><strong>${esc(f.message)}</strong><small>Severity: ${esc(f.severity)} · human review required</small></div>`).join(''):'<div class="candidate"><strong>No rule-based exceptions identified</strong><small>This is not a sanctions/PEP/adverse-media clearance. Approved external screening is still required.</small></div>'}</div><div class="review-card" style="margin-top:12px"><div class="review-head"><strong>Screening plan</strong></div><div class="review-body"><div><span>Identity / legal existence</span><strong>${d.registrationRef?'Ready':'Incomplete'}</strong></div><div><span>UBO screening population</span><strong>${d.owners?.filter(o=>o.name).length||0} person(s)</strong></div><div><span>Required provider checks</span><strong>Sanctions · PEP · adverse media</strong></div></div></div>`;openModal('aiModal');
+}
+
+function renderReview(){
+  const d=collect(),required=documentDefs.filter(x=>x.required),uploaded=required.filter(x=>docs[x.id].file).length,totalOwners=d.owners?.filter(o=>o.name).length||0;
+  $('#reviewSummary').innerHTML=`
+    <article class="review-card"><div class="review-head"><strong>Investor and relationship</strong><button type="button" data-edit-step="0">Edit</button></div><div class="review-body"><div><span>Investor</span><strong>${esc(d.legalName||'—')}</strong><small>${esc(d.investorType||'')}</small></div><div><span>Relationship</span><strong>${esc(d.relationship||'—')}</strong><small>${esc(d.mandate||'')}</small></div><div><span>Expected investment</span><strong>${money(d.initialInvestment)}</strong><small>${esc(d.baseCurrency||'USD')} base</small></div></div></article>
+    <article class="review-card"><div class="review-head"><strong>KYC / AML profile</strong><button type="button" data-edit-step="2">Edit</button></div><div class="review-body"><div><span>Owners / controllers</span><strong>${totalOwners}</strong><small>Screening population</small></div><div><span>Source of funds</span><strong>${esc(d.sourceFunds||'—')}</strong><small>${esc(d.fundingJurisdictions||'')}</small></div><div><span>Declarations</span><strong>${[d.pep,d.sanctions,d.adverseMedia].some(v=>v&&v!=='no')?'Review required':'No self-declared flags'}</strong><small>Provider checks still mandatory</small></div></div></article>
+    <article class="review-card"><div class="review-head"><strong>Tax, bank and evidence</strong><button type="button" data-edit-step="3">Edit</button></div><div class="review-body"><div><span>Tax residence</span><strong>${esc(d.taxResidence||'—')}</strong><small>${esc(d.fatca||'')}</small></div><div><span>Funding bank</span><strong>${esc(d.bankName||'—')}</strong><small>${esc(d.bankHolder||'')}</small></div><div><span>Required evidence</span><strong>${uploaded}/${required.length}</strong><small>${documentDefs.filter(x=>docs[x.id].ocrState==='Complete').length} OCR complete</small></div></div></article>`;
+  $$('[data-edit-step]').forEach(b=>b.addEventListener('click',()=>{step=Number(b.dataset.editStep);render()}));
+}
+
+function submitApplication(e){
+  e.preventDefault();
+  for(let i=0;i<steps.length;i++){if(!validatePane(i,true)){step=i;render();return}}
+  if(!lastAiResult)lastAiResult=runAiTriage(false);
+  const d=collect(),ref='LP-'+new Date().getFullYear()+'-'+Math.floor(10000+Math.random()*89999),docsDone=d.documents.length,docsTotal=documentDefs.filter(x=>x.required).length;
+  const record={id:ref,name:d.legalName,type:d.investorType,channel:'Investor / LP portal',stage:'Submitted',risk:lastAiResult.risk,identity:'Queued',screening:'Provider checks required',funds:'Queued',docsDone,docsTotal,owner:'Client Services intake',sla:'Just now',slaState:'Digital submission',progress:25,next:'Run approved identity, sanctions, PEP and adverse-media screening; review OCR consistency and source-of-funds evidence.',applicant:{registrationRef:d.registrationRef,email:d.primaryEmail,phone:d.telephone,country:d.jurisdiction,expectedInvestment:Number(d.initialInvestment||0),relationship:d.relationship,mandate:d.mandate,sourceOfFunds:d.sourceFunds,sourceOfWealth:d.sourceWealth,beneficialOwnerCount:d.owners.filter(o=>o.name).length,beneficialOwners:d.owners,signatories:d.signatories,purpose:d.purpose,activity:d.expectedActivity,taxResidence:d.taxResidence,fatca:d.fatca,crs:d.crs,bank:{name:d.bankName,holder:d.bankHolder,country:d.bankCountry,account:d.bankAccount,currency:d.bankCurrency,swift:d.swift},documents:d.documents,declarations:{pep:d.pep,sanctions:d.sanctions,adverseMedia:d.adverseMedia,highRiskJurisdiction:d.highRiskJurisdiction},signature:{name:d.signatureName,capacity:d.signatureCapacity,submittedAt:new Date().toISOString()}},ai:{status:'ATS triage complete · provider screening pending',modelVersion:lastAiResult.model,documentCompleteness:Math.round((docsDone/docsTotal)*100),reviewPriorityScore:lastAiResult.risk==='High'?80:lastAiResult.risk==='Medium'?55:25,exceptions:lastAiResult.flags.map(f=>({code:f.code,message:f.message,resolved:false})),disposition:`${lastAiResult.risk} review risk · external screening required`,humanReviewRequired:true,finalDecision:null,caveat:'AI-assisted triage is advisory. Final KYC/AML decision and external watchlist screening are human/provider-controlled.'},timeline:[[todayTime(),'Investor / LP application submitted',`Digital application captured with ${docsDone} evidence item(s), OCR metadata and AI-assisted triage.`]]};
+  try{const book=JSON.parse(localStorage.getItem(BOOK)||'[]');book.unshift(record);localStorage.setItem(BOOK,JSON.stringify(book));localStorage.removeItem(DRAFT)}catch(err){console.warn('Could not persist application book',err)}
+  $('#applicationForm').style.display='none';$('#successPanel').classList.add('show');$('#successRef').textContent=ref;$('#successAi').textContent=`${lastAiResult.risk} risk · provider checks pending`;$('#sidePanel').style.display='none';$('#successPanel').scrollIntoView({behavior:'smooth',block:'center'});
+}
+
+$('#addOwner').addEventListener('click',()=>addOwner());$('#addSignatory').addEventListener('click',()=>addSignatory());$('#runAllOcr').addEventListener('click',runAllOcr);$('#runAiBtn').addEventListener('click',()=>runAiTriage(true));$('#viewAiBtn').addEventListener('click',showAiDetails);
+$('#nextBtn').addEventListener('click',()=>{if(!validatePane(step,true))return;saveDraft(false);step=Math.min(steps.length-1,step+1);render()});$('#backBtn').addEventListener('click',()=>{step=Math.max(0,step-1);render()});$('#saveBtn').addEventListener('click',()=>saveDraft(true));$('#applicationForm').addEventListener('submit',submitApplication);
+renderDocuments();restoreDraft();if(!$('#ownerList').children.length)addOwner();if(!$('#signatoryList').children.length)addSignatory();
+[...dataIds.map(id=>$('#'+id)).filter(Boolean)].forEach(el=>{el.addEventListener('input',onChange);el.addEventListener('change',onChange)});render();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+{
+  "name": "@matanho/custodian-web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Custodian submissions portal (Next.js, port 3104)",
+  "scripts": {
+    "dev": "next dev -p 3104",
+    "build": "next build",
+    "start": "next start -p 3104",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@matanho/legacy-runtime": "*",
+    "@matanho/shared": "*",
+    "next": "^16.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "~5.9.3"
+  }
+}

@@ -4,7 +4,7 @@
  * (single HTML files + versioned enhancement scripts/styles) into the assets
  * consumed by the Next.js portals.
  *
- *   node tools/extract-legacy.mjs                # extract admin, investor, onboarding
+ *   node tools/extract-legacy.mjs                # extract admin, onboarding, custodian
  *   node tools/extract-legacy.mjs --only admin
  *   node tools/extract-legacy.mjs --analyze admin  # print structure, write nothing
  *   node tools/extract-legacy.mjs --rev <git-rev>  # source revision (default: root commit)
@@ -20,10 +20,11 @@
  *     files, preserving their exact document order.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseFragment } from 'parse5';
+import { applyBridge } from './legacy-bridge.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -34,8 +35,9 @@ const PORTALS = {
     // Extra files referenced by relative <script src>/<link href> live at repo root in the source revision.
     fragments: 'auto',
   },
-  investor: { source: 'client-portal.html', outDir: 'portals/investor-web', fragments: 'auto' },
-  onboarding: { source: 'public-onboarding.html', outDir: 'portals/onboarding-web', fragments: 'single' },
+  // V65 prototype pages are read from the working tree (legacy-static/v65), not git history.
+  onboarding: { source: 'public-onboarding.html', sourceDir: 'legacy-static/v65', outDir: 'portals/onboarding-web', fragments: 'single' },
+  custodian: { source: 'custodian-portal.html', sourceDir: 'legacy-static/v65', outDir: 'portals/custodian-web', fragments: 'single' },
 };
 
 // ---------------------------------------------------------------- CLI ------
@@ -52,6 +54,9 @@ const rev =
 
 const git = (file, encoding = 'utf8') =>
   execFileSync('git', ['show', `${rev}:${file}`], { cwd: root, encoding, maxBuffer: 1 << 28 });
+
+/** Reads a source file for a portal: from `cfg.sourceDir` when set, otherwise from git at `rev`. */
+const reader = (cfg) => (file) => (cfg.sourceDir ? readFileSync(path.join(root, cfg.sourceDir, file), 'utf8') : git(file));
 
 // ------------------------------------------------------------ scanning -----
 const TOKEN = /<!--[\s\S]*?-->|<script\b[^>]*>[\s\S]*?<\/script\s*>|<style\b[^>]*>[\s\S]*?<\/style\s*>|<link\b[^>]*>/gi;
@@ -167,7 +172,9 @@ function applyPatches(name, text) {
 
 // ----------------------------------------------------------- main ----------
 function processPortal(id, cfg) {
-  const html = git(cfg.source);
+  const read = reader(cfg);
+  const origin = cfg.sourceDir ?? `@ ${rev.slice(0, 7)}`;
+  const html = read(cfg.source);
   const logo = extractLogo(html);
   const items = scan(html);
 
@@ -216,7 +223,7 @@ function processPortal(id, cfg) {
   const fragments = splitFragments(id, markup, cfg.fragments);
 
   if (analyze) {
-    console.log(`\n=== ${id} (${cfg.source}) @ ${rev.slice(0, 7)}`);
+    console.log(`\n=== ${id} (${cfg.source}) ${origin}`);
     console.log(`title: ${title}\nlang: ${lang} attrs: ${JSON.stringify(htmlAttributes)}\nbody markup: ${markup.length} chars`);
     console.log(`styles (${styles.length}):`, styles.map((s) => (s.type === 'inline' ? `inline:${s.name}(${s.css.length})` : s.file ?? s.href)).join(', '));
     console.log(`scripts (${scripts.length}):`, scripts.map((s) => (s.type === 'inline' ? `inline:${s.name}(${s.js.length})` : s.file)).join(', '));
@@ -243,7 +250,7 @@ function processPortal(id, cfg) {
     if (s.type === 'remote') styleUrls.push(s.href);
     else if (s.type === 'file') {
       const name = path.basename(s.file);
-      writeFileSync(path.join(legacyPublic, 'css', name), noLogo(git(s.file), LOGO_PUBLIC_URL));
+      writeFileSync(path.join(legacyPublic, 'css', name), noLogo(read(s.file), LOGO_PUBLIC_URL));
       styleUrls.push(`/legacy/css/${name}`);
     } else {
       const name = `${s.name}.css`;
@@ -263,11 +270,20 @@ function processPortal(id, cfg) {
   for (const s of scripts) {
     if (s.type === 'file') {
       const name = path.basename(s.file);
-      writeFileSync(path.join(legacyPublic, 'js', name), applyPatches(name, noLogo(git(s.file), LOGO_JS_EXPR)));
+      writeFileSync(path.join(legacyPublic, 'js', name), applyPatches(name, noLogo(read(s.file), LOGO_JS_EXPR)));
       scriptUrls.push(`/legacy/js/${name}`);
     } else {
       const name = `${s.name}.js`;
       writeFileSync(path.join(legacyPublic, 'js', name), noLogo(s.js, LOGO_JS_EXPR));
+      scriptUrls.push(`/legacy/js/${name}`);
+    }
+  }
+
+  if (Array.isArray(cfg.extraScripts)) {
+    const extrasDir = path.join(out, 'src', 'legacy', 'extras');
+    for (const name of cfg.extraScripts) {
+      const src = path.join(extrasDir, name);
+      writeFileSync(path.join(legacyPublic, 'js', name), readFileSync(src));
       scriptUrls.push(`/legacy/js/${name}`);
     }
   }
@@ -281,13 +297,16 @@ function processPortal(id, cfg) {
   const manifest = { lang, htmlAttributes, title, ...(description ? { description } : {}), styles: styleUrls, scripts: scriptUrls };
   writeFileSync(
     path.join(legacySrc, 'manifest.ts'),
-    `// GENERATED by tools/extract-legacy.mjs from ${cfg.source} @ ${rev.slice(0, 7)}. Do not edit by hand.\n` +
+    `// GENERATED by tools/extract-legacy.mjs from ${cfg.source} ${origin}. Do not edit by hand.\n` +
       `import type { LegacyManifest } from '@matanho/legacy-runtime';\n\n` +
       `export const manifest: LegacyManifest = ${JSON.stringify(manifest, null, 2)};\n\n` +
       `/** Markup fragments, in document order (files under ./markup). */\n` +
       `export const fragments = ${JSON.stringify(fragments.map((f) => ({ file: f.file, label: f.label })), null, 2)} as const;\n`,
   );
   console.log(`${id}: ${styleUrls.length} stylesheets, ${scriptUrls.length} scripts, ${fragments.length} markup fragments -> ${cfg.outDir}`);
+  // Re-install the live-data bridge (scripts + recorded data hooks) on the fresh output.
+  const bridged = applyBridge(id);
+  console.log(`${id}: bridge installed (${bridged.length} files)`);
 }
 
 // ------------------------------------------------- markup fragmenting -----

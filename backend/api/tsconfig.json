@@ -5,5 +5,5 @@
     "types": ["node"],
     "noEmit": true
   },
-  "include": ["src", "prisma/seed.ts", "scripts", "tsup.config.ts"]
+  "include": ["src", "prisma/seed.ts", "prisma/seed-demo.ts", "scripts", "tsup.config.ts"]
 }

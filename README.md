@@ -7,9 +7,9 @@ preserved exactly.
 | Portal | Port | Package |
 | --- | --- | --- |
 | Admin (Investment OS) | 3100 | `portals/admin-web` |
-| Investor | 3101 | `portals/investor-web` |
+| LP portal | 3101 | `portals/investor-web` |
 | Public onboarding | 3102 | `portals/onboarding-web` |
-| Portfolio company | 3103 | `portals/company-web` |
+| Investee portal | 3103 | `portals/company-web` |
 | Shared API | 4100 | `backend/api` |
 
 Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) ·
@@ -66,7 +66,8 @@ npm run dev:company             # http://localhost:3103
 ```
 
 Each portal has a shared sign-in page at `/login`. By default portals open without an account
-(UI mock-up mode); set `REQUIRE_AUTH_PORTALS=admin,investor` to force sign-in.
+(UI mock-up mode); set `REQUIRE_AUTH_PORTALS=admin,investor,company` to force sign-in. The LP and Investee
+portals show hard-coded demo data behind that sign-in.
 
 ## Build and production start
 

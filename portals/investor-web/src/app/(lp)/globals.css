@@ -1,0 +1,434 @@
+/* source(none): prevent Tailwind oxide from scanning .cursor/.claude/etc.
+   On Windows those paths often contain `\ + hex` (UUIDs/hashes) which v4.1
+   misreads as CSS escapes and crashes with RangeError: Invalid code point —
+   leaving layout.css without utilities so login UI sits under the bg image. */
+@import "tailwindcss" source(none);
+@import "tw-animate-css";
+
+@source "../../**/*.{js,ts,jsx,tsx,mdx}";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  /* Matanho Blue Theme - Light Mode */
+  --background: oklch(1 0 0); /* Pure white main background */
+  --foreground: oklch(0.14 0.02 255); /* Darker body text for display contrast */
+  --card: oklch(1 0 0); /* Pure white cards */
+  --card-foreground: oklch(0.14 0.02 255); /* Dark blue-tinted text */
+  --popover: oklch(1 0 0 / 0.95); /* Translucent white popovers */
+  --popover-foreground: oklch(0.14 0.02 255); /* Dark blue-tinted popover text */
+  --primary: oklch(0.60 0.18 252); /* Vibrant blue */
+  --primary-foreground: oklch(0.99 0 0); /* Near white */
+  --secondary: oklch(0.96 0.04 255); /* Light blue */
+  --secondary-foreground: oklch(0.24 0.03 255); /* Dark blue */
+  --muted: oklch(0.97 0 0); /* Light gray */
+  --muted-foreground: oklch(0.39 0.02 255); /* Darker secondary text — less grey-wash */
+  --text-secondary: var(--muted-foreground);
+  --accent: oklch(0.965 0.06 255); /* Light blue accent */
+  --accent-foreground: oklch(0.24 0.03 255); /* Dark blue text */
+  --destructive: oklch(0.577 0.245 27.325); /* Red for destructive actions */
+  --destructive-foreground: oklch(1 0 0); /* White text on destructive */
+  --border: oklch(0.922 0 0); /* Light border */
+  --input: oklch(0.922 0 0); /* Input background */
+  --ring: oklch(0.60 0.18 252 / 0.3); /* Blue focus rings */
+  --chart-1: oklch(0.64 0.18 252); /* Primary blue for charts */
+  --chart-2: oklch(0.72 0.12 225); /* Light blue for charts */
+  --chart-3: oklch(0.58 0.09 260); /* Dark blue for charts */
+  --chart-4: oklch(0.78 0.12 190); /* Cyan for charts */
+  --chart-5: oklch(0.54 0.1 280); /* Purple for charts */
+  --radius: 0.75rem; /* Rounded corners */
+  --sidebar: oklch(1 0 0); /* Pure white sidebar */
+  --sidebar-foreground: oklch(0.145 0 0); /* Dark text */
+  --sidebar-primary: oklch(0.60 0.18 252); /* Blue primary */
+  --sidebar-primary-foreground: oklch(0.985 0 0); /* Light text */
+  --sidebar-accent: oklch(0.97 0 0); /* Light accent */
+  --sidebar-accent-foreground: oklch(0.205 0 0); /* Dark text */
+  --sidebar-border: oklch(0.922 0 0); /* Light border */
+  --sidebar-ring: oklch(0.60 0.18 252 / 0.3); /* Blue focus ring */
+
+  /* Investments terminal — finance semantic tokens (scoped additions, cloned from reference dashboard) */
+  --gain: oklch(0.65 0.16 158);
+  --gain-foreground: oklch(0.44 0.12 158);
+  --gain-muted: oklch(0.95 0.05 158);
+  --loss: oklch(0.6 0.21 22);
+  --loss-foreground: oklch(0.52 0.2 22);
+  --loss-muted: oklch(0.95 0.04 22);
+  --warn: oklch(0.75 0.15 75);
+  --warn-foreground: oklch(0.55 0.13 68);
+  --warn-muted: oklch(0.96 0.05 85);
+  --flat: oklch(0.6 0.02 260);
+  --panel: oklch(0.16 0.03 262);
+  --panel-foreground: oklch(0.97 0.01 255);
+  --panel-muted: oklch(0.66 0.03 258);
+  --panel-border: oklch(0.30 0.035 262);
+}
+
+.dark {
+  /* Matanho Blue Theme - Dark Mode */
+  --background: oklch(0.20 0.02 255); /* Dark blue background */
+  --foreground: oklch(0.98 0 0); /* Near white text */
+  --card: oklch(0.26 0.02 255); /* Dark blue cards */
+  --card-foreground: oklch(0.98 0 0); /* Light text */
+  --popover: oklch(0.26 0.02 255 / 0.95); /* Dark translucent popovers */
+  --popover-foreground: oklch(0.98 0 0); /* Light popover text */
+  --primary: oklch(0.72 0.18 252); /* Bright blue */
+  --primary-foreground: oklch(0.20 0.02 255); /* Dark blue background */
+  --secondary: oklch(0.269 0 0); /* Dark gray */
+  --secondary-foreground: oklch(0.985 0 0); /* Light text */
+  --muted: oklch(0.269 0 0); /* Dark gray */
+  --muted-foreground: oklch(0.708 0 0); /* Medium light gray */
+  --accent: oklch(0.269 0 0); /* Dark gray */
+  --accent-foreground: oklch(0.985 0 0); /* Light text */
+  --destructive: oklch(0.704 0.191 22.216); /* Lighter red for dark mode */
+  --destructive-foreground: oklch(1 0 0); /* White text on destructive */
+  --border: oklch(0.269 0 0); /* Dark borders */
+  --input: oklch(0.269 0 0); /* Dark input fields */
+  --ring: oklch(0.72 0.18 252 / 0.4); /* Brighter blue focus rings in dark */
+  --chart-1: oklch(0.64 0.18 252); /* Primary blue for charts */
+  --chart-2: oklch(0.72 0.12 225); /* Light blue for charts */
+  --chart-3: oklch(0.58 0.09 260); /* Dark blue for charts */
+  --chart-4: oklch(0.78 0.12 190); /* Cyan for charts */
+  --chart-5: oklch(0.54 0.1 280); /* Purple for charts */
+  --sidebar: oklch(0.205 0 0); /* Dark sidebar */
+  --sidebar-foreground: oklch(0.985 0 0); /* Light text */
+  --sidebar-primary: oklch(0.72 0.18 252); /* Blue primary */
+  --sidebar-primary-foreground: oklch(0.985 0 0); /* Light text */
+  --sidebar-accent: oklch(0.269 0 0); /* Dark accent */
+  --sidebar-accent-foreground: oklch(0.985 0 0); /* Light text */
+  --sidebar-border: oklch(1 0 0 / 10%); /* Transparent border */
+  --sidebar-ring: oklch(0.556 0 0); /* Focus ring */
+}
+
+@theme inline {
+  --font-sans: var(--font-montserrat);
+  --font-mono: var(--font-geist-mono);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  /* Investments terminal semantic tokens */
+  --color-gain: var(--gain);
+  --color-gain-foreground: var(--gain-foreground);
+  --color-gain-muted: var(--gain-muted);
+  --color-loss: var(--loss);
+  --color-loss-foreground: var(--loss-foreground);
+  --color-loss-muted: var(--loss-muted);
+  --color-warn: var(--warn);
+  --color-warn-foreground: var(--warn-foreground);
+  --color-warn-muted: var(--warn-muted);
+  --color-flat: var(--flat);
+  --color-panel: var(--panel);
+  --color-panel-foreground: var(--panel-foreground);
+  --color-panel-muted: var(--panel-muted);
+  --color-panel-border: var(--panel-border);
+
+  /* Readability scale — ~10% bump over Tailwind defaults */
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: 1.0625rem;
+  --text-lg: 1.1875rem;
+  --text-xl: 1.3125rem;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground text-base;
+    font-family: var(--font-montserrat), 'Montserrat', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  }
+}
+
+@media (max-width: 1280px) {
+  html {
+    font-size: 106.25%;
+  }
+}
+
+/* Added custom utility classes for Matanho design system */
+@layer utilities {
+  .glass-effect {
+    @apply backdrop-blur-sm bg-white/80 border border-white/20;
+  }
+
+  .card-shadow {
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+
+  .card-shadow-hover {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  }
+
+  .gradient-primary {
+    background: linear-gradient(135deg, oklch(0.60 0.18 252) 0%, oklch(0.72 0.12 225) 100%);
+  }
+
+  .gradient-card {
+    background: linear-gradient(135deg, oklch(0.985 0.012 255) 0%, oklch(0.97 0.015 255) 100%);
+  }
+
+  .line-clamp-2 {
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+
+  /* Legacy grey classes — map to semantic tokens (excludes .investments-terminal) */
+  :where(body:not(:has(.investments-terminal))) .text-gray-500,
+  :where(body:not(:has(.investments-terminal))) .text-gray-600 {
+    color: var(--muted-foreground);
+  }
+  :where(body:not(:has(.investments-terminal))) .text-slate-400,
+  :where(body:not(:has(.investments-terminal))) .text-gray-400 {
+    color: color-mix(in oklch, var(--muted-foreground) 85%, var(--foreground));
+  }
+}
+
+/* Thin scrollbars for FP&A / Fundraising panels */
+.fpa-thin-scroll,
+.fpa-thin-scroll *,
+.thin-scroll,
+.thin-scroll * {
+  scrollbar-width: thin;
+  scrollbar-color: #cbd5e1 transparent;
+}
+
+.fpa-thin-scroll::-webkit-scrollbar,
+.fpa-thin-scroll *::-webkit-scrollbar,
+.thin-scroll::-webkit-scrollbar,
+.thin-scroll *::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+.fpa-thin-scroll::-webkit-scrollbar-track,
+.fpa-thin-scroll *::-webkit-scrollbar-track,
+.thin-scroll::-webkit-scrollbar-track,
+.thin-scroll *::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fpa-thin-scroll::-webkit-scrollbar-thumb,
+.fpa-thin-scroll *::-webkit-scrollbar-thumb,
+.thin-scroll::-webkit-scrollbar-thumb,
+.thin-scroll *::-webkit-scrollbar-thumb {
+  background-color: #cbd5e1;
+  border-radius: 9999px;
+}
+
+.fpa-thin-scroll::-webkit-scrollbar-thumb:hover,
+.fpa-thin-scroll *::-webkit-scrollbar-thumb:hover,
+.thin-scroll::-webkit-scrollbar-thumb:hover,
+.thin-scroll *::-webkit-scrollbar-thumb:hover {
+  background-color: #94a3b8;
+}
+
+/* Dependency map (React Flow) */
+#fpa-dep-map-root .react-flow {
+  width: 100%;
+  height: 100%;
+}
+
+#fpa-dep-map-root .react-flow__edges {
+  overflow: visible !important;
+  position: absolute !important;
+  width: 100% !important;
+  height: 100% !important;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 2;
+}
+
+#fpa-dep-map-root .react-flow__edge {
+  pointer-events: visibleStroke;
+}
+
+#fpa-dep-map-root .react-flow__edge-path {
+  stroke-linecap: round;
+}
+
+#fpa-dep-map-root .react-flow__nodes {
+  z-index: 3;
+}
+
+#fpa-dep-map-root .react-flow__handle {
+  border-width: 1.5px;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Investments terminal theme — scoped to .investments-terminal, does NOT
+   touch the app-wide :root/.dark blocks above. Toggled dark/light via a
+   second class (.dark or .light) applied alongside .investments-terminal by
+   InvestmentsThemeProvider. Re-themes every shared component that already
+   consumes these variable names (bg-background, bg-gain, border-border, …)
+   with zero blast radius on other modules.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.investments-terminal {
+  font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.investments-terminal.dark {
+  color-scheme: dark;
+  --background: #111318;
+  --foreground: #e2e8f0;
+  --card: #1a1d24;
+  --card-foreground: #e2e8f0;
+  --popover: #1a1d24;
+  --popover-foreground: #e2e8f0;
+  --primary: #3b82f6;
+  --primary-foreground: #ffffff;
+  --secondary: #1e2330;
+  --secondary-foreground: #94a3b8;
+  --muted: #1e2330;
+  --muted-foreground: #64748b;
+  --accent: #1e3a5f;
+  --accent-foreground: #93c5fd;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: rgba(255, 255, 255, 0.06);
+  --input: rgba(255, 255, 255, 0.07);
+  --ring: #3b82f6;
+  --radius: 0.5rem;
+  --chart-1: #3b82f6;
+  --chart-2: #8b5cf6;
+  --chart-3: #06b6d4;
+  --chart-4: #10b981;
+  --chart-5: #f59e0b;
+  --sidebar: #0e1117;
+  --sidebar-foreground: #94a3b8;
+  --sidebar-primary: #3b82f6;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1e2330;
+  --sidebar-accent-foreground: #e2e8f0;
+  --sidebar-border: rgba(255, 255, 255, 0.05);
+  --sidebar-ring: #3b82f6;
+
+  --gain: #10b981;
+  --gain-foreground: #10b981;
+  --gain-muted: rgba(16, 185, 129, 0.15);
+  --loss: #ef4444;
+  --loss-foreground: #ef4444;
+  --loss-muted: rgba(239, 68, 68, 0.15);
+  --warn: #f59e0b;
+  --warn-foreground: #f59e0b;
+  --warn-muted: rgba(245, 158, 11, 0.15);
+  --flat: #64748b;
+  --panel: #1a1d24;
+  --panel-foreground: #e2e8f0;
+  --panel-muted: #64748b;
+  --panel-border: rgba(255, 255, 255, 0.08);
+}
+
+.investments-terminal.light {
+  color-scheme: light;
+  --background: #f4f6fa;
+  --foreground: #1a2233;
+  --card: #ffffff;
+  --card-foreground: #1a2233;
+  --popover: #ffffff;
+  --popover-foreground: #1a2233;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --secondary: #eef1f6;
+  --secondary-foreground: #47536b;
+  --muted: #eef1f6;
+  --muted-foreground: #475569;
+  --accent: #dbeafe;
+  --accent-foreground: #1e3a8a;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+  --border: rgba(15, 23, 42, 0.08);
+  --input: rgba(15, 23, 42, 0.10);
+  --ring: #2563eb;
+  --radius: 0.5rem;
+  --chart-1: #2563eb;
+  --chart-2: #7c3aed;
+  --chart-3: #0891b2;
+  --chart-4: #059669;
+  --chart-5: #d97706;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #47536b;
+  --sidebar-primary: #2563eb;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #eef1f6;
+  --sidebar-accent-foreground: #1a2233;
+  --sidebar-border: rgba(15, 23, 42, 0.06);
+  --sidebar-ring: #2563eb;
+
+  --gain: #059669;
+  --gain-foreground: #047857;
+  --gain-muted: rgba(5, 150, 105, 0.10);
+  --loss: #dc2626;
+  --loss-foreground: #b91c1c;
+  --loss-muted: rgba(220, 38, 38, 0.10);
+  --warn: #d97706;
+  --warn-foreground: #b45309;
+  --warn-muted: rgba(217, 119, 6, 0.10);
+  --flat: #64748b;
+  --panel: #ffffff;
+  --panel-foreground: #1a2233;
+  --panel-muted: #64748b;
+  --panel-border: rgba(15, 23, 42, 0.08);
+}
+
+.investments-terminal .terminal-table th {
+  font-size: 12px;
+  font-weight: 500;
+  padding: 9px 16px;
+  color: var(--muted-foreground);
+}
+.investments-terminal .terminal-table td {
+  font-size: 14px;
+  padding: 10px 16px;
+  color: var(--foreground);
+}
+.investments-terminal .terminal-table tr:hover td {
+  background: color-mix(in srgb, var(--primary) 5%, transparent);
+}
+.investments-terminal ::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.investments-terminal ::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}

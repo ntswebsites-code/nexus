@@ -1,0 +1,1124 @@
+{
+ "_comment": "Demo data transcribed from the V56 investor prototype (client-portal) so the live portal shows the same figures. Loaded only when SEED_DEMO=1.",
+ "client": {
+  "ref": "CL-00418",
+  "name": "Horizon Pension Fund",
+  "type": "Pension fund",
+  "riskRating": "Medium",
+  "kycStatus": "Current",
+  "mandateLabel": "Balanced Growth · Private Markets",
+  "ownerName": "L. Chuma",
+  "email": "tariro@horizon.example",
+  "valueLabel": "US$ 19.48M",
+  "accountsCount": 5
+ },
+ "snapshot": {
+  "valuationDate": "2026-08-31",
+  "reportingCurrency": "USD",
+  "fx": {
+   "USD": 1,
+   "ZWG": 26.8,
+   "ZAR": 17.9
+  },
+  "metrics": {
+   "nav": 19480000,
+   "unfunded": 1850000,
+   "nextDue": 280000,
+   "availableCash": 1200000,
+   "netFlows": 640000,
+   "totalCommitments": 4350000,
+   "called": 2500000,
+   "distributions": 680000,
+   "privateNav": 2840000,
+   "distributionsYtd": 345000,
+   "contributionsYtd": 985000,
+   "ytd": 12.84,
+   "benchmark": 10.74,
+   "actions": {
+    "count": 3,
+    "label": "1 capital call · 2 documents to sign"
+   }
+  },
+  "activity": [
+   [
+    "Today",
+    "Investor report published",
+    "August 2026 · consolidated",
+    "New"
+   ],
+   [
+    "28 Aug",
+    "Capital call notice",
+    "Matanho Growth Fund I · US$ 280K",
+    "Due"
+   ],
+   [
+    "25 Aug",
+    "Dividend received",
+    "Innscor · US$ 48K",
+    "Settled"
+   ],
+   [
+    "22 Aug",
+    "Portfolio rebalance completed",
+    "4 trades settled",
+    "Done"
+   ],
+   [
+    "14 Aug",
+    "KYC annual review completed",
+    "Next review 14 Aug 2027",
+    "Current"
+   ]
+  ],
+  "investments": [
+   {
+    "id": "BGF",
+    "name": "Balanced Growth",
+    "kind": "Managed account",
+    "value": 11860000,
+    "return": 12.84,
+    "benchmark": 10.74,
+    "ccy": "USD",
+    "status": "Active",
+    "unfunded": 0,
+    "commitment": 0,
+    "called": 0,
+    "irr": null,
+    "tvpi": null
+   },
+   {
+    "id": "ARF",
+    "name": "Absolute Return",
+    "kind": "Managed account",
+    "value": 3120000,
+    "return": 8.92,
+    "benchmark": 7.41,
+    "ccy": "USD",
+    "status": "Active",
+    "unfunded": 0,
+    "commitment": 0,
+    "called": 0,
+    "irr": null,
+    "tvpi": null
+   },
+   {
+    "id": "INC",
+    "name": "Income Mandate",
+    "kind": "Managed account",
+    "value": 1660000,
+    "return": 6.41,
+    "benchmark": 5.93,
+    "ccy": "USD",
+    "status": "Active",
+    "unfunded": 0,
+    "commitment": 0,
+    "called": 0,
+    "irr": null,
+    "tvpi": null
+   },
+   {
+    "id": "MGFI",
+    "name": "Matanho Growth Fund I",
+    "kind": "Private equity fund",
+    "value": 1760000,
+    "return": null,
+    "benchmark": null,
+    "ccy": "USD",
+    "status": "Active",
+    "unfunded": 1100000,
+    "commitment": 2500000,
+    "called": 1400000,
+    "irr": 18.4,
+    "tvpi": 1.38,
+    "dpi": 0.24,
+    "dist": 340000
+   },
+   {
+    "id": "PCFI",
+    "name": "Private Credit Fund I",
+    "kind": "Private credit fund",
+    "value": 1080000,
+    "return": null,
+    "benchmark": null,
+    "ccy": "USD",
+    "status": "Active",
+    "unfunded": 750000,
+    "commitment": 1850000,
+    "called": 1100000,
+    "irr": 13.2,
+    "tvpi": 1.21,
+    "dpi": 0.31,
+    "dist": 340000
+   }
+  ],
+  "holdings": [
+   {
+    "id": "H1",
+    "security": "Delta Corporation",
+    "account": "Balanced Growth",
+    "asset": "Equity",
+    "qty": "480,000",
+    "price": "ZWG 31.94",
+    "value": 1530000,
+    "weight": 9.1,
+    "ytd": 17.4
+   },
+   {
+    "id": "H2",
+    "security": "Innscor Africa",
+    "account": "Balanced Growth",
+    "asset": "Equity",
+    "qty": "215,000",
+    "price": "ZWG 42.10",
+    "value": 1320000,
+    "weight": 7.84,
+    "ytd": 14.1
+   },
+   {
+    "id": "H3",
+    "security": "Zimplats",
+    "account": "Balanced Growth",
+    "asset": "VFEX Equity",
+    "qty": "94,000",
+    "price": "US$ 11.70",
+    "value": 1100000,
+    "weight": 6.52,
+    "ytd": 6.8
+   },
+   {
+    "id": "H4",
+    "security": "91-day Treasury Bill",
+    "account": "Income Mandate",
+    "asset": "Fixed income",
+    "qty": "—",
+    "price": "—",
+    "value": 850000,
+    "weight": 5.04,
+    "ytd": 4.4
+   },
+   {
+    "id": "H5",
+    "security": "Cash",
+    "account": "Consolidated",
+    "asset": "Cash",
+    "qty": "—",
+    "price": "—",
+    "value": 1200000,
+    "weight": 6.16,
+    "ytd": 0.8
+   },
+   {
+    "id": "H6",
+    "security": "Econet Wireless Zimbabwe",
+    "account": "Absolute Return",
+    "asset": "Equity",
+    "qty": "330,000",
+    "price": "ZWG 18.62",
+    "value": 742000,
+    "weight": 3.81,
+    "ytd": 11.2
+   },
+   {
+    "id": "H7",
+    "security": "Seed Co International",
+    "account": "Balanced Growth",
+    "asset": "VFEX Equity",
+    "qty": "126,000",
+    "price": "US$ 2.91",
+    "value": 366000,
+    "weight": 1.88,
+    "ytd": 9.7
+   }
+  ],
+  "transactions": [
+   {
+    "id": "TX-8831",
+    "date": "25 Aug 2026",
+    "type": "Income",
+    "account": "Balanced Growth",
+    "desc": "Innscor dividend",
+    "qty": "—",
+    "amount": 48220,
+    "status": "Settled"
+   },
+   {
+    "id": "TX-8826",
+    "date": "22 Aug 2026",
+    "type": "Trade",
+    "account": "Balanced Growth",
+    "desc": "Delta Corporation buy",
+    "qty": "45,000",
+    "amount": -142800,
+    "status": "Settled"
+   },
+   {
+    "id": "TX-8812",
+    "date": "18 Aug 2026",
+    "type": "Trade",
+    "account": "Absolute Return",
+    "desc": "Econet Wireless buy",
+    "qty": "30,000",
+    "amount": -54800,
+    "status": "Settled"
+   },
+   {
+    "id": "TX-8789",
+    "date": "12 Aug 2026",
+    "type": "Contribution",
+    "account": "Income Mandate",
+    "desc": "Client contribution",
+    "qty": "—",
+    "amount": 250000,
+    "status": "Settled"
+   },
+   {
+    "id": "TX-8744",
+    "date": "05 Aug 2026",
+    "type": "Income",
+    "account": "Income Mandate",
+    "desc": "Treasury bill maturity proceeds",
+    "qty": "—",
+    "amount": 165000,
+    "status": "Settled"
+   },
+   {
+    "id": "TX-8708",
+    "date": "31 Jul 2026",
+    "type": "Withdrawal",
+    "account": "Balanced Growth",
+    "desc": "Approved withdrawal",
+    "qty": "—",
+    "amount": -120000,
+    "status": "Settled"
+   }
+  ],
+  "performance": {
+   "1M": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0.3
+    ],
+    [
+     2,
+     0.2
+    ],
+    [
+     3,
+     0.7
+    ],
+    [
+     4,
+     1.1
+    ],
+    [
+     5,
+     1.8
+    ],
+    [
+     6,
+     2.4
+    ],
+    [
+     7,
+     2.92
+    ]
+   ],
+   "3M": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0.9
+    ],
+    [
+     2,
+     1.6
+    ],
+    [
+     3,
+     2.5
+    ],
+    [
+     4,
+     3.8
+    ],
+    [
+     5,
+     4.5
+    ],
+    [
+     6,
+     5.9
+    ],
+    [
+     7,
+     7.18
+    ]
+   ],
+   "YTD": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0.8
+    ],
+    [
+     2,
+     1.4
+    ],
+    [
+     3,
+     2.6
+    ],
+    [
+     4,
+     4.1
+    ],
+    [
+     5,
+     5
+    ],
+    [
+     6,
+     6.3
+    ],
+    [
+     7,
+     8.4
+    ],
+    [
+     8,
+     10.2
+    ],
+    [
+     9,
+     12.84
+    ]
+   ],
+   "1Y": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     2
+    ],
+    [
+     2,
+     1.1
+    ],
+    [
+     3,
+     4.2
+    ],
+    [
+     4,
+     5.4
+    ],
+    [
+     5,
+     7.1
+    ],
+    [
+     6,
+     8.8
+    ],
+    [
+     7,
+     10.4
+    ],
+    [
+     8,
+     11.7
+    ],
+    [
+     9,
+     14.18
+    ]
+   ],
+   "3Y": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     4
+    ],
+    [
+     2,
+     8
+    ],
+    [
+     3,
+     10
+    ],
+    [
+     4,
+     15
+    ],
+    [
+     5,
+     19
+    ],
+    [
+     6,
+     24
+    ],
+    [
+     7,
+     29
+    ],
+    [
+     8,
+     34
+    ],
+    [
+     9,
+     40.2
+    ]
+   ]
+  },
+  "benchmark": {
+   "1M": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0.25
+    ],
+    [
+     2,
+     0.17
+    ],
+    [
+     3,
+     0.59
+    ],
+    [
+     4,
+     0.92
+    ],
+    [
+     5,
+     1.5
+    ],
+    [
+     6,
+     2.01
+    ],
+    [
+     7,
+     2.44
+    ]
+   ],
+   "3M": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0.75
+    ],
+    [
+     2,
+     1.34
+    ],
+    [
+     3,
+     2.09
+    ],
+    [
+     4,
+     3.18
+    ],
+    [
+     5,
+     3.76
+    ],
+    [
+     6,
+     4.93
+    ],
+    [
+     7,
+     6
+    ]
+   ],
+   "YTD": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     0.67
+    ],
+    [
+     2,
+     1.17
+    ],
+    [
+     3,
+     2.17
+    ],
+    [
+     4,
+     3.43
+    ],
+    [
+     5,
+     4.18
+    ],
+    [
+     6,
+     5.27
+    ],
+    [
+     7,
+     7.02
+    ],
+    [
+     8,
+     8.53
+    ],
+    [
+     9,
+     10.73
+    ]
+   ],
+   "1Y": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     1.67
+    ],
+    [
+     2,
+     0.92
+    ],
+    [
+     3,
+     3.51
+    ],
+    [
+     4,
+     4.51
+    ],
+    [
+     5,
+     5.94
+    ],
+    [
+     6,
+     7.36
+    ],
+    [
+     7,
+     8.69
+    ],
+    [
+     8,
+     9.78
+    ],
+    [
+     9,
+     11.85
+    ]
+   ],
+   "3Y": [
+    [
+     0,
+     0
+    ],
+    [
+     1,
+     3.34
+    ],
+    [
+     2,
+     6.69
+    ],
+    [
+     3,
+     8.36
+    ],
+    [
+     4,
+     12.54
+    ],
+    [
+     5,
+     15.88
+    ],
+    [
+     6,
+     20.06
+    ],
+    [
+     7,
+     24.24
+    ],
+    [
+     8,
+     28.42
+    ],
+    [
+     9,
+     33.61
+    ]
+   ]
+  },
+  "allocation": []
+ },
+ "capitalActivity": [
+  {
+   "id": "CALL-2609-01",
+   "date": "28 Aug 2026",
+   "investment": "Matanho Growth Fund I",
+   "type": "Capital call",
+   "amount": 280000,
+   "status": "Due",
+   "evidence": "Not uploaded",
+   "due": "07 Sep 2026",
+   "purpose": "New investment + fund expenses",
+   "breakdown": [
+    [
+     "Investments",
+     245000
+    ],
+    [
+     "Management fees",
+     22000
+    ],
+    [
+     "Fund expenses",
+     13000
+    ]
+   ],
+   "bank": "CBZ Bank · USD Collection · •••• 1448"
+  },
+  {
+   "id": "DIST-2610-01",
+   "date": "28 Aug 2026",
+   "investment": "Private Credit Fund I",
+   "type": "Distribution",
+   "amount": 95000,
+   "status": "Expected",
+   "evidence": "Notice published",
+   "due": "18 Oct 2026",
+   "purpose": "Interest income + principal repayment",
+   "breakdown": [
+    [
+     "Return of capital",
+     60000
+    ],
+    [
+     "Income",
+     35000
+    ]
+   ],
+   "bank": "Distribution to verified account •••• 0482"
+  },
+  {
+   "id": "CALL-2606-04",
+   "date": "12 Jun 2026",
+   "investment": "Private Credit Fund I",
+   "type": "Capital call",
+   "amount": 175000,
+   "status": "Funded",
+   "evidence": "POP-2606-44.pdf",
+   "due": "20 Jun 2026",
+   "purpose": "Loan portfolio deployment",
+   "breakdown": [
+    [
+     "Investments",
+     160000
+    ],
+    [
+     "Fund expenses",
+     15000
+    ]
+   ],
+   "bank": "CBZ Bank · USD Collection · •••• 1448"
+  },
+  {
+   "id": "DIST-2605-02",
+   "date": "26 May 2026",
+   "investment": "Matanho Growth Fund I",
+   "type": "Distribution",
+   "amount": 150000,
+   "status": "Paid",
+   "evidence": "Bank receipt",
+   "due": "30 May 2026",
+   "purpose": "Partial realisation",
+   "breakdown": [
+    [
+     "Return of capital",
+     70000
+    ],
+    [
+     "Realised gain",
+     65000
+    ],
+    [
+     "Income",
+     15000
+    ]
+   ],
+   "bank": "Paid to verified account •••• 0482"
+  },
+  {
+   "id": "CON-2608-09",
+   "date": "12 Aug 2026",
+   "investment": "Income Mandate",
+   "type": "Contribution",
+   "amount": 250000,
+   "status": "Funded",
+   "evidence": "Matched to cash ledger",
+   "due": "12 Aug 2026",
+   "purpose": "Additional managed-account funding",
+   "breakdown": [],
+   "bank": "Client-originated incoming funds"
+  },
+  {
+   "id": "WDR-2607-03",
+   "date": "31 Jul 2026",
+   "investment": "Balanced Growth",
+   "type": "Withdrawal",
+   "amount": 120000,
+   "status": "Paid",
+   "evidence": "Settlement complete",
+   "due": "31 Jul 2026",
+   "purpose": "Approved client withdrawal",
+   "breakdown": [],
+   "bank": "Paid to verified account •••• 0482"
+  }
+ ],
+ "documents": [
+  {
+   "id": "DOC-081",
+   "title": "August 2026 Investor Report",
+   "type": "report",
+   "label": "Investor report",
+   "date": "30 Aug 2026",
+   "year": "2026",
+   "investment": "Consolidated",
+   "size": "2.8 MB",
+   "unread": true,
+   "signature": false
+  },
+  {
+   "id": "DOC-080",
+   "title": "August 2026 Account Statement",
+   "type": "statement",
+   "label": "Statement",
+   "date": "30 Aug 2026",
+   "year": "2026",
+   "investment": "Balanced Growth",
+   "size": "1.2 MB",
+   "unread": true,
+   "signature": false
+  },
+  {
+   "id": "DOC-079",
+   "title": "Capital Call Notice · CALL-2609-01",
+   "type": "capital",
+   "label": "Capital notice",
+   "date": "28 Aug 2026",
+   "year": "2026",
+   "investment": "Matanho Growth Fund I",
+   "size": "424 KB",
+   "unread": true,
+   "signature": false
+  },
+  {
+   "id": "SUB-2026-14",
+   "title": "Subscription Agreement Amendment",
+   "type": "legal",
+   "label": "Agreement",
+   "date": "27 Aug 2026",
+   "year": "2026",
+   "investment": "Matanho Growth Fund I",
+   "size": "1.1 MB",
+   "unread": false,
+   "signature": true
+  },
+  {
+   "id": "DOC-074",
+   "title": "Distribution Notice · DIST-2610-01",
+   "type": "capital",
+   "label": "Distribution notice",
+   "date": "26 Aug 2026",
+   "year": "2026",
+   "investment": "Private Credit Fund I",
+   "size": "388 KB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-070",
+   "title": "July 2026 Account Statement",
+   "type": "statement",
+   "label": "Statement",
+   "date": "31 Jul 2026",
+   "year": "2026",
+   "investment": "Consolidated",
+   "size": "1.3 MB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-066",
+   "title": "Q2 2026 Private Markets Report",
+   "type": "report",
+   "label": "Investor report",
+   "date": "15 Jul 2026",
+   "year": "2026",
+   "investment": "Private funds",
+   "size": "3.4 MB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-055",
+   "title": "2025 Tax Statement",
+   "type": "tax",
+   "label": "Tax",
+   "date": "31 Mar 2026",
+   "year": "2026",
+   "investment": "Consolidated",
+   "size": "890 KB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-049",
+   "title": "Matanho Growth Fund I · LPA",
+   "type": "legal",
+   "label": "LPA",
+   "date": "10 Jan 2026",
+   "year": "2026",
+   "investment": "Matanho Growth Fund I",
+   "size": "4.8 MB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-044",
+   "title": "Investment Management Agreement",
+   "type": "legal",
+   "label": "Mandate",
+   "date": "12 Dec 2025",
+   "year": "2025",
+   "investment": "Balanced Growth",
+   "size": "2.2 MB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-040",
+   "title": "December 2025 Account Statement",
+   "type": "statement",
+   "label": "Statement",
+   "date": "31 Dec 2025",
+   "year": "2025",
+   "investment": "Consolidated",
+   "size": "1.1 MB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-039",
+   "title": "Q4 2025 Investor Report",
+   "type": "report",
+   "label": "Investor report",
+   "date": "31 Dec 2025",
+   "year": "2025",
+   "investment": "Consolidated",
+   "size": "3.1 MB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-031",
+   "title": "Capital Call Notice · CALL-2511-03",
+   "type": "capital",
+   "label": "Capital notice",
+   "date": "11 Nov 2025",
+   "year": "2025",
+   "investment": "Private Credit Fund I",
+   "size": "402 KB",
+   "unread": false,
+   "signature": false
+  },
+  {
+   "id": "DOC-025",
+   "title": "November 2025 Account Statement",
+   "type": "statement",
+   "label": "Statement",
+   "date": "30 Nov 2025",
+   "year": "2025",
+   "investment": "Consolidated",
+   "size": "1.0 MB",
+   "unread": false,
+   "signature": false
+  }
+ ],
+ "requests": [
+  {
+   "id": "REQ-2041",
+   "title": "Tax statement",
+   "type": "Statement / report",
+   "status": "In progress",
+   "owner": "L. Chuma",
+   "opened": "Today · 08:58",
+   "progress": 65,
+   "detail": "Please provide the 2025 tax statement for the trustees.",
+   "timeline": [
+    [
+     "08:58",
+     "Submitted",
+     "Request received"
+    ],
+    [
+     "09:14",
+     "Assigned",
+     "L. Chuma · Client Services"
+    ],
+    [
+     "10:02",
+     "Update",
+     "Document located and undergoing publication check"
+    ]
+   ]
+  },
+  {
+   "id": "REQ-2034",
+   "title": "Liquidity enquiry",
+   "type": "Withdrawal enquiry",
+   "status": "Waiting on you",
+   "owner": "L. Chuma",
+   "opened": "28 Aug",
+   "progress": 44,
+   "detail": "Indicative liquidity for a US$ 300k withdrawal in September.",
+   "timeline": [
+    [
+     "28 Aug",
+     "Submitted",
+     "Liquidity enquiry received"
+    ],
+    [
+     "28 Aug",
+     "Response",
+     "Indicative cash schedule shared"
+    ],
+    [
+     "29 Aug",
+     "Waiting on you",
+     "Please confirm desired value date"
+    ]
+   ]
+  },
+  {
+   "id": "REQ-2017",
+   "title": "Authorised signatory update",
+   "type": "Profile update",
+   "status": "Closed",
+   "owner": "Compliance",
+   "opened": "14 Aug",
+   "progress": 100,
+   "detail": "Add new authorised signatory.",
+   "timeline": [
+    [
+     "14 Aug",
+     "Submitted",
+     "Profile change request received"
+    ],
+    [
+     "15 Aug",
+     "Evidence requested",
+     "Board resolution requested"
+    ],
+    [
+     "17 Aug",
+     "Closed",
+     "Client master updated after verification"
+    ]
+   ]
+  }
+ ],
+ "threads": [
+  {
+   "id": "M1",
+   "title": "Capital call clarification",
+   "owner": "L. Chuma",
+   "role": "Client Services",
+   "last": "Today",
+   "unread": 2,
+   "messages": [
+    {
+     "who": "them",
+     "text": "We published CALL-2609-01 for Matanho Growth Fund I. The US$ 280,000 is due on 07 September.",
+     "time": "09:14"
+    },
+    {
+     "who": "me",
+     "text": "Can you confirm the split between investment funding and expenses?",
+     "time": "09:27"
+    },
+    {
+     "who": "them",
+     "text": "Yes. US$ 245,000 is investment funding, US$ 22,000 management fees and US$ 13,000 fund expenses. The notice has the same breakdown.",
+     "time": "09:33"
+    }
+   ]
+  },
+  {
+   "id": "M2",
+   "title": "August investor report",
+   "owner": "T. Ncube",
+   "role": "Relationship Manager",
+   "last": "Yesterday",
+   "unread": 0,
+   "messages": [
+    {
+     "who": "them",
+     "text": "The August investor report is now published in your Documents area. It includes the performance attribution summary and private-fund update.",
+     "time": "Yesterday · 16:21"
+    }
+   ]
+  },
+  {
+   "id": "M3",
+   "title": "KYC annual review",
+   "owner": "Compliance",
+   "role": "Compliance",
+   "last": "14 Aug",
+   "unread": 0,
+   "messages": [
+    {
+     "who": "them",
+     "text": "Your annual review is complete. The next scheduled review is 14 August 2027 unless a trigger event requires an earlier refresh.",
+     "time": "14 Aug · 11:08"
+    }
+   ]
+  }
+ ]
+}

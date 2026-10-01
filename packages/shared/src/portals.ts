@@ -26,7 +26,7 @@ export const PORTALS: Record<PortalId, PortalDefinition> = {
   },
   investor: {
     id: 'investor',
-    name: 'Investor Portal',
+    name: 'LP Portal',
     audience: 'Institutional investors / limited partners',
     devPort: 3101,
     urlEnvVar: 'INVESTOR_PORTAL_URL',
@@ -40,7 +40,7 @@ export const PORTALS: Record<PortalId, PortalDefinition> = {
   },
   company: {
     id: 'company',
-    name: 'Portfolio Company Portal',
+    name: 'Investee Portal',
     audience: 'Portfolio companies submitting monthly reporting',
     devPort: 3103,
     urlEnvVar: 'COMPANY_PORTAL_URL',

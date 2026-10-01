@@ -15,7 +15,8 @@ export function createCors(config: AppConfig) {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Accept'],
+    allowedHeaders: ['Content-Type', 'Accept', 'If-Match', 'Idempotency-Key', 'X-Request-Id', 'X-Draft-Token'],
+    exposedHeaders: ['X-Request-Id', 'ETag'],
     maxAge: 600,
   });
 }

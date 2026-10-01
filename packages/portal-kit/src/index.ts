@@ -1,4 +1,9 @@
 export { LoginForm } from './LoginForm';
 export type { LoginFormProps } from './LoginForm';
-export { LoginPage } from './LoginPage';
+export { AcceptInviteForm } from './AcceptInviteForm';
+export { ResetPasswordForm } from './ResetPasswordForm';
+export { MfaStep } from './MfaStep';
+export { AuthCard } from './AuthCard';
+export { AccessDeniedPage } from './AccessDenied';
+export { LoginPage, AcceptInvitePage, ResetPasswordPage } from './LoginPage';
 export { AuthRootLayout } from './AuthRootLayout';
