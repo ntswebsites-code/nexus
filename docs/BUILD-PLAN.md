@@ -597,6 +597,8 @@ The admin portal is the V56 prototype: 28 pages rendered from extracted markup a
 
 When a phase meets its definition of done, start the next phase in this table. Do not wait for a review or a new instruction between phases. Record what passed in `docs/HANDOVER-STATUS.md` and continue. Skip only the phase item that needs a decision with no default, a schema change while the schema is frozen, an external vendor that has not been selected, or a host deploy that was forbidden, then take the next item that can be built and tested locally.
 
+A phase is not done on typecheck alone. Sign in and click through its journeys. A live screen must not show the Demo data ribbon. Fix what the click-through breaks, then click it again.
+
 Effort ranges are pw; total 44 to 62. Calendar assumes two squads (LP, Investee) of two engineers after Phase 0, with QA and a product owner available.
 
 ```mermaid

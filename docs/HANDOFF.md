@@ -44,6 +44,7 @@ Reference code that is **read-only inspiration, never a runtime dependency**: th
 ## 4. Guardrails (non-negotiable)
 
 - **Do not stop between tasks or phases.** When the item you are on is implemented and tested, record the result in `docs/HANDOVER-STATUS.md` and start the next unfinished item in `docs/DEV-PLAN-1DAY.md` (then `docs/BUILD-PLAN.md` section 7) yourself. Do not wait for a checkpoint, a status review, or an instruction to continue. Skip only that one item when it needs a decision with no default, a schema change while the schema is frozen, an external vendor that has not been selected, or a host deploy that was forbidden. Write the skip down and take the next item that can be built and tested locally.
+- **Click through the cut line before calling it done.** Sign in as the persona and click every journey in `docs/DEV-PLAN-1DAY.md` section 3. Live pages must not show the Demo data ribbon. Fix failed requests, blank errors, and broken layouts, then click the failed journey again. API checks do not replace that pass.
 - Work on `dev` and `ws/*` branches only. **Never push to GitHub, never force-push, never rewrite history** unless the product owner says so.
 - One migration for the day, additive only; schema freeze at the plan's checkpoint; hot-spot files (Prisma schema, `routes/v1.ts`, `packages/shared/**`, role catalogue, seeds) have a single owner (WS0).
 - Use the mock as the oracle: the real API must return the same shapes as `mock-api.ts` for the same persona. Per-domain flags with rollback by flag. **No silent fallback to demo data when a live call fails.**
@@ -85,7 +86,7 @@ How to work:
 
 Rules: stay on dev and ws/* branches; commit often with clear messages; never push to GitHub, never force-push; never commit .env*, secrets or credentials; use unusual free ports for local runs; do not touch other projects on the UAT server; deploy only with the runbook in plan section 8 (backups, :pre-<release> image tags, --no-deps). If a decision has no default in docs/SRD.md section 13 or the plan, record it in docs/DECISIONS-NEEDED.md and continue with another item; do not stall.
 
-Do not stop when a task, workstream, or phase is done. Update docs/HANDOVER-STATUS.md with what passed, then start the next unfinished item in the plan yourself. Checkpoints are status notes you write while you keep building, not places to wait. Skip a single item only when it needs a missing decision, a frozen-schema change, an unselected vendor, or a host deploy that was forbidden, and move on.
+Do not stop when a task, workstream, or phase is done. Update docs/HANDOVER-STATUS.md with what passed, then start the next unfinished item in the plan yourself. Checkpoints are status notes you write while you keep building, not places to wait. Skip a single item only when it needs a missing decision, a frozen-schema change, an unselected vendor, or a host deploy that was forbidden, and move on. Before the cut line is called done, sign in and click through every journey. Live pages must not show the Demo data ribbon. Fix what that pass finds and click the failed journey again.
 ```
 
 ## 8. Roles from here

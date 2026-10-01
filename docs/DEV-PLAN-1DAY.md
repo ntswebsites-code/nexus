@@ -6,6 +6,8 @@ Branch: `dev` (created from `main`). Written 1 Oct 2026. Companion documents: `d
 
 **Keep going.** Finishing a task, a workstream, or a phase is not a stop. Record what passed in `docs/HANDOVER-STATUS.md`, then start the next unfinished item in this plan, and after this plan the next phase in `docs/BUILD-PLAN.md` section 7, without waiting to be asked. Checkpoints in section 6 are notes you write while work continues. Skip only the single item that needs a decision with no default, a schema change while the schema is frozen, an external vendor that has not been selected, or a host deploy that was forbidden. Write that skip down and take the next item that can be built and tested locally.
 
+**Click-through when the build is in place.** Before treating the cut line as done, sign in as each persona and click through every journey in section 3. A page that should be live must not show the Demo data ribbon. A failed request, a blank error, or a broken layout is a defect: fix it and click that journey again. API checks do not replace the click-through.
+
 ## 1. What "fully functional from A to Z" can honestly mean in one day
 
 The whole SRD is about 380 new functional requirements across five portals plus the admin workspace. That is weeks of work, not one day, and this plan does not pretend otherwise. The plan delivers the **largest coherent slice that is credible**:
