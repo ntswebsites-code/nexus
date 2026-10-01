@@ -197,6 +197,16 @@ function canvasBlob(): Promise<Blob> {
   );
 }
 
+/** CSV of the recorded register. Quotes any field that contains a comma, quote, or newline. */
+export function capTableCsv(rows: { name: string; type: string; shares: number; pct: number }[]) {
+  const cell = (value: string | number) => {
+    const text = String(value ?? '');
+    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+  };
+  const lines = ['Name,Class,Shares,Percent', ...rows.map((row) => [cell(row.name), cell(row.type), cell(row.shares), cell(row.pct)].join(','))];
+  return `${lines.join('\n')}\n`;
+}
+
 function saveBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -319,6 +329,8 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
       case 'save-cap-holder':
       case 'model-round':
         return api.isLive('capTable.save');
+      case 'export-cap-table':
+        return pageLive('cap-table') && api.isLive('capTable');
       case 'complete-upload':
         return api.isLive('vault.upload');
       default:
@@ -478,6 +490,13 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           await api.saveForecast({ revenue });
           await reload();
           return { message: 'Forecast saved', detail: 'Forecast revenue was stored for the open months.' };
+        }
+
+        case 'export-cap-table': {
+          const rows = payload?.capTable?.shareholders ?? [];
+          if (!rows.length) return { error: 'There are no holders to export.' };
+          saveBlob(new Blob([capTableCsv(rows)], { type: 'text/csv;charset=utf-8' }), 'cap-table.csv');
+          return { message: 'Register exported', detail: `${rows.length} holder${rows.length === 1 ? '' : 's'}.` };
         }
 
         case 'model-round': {
