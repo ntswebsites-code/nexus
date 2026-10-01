@@ -1,15 +1,81 @@
 import { Router } from 'express';
-import { requireLp } from '../lp.context';
-import { lpStubArray, lpStubList, lpStubNotLive } from '../lp.http';
+import { requireStepUp } from '../../../middleware/requireAuth';
+import { idempotent } from '../../../lib/idempotency';
+import { param } from '../../../lib/http';
+import { lp, requireLp, requireLpRole } from '../lp.context';
+import { LpError, lpOk, lpPaginate, pageOf } from '../lp.http';
+import { queryFund, str } from '../services/common';
+import {
+  CONSENT_TEXT,
+  CONSENT_TEXT_VERSION,
+  documentDetail,
+  documentsSummary,
+  listDocuments,
+  listVault,
+  sendDocument,
+  signDocument,
+  verifyVault,
+} from '../services/documents';
 
 /** Domain `documents`: documents and the vault (WS1). */
 export const lpDocumentsRoutes = Router();
 
-lpDocumentsRoutes.get('/documents', requireLp('lp.documents.view'), lpStubList);
-lpDocumentsRoutes.get('/documents/summary', requireLp('lp.documents.view'), lpStubNotLive);
-lpDocumentsRoutes.get('/documents/:id', requireLp('lp.documents.view'), lpStubNotLive);
-lpDocumentsRoutes.get('/documents/:id/download', requireLp('lp.documents.download'), lpStubNotLive);
-lpDocumentsRoutes.get('/documents/:id/preview', requireLp('lp.documents.view'), lpStubNotLive);
-lpDocumentsRoutes.get('/vault', requireLp('lp.documents.view'), lpStubArray);
-lpDocumentsRoutes.get('/vault/:documentId/download', requireLp('lp.documents.download'), lpStubNotLive);
-lpDocumentsRoutes.get('/vault/:documentId/verify', requireLp('lp.documents.view'), lpStubNotLive);
+lpDocumentsRoutes.get('/documents', requireLp('lp.documents.view'), async (req, res) => {
+  const ctx = lp(req);
+  const { page, pageSize } = pageOf(req);
+  const items = await listDocuments(ctx, { fundId: queryFund(req, ctx), category: str(req.query.category), q: str(req.query.q) });
+  lpOk(req, res, lpPaginate(items, page, pageSize));
+});
+
+lpDocumentsRoutes.get('/documents/summary', requireLp('lp.documents.view'), async (req, res) => {
+  lpOk(req, res, await documentsSummary(lp(req)));
+});
+
+lpDocumentsRoutes.get('/documents/consent-text', requireLp('lp.documents.view'), (req, res) => {
+  lpOk(req, res, { version: CONSENT_TEXT_VERSION, text: CONSENT_TEXT });
+});
+
+lpDocumentsRoutes.get('/documents/:id', requireLp('lp.documents.view'), async (req, res) => {
+  lpOk(req, res, await documentDetail(req, lp(req), param(req, 'id')));
+});
+
+lpDocumentsRoutes.get('/documents/:id/download', requireLp('lp.documents.download'), async (req, res) => {
+  await sendDocument(req, res, lp(req), param(req, 'id'), 'download', (data) => lpOk(req, res, data));
+});
+
+lpDocumentsRoutes.get('/documents/:id/preview', requireLp('lp.documents.view'), async (req, res) => {
+  await sendDocument(req, res, lp(req), param(req, 'id'), 'preview', (data) => lpOk(req, res, data));
+});
+
+lpDocumentsRoutes.post(
+  '/documents/:id/sign',
+  requireLp('lp.documents.view'),
+  requireLpRole('SIGNATORY'),
+  requireStepUp,
+  idempotent('lp.documents.sign', { required: false }),
+  async (req, res) => {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const fieldErrors: Record<string, string> = {};
+    const name = typeof b.name === 'string' ? b.name.trim() : '';
+    const authority = typeof b.authority === 'string' ? b.authority.trim() : '';
+    if (name.length < 2 || name.length > 120) fieldErrors.name = 'Type your full name';
+    if (authority.length < 2 || authority.length > 160) fieldErrors.authority = 'State the capacity in which you sign';
+    if (b.consent !== true) fieldErrors.consent = 'Consent is required';
+    if (Object.keys(fieldErrors).length) throw LpError.validation('Check the signature details', fieldErrors);
+    const consentTextVersion = typeof b.consentTextVersion === 'string' ? b.consentTextVersion.slice(0, 32) : undefined;
+    lpOk(req, res, await signDocument(req, lp(req), param(req, 'id'), { name, authority, consentTextVersion }), 'Document signed', 201);
+  },
+);
+
+lpDocumentsRoutes.get('/vault', requireLp('lp.documents.view'), async (req, res) => {
+  const ctx = lp(req);
+  lpOk(req, res, await listVault(ctx, { fundId: queryFund(req, ctx), category: str(req.query.category), search: str(req.query.search) }));
+});
+
+lpDocumentsRoutes.get('/vault/:documentId/download', requireLp('lp.documents.download'), async (req, res) => {
+  await sendDocument(req, res, lp(req), param(req, 'documentId'), 'download', (data) => lpOk(req, res, data));
+});
+
+lpDocumentsRoutes.get('/vault/:documentId/verify', requireLp('lp.documents.view'), async (req, res) => {
+  lpOk(req, res, await verifyVault(lp(req), param(req, 'documentId')));
+});

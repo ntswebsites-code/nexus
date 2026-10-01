@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { HttpError } from '../../lib/errors';
 import { requireAuth, requirePortalAccess } from '../../middleware/requireAuth';
+import { opsNoticesRoutes } from './notices.routes';
 
 /**
  * `/api/v1/ops` - staff fund operations used by the admin `(ops)` console: funds and
@@ -14,6 +15,7 @@ opsRoutes.use(requireAuth, requirePortalAccess('admin'));
 opsRoutes.get('/health', (_req, res) => {
   res.json({ domain: 'ops', live: false });
 });
+opsRoutes.use('/notices', opsNoticesRoutes);
 opsRoutes.use(() => {
   throw new HttpError(501, 'not_implemented', 'This operations endpoint is not available yet');
 });
