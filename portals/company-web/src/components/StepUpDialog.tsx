@@ -36,17 +36,19 @@ export function StepUpDialog({
     };
   }, [mode]);
 
-  async function submit(e: FormEvent) {
+  async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    if (!/^\d{6}$/.test(code)) {
+    const field = e.currentTarget.elements.namedItem('code');
+    const entered = (field instanceof HTMLInputElement ? field.value : code).replace(/\D/g, '');
+    if (!/^\d{6}$/.test(entered)) {
       setError('Enter the 6-digit code from your authenticator app.');
       return;
     }
     setBusy(true);
     setError('');
     try {
-      if (mode === 'enroll') await confirmEnrolment(code);
-      else await confirmStepUp(code);
+      if (mode === 'enroll') await confirmEnrolment(entered);
+      else await confirmStepUp(entered);
       onDone(true);
     } catch (err) {
       setError(err instanceof InvesteeApiError ? err.message : 'That code could not be confirmed.');
@@ -85,6 +87,7 @@ export function StepUpDialog({
           maxLength={6}
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+          name="code"
           aria-label="Authentication code"
           style={{ width: '100%', boxSizing: 'border-box', fontSize: 20, letterSpacing: 6, textAlign: 'center', padding: '10px 12px', border: '1px solid #d1d5db', borderRadius: 10 }}
         />
