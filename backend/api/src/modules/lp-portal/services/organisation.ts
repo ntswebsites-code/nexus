@@ -4,8 +4,9 @@ import type { LpBankInstructionChange, LpColleague, LpOrganisation, LpRole } fro
 import { prisma } from '../../../lib/prisma';
 import { writeAudit } from '../../../lib/audit';
 import { enqueue } from '../../../lib/outbox';
-import { encryptField, maskIdentifier, sha256Hex } from '../../../lib/crypto';
+import { encryptField, maskIdentifier } from '../../../lib/crypto';
 import { createInvitation } from '../../identity/invitations';
+import { lpInviteSettingKey, saveInviteGrant } from '../../identity/invite-grant';
 import { LpError } from '../lp.http';
 import { LP_ROLE_BY_INVESTOR_ROLE, assertFund, type LpContext } from '../lp.context';
 import { asRecord, fundNames, lpAudit, str } from './common';
@@ -45,7 +46,7 @@ async function normaliseFunds(ctx: LpContext, raw: unknown): Promise<string[] | 
   return ids;
 }
 
-const inviteKey = (email: string) => `lp.invite:${sha256Hex(email.toLowerCase()).slice(0, 40)}`;
+const inviteKey = lpInviteSettingKey;
 
 /**
  * The shared invitation accept flow (identity) creates the membership without `fund_ids`. A narrower
@@ -159,7 +160,6 @@ export async function inviteColleague(req: Request, ctx: LpContext) {
   if (existingUser) {
     const m = await prisma.clientUser.findUnique({ where: { clientId_userId: { clientId: ctx.client.id, userId: existingUser.id } } });
     if (m && !m.revokedAt && m.status !== 'SUSPENDED') throw new LpError(409, 'LP_VERSION_CONFLICT', 'User already has active access');
-    if (m) throw new LpError(409, 'LP_VERSION_CONFLICT', 'Access for this user was revoked; Client Services must restore it');
   }
 
   const investorRole = INVESTOR_ROLE_FOR[role];
@@ -179,6 +179,7 @@ export async function inviteColleague(req: Request, ctx: LpContext) {
       context: `${ctx.client.name}'s investor portal`,
     });
     const key = inviteKey(email);
+    await saveInviteGrant(tx, invitation.id, { kind: 'lp', fundIds, lpRole: role, invitedById: ctx.userId });
     if (fundIds) {
       const value = { fundIds, lpRole: role, invitationId: invitation.id, invitedById: ctx.userId };
       await tx.setting.upsert({ where: { ownerId_key: { ownerId: ctx.client.id, key } }, create: { ownerId: ctx.client.id, key, value }, update: { value } });

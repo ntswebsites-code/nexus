@@ -369,6 +369,40 @@ export async function saveDraft(actor: PackActor, period: PeriodRow, input: Draf
   });
 }
 
+function revenueOf(values: unknown): number | null {
+  if (!values || typeof values !== 'object' || Array.isArray(values)) return null;
+  const o = values as Record<string, unknown>;
+  for (const key of ['totalRevenue', 'TOTAL_REVENUE', 'TOTAL_REVENUE_COMPUTED', 'IS.totalRevenue', 'IS.revenue']) {
+    const n = typeof o[key] === 'number' ? o[key] : typeof o[key] === 'string' && o[key] !== '' ? Number(o[key]) : NaN;
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+}
+
+/**
+ * BR-252: a drop of more than half versus the previous posted period needs an explanation
+ * (a note of at least 20 characters, or a file whose name says variance or explanation).
+ */
+async function assertRevenueVariance(period: PeriodRow, input: DraftInput) {
+  const merged = { ...((period.kpiValues as object | null) ?? {}), ...(input.kpis ?? {}) };
+  const current = revenueOf(merged);
+  if (current === null) return;
+  const prior = await prisma.reportingPeriod.findFirst({
+    where: { companyId: period.companyId, period: { lt: period.period }, status: { in: ['submitted', 'accepted'] } },
+    orderBy: { period: 'desc' },
+  });
+  const previous = prior ? revenueOf(prior.kpiValues) : null;
+  if (!previous || current >= previous * 0.5) return;
+  const note = `${input.notes ?? ''} ${period.notes ?? ''} ${typeof (merged as Record<string, unknown>).varianceExplanationNote === 'string' ? (merged as Record<string, unknown>).varianceExplanationNote : ''}`.trim();
+  const explained = period.items.some((item) => item.submissions.some((s) => /variance|explanation/i.test(s.name)));
+  if (note.length < 20 && !explained) {
+    throw HttpError.badRequest(
+      'Variance validation: Revenue is more than 50% below the prior reporting period. Add a variance explanation of at least 20 characters, or attach a file whose name contains "variance" or "explanation".',
+      { varianceExplanationNote: 'Required when revenue falls by more than half' },
+    );
+  }
+}
+
 /** Submits the pack for review: every required item needs a file; notifies the investment team. */
 export async function submitPack(actor: PackActor, company: { name: string }, period: PeriodRow, input: DraftInput) {
   assertEditable(period);
@@ -376,6 +410,7 @@ export async function submitPack(actor: PackActor, company: { name: string }, pe
   if (missing.length) {
     throw HttpError.badRequest(`Still needed: ${missing.map((i) => i.title).join(', ')}`, { missing: missing.map((i) => i.key) });
   }
+  await assertRevenueVariance(period, input);
   const now = new Date();
   await prisma.$transaction(async (tx) => {
     await tx.reportingPeriod.update({

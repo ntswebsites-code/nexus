@@ -22,6 +22,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/ops/capital-calls', label: 'Capital calls', perms: ['capital.view'] },
       { href: '/ops/distributions', label: 'Distributions', perms: ['capital.view', 'distributions.create', 'distributions.approve', 'distributions.settle'] },
       { href: '/ops/notices', label: 'LP notices', perms: ['notices.view'] },
+      { href: '/ops/bank-instructions', label: 'Bank instructions', perms: ['clients.view'] },
     ],
   },
   {

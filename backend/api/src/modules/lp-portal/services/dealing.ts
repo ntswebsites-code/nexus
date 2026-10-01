@@ -13,6 +13,9 @@ import { prisma } from '../../../lib/prisma';
 import { writeAudit } from '../../../lib/audit';
 import { ctx } from '../../../lib/http';
 import { sha256Hex } from '../../../lib/crypto';
+import { storeFile } from '../../../lib/storage';
+import { workbook } from '../../../lib/xlsx';
+import { attachmentId } from './common';
 import { assertFund, fundFilter, type LpContext } from '../lp.context';
 import { LpError } from '../lp.http';
 import { D, ZERO, money, notifyPermission, seqRef, type Dec } from '../../ops/ops.common';
@@ -29,6 +32,10 @@ const dayStr = (d: Date) => d.toISOString().slice(0, 10);
 const utcDay = (s: string) => new Date(`${s}T00:00:00.000Z`);
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
 const isWeekend = (d: Date) => d.getUTCDay() === 0 || d.getUTCDay() === 6;
+/** Fixed market closures used when there is no per-fund holiday table (New Year, Christmas, Boxing Day). */
+const FIXED_HOLIDAYS = new Set(['01-01', '12-25', '12-26']);
+const isHoliday = (d: Date) => FIXED_HOLIDAYS.has(`${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`);
+const isClosed = (d: Date) => isWeekend(d) || isHoliday(d);
 const today = () => utcDay(dayStr(new Date()));
 
 export function addBusinessDays(d: Date, n: number): Date {
@@ -36,19 +43,19 @@ export function addBusinessDays(d: Date, n: number): Date {
   let left = n;
   while (left > 0) {
     out = addDays(out, 1);
-    if (!isWeekend(out)) left--;
+    if (!isClosed(out)) left--;
   }
   return out;
 }
 
-/** First dealing date of the fund's frequency on or after `from` (no holiday calendar yet). */
+/** First dealing date of the fund's frequency on or after `from`, skipping weekends and fixed market holidays. */
 export function nextDealingDate(from: Date, frequency: string): Date {
   const y = from.getUTCFullYear();
   const m = from.getUTCMonth();
   switch (frequency.toUpperCase()) {
     case 'DAILY': {
       let d = from;
-      while (isWeekend(d)) d = addDays(d, 1);
+      while (isClosed(d)) d = addDays(d, 1);
       return d;
     }
     case 'WEEKLY': {
@@ -59,7 +66,7 @@ export function nextDealingDate(from: Date, frequency: string): Date {
     case 'MONTHLY_LAST_BUSINESS_DAY': {
       for (let i = 0; i < 2; i++) {
         let d = new Date(Date.UTC(y, m + i + 1, 0));
-        while (isWeekend(d)) d = addDays(d, -1);
+        while (isClosed(d)) d = addDays(d, -1);
         if (d >= from) return d;
       }
       return from;
@@ -499,6 +506,16 @@ export async function exportRequests(req: Request, lp: LpContext, q: { fundId?: 
   return `${lines.join('\r\n')}\r\n`;
 }
 
+export async function exportRequestsXlsx(req: Request, lp: LpContext, q: { fundId?: string; type?: string }) {
+  const { items } = await listRequests(lp, { ...q, page: 1, pageSize: 500 });
+  const header = ['id', 'fundName', 'shareClass', 'requestType', 'status', 'amount', 'units', 'currency', 'requestedDealingDate', 'createdAt'];
+  const rows = items.map((i) => [i.id, i.fundName, i.shareClass, i.requestType, i.status, i.amount, i.units, i.currencyCode, i.requestedDealingDate, i.createdAt].map((v) => String(v ?? '')));
+  await prisma.$transaction((tx) =>
+    writeAudit(tx, ctx(req, 'investor'), { action: 'lp.dealing.requests_exported', objectType: 'client', objectId: lp.client.id, after: { rows: items.length, fundId: q.fundId ?? null, format: 'xlsx' } }),
+  );
+  return workbook('Dealing requests', [header, ...rows]);
+}
+
 interface SubmitBody {
   fundId: string;
   shareClass?: string;
@@ -529,6 +546,13 @@ async function bankAccountFor(lp: LpContext, fundId: string, id: string | undefi
   return b;
 }
 
+function uploaded(req: Request): Express.Multer.File[] {
+  const files = req.files;
+  if (Array.isArray(files)) return files;
+  if (files && typeof files === 'object') return Object.values(files).flat();
+  return req.file ? [req.file] : [];
+}
+
 async function createRequest(req: Request, lp: LpContext, f: FundCtx, est: { id: string; payloadHash: string }, data: Omit<Prisma.LpDealingRequestUncheckedCreateInput, 'ref' | 'clientId' | 'fundId'>) {
   const row = await prisma.$transaction(async (tx) => {
     const ref = await seqRef(tx, 'dealing_request', 'DLR-', 5);
@@ -536,13 +560,30 @@ async function createRequest(req: Request, lp: LpContext, f: FundCtx, est: { id:
       data: { ...data, ref, clientId: lp.client.id, fundId: f.fund.id, estimateId: est.id, payloadHash: est.payloadHash, submittedById: lp.userId, status: 'SUBMITTED' },
       include: { fund: { select: { name: true } } },
     });
+    const files = uploaded(req);
+    for (const file of files) {
+      const stored = await storeFile({ name: file.originalname, mime: file.mimetype || 'application/octet-stream', data: file.buffer, uploadedById: lp.userId }, tx);
+      await tx.requestAttachment.create({
+        data: {
+          id: attachmentId(),
+          clientId: lp.client.id,
+          fileId: stored.id,
+          name: stored.name,
+          size: stored.size,
+          mime: stored.mime,
+          sha256: stored.sha256,
+          requestId: r.id,
+          uploadedById: lp.userId,
+        },
+      });
+    }
     const claimed = await tx.dealingEstimate.updateMany({ where: { id: est.id, consumedByRequestId: null }, data: { consumedByRequestId: r.id } });
     if (claimed.count !== 1) throw new LpError(409, 'LP_VALIDATION', 'This estimate was already used; run the estimate again');
     await writeAudit(tx, ctx(req, 'investor'), {
       action: data.requestType === 'SUBSCRIPTION' ? 'lp.dealing.subscription_submitted' : 'lp.dealing.redemption_submitted',
       objectType: 'lp_dealing_request',
       objectId: r.id,
-      after: { ref, fund: f.fund.ref, amount: data.amount?.toString() ?? null, units: data.units?.toString() ?? null, estimateId: est.id, payloadHash: est.payloadHash },
+      after: { ref, fund: f.fund.ref, amount: data.amount?.toString() ?? null, units: data.units?.toString() ?? null, estimateId: est.id, payloadHash: est.payloadHash, attachments: uploaded(req).length },
     });
     await notifyPermission(tx, 'dealing.process', {
       type: 'dealing.submitted',

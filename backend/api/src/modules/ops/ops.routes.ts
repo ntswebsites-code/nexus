@@ -8,6 +8,7 @@ import { opsDistributionsRoutes } from './distributions.routes';
 import { opsDealingRoutes } from './dealing.routes';
 import { opsCustodianRoutes } from './custodian.routes';
 import { opsNoticesRoutes } from './notices.routes';
+import { opsBankInstructionRoutes } from './bank-instructions.routes';
 
 /**
  * `/api/v1/ops` - staff fund operations used by the admin `(ops)` console: funds and
@@ -24,6 +25,7 @@ opsRoutes.get('/health', (_req, res) => {
 opsRoutes.use('/term-sheets', opsTermSheetRoutes);
 opsRoutes.use('/custodian', opsCustodianRoutes);
 opsRoutes.use('/notices', opsNoticesRoutes);
+opsRoutes.use('/bank-instructions', opsBankInstructionRoutes);
 opsRoutes.use(opsFundsRoutes);
 opsRoutes.use(opsCapitalRoutes);
 opsRoutes.use(opsDistributionsRoutes);

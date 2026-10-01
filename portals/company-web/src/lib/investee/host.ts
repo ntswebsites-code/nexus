@@ -257,6 +257,8 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         return pageLive('settings') && (api.isLive('settings.profile') || api.isLive('settings.company') || api.isLive('settings.letterhead'));
       case 'send-conversation':
         return api.isLive('threads.start');
+      case 'send-invite':
+        return api.isLive('team.invite');
       default:
         return false;
     }
@@ -352,6 +354,18 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
 
         case 'save-settings':
           return await saveSettings();
+
+        case 'send-invite': {
+          const fields = [...document.querySelectorAll('#modalBody input, #modalBody select, #modalBody textarea')] as HTMLInputElement[];
+          const name = fields[0]?.value.trim();
+          const email = fields[1]?.value.trim();
+          const profile = fields[2]?.value.trim();
+          const title = fields[3]?.value.trim();
+          if (!email) return { error: 'A work email is required.' };
+          await api.inviteTeamMember({ name, email, profile: profile || 'Report contributor', title });
+          ui()?.closeOverlays?.();
+          return { message: 'Invitation sent', detail: 'They will set a password from the invitation email.' };
+        }
 
         case 'send-conversation': {
           const subject = val('newConversationSubject');

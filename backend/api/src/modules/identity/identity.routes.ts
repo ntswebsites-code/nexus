@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import {
@@ -23,6 +24,7 @@ import { createSession, destroyUserSessions, hashToken, setSessionCookie } from 
 import { hashPassword, verifyPassword } from '../../auth/password';
 import { loadAuthUser } from '../../services/authService';
 import { maybeCompleteActivation } from '../kyc/kyc.service';
+import { lpInviteSettingKey, takeInviteGrant } from './invite-grant';
 
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -200,7 +202,9 @@ identityRoutes.post('/invitations/accept', limiter, validateBody(acceptInvitatio
         update: {},
       });
     }
+    const grant = await takeInviteGrant(tx, invitation.id);
     if (invitation.clientId) {
+      const lp = grant?.kind === 'lp' ? grant : null;
       await tx.clientUser.upsert({
         where: { clientId_userId: { clientId: invitation.clientId, userId: user.id } },
         create: {
@@ -208,17 +212,52 @@ identityRoutes.post('/invitations/accept', limiter, validateBody(acceptInvitatio
           userId: user.id,
           investorRole: roleKeys[0] ?? 'viewer',
           accountScope: invitation.scope ?? 'all',
+          fundIds: lp?.fundIds ?? undefined,
+          lpRole: lp?.lpRole ?? null,
+          invitedById: lp?.invitedById ?? invitation.invitedById,
+          status: 'ACTIVE',
         },
-        update: { investorRole: roleKeys[0] ?? 'viewer', accountScope: invitation.scope ?? 'all' },
+        update: {
+          investorRole: roleKeys[0] ?? 'viewer',
+          accountScope: invitation.scope ?? 'all',
+          revokedAt: null,
+          status: 'ACTIVE',
+          invitedById: lp?.invitedById ?? invitation.invitedById,
+          ...(lp ? { fundIds: lp.fundIds === null ? Prisma.DbNull : lp.fundIds, lpRole: lp.lpRole } : {}),
+        },
       });
+      await tx.setting.deleteMany({ where: { ownerId: invitation.clientId, key: lpInviteSettingKey(invitation.email) } });
       await tx.client.update({ where: { id: invitation.clientId }, data: { portalEnabled: true } });
       await maybeCompleteActivation(tx, invitation.clientId, { actorId: user.id, portal: 'investor', ip: req.ip, requestId: req.requestId });
     }
     if (invitation.companyId) {
+      const co = grant?.kind === 'company' ? grant : null;
       await tx.companyUser.upsert({
         where: { companyId_userId: { companyId: invitation.companyId, userId: user.id } },
-        create: { companyId: invitation.companyId, userId: user.id },
-        update: {},
+        create: {
+          companyId: invitation.companyId,
+          userId: user.id,
+          status: 'active',
+          invitedById: co?.invitedById ?? invitation.invitedById,
+          ...(co ? { profile: co.profile, title: co.title } : {}),
+        },
+        update: {
+          status: 'active',
+          ...(co ? { profile: co.profile, title: co.title, invitedById: co.invitedById } : {}),
+        },
+      });
+    }
+    if (grant?.kind === 'custodian') {
+      await tx.counterpartyUser.upsert({
+        where: { counterpartyId_userId: { counterpartyId: grant.counterpartyId, userId: user.id } },
+        create: {
+          counterpartyId: grant.counterpartyId,
+          userId: user.id,
+          role: grant.role,
+          status: 'active',
+          invitedById: grant.invitedById,
+        },
+        update: { role: grant.role, status: 'active', invitedById: grant.invitedById },
       });
     }
     await tx.invitation.update({ where: { id: invitation.id }, data: { acceptedAt: new Date() } });

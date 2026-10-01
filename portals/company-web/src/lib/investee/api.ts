@@ -79,6 +79,7 @@ export const INVESTEE_ACTION_KEYS = [
   'settings.company',
   'settings.letterhead',
   'threads.start',
+  'team.invite',
 ] as const;
 
 export type InvesteeActionKey = (typeof INVESTEE_ACTION_KEYS)[number];
@@ -294,6 +295,9 @@ export function createInvesteeApi(liveActions: readonly string[]) {
           text: body.recipientTeam ? `${body.body}\n\nFor: ${body.recipientTeam}` : body.body,
         },
       }),
+
+    inviteTeamMember: (body: { name?: string; email: string; profile: string; title?: string }) =>
+      call<{ id: string; email: string; status: string }>('team.invite', 'POST', '/team', { body }),
   };
 }
 

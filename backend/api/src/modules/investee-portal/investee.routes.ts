@@ -15,6 +15,7 @@ import { requireAuth, requireStepUp } from '../../middleware/requireAuth';
 import {
   asProfile,
   assertEditable,
+  COMPANY_PROFILES,
   covenantView,
   kpiView,
   loadPeriod,
@@ -25,6 +26,9 @@ import {
   submitPack,
   uploadItemFiles,
 } from '../company/company.service';
+import { createInvitation } from '../identity/invitations';
+import { saveInviteGrant } from '../identity/invite-grant';
+import { workbook } from '../../lib/xlsx';
 import {
   decline,
   investeeTermSheetView,
@@ -132,7 +136,23 @@ const notBuilt =
 investeePortalRoutes.all('/application', notBuilt('The investment application'));
 investeePortalRoutes.all('/application/*rest', notBuilt('The investment application'));
 investeePortalRoutes.all('/procurement/*rest', notBuilt('Procurement and drawdown'));
-investeePortalRoutes.all('/financial-reports/template/:type', notBuilt('Report templates'));
+const REPORT_TEMPLATES: Record<string, { file: string; headers: string[] }> = {
+  INCOME_STATEMENT: { file: 'income-statement-template.xlsx', headers: ['periodStart', 'periodEnd', 'totalRevenue', 'costOfSales', 'grossProfit', 'operatingExpenses', 'netProfit'] },
+  BALANCE_SHEET: { file: 'balance-sheet-template.xlsx', headers: ['periodEnd', 'cash', 'receivables', 'inventory', 'totalAssets', 'payables', 'borrowings', 'totalLiabilities', 'equity'] },
+  CASHFLOW_STATEMENT: { file: 'cash-flow-template.xlsx', headers: ['periodStart', 'periodEnd', 'operating', 'investing', 'financing', 'cashFlowNet'] },
+  OPERATIONAL_KPIS: { file: 'operational-kpis-template.xlsx', headers: ['period', 'customers', 'churnPct', 'transactionVolume', 'headcount'] },
+};
+
+investeePortalRoutes.get('/financial-reports/template/:type', requireProfile('edit_draft'), (req, res) => {
+  const key = param(req, 'type').toUpperCase().replace(/-/g, '_');
+  const template = REPORT_TEMPLATES[key];
+  if (!template) throw new HttpError(404, 'not_found', 'Unknown report template');
+  const body = workbook(key.slice(0, 31), [template.headers, template.headers.map(() => '')]);
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename="${template.file}"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.send(body);
+});
 for (const p of ['/cap-table', '/governance', '/forecast', '/vault', '/signatures']) {
   investeePortalRoutes.all(p, notBuilt(`${p.slice(1)}`));
   investeePortalRoutes.all(`${p}/*rest`, notBuilt(`${p.slice(1)}`));
@@ -643,8 +663,98 @@ investeePortalRoutes.get('/team', async (req, res) => {
     })),
   );
 });
-investeePortalRoutes.all('/team/*rest', notBuilt('Team management'));
-for (const m of ['post', 'put', 'patch', 'delete'] as const) investeePortalRoutes[m]('/team', notBuilt('Team management'));
+const PROFILE_LABELS: Record<string, (typeof COMPANY_PROFILES)[number]> = {
+  'workspace administrator': 'workspace_administrator',
+  'executive approver': 'executive_approver',
+  'report contributor': 'report_contributor',
+  'kpi owner': 'kpi_owner',
+  'finance editor': 'finance_editor',
+  'read only': 'read_only',
+};
+
+function companyProfile(raw: unknown) {
+  const text = typeof raw === 'string' ? raw.trim().toLowerCase().replace(/_/g, ' ') : '';
+  const mapped = PROFILE_LABELS[text] ?? (COMPANY_PROFILES as readonly string[]).find((p) => p === (typeof raw === 'string' ? raw.trim() : ''));
+  if (!mapped) throw HttpError.badRequest('Choose an access profile', { profile: 'Unknown access profile' });
+  return mapped;
+}
+
+investeePortalRoutes.post('/team', requireProfile('manage_company'), idempotent('investee.team.invite'), async (req, res) => {
+  const c = inv(req);
+  const body = (req.body ?? {}) as { email?: unknown; name?: unknown; profile?: unknown; accessProfile?: unknown; title?: unknown };
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) throw HttpError.badRequest('Enter a work email address', { email: 'Invalid email' });
+  const profile = companyProfile(body.profile ?? body.accessProfile ?? 'report_contributor');
+  const name = typeof body.name === 'string' ? body.name.trim().slice(0, 120) : null;
+  const title = typeof body.title === 'string' ? body.title.trim().slice(0, 120) : null;
+  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (existing) {
+    const link = await prisma.companyUser.findUnique({ where: { companyId_userId: { companyId: c.company.id, userId: existing.id } } });
+    if (link?.status === 'active') throw HttpError.conflict('This person already has access to the company', 'already_member');
+  }
+  const invitation = await prisma.$transaction(async (tx) => {
+    await tx.invitation.updateMany({
+      where: { companyId: c.company.id, portal: 'company', email, acceptedAt: null, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    const { invitation: row } = await createInvitation(tx, {
+      email,
+      name,
+      portal: 'company',
+      roleKeys: [],
+      companyId: c.company.id,
+      invitedById: c.userId,
+      context: `${c.company.name}'s investee portal`,
+    });
+    await saveInviteGrant(tx, row.id, { kind: 'company', profile, title, invitedById: c.userId });
+    await writeAudit(tx, investeeAudit(req), {
+      action: 'company_user.invited',
+      objectType: 'invitation',
+      objectId: row.id,
+      after: { email, profile, title },
+    });
+    return row;
+  });
+  ok(res, { id: invitation.id, email, profile, status: 'invited', expiresAt: invitation.expiresAt.toISOString() }, 'Invitation sent', 201);
+});
+
+investeePortalRoutes.patch('/team/:userId', requireProfile('manage_company'), async (req, res) => {
+  const c = inv(req);
+  const userId = param(req, 'userId');
+  const link = await prisma.companyUser.findUnique({ where: { companyId_userId: { companyId: c.company.id, userId } } });
+  if (!link) throw HttpError.notFound('Team member not found');
+  const body = (req.body ?? {}) as { profile?: unknown; accessProfile?: unknown; title?: unknown; status?: unknown };
+  const data: { profile?: string; title?: string | null; status?: string } = {};
+  if (body.profile !== undefined || body.accessProfile !== undefined) data.profile = companyProfile(body.profile ?? body.accessProfile);
+  if (typeof body.title === 'string') data.title = body.title.trim().slice(0, 120) || null;
+  if (body.status !== undefined) {
+    const status = body.status === 'disabled' || body.status === 'active' ? body.status : null;
+    if (!status) throw HttpError.badRequest('Status must be active or disabled');
+    if (status === 'disabled' && userId === c.userId) throw HttpError.badRequest('You cannot disable your own access');
+    data.status = status;
+  }
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.companyUser.update({ where: { companyId_userId: { companyId: c.company.id, userId } }, data });
+    if (data.status === 'disabled') await tx.session.deleteMany({ where: { userId } });
+    await writeAudit(tx, investeeAudit(req), { action: 'company_user.updated', objectType: 'company_user', objectId: userId, after: data });
+    return row;
+  });
+  ok(res, { id: userId, accessProfile: updated.profile, title: updated.title, status: updated.status });
+});
+
+investeePortalRoutes.delete('/team/:userId', requireProfile('manage_company'), async (req, res) => {
+  const c = inv(req);
+  const userId = param(req, 'userId');
+  if (userId === c.userId) throw HttpError.badRequest('You cannot disable your own access');
+  const link = await prisma.companyUser.findUnique({ where: { companyId_userId: { companyId: c.company.id, userId } } });
+  if (!link) throw HttpError.notFound('Team member not found');
+  await prisma.$transaction(async (tx) => {
+    await tx.companyUser.update({ where: { companyId_userId: { companyId: c.company.id, userId } }, data: { status: 'disabled' } });
+    await tx.session.deleteMany({ where: { userId } });
+    await writeAudit(tx, investeeAudit(req), { action: 'company_user.disabled', objectType: 'company_user', objectId: userId });
+  });
+  ok(res, { id: userId, status: 'disabled' });
+});
 
 // ---------------------------------------------------------------- threads (reporting questions)
 

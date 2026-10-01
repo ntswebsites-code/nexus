@@ -249,6 +249,7 @@ export interface TermSheet {
   createdByName?: string | null;
   approvedById?: string | null;
   approvedByName?: string | null;
+  issuedById?: string | null;
   issuedAt?: string | null;
   viewedAt?: string | null;
   signedAt?: string | null;

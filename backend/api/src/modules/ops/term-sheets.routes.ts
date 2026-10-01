@@ -11,6 +11,8 @@ import {
   approve,
   createTermSheet,
   createTermSheetSchema,
+  countersign,
+  executeTermSheet,
   issue,
   loadExtras,
   loadTermSheet,
@@ -118,6 +120,18 @@ opsTermSheetRoutes.post('/:id/return', APPROVE, validateBody(reasonSchema), asyn
 opsTermSheetRoutes.post('/:id/issue', ISSUE, requireStepUp, idempotent('term_sheet.issue', { required: true }), async (req, res) => {
   const ts = await loadTermSheet(param(req, 'id'));
   await issue(actor(req), ts);
+  res.json({ data: await view(ts.id) });
+});
+
+opsTermSheetRoutes.post('/:id/countersign', APPROVE, requireStepUp, idempotent('term_sheet.countersign'), async (req, res) => {
+  const ts = await loadTermSheet(param(req, 'id'));
+  await countersign(actor(req), ts);
+  res.json({ data: await view(ts.id) });
+});
+
+opsTermSheetRoutes.post('/:id/execute', APPROVE, requireStepUp, idempotent('term_sheet.execute'), async (req, res) => {
+  const ts = await loadTermSheet(param(req, 'id'));
+  await executeTermSheet(actor(req), ts);
   res.json({ data: await view(ts.id) });
 });
 

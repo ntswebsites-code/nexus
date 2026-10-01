@@ -9,6 +9,8 @@ import { idempotent } from '../../lib/idempotency';
 import { requirePermission } from '../../middleware/requireAuth';
 import { validateBody } from '../../middleware/validate';
 import { accountRefs, dayEndView, executionView, filesById, latestReviews, packageHash, tradeControl } from '../custodian/custodian.service';
+import { createInvitation } from '../identity/invitations';
+import { saveInviteGrant } from '../identity/invite-grant';
 
 /**
  * `/api/v1/ops/custodian` - staff view of counterparty submissions and the day-end review
@@ -23,6 +25,48 @@ opsCustodianRoutes.get('/counterparties', requirePermission('custodian.view'), a
   res.json({
     items: rows.map((c) => ({ id: c.id, ref: c.ref, name: c.name, type: c.type, status: c.status, accounts: accountRefs(c.accounts), users: c._count.users })),
   });
+});
+
+const inviteSchema = z.object({
+  counterpartyId: z.string().trim().min(1).max(36),
+  email: z.string().trim().email().max(254),
+  name: z.string().trim().max(120).optional(),
+  role: z.enum(['submitter', 'approver']).default('submitter'),
+});
+
+opsCustodianRoutes.post('/users', requirePermission('custodian.review'), idempotent('ops.custodian.invite'), validateBody(inviteSchema), async (req, res) => {
+  const body = req.body as z.infer<typeof inviteSchema>;
+  const counterparty = await prisma.counterparty.findFirst({
+    where: { OR: [{ id: body.counterpartyId }, { ref: body.counterpartyId }], status: 'ACTIVE' },
+  });
+  if (!counterparty) throw HttpError.notFound('Counterparty not found');
+  const email = body.email.toLowerCase();
+  const existing = await prisma.user.findUnique({ where: { email }, select: { id: true } });
+  if (existing) {
+    const link = await prisma.counterpartyUser.findUnique({
+      where: { counterpartyId_userId: { counterpartyId: counterparty.id, userId: existing.id } },
+    });
+    if (link?.status === 'active') throw HttpError.conflict('This person already has access to the counterparty', 'already_member');
+  }
+  const invitation = await prisma.$transaction(async (tx) => {
+    const { invitation: row } = await createInvitation(tx, {
+      email,
+      name: body.name ?? null,
+      portal: 'custodian',
+      roleKeys: [body.role],
+      invitedById: req.user!.id,
+      context: `${counterparty.name}'s custodian portal`,
+    });
+    await saveInviteGrant(tx, row.id, { kind: 'custodian', counterpartyId: counterparty.id, role: body.role, invitedById: req.user!.id });
+    await writeAudit(tx, ctx(req, 'admin'), {
+      action: 'custodian.user.invited',
+      objectType: 'invitation',
+      objectId: row.id,
+      after: { email, role: body.role, counterparty: counterparty.ref },
+    });
+    return row;
+  });
+  res.status(201).json({ data: { id: invitation.id, email, role: body.role, counterpartyId: counterparty.id, expiresAt: invitation.expiresAt.toISOString() } });
 });
 
 opsCustodianRoutes.get('/submissions', requirePermission('custodian.view'), async (req, res) => {

@@ -16,7 +16,8 @@ import { simplePdf } from './pdf';
  *   ISSUED|VIEWED --sign (signing authority, step-up)--> SIGNED_BY_COMPANY
  *   ISSUED|VIEWED --decline--> DECLINED
  *   PENDING_APPROVAL --return--> DRAFT;  any pre-signature state --withdraw--> WITHDRAWN
- * COUNTERSIGNED / EXECUTED are reserved for the fund-side countersignature (not built in WS3).
+ * SIGNED_BY_COMPANY --countersign (staff, step-up, not the issuer)--> COUNTERSIGNED
+ * COUNTERSIGNED --execute (a different staff member, step-up)--> EXECUTED
  */
 export const TERM_SHEET_STATUSES = [
   'DRAFT',
@@ -691,6 +692,63 @@ export async function decline(ts: WithCompany, input: { userId: string; name: st
       title: `${ts.company.name} declined term sheet ${ts.ref}`,
       body: `${input.name}: ${input.reason.slice(0, 300)}`,
       link: '/?page=private-markets',
+    });
+    return next;
+  });
+}
+
+async function companyUserIds(companyId: string) {
+  const links = await prisma.companyUser.findMany({ where: { companyId, status: 'active' }, select: { userId: true } });
+  return links.map((l) => l.userId);
+}
+
+/** Fund countersignature after the company has signed. The issuer cannot countersign their own sheet. */
+export async function countersign(actor: { userId: string; audit: AuditContext }, ts: WithCompany) {
+  if (ts.status !== 'SIGNED_BY_COMPANY') throw new HttpError(409, 'invalid_state', 'The company must sign before the fund countersigns');
+  if (ts.issuedById === actor.userId || ts.createdById === actor.userId) {
+    throw new HttpError(403, 'segregation_of_duties', 'A different person must countersign this term sheet');
+  }
+  return prisma.$transaction(async (tx) => {
+    const next = await transition(tx, ts, ['SIGNED_BY_COMPANY'], { status: 'COUNTERSIGNED' });
+    await writeAudit(tx, actor.audit, {
+      action: 'term_sheet.countersigned',
+      objectType: 'term_sheet',
+      objectId: ts.id,
+      before: { status: ts.status },
+      after: { status: next.status },
+    });
+    const userIds = await companyUserIds(ts.companyId);
+    if (userIds.length) {
+      await enqueue(tx, 'notify.users', {
+        userIds,
+        type: 'term_sheets.countersigned',
+        title: `Term sheet ${ts.ref} countersigned`,
+        body: `${ts.title} has been countersigned by the fund.`,
+      });
+    }
+    return next;
+  });
+}
+
+/** Marks a countersigned sheet executed. The countersigner cannot be the person who executes it. */
+export async function executeTermSheet(actor: { userId: string; audit: AuditContext }, ts: WithCompany) {
+  if (ts.status !== 'COUNTERSIGNED') throw new HttpError(409, 'invalid_state', 'Countersign the term sheet before marking it executed');
+  const prior = await prisma.auditEvent.findFirst({
+    where: { objectType: 'term_sheet', objectId: ts.id, action: 'term_sheet.countersigned' },
+    orderBy: { occurredAt: 'desc' },
+    select: { actorId: true },
+  });
+  if (prior?.actorId === actor.userId) {
+    throw new HttpError(403, 'segregation_of_duties', 'A different person must mark this term sheet executed');
+  }
+  return prisma.$transaction(async (tx) => {
+    const next = await transition(tx, ts, ['COUNTERSIGNED'], { status: 'EXECUTED' });
+    await writeAudit(tx, actor.audit, {
+      action: 'term_sheet.executed',
+      objectType: 'term_sheet',
+      objectId: ts.id,
+      before: { status: ts.status },
+      after: { status: next.status },
     });
     return next;
   });

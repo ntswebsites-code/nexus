@@ -20,20 +20,23 @@ export async function runScreening(caseId: string) {
 
   const app = kycCase.application;
   const names = [app.legalName ?? '', ...app.owners.map((o) => o.fullName)].map((n) => n.toLowerCase());
-  const sanctionsHit = names.some((n) => STUB_WATCHLIST.some((w) => n.includes(w)));
+  const formData = app.formData && typeof app.formData === 'object' && !Array.isArray(app.formData) ? (app.formData as Record<string, unknown>) : {};
+  const declared = (key: string) => (typeof formData[key] === 'string' ? formData[key] : '').toLowerCase().startsWith('yes');
+  const sanctionsHit = declared('sanctions') || names.some((n) => STUB_WATCHLIST.some((w) => n.includes(w)));
   const pep = (app.pep ?? '').toLowerCase().startsWith('yes') || app.owners.some((o) => o.pep);
   const country = `${app.country ?? ''} ${app.taxResidence ?? ''}`.toLowerCase();
   const highRiskCountry = HIGH_RISK_COUNTRIES.some((c) => country.includes(c));
+  const adverse = highRiskCountry || declared('adverseMedia');
   const amount = app.expectedInvestment?.toNumber() ?? 0;
   const docsPresent = kycCase.evidence.filter((e) => e.fileId).length;
 
   const results = [
     { type: 'sanctions', outcome: sanctionsHit ? 'Match' : 'Clear', score: sanctionsHit ? 92 : 0 },
     { type: 'pep', outcome: pep ? 'Review' : 'Clear', score: pep ? 70 : 0 },
-    { type: 'adverse_media', outcome: highRiskCountry ? 'Review' : 'Clear', score: highRiskCountry ? 55 : 0 },
+    { type: 'adverse_media', outcome: adverse ? 'Review' : 'Clear', score: adverse ? 55 : 0 },
     { type: 'document', outcome: docsPresent >= 3 ? 'Clear' : 'Review', score: docsPresent >= 3 ? 0 : 40 },
   ];
-  const risk = sanctionsHit || pep || highRiskCountry ? 'High' : amount >= 5_000_000 ? 'Medium' : 'Low';
+  const risk = sanctionsHit || pep || highRiskCountry || declared('adverseMedia') ? 'High' : amount >= 5_000_000 ? 'Medium' : 'Low';
   const rawRef = `SCR-${kycCase.ref.replace(/\D/g, '')}-${Date.now().toString().slice(-4)}`;
   const exceptions = results.filter((r) => r.outcome !== 'Clear').map((r) => r.type);
 

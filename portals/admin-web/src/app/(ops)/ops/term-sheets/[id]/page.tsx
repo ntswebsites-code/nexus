@@ -55,6 +55,27 @@ function TermSheetDetail({ t, reload }: { t: TermSheet; reload: () => void }) {
                 onDone={reload}
               />
             )}
+            {s === 'SIGNED_BY_COMPANY' && can('term_sheets.approve') && (
+              <ActionButton
+                primary
+                label="Countersign"
+                disabled={t.issuedById === user.id || t.createdById === user.id}
+                title="Requires a fresh authenticator code. The person who issued the sheet cannot countersign it."
+                confirm="Countersign this term sheet for the fund?"
+                onRun={(key) => api.post(`${base}/countersign`, {}, { idempotencyKey: key })}
+                onDone={reload}
+              />
+            )}
+            {s === 'COUNTERSIGNED' && can('term_sheets.approve') && (
+              <ActionButton
+                primary
+                label="Mark executed"
+                title="A different person from the countersigner must do this."
+                confirm="Mark this term sheet executed?"
+                onRun={(key) => api.post(`${base}/execute`, {}, { idempotencyKey: key })}
+                onDone={reload}
+              />
+            )}
             {s === 'APPROVED' && can('term_sheets.create', 'term_sheets.approve') && (
               <ActionButton
                 primary

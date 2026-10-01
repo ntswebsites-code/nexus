@@ -133,8 +133,16 @@
             return;
           }
           if (stage === 'password' && r && r.mfa === 'enroll') {
-            err.textContent = 'Two-factor authentication must be set up for this account. Contact Matanho operations.';
-            return;
+            return request('POST', '/api/auth/mfa/enroll', {}).then(function (enrolled) {
+              stage = 'code';
+              $('#mxCodeRow', w).style.display = '';
+              $('#mxCode', w).required = true;
+              var hint = document.createElement('p');
+              hint.style.cssText = 'font-size:12px;color:#243044;margin:0 0 8px';
+              hint.textContent = 'Add this key to your authenticator app, then enter the 6-digit code. ' + (enrolled && enrolled.secret ? enrolled.secret : '');
+              err.parentNode.insertBefore(hint, err);
+              $('#mxCode', w).focus();
+            });
           }
           closeOverlay();
           resolve();

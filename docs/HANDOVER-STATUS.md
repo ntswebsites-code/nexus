@@ -132,11 +132,12 @@ same Idempotency-Key on retry. DEF-374 is closed for capital-call acknowledge an
 
 ### 3.6 Known gaps to close or accept
 - Idempotency (`lib/idempotency.ts`) now marks COMPLETED before the response is sent. Closed.
-- Identity invitation accept does not copy LP role/fund scope or un-revoke a re-invited member (D-14 workaround in place).
-- No staff screen to verify LP bank-instruction changes (they stay "Pending verification").
-- Custodian: no counterparty-user invitation/enrolment flow; if `mfa_required` is on they cannot enrol themselves.
-- Investee: BR-252 revenue variance rule, fund countersignature, report templates, team management (501).
-- WS2: subscription attachments not stored; XLSX export served as CSV; no holiday calendar.
+- Invitation accept copies the LP role and fund scope and restores a revoked membership. A re-invite is allowed. Closed locally (`scripts/test-local-gaps.ts`).
+- Staff verify LP bank changes at `/ops/bank-instructions`: call-back (`clients.edit`), then a different person with `cash.approve` activates it and supersedes the previous instruction. Closed locally.
+- Operations can invite a custodian user (`POST /api/v1/ops/custodian/users`). Acceptance links the counterparty. The custodian sign-in screen enrols TOTP when the policy requires it. Closed locally.
+- Investee: revenue variance (BR-252), fund countersign then execute, report templates (xlsx), and team invite/update/disable. Closed locally. `INVESTEE_LIVE_ACTIONS` in the local `.env` includes `reports.template` and `team.invite`.
+- Dealing and activity exports accept `format=xlsx`. Subscription files on the multipart submit are stored as request attachments. Daily and month-end dealing dates skip 1 Jan, 25 Dec and 26 Dec as well as weekends.
+- The screening stub treats a "yes" sanctions declaration as an advisory match. It is still a stub, not a vendor screen.
 - Screening stub ignores applicant sanctions declarations.
 - `tools/legacy-bridge.mjs --check` reports manifests out of date (pre-existing).
 - Mailpit image uses `latest` - pin before go-live. Plan data counts differ slightly from mock-derived seed.

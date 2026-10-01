@@ -11,6 +11,7 @@ import {
   estimateRedemption,
   estimateSubscription,
   exportRequests,
+  exportRequestsXlsx,
   listRequests,
   overview,
   rules,
@@ -56,7 +57,18 @@ lpDealingRoutes.get('/dealing/requests', requireLp('lp.dealing.view'), async (re
 });
 
 lpDealingRoutes.get('/dealing/requests/export', requireLp('lp.dealing.view'), async (req, res) => {
-  const csv = await exportRequests(req, lp(req), { fundId: str(req.query.fundId), type: str(req.query.type) });
+  const format = (str(req.query.format) ?? 'csv').toLowerCase();
+  const query = { fundId: str(req.query.fundId), type: str(req.query.type) };
+  if (format === 'xlsx') {
+    const body = await exportRequestsXlsx(req, lp(req), query);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="dealing-requests.xlsx"');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(body);
+    return;
+  }
+  if (format !== 'csv') throw new LpError(415, 'LP_UNSUPPORTED_MEDIA', 'Export format must be csv or xlsx');
+  const csv = await exportRequests(req, lp(req), query);
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="dealing-requests.csv"');
   res.setHeader('Cache-Control', 'no-store');
