@@ -3,6 +3,7 @@ import { prisma } from './lib/prisma';
 import { sendMail } from './lib/mailer';
 import type { EmailPayload, NotifyPermissionPayload, NotifyUsersPayload } from './lib/outbox';
 import { runScreening } from './modules/kyc/screening';
+import { scanReportingReminders } from './modules/company/reminders';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -47,7 +48,19 @@ const handlers: Record<string, (payload: unknown) => Promise<void>> = {
   'kyc.screening.requested': (p) => runScreening((p as { caseId: string }).caseId),
 };
 
+let lastReminderScan = 0;
+
 async function tick() {
+  if (Date.now() - lastReminderScan > 60 * 60 * 1000) {
+    lastReminderScan = Date.now();
+    try {
+      const sent = await scanReportingReminders();
+      if (sent) console.log(`[worker] reporting reminders queued: ${sent}`);
+    } catch (error) {
+      console.error('[worker] reporting reminder scan failed', error);
+      lastReminderScan = 0;
+    }
+  }
   const events = await prisma.outboxEvent.findMany({
     where: { publishedAt: null, attempts: { lt: MAX_ATTEMPTS } },
     orderBy: { id: 'asc' },

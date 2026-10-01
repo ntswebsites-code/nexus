@@ -355,6 +355,8 @@ export function createInvesteeApi(liveActions: readonly string[]) {
     getCapTable: () => call<CapTableView>('capTable', 'GET', '/cap-table'),
     saveCapTable: (shareholders: { id?: string; name: string; type: string; shares: number }[]) =>
       call<CapTableView>('capTable.save', 'PUT', '/cap-table', { body: { shareholders } }),
+    simulateRound: (body: { amount: number; preMoney: number }) =>
+      call<{ pricePerShare: number; issued: number; postMoney: number; shareholders: { name: string; type: string; shares: number; pct: number }[] }>('capTable.save', 'POST', '/cap-table/simulate', { body }),
     getGovernance: () => call<GovernanceView>('governance', 'GET', '/governance'),
     requestConsent: (body: { title: string; basis: string; due?: string; note?: string }) =>
       call<GovernanceView>('governance.consent', 'POST', '/governance/consents', { body }),

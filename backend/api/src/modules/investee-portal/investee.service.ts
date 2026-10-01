@@ -113,6 +113,12 @@ export async function financialKpis(companyId: string) {
   for (const p of periods) {
     const values = (p.kpiValues as Record<string, unknown> | null) ?? {};
     const numeric = Object.fromEntries(Object.entries(values).filter(([, v]) => typeof v === 'number')) as Record<string, number>;
+    const flat = values.AUTO_KPI_FLAT;
+    if (flat && typeof flat === 'object') {
+      for (const [key, value] of Object.entries(flat as Record<string, unknown>)) {
+        if (typeof value === 'number') numeric[key] = value;
+      }
+    }
     if (Object.keys(numeric).length) out[isoDay(p.periodEnd) ?? `${p.period}-01`] = numeric;
   }
   return { kpiValues: out };
@@ -309,6 +315,14 @@ export function financialReportView(p: PeriodRow, item: PeriodRow['items'][numbe
   } satisfies InvesteeFinancialReport;
 }
 
+/** List and hydration rows carry the saved lines so the builder can restore a draft. */
+export function statementReport(p: PeriodRow, item: PeriodRow['items'][number], company: PortfolioCompany, profile: CompanyProfile) {
+  const view = financialReportView(p, item, company, profile);
+  if (item.key !== 'accounts' && item.key !== 'kpis') return view;
+  const notes = statementAnnotations(p.kpiValues);
+  return { ...view, data: reportData(p, item.key), lineNotes: notes.lineNotes, narrative: notes.narrative };
+}
+
 /** Numeric values stored on the period for one report slot (accounts: IS./BS./CF. + totals; kpis: OK. + register keys). */
 export function reportData(p: PeriodRow, slot: string): Record<string, number> {
   const values = (p.kpiValues as Record<string, unknown> | null) ?? {};
@@ -405,6 +419,31 @@ export function statementExtras(kind: DraftKind, data: Record<string, unknown>, 
   if (notes) extras[`${DRAFT_PREFIX[kind]}.lineNotes`] = JSON.stringify(notes);
   if (narrative) extras.narrative = JSON.stringify(narrative);
   return extras;
+}
+
+function round1(value: number) {
+  return Number(value.toFixed(1));
+}
+
+/** Margins and runway the KPI centre reads from `AUTO_KPI_FLAT`. */
+export function deriveKpis(values: Record<string, unknown>): Record<string, number> {
+  const n = (key: string) => (typeof values[key] === 'number' && Number.isFinite(values[key]) ? (values[key] as number) : undefined);
+  const revenue = n('totalRevenue') ?? n('IS.totalRevenue');
+  const net = n('netProfit') ?? n('IS.netProfit');
+  const cashFlow = n('cashFlowNet') ?? n('CF.cashFlowNet');
+  const cash = n('BS.cashAndEquivalents');
+  const out: Record<string, number> = {};
+  if (revenue !== undefined) out.totalRevenue = revenue;
+  if (net !== undefined) out.netProfit = net;
+  if (cashFlow !== undefined) out.cashFlowNet = cashFlow;
+  if (revenue !== undefined && revenue !== 0) {
+    const gross = revenue - (n('IS.processingCosts') ?? 0) - (n('IS.supportLosses') ?? 0);
+    out.grossProfit = round1(gross);
+    out.grossMargin = round1((gross / revenue) * 100);
+    if (net !== undefined) out.netMargin = round1((net / revenue) * 100);
+  }
+  if (cash !== undefined && cashFlow !== undefined && cashFlow < 0) out.runwayMonths = round1(cash / Math.abs(cashFlow));
+  return out;
 }
 
 export function statementAnnotations(kpiValues: unknown): { lineNotes: Record<string, Record<string, string>>; narrative: Record<string, string> } {

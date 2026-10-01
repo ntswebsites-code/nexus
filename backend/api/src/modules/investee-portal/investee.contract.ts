@@ -385,6 +385,8 @@ export const draftRequestSchema = z.object({
   title: z.string().trim().min(1).max(255),
   description: z.string().trim().max(2000).optional(),
   templateVersion: z.string().trim().max(32).optional(),
+  /** Period version the editor loaded. A mismatch is 409 `version_conflict`. */
+  version: z.number().int().positive().optional(),
   data: z.record(z.string().max(64), z.unknown()),
 });
 

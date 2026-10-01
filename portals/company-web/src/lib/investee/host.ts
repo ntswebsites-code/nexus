@@ -317,6 +317,7 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
       case 'scenario':
         return pageLive('forecasts') && api.isLive('forecast.save');
       case 'save-cap-holder':
+      case 'model-round':
         return api.isLive('capTable.save');
       case 'complete-upload':
         return api.isLive('vault.upload');
@@ -479,6 +480,20 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           return { message: 'Forecast saved', detail: 'Forecast revenue was stored for the open months.' };
         }
 
+        case 'model-round': {
+          const amount = num(val('roundAmount'));
+          const preMoney = num(val('roundPreMoney'));
+          if (amount <= 0 || preMoney <= 0) return { error: 'Enter the new money and a pre-money valuation.' };
+          const round = await api.simulateRound({ amount, preMoney });
+          const box = document.getElementById('roundResult');
+          if (box) {
+            box.innerHTML = round.shareholders
+              .map((row) => `<div>${row.name}: ${row.pct}% · ${row.shares.toLocaleString('en-GB')} shares</div>`)
+              .join('');
+          }
+          return { message: 'Round modelled', detail: `Price ${round.pricePerShare} per share. The cap table was not changed.` };
+        }
+
         case 'save-cap-holder': {
           const name = val('capHolderName');
           const shares = num(val('capHolderShares'));
@@ -539,6 +554,9 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     }
 
     const label = REPORT_LABELS[type] ?? 'Investee report';
+    const periodKey = period.periodEnd.slice(0, 7);
+    const loaded = payload?.reportingRequests?.find((row) => row.reportingPeriod === periodKey);
+    const version = loaded?.version;
     const draftIds: string[] = [];
     for (const kind of statements) {
       const data: Record<string, unknown> = Object.fromEntries(STATEMENT_FIELDS[kind].map((k) => [k, num(values[k])]));
@@ -573,6 +591,7 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         title: `${label} · ${kind.replace('-', ' ')} · ${period.label}`,
         description: report.owner ? `Prepared by ${report.owner}` : undefined,
         templateVersion: 'v1',
+        ...(version !== undefined && kind === statements[0] ? { version } : {}),
         data,
       };
       const draft = await api.createReportDraft(kind, body);

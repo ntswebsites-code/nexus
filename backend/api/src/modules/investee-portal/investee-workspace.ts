@@ -32,6 +32,11 @@ const RESERVED_MATTERS = [
   { name: 'Annual budget', detail: 'The annual budget and changes above the agreed tolerance.' },
 ] as const;
 
+export const roundSchema = z.object({
+  amount: z.number().positive().max(1_000_000_000_000),
+  preMoney: z.number().positive().max(1_000_000_000_000),
+});
+
 export const capTableSchema = z.object({
   shareholders: z
     .array(
@@ -225,6 +230,26 @@ export async function capTableView(company: PortfolioCompany) {
     derived: !stored?.shareholders?.length,
     shareholders,
     classes: classesOf(shareholders),
+  };
+}
+
+/** New-money round at a pre-money valuation. Does not write the register. */
+export function simulateRound(holders: { name: string; type: string; shares: number }[], amount: number, preMoney: number) {
+  const existing = holders.reduce((sum, row) => sum + row.shares, 0);
+  if (existing <= 0) throw HttpError.badRequest('Record at least one holder before modelling a round');
+  const price = preMoney / existing;
+  const issued = Math.round(amount / price);
+  if (issued <= 0) throw HttpError.badRequest('The round issues no shares at this valuation');
+  const total = existing + issued;
+  const pct = (shares: number) => Number(((shares / total) * 100).toFixed(1));
+  return {
+    pricePerShare: Number(price.toFixed(4)),
+    issued,
+    postMoney: preMoney + amount,
+    shareholders: [
+      ...holders.map((row) => ({ name: row.name, type: row.type, shares: row.shares, pct: pct(row.shares) })),
+      { name: 'New investor', type: 'New money', shares: issued, pct: pct(issued) },
+    ],
   };
 }
 

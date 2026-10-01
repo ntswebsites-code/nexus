@@ -281,6 +281,7 @@ export interface ReportingRequest {
   /** ISO date (period end) or a period label */
   reportingPeriod: string;
   dueDate: string;
+  version?: number;
   status?: 'OPEN' | 'SUBMITTED' | string;
   portalStatus?: 'REPORTING_OPEN' | 'SUBMITTED' | string;
   lastRequestedAt?: string;
@@ -298,6 +299,7 @@ export interface FinancialReportDraftRequest {
   title: string;
   description?: string;
   templateVersion?: string;
+  version?: number;
   data: Record<string, unknown>;
 }
 

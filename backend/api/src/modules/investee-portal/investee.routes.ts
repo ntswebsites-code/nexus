@@ -74,6 +74,8 @@ import {
   reportData,
   statementAnnotations,
   statementExtras,
+  statementReport,
+  deriveKpis,
   reportingRequestView,
   type LetterheadJson,
 } from './investee.service';
@@ -82,6 +84,8 @@ import {
   applicationView,
   capTableSchema,
   capTableView,
+  roundSchema,
+  simulateRound,
   consentSchema,
   createRequisition,
   forecastSchema,
@@ -188,7 +192,7 @@ investeePortalRoutes.get('/live', async (req, res) => {
     applicationView(c),
     requisitionList(c.company.id),
   ]);
-  const items = periods.flatMap((p) => p.items.map((i) => financialReportView(p, i, c.company, c.profile)));
+  const items = periods.flatMap((p) => p.items.map((i) => statementReport(p, i, c.company, c.profile)));
   res.json({
     profile: envelope(profileView(user, c, mfa)),
     application: envelope(application),
@@ -458,7 +462,7 @@ investeePortalRoutes.get('/financial-reports', async (req, res) => {
     (p) => (!periodFilter || p.period === periodFilter) && (!statusFilter || statusFilter.includes(p.status)),
   );
   const all = periods
-    .flatMap((p) => p.items.map((i) => financialReportView(p, i, c.company, c.profile)))
+    .flatMap((p) => p.items.map((i) => statementReport(p, i, c.company, c.profile)))
     .filter((r) => !typeFilter || r.reportType === typeFilter);
   ok(res, { page, limit, total: all.length, items: all.slice((page - 1) * limit, page * limit) });
 });
@@ -513,9 +517,19 @@ investeePortalRoutes.post('/financial-reports/:kind/draft', requireProfile('edit
   if (!period) throw HttpError.notFound('There is no reporting request for this period');
   const full = await loadPeriod(c.company.id, key);
   assertEditable(full);
+  if (body.version !== undefined && body.version !== full.version) {
+    throw HttpError.conflict('Someone else saved this report. Reload and try again.', 'version_conflict');
+  }
   const values = flattenDraft(kind.data, body.data);
   const extras = statementExtras(kind.data, body.data, values);
-  await saveDraft(packActor(req), full, { kpis: { ...values, ...extras } }, { source: `${kind.data}-draft`, title: body.title });
+  const merged = { ...((full.kpiValues as Record<string, unknown> | null) ?? {}), ...values, ...extras };
+  const derived = deriveKpis(merged);
+  await saveDraft(
+    packActor(req),
+    full,
+    { kpis: { ...values, ...extras, ...(Object.keys(derived).length ? { AUTO_KPI_FLAT: derived } : {}) } },
+    { source: `${kind.data}-draft`, title: body.title },
+  );
   const slot = DRAFT_SLOT[kind.data];
   const item = full.items.find((i) => i.key === slot);
   if (!item) throw HttpError.notFound('Report not found');
@@ -980,6 +994,12 @@ investeePortalRoutes.get('/cap-table', async (req, res) => {
 
 investeePortalRoutes.put('/cap-table', requireProfile('edit_draft'), validateBody(capTableSchema), async (req, res) => {
   ok(res, await saveCapTable(inv(req), req.body, investeeAudit(req)), 'Cap table saved');
+});
+
+investeePortalRoutes.post('/cap-table/simulate', requireProfile('edit_draft'), validateBody(roundSchema), async (req, res) => {
+  const body = req.body as z.infer<typeof roundSchema>;
+  const view = await capTableView(inv(req).company);
+  ok(res, simulateRound(view.shareholders, body.amount, body.preMoney));
 });
 
 investeePortalRoutes.get('/governance', async (req, res) => {
