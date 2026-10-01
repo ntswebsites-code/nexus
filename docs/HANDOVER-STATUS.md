@@ -91,7 +91,8 @@ Branch `dev` contains everything. All eight workstream branches are merged; noth
 | J6 term sheets | done (WS3) | ops + company-web terms | align paths (3.4) |
 | J1B public onboarding | done (WS4) | onboarding-web live scripts | `ONBOARDING_LIVE` |
 | J7 custodian day-end | done (WS4) | custodian-web live scripts | needs counterparty users in seed / enrolment |
-| J8, J9 | not started | | cut per plan order |
+| J8 investee capital request | done | company requests page + `/ops/investee-requests` | staff decision records status; it does not move cash |
+| J9 messages and data room | done | threads (start and reply) and vault upload | live when the action keys are allowlisted |
 
 Nothing has been cut yet. Plan cut order if behind: J8, J7, J9, J1B, J6, J4, then reduce J3, then J5.
 
@@ -136,8 +137,8 @@ same Idempotency-Key on retry. DEF-374 is closed for capital-call acknowledge an
 - Staff verify LP bank changes at `/ops/bank-instructions`: call-back (`clients.edit`), then a different person with `cash.approve` activates it and supersedes the previous instruction. Closed locally.
 - Operations can invite a custodian user (`POST /api/v1/ops/custodian/users`). Acceptance links the counterparty. The custodian sign-in screen enrols TOTP when the policy requires it. Closed locally.
 - Investee: revenue variance (BR-252), fund countersign then execute, report templates (xlsx), and team invite/update/disable. Closed locally. `INVESTEE_LIVE_ACTIONS` in the local `.env` includes `reports.template` and `team.invite`.
-- Investee application, procurement, cap table, forecast, governance, vault and signatures now answer from `/api/v1/investee-portal`. Cap table, forecast cells, consents and requisitions are stored on `settings` (no new tables). The vault reads and writes `documents`. Signatures are the company's visible term sheets. Staff with `research.edit` decide a request at `/ops/investee-requests`. The company portal drops the demo ribbon on those pages when the matching action keys are allowlisted. Covered by `scripts/test-investee-workspace.ts`.
-- Dealing and activity exports accept `format=xlsx`. Subscription files on the multipart submit are stored as request attachments. Daily and month-end dealing dates skip 1 Jan, 25 Dec and 26 Dec as well as weekends.
+- Investee application, procurement, cap table, forecast, governance, vault and signatures now answer from `/api/v1/investee-portal`. Cap table, forecast cells, consents and requisitions are stored on `settings` (no new tables). The vault reads and writes `documents`. Signatures are the company's visible term sheets. A company can reply on an open message thread. Staff with `research.edit` decide a request and a governance consent at `/ops/investee-requests`. The company portal drops the demo ribbon on those pages when the matching action keys are allowlisted. Covered by `scripts/test-investee-workspace.ts`.
+- Dealing and activity exports accept `format=xlsx`. Subscription files on the multipart submit are stored as request attachments. Daily, weekly and month-end dealing dates skip 1 Jan, 25 Dec and 26 Dec as well as weekends. A weekly Friday that is a holiday moves to the next open Friday.
 - The screening check treats a "yes" sanctions or adverse-media declaration as an advisory match for a person to review. No external screening vendor is connected.
 - `tools/legacy-bridge.mjs --check` reports manifests out of date (pre-existing).
 - Mailpit image uses `latest` - pin before go-live. Plan data counts differ slightly from mock-derived seed.

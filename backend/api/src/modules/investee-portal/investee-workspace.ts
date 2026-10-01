@@ -75,6 +75,11 @@ export const decisionSchema = z.object({
   note: z.string().trim().max(2000).optional(),
 });
 
+export const consentDecisionSchema = z.object({
+  status: z.enum(['Approved', 'Declined']),
+  note: z.string().trim().max(2000).optional(),
+});
+
 interface Shareholder {
   id: string;
   name: string;
@@ -325,6 +330,38 @@ export async function addConsent(c: InvesteeContext, body: z.infer<typeof consen
   stored.consents = [consent, ...stored.consents].slice(0, 50);
   await writeSetting(c.company.id, GOV_KEY, stored, audit, 'company.governance.consent_requested');
   return governanceView(c);
+}
+
+function normaliseConsents(value: unknown): Consent[] {
+  const rows = asObject(value)?.consents;
+  return Array.isArray(rows) ? (rows as Consent[]) : [];
+}
+
+export async function listConsentsForStaff() {
+  const rows = await prisma.setting.findMany({ where: { key: GOV_KEY } });
+  const companies = await prisma.portfolioCompany.findMany({
+    where: { id: { in: rows.map((r) => r.ownerId) } },
+    select: { id: true, name: true, ref: true },
+  });
+  const byId = new Map(companies.map((c) => [c.id, c]));
+  return rows.flatMap((row) => {
+    const company = byId.get(row.ownerId);
+    if (!company) return [];
+    return normaliseConsents(row.value).map((item) => ({ ...item, companyId: company.id, companyName: company.name, companyRef: company.ref }));
+  });
+}
+
+export async function decideConsent(companyId: string, consentId: string, body: z.infer<typeof consentDecisionSchema>, audit: AuditContext) {
+  const stored = (await readSetting<GovStore>(companyId, GOV_KEY)) ?? { consents: [], actions: [] };
+  const row = stored.consents.find((item) => item.id === consentId);
+  if (!row) throw HttpError.notFound('Consent request not found');
+  if (row.status !== 'Investor review') {
+    throw HttpError.conflict(`A consent in ${row.status} cannot be decided again`, 'invalid_state');
+  }
+  row.status = body.status;
+  if (body.note) row.note = body.note;
+  await writeSetting(companyId, GOV_KEY, stored, audit, 'company.governance.consent_decided');
+  return row;
 }
 
 function normaliseRequisitions(value: unknown): Requisition[] {

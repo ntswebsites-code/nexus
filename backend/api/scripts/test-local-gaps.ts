@@ -126,6 +126,8 @@ async function latestInviteToken(email: string) {
 async function main() {
   const holiday = nextDealingDate(new Date(Date.UTC(2026, 0, 1)), 'DAILY');
   check('1 Jan 2026 (holiday, Thursday) is not a dealing day', holiday.toISOString().slice(0, 10) === '2026-01-02', holiday.toISOString());
+  const weekly = nextDealingDate(new Date(Date.UTC(2026, 11, 25)), 'WEEKLY');
+  check('weekly dealing skips a Friday holiday and the following New Year Friday', weekly.toISOString().slice(0, 10) === '2027-01-08', weekly.toISOString());
 
   const signatory = 'lp_a_signatory@uat.matanho.test';
   const services = 'client_services@uat.matanho.test';

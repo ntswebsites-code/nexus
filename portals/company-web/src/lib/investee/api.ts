@@ -62,6 +62,7 @@ import type {
  * | settings.company    | PUT    | /company                                      | UpdateCompanyRequest -> InvesteeCompany     |
  * | settings.letterhead | PUT    | /letterhead ; POST /letterhead/logo (multipart `logo`) | UpdateLetterheadRequest -> Letterhead |
  * | threads.start       | POST   | /threads                                      | StartThreadRequest -> InvesteeThread        |
+ * | threads.start       | POST   | /threads/:id/messages                         | { text } -> InvesteeConversation            |
  * | threads.list        | GET    | /threads                                      | - -> InvesteeConversation[]                 |
  * | team.list           | GET    | /team                                         | - -> InvesteeTeamMember[]                   |
  * | team.invite         | POST   | /team                                         | invite -> { id, email, status }             |
@@ -330,6 +331,8 @@ export function createInvesteeApi(liveActions: readonly string[]) {
           text: body.recipientTeam ? `${body.body}\n\nFor: ${body.recipientTeam}` : body.body,
         },
       }),
+    replyToThread: (threadId: string, text: string) =>
+      call<InvesteeConversation>('threads.start', 'POST', `/threads/${id(threadId)}/messages`, { body: { text } }),
 
     inviteTeamMember: (body: { name?: string; email: string; profile: string; title?: string }) =>
       call<{ id: string; email: string; status: string }>('team.invite', 'POST', '/team', { body }),

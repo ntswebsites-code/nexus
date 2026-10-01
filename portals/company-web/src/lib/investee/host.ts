@@ -304,6 +304,7 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
       case 'save-settings':
         return pageLive('settings') && (api.isLive('settings.profile') || api.isLive('settings.company') || api.isLive('settings.letterhead'));
       case 'send-conversation':
+      case 'reply-thread':
         return api.isLive('threads.start');
       case 'send-invite':
         return api.isLive('team.invite');
@@ -505,6 +506,16 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           ui()?.closeOverlays?.();
           await reload();
           return { message: 'Message sent', detail: 'A secure conversation was created with the fund team.' };
+        }
+
+        case 'reply-thread': {
+          const threadId = ds.id;
+          const text = val('liveReplyText');
+          if (!threadId) return { error: 'Choose a conversation before replying.' };
+          if (!text) return { error: 'Write a reply before sending.' };
+          await api.replyToThread(threadId, text);
+          await reload();
+          return { message: 'Reply sent', detail: 'The portfolio team can see it on this thread.' };
         }
       }
       return {};

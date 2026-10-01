@@ -61,6 +61,7 @@ export function nextDealingDate(from: Date, frequency: string): Date {
     case 'WEEKLY': {
       let d = from;
       while (d.getUTCDay() !== 5) d = addDays(d, 1);
+      while (isClosed(d)) d = addDays(d, 7);
       return d;
     }
     case 'MONTHLY_LAST_BUSINESS_DAY': {

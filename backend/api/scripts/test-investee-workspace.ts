@@ -161,6 +161,12 @@ async function main() {
   check('team list includes the admin', team.status === 200 && (dataOf(team) as { email: string }[]).some((row) => row.email === investee), team.body);
   const threads = await company.get('/api/v1/investee-portal/threads');
   check('message threads answer', threads.status === 200 && Array.isArray(dataOf(threads)), threads.body);
+  const started = await company.call('POST', '/api/v1/investee-portal/threads', { title: `Workspace note ${run}`, text: 'Opening the thread.' }, key('thread'));
+  const threadId = dataOf(started).id as string;
+  check('company can start a thread', started.status === 201 && Boolean(threadId), started.body);
+  const reply = await company.call('POST', `/api/v1/investee-portal/threads/${encodeURIComponent(threadId)}/messages`, { text: `Reply ${run}` }, key('reply'));
+  const replyMessages = dataOf(reply).messages as { text: string }[] | undefined;
+  check('company can reply on the thread', reply.status === 200 && replyMessages?.some((row) => row.text === `Reply ${run}`), reply.body);
 
   const dash = await company.get('/api/v1/investee-portal/dashboard');
   check('dashboard carries the application', dash.status === 200 && dataOf(dash).summary?.hasApplication === true && dataOf(dash).application?.businessName, dash.body);
@@ -179,6 +185,22 @@ async function main() {
     check('staff approves the request', approved.status === 200 && approved.body?.data?.status === 'APPROVED', approved.body);
     const again = await company.get('/api/v1/investee-portal/procurement');
     check('the company sees the approval', (dataOf(again).requisitions as { id: string; status: string }[])?.some((row) => row.id === requestId && row.status === 'APPROVED'), again.body);
+    const consentId = (dataOf(consent).consents as { id: string; title: string }[])?.find((row) => row.title === `Facility ${run}`)?.id;
+    const consentQueue = await ops.get('/api/v1/ops/investee-requests/consents');
+    check('staff can see the consent', Boolean(consentId) && (consentQueue.body?.data as { id: string }[])?.some((row) => row.id === consentId), consentQueue.status);
+    const decided = await ops.call(
+      'POST',
+      `/api/v1/ops/investee-requests/consents/${companyId}/${encodeURIComponent(consentId ?? '')}/decide`,
+      { status: 'Approved', note: 'Approved in the local test.' },
+      key('consent-decide'),
+    );
+    check('staff approves the consent', decided.status === 200 && decided.body?.data?.status === 'Approved', decided.body);
+    const gov = await company.get('/api/v1/investee-portal/governance');
+    check(
+      'the company sees the consent decision',
+      (dataOf(gov).consents as { id: string; status: string }[])?.some((row) => row.id === consentId && row.status === 'Approved'),
+      gov.body,
+    );
   }
 
   await prisma.setting.deleteMany({ where: { ownerId: companyId, key: { in: keys } } });
@@ -186,6 +208,7 @@ async function main() {
     await prisma.setting.createMany({ data: before.map((row) => ({ ownerId: row.ownerId, key: row.key, value: row.value as object })) });
   }
   if (docId) await prisma.document.delete({ where: { id: docId } }).catch(() => undefined);
+  if (threadId) await prisma.reportingQuestion.deleteMany({ where: { companyId, ref: threadId } });
 
   console.log(`\n${passes} passed, ${failures} failed`);
   await prisma.$disconnect();
