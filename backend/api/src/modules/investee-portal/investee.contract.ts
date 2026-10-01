@@ -224,10 +224,22 @@ export const activitySchema = z.object({
   createdAt: isoDateTime,
 });
 
+export const dashboardApplicationSchema = z.object({
+  id: z.string(),
+  currentStage: z.string(),
+  submittedAt: isoDateTime,
+  businessName: z.string(),
+  requestedAmount: z.number(),
+  industry: z.string().nullable(),
+  businessStage: z.string().nullable(),
+  applicationProgress: z.number(),
+  approvedAmount: z.number(),
+});
+
 export const dashboardSchema = z.object({
   hasReceivedInvestment: z.boolean(),
-  /** The deal pipeline is not part of Nexus; always null. */
-  application: z.null(),
+  /** Company investment summary. There is no separate deal-pipeline record. */
+  application: dashboardApplicationSchema,
   portfolioCompany: z.object({ id: z.string(), name: z.string(), status: z.string(), industry: z.string().nullable(), fundingStage: z.string().nullable() }),
   recentActivities: z.array(activitySchema),
   summary: z.object({
@@ -624,13 +636,13 @@ export const replyThreadSchema = z.object({ text: z.string().trim().min(1).max(5
 
 export const livePayloadSchema = z.object({
   profile: envelopeSchema(profileSchema).nullable(),
-  application: z.null(),
+  application: envelopeSchema(dashboardApplicationSchema.extend({ documents: z.array(z.object({ id: z.string() }).passthrough()) }).passthrough()),
   company: envelopeSchema(companySchema).nullable(),
   termSheets: envelopeSchema(termSheetListSchema).nullable(),
   dashboard: envelopeSchema(dashboardSchema).nullable(),
   reportingRequests: envelopeSchema(z.array(reportingRequestSchema)).nullable(),
   financialReports: envelopeSchema(financialReportPageSchema).nullable(),
-  drawdown: z.null(),
+  drawdown: envelopeSchema(z.object({ requisitions: z.array(z.object({ id: z.string(), status: z.string() }).passthrough()) })),
   errors: z.array(z.string()),
 });
 export type InvesteeLivePayload = z.infer<typeof livePayloadSchema>;

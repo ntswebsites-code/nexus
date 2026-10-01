@@ -202,8 +202,12 @@ async function main() {
   shape('GET /settings', envelopeSchema(settingsSchema), (await admin.client.get(`${IP}/settings`)).body);
   const team = shape('GET /team', envelopeSchema(teamMemberSchema.array()), (await admin.client.get(`${IP}/team`)).body);
   check('team lists only company A members', team.data?.length === 5 && team.data.some((m) => m.isYou), team.data?.length);
-  const teamWrite = await admin.client.post(`${IP}/team`, { email: 'x@example.test' });
-  check('team writes -> 501', teamWrite.status === 501, teamWrite.status);
+  const teamWrite = await admin.client.post(
+    `${IP}/team`,
+    { email: `ws3-${run}-invite@example.test`, name: 'WS3 Invite', profile: 'Report contributor' },
+    { 'Idempotency-Key': `ws3-${run}-team` },
+  );
+  check('team invite is accepted', teamWrite.status === 201, teamWrite.body);
   shape('GET /term-sheets/my (empty)', envelopeSchema(termSheetListSchema), (await admin.client.get(`${IP}/term-sheets/my`)).body);
 
   // ------------------------------------------------------------ company + letterhead

@@ -138,8 +138,7 @@ same Idempotency-Key on retry. DEF-374 is closed for capital-call acknowledge an
 - Investee: revenue variance (BR-252), fund countersign then execute, report templates (xlsx), and team invite/update/disable. Closed locally. `INVESTEE_LIVE_ACTIONS` in the local `.env` includes `reports.template` and `team.invite`.
 - Investee application, procurement, cap table, forecast, governance, vault and signatures now answer from `/api/v1/investee-portal`. Cap table, forecast cells, consents and requisitions are stored on `settings` (no new tables). The vault reads and writes `documents`. Signatures are the company's visible term sheets. Staff with `research.edit` decide a request at `/ops/investee-requests`. The company portal drops the demo ribbon on those pages when the matching action keys are allowlisted. Covered by `scripts/test-investee-workspace.ts`.
 - Dealing and activity exports accept `format=xlsx`. Subscription files on the multipart submit are stored as request attachments. Daily and month-end dealing dates skip 1 Jan, 25 Dec and 26 Dec as well as weekends.
-- The screening stub treats a "yes" sanctions declaration as an advisory match. It is still a stub, not a vendor screen.
-- Screening stub ignores applicant sanctions declarations.
+- The screening check treats a "yes" sanctions or adverse-media declaration as an advisory match for a person to review. No external screening vendor is connected.
 - `tools/legacy-bridge.mjs --check` reports manifests out of date (pre-existing).
 - Mailpit image uses `latest` - pin before go-live. Plan data counts differ slightly from mock-derived seed.
 - Credential hygiene: a local `DATABASE_URL` (user `matanho_app`) from a gitignored `.env` was printed in an agent's
