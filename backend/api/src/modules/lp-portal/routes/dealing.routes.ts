@@ -2,6 +2,7 @@ import { Router, type Request } from 'express';
 import type { ZodType } from 'zod';
 import { lpRedemptionEstimateSchema, lpSubmitDealingSchema, lpSubscriptionEstimateSchema } from '@matanho/shared';
 import { idempotent } from '../../../lib/idempotency';
+import { requireStepUp } from '../../../middleware/requireAuth';
 import { uploadFiles } from '../../../middleware/upload';
 import { lp, requireLp, requireLpRole } from '../lp.context';
 import { LpError, lpList, lpOk, pageOf } from '../lp.http';
@@ -70,6 +71,7 @@ lpDealingRoutes.post(
   '/dealing/subscriptions',
   requireLp('lp.dealing.subscribe'),
   requireLpRole('SIGNATORY'),
+  requireStepUp,
   uploadFiles('files', 5),
   idempotent('lp.dealing.subscribe'),
   async (req, res) => {
@@ -85,6 +87,7 @@ lpDealingRoutes.post(
   '/dealing/redemptions',
   requireLp('lp.dealing.redeem'),
   requireLpRole('SIGNATORY'),
+  requireStepUp,
   idempotent('lp.dealing.redeem'),
   async (req, res) => {
     const body = parse(lpSubmitDealingSchema, req) as Parameters<typeof submitRedemption>[2];

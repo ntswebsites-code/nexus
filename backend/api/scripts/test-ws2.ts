@@ -157,6 +157,7 @@ async function main() {
     ] as const) {
       check(`${u.email.split('@')[0]} signs in`, (await c.login(u.email)).status === 200);
     }
+    check('LP signatory enrols TOTP (money actions need step-up)', await aFin.enrolMfa());
 
     // ------------------------------------------------------------------ funds
     console.log('\nFunds and commitments');
@@ -277,6 +278,11 @@ async function main() {
     check('VIEWER can still read the call', (await aView.get(`${LP}/capital-calls/${allocA.id}`)).status === 200);
 
     console.log('\nJ3 LP actions');
+    await prisma.session.updateMany({ where: { userId: aFinU.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } });
+    const ackStale = await aFin.post(`${LP}/capital-calls/${allocA.id}/acknowledge`, {}, { 'Idempotency-Key': key('astale') });
+    check('acknowledge without fresh step-up -> 401 LP_STEP_UP_REQUIRED', ackStale.status === 401 && ackStale.body?.code === 'LP_STEP_UP_REQUIRED', ackStale.body);
+    const lpSu = await aFin.stepUp();
+    check('LP step-up with TOTP', lpSu.status === 200, lpSu.body);
     const ackNoKey = await aFin.post(`${LP}/capital-calls/${allocA.id}/acknowledge`, {});
     check('acknowledge without key -> 400 LP_VALIDATION', ackNoKey.status === 400 && ackNoKey.body?.code === 'LP_VALIDATION', ackNoKey.body);
     const ackKey = key('ack');
@@ -292,6 +298,7 @@ async function main() {
     const form = new FormData();
     form.append('file', new Blob([pdfBytes()], { type: 'application/pdf' }), 'wire-confirmation.pdf');
     form.append('amountClaimed', '93750.01');
+    await aFin.stepUp();
     const up = await aFin.send('POST', `${LP}/capital-calls/${allocA.id}/payment-confirmations`, form, { 'Idempotency-Key': key('up') });
     check('signatory uploads payment confirmation -> 201 with sha256', up.status === 201 && /^[a-f0-9]{64}$/.test(up.body?.data?.sha256 ?? '') && up.body?.data?.amountClaimed === '93750.01', up.body);
     const stillUnpaid = await aFin.get(`${LP}/capital-calls/${allocA.id}`);
@@ -397,6 +404,7 @@ async function main() {
     const subBody = { fundId: oe.id, shareClass: 'DEFAULT', estimateSnapshotId: est.body?.data?.estimateSnapshotId, amount: '5000.00', currency: 'USD', acceptTerms: true };
     const vSub = await aView.post(`${LP}/dealing/subscriptions`, subBody, { 'Idempotency-Key': key('vsub') });
     check('VIEWER cannot subscribe (403)', vSub.status === 403, vSub.body);
+    await aFin.stepUp();
     const tampered = await aFin.post(`${LP}/dealing/subscriptions`, { ...subBody, amount: '9000.00' }, { 'Idempotency-Key': key('tamper') });
     check('body not matching estimate -> 409', tampered.status === 409, tampered.body);
     const sub = await aFin.post(`${LP}/dealing/subscriptions`, subBody, { 'Idempotency-Key': key('sub') });
@@ -412,6 +420,7 @@ async function main() {
     check('redemption above holdings -> 422 LP_INSUFFICIENT_UNITS', tooMany.status === 422 && tooMany.body?.code === 'LP_INSUFFICIENT_UNITS', tooMany.body);
     const rEst = await aFin.post(`${LP}/dealing/redemptions/estimate`, { fundId: oe.id, shareClass: 'DEFAULT', mode: 'UNITS', units: '100', earliestDealingDate: earliest });
     check('redemption estimate: 100 units', rEst.status === 200 && rEst.body?.data?.estimatedUnitsToCancel === '100.000000', rEst.body);
+    await aFin.stepUp();
     const red = await aFin.post(
       `${LP}/dealing/redemptions`,
       { fundId: oe.id, shareClass: 'DEFAULT', estimateSnapshotId: rEst.body?.data?.estimateSnapshotId, mode: 'UNITS', units: '100', requestedDealingDate: earliest, acceptTerms: true },
@@ -454,6 +463,7 @@ async function main() {
     const ov2 = (await aFin.get(`${LP}/dealing/overview?fundId=${oe.id}`)).body?.data;
     check('holding now 1400 units (1000 + 500 - 100)', ov2?.unitsHeld === '1400.000000' && ov2?.accountValue === '14000.00', ov2);
 
+    await aFin.stepUp();
     const est3 = await aFin.post(`${LP}/dealing/subscriptions/estimate`, { fundId: oe.id, shareClass: 'DEFAULT', amount: '1000.00', currency: 'USD' });
     const sub3 = await aFin.post(
       `${LP}/dealing/subscriptions`,

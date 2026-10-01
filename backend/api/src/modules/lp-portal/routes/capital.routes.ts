@@ -1,6 +1,7 @@
 import { Router, type Response } from 'express';
 import { lpPaymentConfirmationFields } from '@matanho/shared';
 import { idempotent } from '../../../lib/idempotency';
+import { requireStepUp } from '../../../middleware/requireAuth';
 import { uploadFiles } from '../../../middleware/upload';
 import { lp, requireLp, requireLpRole } from '../lp.context';
 import { LpError, lpOk, lpPaginate, pageOf } from '../lp.http';
@@ -45,6 +46,7 @@ lpCapitalRoutes.post(
   '/capital-calls/:id/acknowledge',
   requireLp('lp.capital_calls.acknowledge'),
   requireLpRole('SIGNATORY'),
+  requireStepUp,
   idempotent('lp.capital_calls.acknowledge'),
   async (req, res) => {
     lpOk(req, res, await acknowledge(req, lp(req), String(req.params.id)), 'Capital call acknowledged');
@@ -55,6 +57,7 @@ lpCapitalRoutes.post(
   '/capital-calls/:id/payment-confirmations',
   requireLp('lp.capital_calls.upload_payment_confirmation'),
   requireLpRole('SIGNATORY'),
+  requireStepUp,
   uploadFiles('file'),
   idempotent('lp.capital_calls.upload_payment_confirmation', { required: false }),
   async (req, res) => {
