@@ -9,9 +9,11 @@
  */
 import { randomBytes } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
-import { ApiError, PORTAL_IDS, PORTALS, createApiClient } from '@matanho/shared';
+import { ApiError, PORTAL_IDS, createApiClient } from '@matanho/shared';
+import { loadConfig } from '../src/config/env';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:${process.env.API_PORT ?? 4100}`;
+const config = loadConfig();
+const API = process.env.NEXT_PUBLIC_API_URL ?? `http://localhost:${config.port}`;
 const prisma = new PrismaClient();
 
 let failures = 0;
@@ -55,7 +57,7 @@ try {
   console.log(`API: ${API}\n`);
 
   console.log('Health');
-  const anon = createApiClient({ baseUrl: API, fetchImpl: browser(`http://localhost:${PORTALS.admin.devPort}`) });
+  const anon = createApiClient({ baseUrl: API, fetchImpl: browser(config.portalUrls.admin) });
   const health = await anon.health();
   check('GET /api/health -> ok', health.status === 'ok', health);
 
@@ -83,7 +85,7 @@ try {
   await prisma.userRole.create({ data: { userId: row!.id, roleId: investorRole.id } });
 
   for (const portal of PORTAL_IDS) {
-    const origin = `http://localhost:${PORTALS[portal].devPort}`;
+    const origin = config.portalUrls[portal];
     const client = createApiClient({ baseUrl: API, fetchImpl: browser(origin) });
     if (portal === 'investor') {
       const res = await client.login({ email, password, portal });
@@ -110,9 +112,9 @@ try {
   check('POST from unlisted origin -> 403', evil.status === 403, evil.status);
   const preflight = await fetch(`${API}/api/auth/me`, {
     method: 'OPTIONS',
-    headers: { Origin: 'http://localhost:3101', 'Access-Control-Request-Method': 'GET' },
+    headers: { Origin: new URL(config.portalUrls.investor).origin, 'Access-Control-Request-Method': 'GET' },
   });
-  check('preflight from portal origin allowed', preflight.headers.get('access-control-allow-origin') === 'http://localhost:3101' && preflight.headers.get('access-control-allow-credentials') === 'true');
+  check('preflight from portal origin allowed', preflight.headers.get('access-control-allow-origin') === new URL(config.portalUrls.investor).origin && preflight.headers.get('access-control-allow-credentials') === 'true');
 } catch (error) {
   fail('unexpected error', error);
 } finally {
