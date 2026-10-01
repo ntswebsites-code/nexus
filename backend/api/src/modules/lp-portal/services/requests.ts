@@ -154,7 +154,7 @@ async function requestViews(rows: RequestRow[], withMessages: boolean): Promise<
       submittedBy: (r.openedById && who.get(r.openedById)) || null,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
-      attachments: own.filter((a) => !a.threadMessageId).map(attachmentView),
+      attachments: own.map(attachmentView),
     };
     if (withMessages) {
       const thread = threads.find((t) => t.linkedId === r.id);

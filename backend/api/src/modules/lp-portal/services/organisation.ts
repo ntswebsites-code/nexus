@@ -62,15 +62,20 @@ export const applyPendingColleagueScope: RequestHandler = async (req, _res, next
   const fundIds = Array.isArray(v.fundIds) ? v.fundIds.filter((x): x is string => typeof x === 'string') : null;
   const membership = await prisma.clientUser.findUnique({ where: { id: ctx.membershipId } });
   if (membership && membership.createdAt.getTime() >= pending.updatedAt.getTime() - 60_000) {
-    await prisma.$transaction(async (tx) => {
-      await tx.clientUser.update({
-        where: { id: membership.id },
-        data: { fundIds: fundIds ?? undefined, invitedById: typeof v.invitedById === 'string' ? v.invitedById : null },
-      });
-      await tx.setting.delete({ where: { ownerId_key: { ownerId: ctx.client.id, key } } });
-      await writeAudit(tx, lpAudit(req), { action: 'lp_colleague.scope_applied', objectType: 'client_user', objectId: membership.id, after: { fundIds } });
-    });
+    // Narrow first so a failure below can never leave this request with the wider default scope.
     if (fundIds) ctx.fundIds = ctx.fundIds.filter((id) => fundIds.includes(id));
+    await prisma.$transaction(
+      async (tx) => {
+        const claimed = await tx.setting.deleteMany({ where: { ownerId: ctx.client.id, key } });
+        if (claimed.count === 0) return;
+        await tx.clientUser.update({
+          where: { id: membership.id },
+          data: { fundIds: fundIds ?? undefined, invitedById: typeof v.invitedById === 'string' ? v.invitedById : null },
+        });
+        await writeAudit(tx, lpAudit(req), { action: 'lp_colleague.scope_applied', objectType: 'client_user', objectId: membership.id, after: { fundIds } });
+      },
+      { timeout: 15_000 },
+    );
   }
   next();
 };

@@ -31,7 +31,7 @@ const check = (name: string, cond: unknown, detail?: unknown) => {
     console.log(`  PASS  ${name}`);
   } else {
     failures++;
-    console.log(`  FAIL  ${name}`, detail === undefined ? '' : JSON.stringify(detail).slice(0, 500));
+    console.log(`  FAIL  ${name}`, detail === undefined ? '' : JSON.stringify(detail).slice(0, 1500));
   }
 };
 
@@ -66,11 +66,21 @@ function client(portal: 'investor' | 'admin' = 'investor') {
     }
     return { status: res.status, body: parsed, headers: res.headers };
   };
-  const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) =>
-    send(method, path, {
-      body: body === undefined ? undefined : JSON.stringify(body),
-      headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
-    });
+  // The shared idempotency record is completed asynchronously after the response, so an immediate
+  // replay can see IN_PROGRESS (documented as retryable); retry like a real client would.
+  const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = {}) => {
+    const once = () =>
+      send(method, path, {
+        body: body === undefined ? undefined : JSON.stringify(body),
+        headers: body === undefined ? headers : { 'Content-Type': 'application/json', ...headers },
+      });
+    let res = await once();
+    for (let i = 0; i < 10 && res.status === 409 && res.body?.code === 'LP_IDEMPOTENCY_IN_PROGRESS'; i++) {
+      await new Promise((r) => setTimeout(r, 300));
+      res = await once();
+    }
+    return res;
+  };
   return {
     call,
     get: (path: string) => call('GET', path),
@@ -366,7 +376,7 @@ async function main() {
     check('single-fund dashboard uses stored IRR', dashF.body?.data?.kpis?.netIrr === '0.1530', dashF.body?.data?.kpis);
     const acts = await m.get(`${LP}/dashboard/actions`);
     const types = (acts.body?.data?.items ?? []).map((x: any) => x.type);
-    check('actions include capital call', types.includes('CAPITAL_CALL'), types);
+    check('actions include capital call', types.includes('CAPITAL_CALL'), acts.body);
     const recent = await m.get(`${LP}/dashboard/activity/recent?limit=5`);
     check('recent activity items (<= limit, desc)', Array.isArray(recent.body?.data?.items) && recent.body.data.items.length <= 5 && recent.body.data.items.length > 0, recent.body);
     const actv = await m.get(`${LP}/account-activity`);
