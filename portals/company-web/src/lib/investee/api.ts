@@ -7,10 +7,18 @@ import type {
   FinancialReportPage,
   FinancialReportType,
   FinancialStatementKind,
+  CapTableView,
+  ForecastView,
+  GovernanceView,
+  InvesteeApplication,
   InvesteeCompany,
+  InvesteeConversation,
   InvesteeDashboard,
   InvesteeProfile,
+  InvesteeRequisition,
+  InvesteeTeamMember,
   InvesteeThread,
+  WorkspaceDocument,
   Letterhead,
   PeriodKpis,
   ReportingRequest,
@@ -54,6 +62,20 @@ import type {
  * | settings.company    | PUT    | /company                                      | UpdateCompanyRequest -> InvesteeCompany     |
  * | settings.letterhead | PUT    | /letterhead ; POST /letterhead/logo (multipart `logo`) | UpdateLetterheadRequest -> Letterhead |
  * | threads.start       | POST   | /threads                                      | StartThreadRequest -> InvesteeThread        |
+ * | threads.list        | GET    | /threads                                      | - -> InvesteeConversation[]                 |
+ * | team.list           | GET    | /team                                         | - -> InvesteeTeamMember[]                   |
+ * | team.invite         | POST   | /team                                         | invite -> { id, email, status }             |
+ * | application         | GET    | /application                                  | - -> InvesteeApplication                    |
+ * | requests.list       | GET    | /procurement                                  | - -> { requisitions }                       |
+ * | requests.create      | POST   | /procurement                                  | requisition -> InvesteeRequisition          |
+ * | capTable            | GET    | /cap-table                                    | - -> CapTableView                           |
+ * | capTable.save       | PUT    | /cap-table                                    | shareholders -> CapTableView                |
+ * | governance          | GET    | /governance                                   | - -> GovernanceView                         |
+ * | governance.consent  | POST   | /governance/consents                          | consent -> GovernanceView                   |
+ * | forecast            | GET    | /forecast                                     | - -> ForecastView                           |
+ * | forecast.save       | PUT    | /forecast                                     | cells -> ForecastView                       |
+ * | vault               | GET    | /vault                                        | - -> { documents }                          |
+ * | vault.upload        | POST   | /vault                                        | multipart file -> WorkspaceDocument         |
  *
  * POSTs carry an `Idempotency-Key`. Errors are the Nexus `{ error: { code, message } }` body
  * (NVCCZ-style `{ success:false, message }` is also understood). `401 step_up_required` opens
@@ -79,7 +101,20 @@ export const INVESTEE_ACTION_KEYS = [
   'settings.company',
   'settings.letterhead',
   'threads.start',
+  'threads.list',
+  'team.list',
   'team.invite',
+  'application',
+  'requests.list',
+  'requests.create',
+  'capTable',
+  'capTable.save',
+  'governance',
+  'governance.consent',
+  'forecast',
+  'forecast.save',
+  'vault',
+  'vault.upload',
 ] as const;
 
 export type InvesteeActionKey = (typeof INVESTEE_ACTION_KEYS)[number];
@@ -298,6 +333,39 @@ export function createInvesteeApi(liveActions: readonly string[]) {
 
     inviteTeamMember: (body: { name?: string; email: string; profile: string; title?: string }) =>
       call<{ id: string; email: string; status: string }>('team.invite', 'POST', '/team', { body }),
+
+    getThreads: () => call<InvesteeConversation[]>('threads.list', 'GET', '/threads'),
+    getTeam: () => call<InvesteeTeamMember[]>('team.list', 'GET', '/team'),
+    getApplication: () => call<InvesteeApplication>('application', 'GET', '/application'),
+    getRequests: () => call<{ requisitions: InvesteeRequisition[] }>('requests.list', 'GET', '/procurement'),
+    createRequest: (body: {
+      title: string;
+      description?: string;
+      type?: string;
+      category?: string;
+      currency?: string;
+      amount?: number;
+      needBy?: string;
+      priority?: string;
+      draft?: boolean;
+    }) => call<InvesteeRequisition>('requests.create', 'POST', '/procurement', { body }),
+    getCapTable: () => call<CapTableView>('capTable', 'GET', '/cap-table'),
+    saveCapTable: (shareholders: { id?: string; name: string; type: string; shares: number }[]) =>
+      call<CapTableView>('capTable.save', 'PUT', '/cap-table', { body: { shareholders } }),
+    getGovernance: () => call<GovernanceView>('governance', 'GET', '/governance'),
+    requestConsent: (body: { title: string; basis: string; due?: string; note?: string }) =>
+      call<GovernanceView>('governance.consent', 'POST', '/governance/consents', { body }),
+    getForecast: () => call<ForecastView>('forecast', 'GET', '/forecast'),
+    saveForecast: (body: { scenario?: string; revenue?: Record<string, number> }) =>
+      call<ForecastView>('forecast.save', 'PUT', '/forecast', { body }),
+    getVault: () => call<{ documents: WorkspaceDocument[] }>('vault', 'GET', '/vault'),
+    uploadVaultFile: (file: File, name?: string) => {
+      const form = new FormData();
+      form.append('file', file);
+      if (name) form.append('name', name);
+      form.append('type', 'company');
+      return call<WorkspaceDocument>('vault.upload', 'POST', '/vault', { body: form });
+    },
   };
 }
 

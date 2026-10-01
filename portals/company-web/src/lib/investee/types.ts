@@ -337,6 +337,97 @@ export interface InvesteeThread {
   createdAt: string;
 }
 
+export interface WorkspaceDocument {
+  id: string;
+  fileName?: string;
+  name?: string;
+  documentType?: string;
+  type?: string;
+  isSubmitted?: boolean;
+  uploadedAt?: string;
+}
+
+export interface InvesteeApplication {
+  id: string;
+  businessName: string;
+  currentStage: string;
+  requestedAmount: number | null;
+  documents: WorkspaceDocument[];
+}
+
+export interface InvesteeRequisition {
+  id: string;
+  title: string;
+  description: string;
+  status: string;
+  priority: string;
+  sourcingCategory: string;
+  currency: string;
+  estimatedAmount: number;
+  needBy: string;
+  createdByName: string;
+}
+
+export interface CapShareholder {
+  id: string;
+  name: string;
+  type: string;
+  shares: number;
+  pct: number;
+  color: string;
+}
+
+export interface CapTableView {
+  asOf: string;
+  derived: boolean;
+  shareholders: CapShareholder[];
+  classes: { name: string; outstanding: number; voting: string; preference: string; conversion: string; status: string }[];
+}
+
+export interface GovernanceView {
+  consents: { id: string; title: string; basis: string; submitted: string; due: string; owner: string; status: string; note: string }[];
+  actions: { id: string; title: string; owner: string; due: string; evidence: string; status: string }[];
+  reservedMatters: { name: string; detail: string }[];
+  calendar: { title: string; due: string; status: string }[];
+  metrics: { pendingConsents: number; openActions: number };
+}
+
+export interface ForecastView {
+  scenario: string;
+  months: { key: string; label: string; stage: string }[];
+  actuals: Record<string, number | null>;
+  forecast: Record<string, number | null>;
+  scenarios: Record<string, { revenue: number; note: string }>;
+}
+
+export interface InvesteeTeamMember {
+  id: string;
+  name: string;
+  email: string;
+  title: string | null;
+  accessProfile: string;
+  status: string;
+  lastActiveAt: string | null;
+  mfaEnabled: boolean;
+}
+
+export interface InvesteeMessage {
+  who: string;
+  name: string;
+  at: string;
+  text: string;
+}
+
+export interface InvesteeConversation {
+  id: string;
+  title: string;
+  from: string;
+  role: string;
+  opened: string;
+  status: string;
+  messages: InvesteeMessage[];
+}
+
 /** The object handed to the runtime's `hydrate()`. Keys mirror the NVCCZ host loader. */
 export interface InvesteeLivePayload {
   profile: InvesteeProfile | null;
@@ -345,6 +436,13 @@ export interface InvesteeLivePayload {
   termSheets: TermSheet[] | null;
   reportingRequests: ReportingRequest[] | null;
   financialReports: FinancialReport[] | null;
+  application: InvesteeApplication | null;
+  drawdown: { requisitions: InvesteeRequisition[] } | null;
+  capTable: CapTableView | null;
+  governance: GovernanceView | null;
+  forecast: ForecastView | null;
+  threads: InvesteeConversation[] | null;
+  team: InvesteeTeamMember[] | null;
   errors: string[];
   /** runtime page id -> error message shown instead of the page */
   pageErrors: Record<string, string>;

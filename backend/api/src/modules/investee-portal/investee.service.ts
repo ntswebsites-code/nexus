@@ -394,7 +394,17 @@ export async function dashboardView(c: InvesteeContext) {
   const hasInvestment = invested > 0;
   return {
     hasReceivedInvestment: hasInvestment,
-    application: null,
+    application: {
+      id: company.id,
+      currentStage: hasInvestment ? 'Invested' : awaiting ? 'Term sheet issued' : 'Portfolio company',
+      submittedAt: company.createdAt.toISOString(),
+      businessName: company.legalName || company.name,
+      requestedAmount: latestTs ? latestTs.investmentAmount.toNumber() : invested,
+      industry: company.industry ?? company.sector,
+      businessStage: company.fundingStage,
+      applicationProgress: hasInvestment ? 100 : awaiting ? 80 : 20,
+      approvedAmount: invested,
+    },
     portfolioCompany: { id: company.ref, name: company.name, status: company.status, industry: company.industry ?? company.sector, fundingStage: company.fundingStage },
     recentActivities: notifications.map((n) => ({
       id: n.id,
@@ -404,7 +414,7 @@ export async function dashboardView(c: InvesteeContext) {
       createdAt: n.createdAt.toISOString(),
     })),
     summary: {
-      hasApplication: false,
+      hasApplication: true,
       hasPortfolioCompany: true,
       hasReceivedInvestment: hasInvestment,
       applicationStage: hasInvestment ? 'Invested' : awaiting ? 'Term sheet issued' : 'Portfolio company',

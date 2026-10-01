@@ -30,6 +30,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: '/ops/dealing', label: 'Dealing queue', perms: ['dealing.view'] },
       { href: '/ops/term-sheets', label: 'Term sheets', perms: ['term_sheets.view'] },
+      { href: '/ops/investee-requests', label: 'Investee requests', perms: ['research.edit'] },
     ],
   },
   {

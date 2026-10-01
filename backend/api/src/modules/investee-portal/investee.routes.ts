@@ -75,6 +75,24 @@ import {
   reportingRequestView,
   type LetterheadJson,
 } from './investee.service';
+import {
+  addConsent,
+  applicationView,
+  capTableSchema,
+  capTableView,
+  consentSchema,
+  createRequisition,
+  forecastSchema,
+  forecastView,
+  governanceView,
+  requisitionList,
+  requisitionSchema,
+  saveCapTable,
+  saveForecast,
+  signatureRequests,
+  uploadVaultFile,
+  vaultDocuments,
+} from './investee-workspace';
 
 /**
  * `/api/v1/investee-portal` - Investee contract facade (SRD 5D; contract: ./investee.contract.ts, D-08).
@@ -113,9 +131,14 @@ import {
  *   POST   /term-sheets/:id/sign                      sign (signing authority + MFA step-up + Idempotency-Key)
  *   POST   /term-sheets/:id/decline                   { reason } (signing authority + Idempotency-Key)
  *
- * 501 not_implemented
- *   /application, /procurement/*, /financial-reports/template/:type, /cap-table, /governance,
- *   /forecast, /vault, /signatures, team writes (POST/PUT/PATCH/DELETE /team...), anything else.
+ * Company workspace (settings JSON + existing documents and term sheets)
+ *   GET    /application
+ *   GET    /procurement                              POST /procurement                         edit_draft
+ *   GET    /cap-table                                PUT  /cap-table                           edit_draft
+ *   GET    /governance                               POST /governance/consents                 edit_draft
+ *   GET    /forecast                                 PUT  /forecast                            edit_draft
+ *   GET    /vault                                    POST /vault (multipart `file`)            edit_draft
+ *   GET    /signatures                               term sheets awaiting or holding a signature
  */
 export const investeePortalRoutes = Router();
 
@@ -131,11 +154,6 @@ const notBuilt =
     throw new HttpError(501, 'not_implemented', `${what} is not available in Nexus yet`);
   };
 
-// ---------------------------------------------------------------- 501 (explicitly out of scope)
-
-investeePortalRoutes.all('/application', notBuilt('The investment application'));
-investeePortalRoutes.all('/application/*rest', notBuilt('The investment application'));
-investeePortalRoutes.all('/procurement/*rest', notBuilt('Procurement and drawdown'));
 const REPORT_TEMPLATES: Record<string, { file: string; headers: string[] }> = {
   INCOME_STATEMENT: { file: 'income-statement-template.xlsx', headers: ['periodStart', 'periodEnd', 'totalRevenue', 'costOfSales', 'grossProfit', 'operatingExpenses', 'netProfit'] },
   BALANCE_SHEET: { file: 'balance-sheet-template.xlsx', headers: ['periodEnd', 'cash', 'receivables', 'inventory', 'totalAssets', 'payables', 'borrowings', 'totalLiabilities', 'equity'] },
@@ -153,34 +171,31 @@ investeePortalRoutes.get('/financial-reports/template/:type', requireProfile('ed
   res.setHeader('Cache-Control', 'private, no-store');
   res.send(body);
 });
-for (const p of ['/cap-table', '/governance', '/forecast', '/vault', '/signatures']) {
-  investeePortalRoutes.all(p, notBuilt(`${p.slice(1)}`));
-  investeePortalRoutes.all(`${p}/*rest`, notBuilt(`${p.slice(1)}`));
-}
-
 // ---------------------------------------------------------------- hydration
 
 investeePortalRoutes.get('/live', async (req, res) => {
   const c = inv(req);
   const envelope = <T>(data: T) => ({ success: true as const, message: 'OK', data, timestamp: new Date().toISOString() });
   const user = await prisma.user.findUniqueOrThrow({ where: { id: c.userId } });
-  const [mfa, company, dashboard, periods, termSheets] = await Promise.all([
+  const [mfa, company, dashboard, periods, termSheets, application, requisitions] = await Promise.all([
     mfaEnabled(c.userId),
     companyPayload(c.company),
     dashboardView(c),
     companyPeriods(c.company.id),
     termSheetList(req),
+    applicationView(c),
+    requisitionList(c.company.id),
   ]);
   const items = periods.flatMap((p) => p.items.map((i) => financialReportView(p, i, c.company, c.profile)));
   res.json({
     profile: envelope(profileView(user, c, mfa)),
-    application: null,
+    application: envelope(application),
     company: envelope(company),
     termSheets: envelope(termSheets),
     dashboard: envelope(dashboard),
     reportingRequests: envelope(periods.map((p) => reportingRequestView(p, c.company, c.profile))),
     financialReports: envelope({ page: 1, limit: items.length, total: items.length, items }),
-    drawdown: null,
+    drawdown: envelope({ requisitions }),
     errors: [],
   });
 });
@@ -938,6 +953,68 @@ investeePortalRoutes.post(
     ok(res, investeeTermSheetView(next, extras.get(next.id), { canSign: true }), 'Term sheet declined');
   },
 );
+
+// ---------------------------------------------------------------- application, procurement, cap table, governance, forecast, vault
+
+investeePortalRoutes.get('/application', async (req, res) => {
+  ok(res, await applicationView(inv(req)));
+});
+
+investeePortalRoutes.get('/procurement', async (req, res) => {
+  ok(res, { requisitions: await requisitionList(inv(req).company.id) });
+});
+
+investeePortalRoutes.post('/procurement', requireProfile('edit_draft'), validateBody(requisitionSchema), idempotent('investee.procurement.create'), async (req, res) => {
+  const c = inv(req);
+  const row = await createRequisition(c, req.body, actorName(req), investeeAudit(req));
+  ok(res, row, 'Request submitted', 201);
+});
+
+investeePortalRoutes.get('/cap-table', async (req, res) => {
+  ok(res, await capTableView(inv(req).company));
+});
+
+investeePortalRoutes.put('/cap-table', requireProfile('edit_draft'), validateBody(capTableSchema), async (req, res) => {
+  ok(res, await saveCapTable(inv(req), req.body, investeeAudit(req)), 'Cap table saved');
+});
+
+investeePortalRoutes.get('/governance', async (req, res) => {
+  ok(res, await governanceView(inv(req)));
+});
+
+investeePortalRoutes.post('/governance/consents', requireProfile('edit_draft'), validateBody(consentSchema), idempotent('investee.governance.consent'), async (req, res) => {
+  const c = inv(req);
+  ok(res, await addConsent(c, req.body, actorName(req), investeeAudit(req)), 'Consent requested', 201);
+});
+
+investeePortalRoutes.get('/forecast', async (req, res) => {
+  ok(res, await forecastView(inv(req).company.id));
+});
+
+investeePortalRoutes.put('/forecast', requireProfile('edit_draft'), validateBody(forecastSchema), async (req, res) => {
+  ok(res, await saveForecast(inv(req), req.body, investeeAudit(req)), 'Forecast saved');
+});
+
+investeePortalRoutes.get('/vault', async (req, res) => {
+  ok(res, { documents: await vaultDocuments(inv(req).company.id) });
+});
+
+investeePortalRoutes.post('/vault', requireProfile('edit_draft'), uploadFiles('file'), idempotent('investee.vault.upload'), async (req, res) => {
+  const file = uploadedFiles(req)[0];
+  if (!file) throw new HttpError(400, 'bad_request', 'Attach a file');
+  const body = (req.body ?? {}) as { name?: unknown; type?: unknown };
+  const saved = await uploadVaultFile(
+    inv(req),
+    file,
+    { name: typeof body.name === 'string' ? body.name : undefined, type: typeof body.type === 'string' ? body.type : undefined },
+    investeeAudit(req),
+  );
+  ok(res, saved, 'Document stored', 201);
+});
+
+investeePortalRoutes.get('/signatures', async (req, res) => {
+  ok(res, await signatureRequests(inv(req).company.id));
+});
 
 // ---------------------------------------------------------------- fallback + errors
 

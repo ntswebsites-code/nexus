@@ -8,7 +8,7 @@
 |---|---|
 | 3.2 UAT seed + LP contract harness (`lp_a_manager`, values on) | all 12 domains PASS. `LP_LIVE_DOMAINS` set locally to every domain. Rollback is clearing that env var and restarting the API. |
 | 3.3 Ops console | Term-sheet create now sends `company` (the company ref). Capital, distribution and dealing bodies already matched. J3 on the API: operations drafted and submitted, the maker's approve was `403 permission_denied`, the investment director's approve was `401 step_up_required` until a fresh code, then `200 APPROVED`, and the same Idempotency-Key replayed. Operations then issued the call. |
-| 3.4 Investee adapter | Sign sends `consentTextVersion`. New threads send `{title, text}`. Letterhead save requires street, city and country. `INVESTEE_LIVE_ACTIONS` set locally to every action except `reports.template` (still 501). |
+| 3.4 Investee adapter | Sign sends `consentTextVersion`. New threads send `{title, text}`. Letterhead save requires street, city and country. Local `INVESTEE_LIVE_ACTIONS` includes reporting, term sheets, team, messages, and the company workspace (application, procurement, cap table, forecast, governance, vault). |
 | 3.5 LP browser | Signatory login on port 3191, live dashboard with no Demo data ribbon, capital call 13 acknowledged. Step-up dialog appeared once the login MFA window had expired; the same call then acknowledged. DEF-374: the acknowledge and payment-confirmation keys are kept until the call succeeds. |
 | 3.6 | Idempotency completion is written before the response is sent (notice acknowledge replay returned `Idempotent-Replayed`). The other gaps below are accepted for this cut. |
 | 3.7 | Not deployed. SSH to 207.180.234.151 answered `Permission denied (publickey)`. No tag `uat-rc1` was pushed. |
@@ -17,7 +17,7 @@ Flags live only in the gitignored local `.env` (API port 4150). On the UAT host,
 
 `LP_LIVE_DOMAINS=session,dashboard,capital,activity,dealing,performance,documents,notices,requests,organisation,settings,reports`
 
-`INVESTEE_LIVE_ACTIONS=dashboard,profile,company,reports.schedule,reports.history,reports.detail,reports.draft,reports.upload,reports.submit,kpis.submit,termSheets.list,termSheets.view,termSheets.sign,termSheets.decline,settings.profile,settings.company,settings.letterhead,threads.start`
+`INVESTEE_LIVE_ACTIONS` locally also includes `reports.template`, `threads.list`, `team.list`, `team.invite`, `application`, `requests.list`, `requests.create`, `capTable`, `capTable.save`, `governance`, `governance.consent`, `forecast`, `forecast.save`, `vault` and `vault.upload`.
 
 The UAT seed rolls an issued-but-unpaid capital call's due date to five days ahead when the machine clock has passed the snapshot date, so the open call stays due-soon. Historical activity dates are not moved.
 
@@ -136,6 +136,7 @@ same Idempotency-Key on retry. DEF-374 is closed for capital-call acknowledge an
 - Staff verify LP bank changes at `/ops/bank-instructions`: call-back (`clients.edit`), then a different person with `cash.approve` activates it and supersedes the previous instruction. Closed locally.
 - Operations can invite a custodian user (`POST /api/v1/ops/custodian/users`). Acceptance links the counterparty. The custodian sign-in screen enrols TOTP when the policy requires it. Closed locally.
 - Investee: revenue variance (BR-252), fund countersign then execute, report templates (xlsx), and team invite/update/disable. Closed locally. `INVESTEE_LIVE_ACTIONS` in the local `.env` includes `reports.template` and `team.invite`.
+- Investee application, procurement, cap table, forecast, governance, vault and signatures now answer from `/api/v1/investee-portal`. Cap table, forecast cells, consents and requisitions are stored on `settings` (no new tables). The vault reads and writes `documents`. Signatures are the company's visible term sheets. Staff with `research.edit` decide a request at `/ops/investee-requests`. The company portal drops the demo ribbon on those pages when the matching action keys are allowlisted. Covered by `scripts/test-investee-workspace.ts`.
 - Dealing and activity exports accept `format=xlsx`. Subscription files on the multipart submit are stored as request attachments. Daily and month-end dealing dates skip 1 Jan, 25 Dec and 26 Dec as well as weekends.
 - The screening stub treats a "yes" sanctions declaration as an advisory match. It is still a stub, not a vendor screen.
 - Screening stub ignores applicant sanctions declarations.

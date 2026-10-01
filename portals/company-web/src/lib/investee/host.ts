@@ -34,8 +34,15 @@ export const LIVE_PAGE_LOADERS: Record<string, InvesteeActionKey[]> = {
   dashboard: ['dashboard'],
   kpis: ['company'],
   reports: ['reports.schedule', 'reports.history'],
+  forecasts: ['forecast'],
   terms: ['termSheets.list'],
+  'cap-table': ['capTable'],
+  governance: ['governance'],
   signatures: ['termSheets.list'],
+  requests: ['requests.list'],
+  'data-room': ['vault'],
+  messages: ['threads.list'],
+  team: ['team.list'],
   settings: ['profile', 'company'],
 };
 
@@ -55,6 +62,16 @@ export interface ActionDetail {
     values?: Record<string, unknown>;
     notes?: Record<string, unknown>;
   };
+  request?: {
+    title?: string;
+    description?: string;
+    type?: string;
+    category?: string;
+    currency?: string;
+    amount?: number;
+    needBy?: string;
+    priority?: string;
+  };
 }
 
 export interface ActionResult {
@@ -63,7 +80,22 @@ export interface ActionResult {
   error?: string;
 }
 
-const LOADERS = ['dashboard', 'profile', 'company', 'reports.schedule', 'reports.history', 'termSheets.list'] as const;
+const LOADERS = [
+  'dashboard',
+  'profile',
+  'company',
+  'reports.schedule',
+  'reports.history',
+  'termSheets.list',
+  'forecast',
+  'capTable',
+  'governance',
+  'requests.list',
+  'vault',
+  'application',
+  'threads.list',
+  'team.list',
+] as const;
 
 function errorText(e: unknown): string {
   if (e instanceof InvesteeApiError) return e.describe();
@@ -194,14 +226,23 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         return null;
       }
     };
-    const [dashboard, profile, company, reportingRequests, financialReports, termSheets] = await Promise.all([
-      run('dashboard', api.getDashboard),
-      run('profile', api.getProfile),
-      run('company', api.getCompany),
-      run('reports.schedule', api.getReportingRequests),
-      run('reports.history', api.getFinancialReports),
-      run('termSheets.list', api.getTermSheets),
-    ]);
+    const [dashboard, profile, company, reportingRequests, financialReports, termSheets, application, requests, capTable, governance, forecast, vault, threads, team] =
+      await Promise.all([
+        run('dashboard', api.getDashboard),
+        run('profile', api.getProfile),
+        run('company', api.getCompany),
+        run('reports.schedule', api.getReportingRequests),
+        run('reports.history', api.getFinancialReports),
+        run('termSheets.list', api.getTermSheets),
+        run('application', api.getApplication),
+        run('requests.list', api.getRequests),
+        run('capTable', api.getCapTable),
+        run('governance', api.getGovernance),
+        run('forecast', api.getForecast),
+        run('vault', api.getVault),
+        run('threads.list', api.getThreads),
+        run('team.list', api.getTeam),
+      ]);
     const pageErrors: Record<string, string> = {};
     for (const page of livePages) {
       const msgs = LIVE_PAGE_LOADERS[page].filter((k) => failed.has(k)).map((k) => `${k}: ${failed.get(k)}`);
@@ -214,6 +255,13 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
       reportingRequests: Array.isArray(reportingRequests) ? reportingRequests : reportingRequests ? [] : null,
       financialReports,
       termSheets: termSheets ? termSheets.map(normalizeTermSheet) : null,
+      application: application ?? (vault ? { id: '', businessName: '', currentStage: '', requestedAmount: null, documents: vault.documents } : null),
+      drawdown: requests ? { requisitions: requests.requisitions } : null,
+      capTable,
+      governance,
+      forecast,
+      threads,
+      team,
       errors,
       pageErrors,
     };
@@ -259,6 +307,18 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         return api.isLive('threads.start');
       case 'send-invite':
         return api.isLive('team.invite');
+      case 'create-request':
+      case 'save-request-draft':
+        return api.isLive('requests.create');
+      case 'send-approval':
+        return api.isLive('governance.consent');
+      case 'forecast-save':
+      case 'scenario':
+        return pageLive('forecasts') && api.isLive('forecast.save');
+      case 'save-cap-holder':
+        return api.isLive('capTable.save');
+      case 'complete-upload':
+        return api.isLive('vault.upload');
       default:
         return false;
     }
@@ -364,7 +424,77 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           if (!email) return { error: 'A work email is required.' };
           await api.inviteTeamMember({ name, email, profile: profile || 'Report contributor', title });
           ui()?.closeOverlays?.();
+          await reload();
           return { message: 'Invitation sent', detail: 'They will set a password from the invitation email.' };
+        }
+
+        case 'create-request':
+        case 'save-request-draft': {
+          const req = detail.request;
+          const title = req?.title || val('newRequestTitle');
+          if (!title) return { error: 'Enter a request title.' };
+          await api.createRequest({
+            title,
+            description: req?.description || val('newRequestDescription'),
+            type: req?.type || val('newRequestType') || 'Capital request',
+            category: req?.category || val('newRequestCategory'),
+            currency: req?.currency || val('newRequestCurrency') || 'USD',
+            amount: req?.amount ?? num(val('newRequestAmount')),
+            needBy: req?.needBy || val('newRequestNeedBy') || undefined,
+            priority: req?.priority || val('newRequestPriority') || 'Medium',
+            draft: a === 'save-request-draft',
+          });
+          ui()?.closeOverlays?.();
+          await reload();
+          return { message: a === 'save-request-draft' ? 'Draft saved' : 'Request submitted', detail: 'The fund team can review it from the operations console.' };
+        }
+
+        case 'send-approval': {
+          const title = val('approvalTitle');
+          const basis = val('approvalBasis');
+          if (!title || !basis) return { error: 'Enter the matter and the approval category.' };
+          await api.requestConsent({ title, basis, due: val('approvalDue') || undefined, note: val('approvalNote') || undefined });
+          ui()?.closeOverlays?.();
+          await reload();
+          return { message: 'Consent requested', detail: 'The matter is waiting for investor review.' };
+        }
+
+        case 'scenario': {
+          const scenario = detail.dataset?.scenario;
+          if (scenario !== 'Base case' && scenario !== 'Upside' && scenario !== 'Downside') return {};
+          await api.saveForecast({ scenario });
+          await reload();
+          return { message: 'Scenario saved', detail: scenario };
+        }
+
+        case 'forecast-save': {
+          const revenue: Record<string, number> = {};
+          document.querySelectorAll<HTMLInputElement>('.forecast-live-input').forEach((input) => {
+            const month = input.dataset.month;
+            if (month) revenue[month] = num(input.value);
+          });
+          await api.saveForecast({ revenue });
+          await reload();
+          return { message: 'Forecast saved', detail: 'Forecast revenue was stored for the open months.' };
+        }
+
+        case 'save-cap-holder': {
+          const name = val('capHolderName');
+          const shares = num(val('capHolderShares'));
+          if (!name || shares <= 0) return { error: 'Enter the holder name and a positive share count.' };
+          const current = (payload?.capTable?.shareholders ?? []).map((row) => ({ id: row.id, name: row.name, type: row.type, shares: row.shares }));
+          await api.saveCapTable([...current, { name, type: val('capHolderType') || 'Ordinary', shares: Math.round(shares) }]);
+          await reload();
+          return { message: 'Holder added', detail: 'Ownership percentages were recalculated.' };
+        }
+
+        case 'complete-upload': {
+          const file = el<HTMLInputElement>('vaultFile')?.files?.[0];
+          if (!file) return { error: 'Choose a file to upload.' };
+          await api.uploadVaultFile(file, val('vaultFileName') || file.name);
+          ui()?.closeOverlays?.();
+          await reload();
+          return { message: 'Document stored', detail: file.name };
         }
 
         case 'send-conversation': {
@@ -373,6 +503,7 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           if (!subject || !body) return { error: 'Enter a subject and a message.' };
           await api.startThread({ recipientTeam: val('newConversationTeam') || 'Matanho Portfolio Team', subject, body });
           ui()?.closeOverlays?.();
+          await reload();
           return { message: 'Message sent', detail: 'A secure conversation was created with the fund team.' };
         }
       }
