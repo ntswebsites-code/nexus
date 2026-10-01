@@ -1,3 +1,4 @@
+import { DemoDataRibbon } from "@/components/lp-portal/demo-data-ribbon"
 import { LpRequestsMessagesScreen } from "@/components/lp-portal/screens/lp-requests-messages-screen"
 
 export default async function RequestsPage({
@@ -7,9 +8,12 @@ export default async function RequestsPage({
 }) {
   const params = (await searchParams) ?? {}
   return (
-    <LpRequestsMessagesScreen
-      initialTab={params.tab === "messages" ? "messages" : "requests"}
-      initialRequestRef={params.ref}
-    />
+    <>
+      <DemoDataRibbon domains={["requests"]} />
+      <LpRequestsMessagesScreen
+        initialTab={params.tab === "messages" ? "messages" : "requests"}
+        initialRequestRef={params.ref}
+      />
+    </>
   )
 }

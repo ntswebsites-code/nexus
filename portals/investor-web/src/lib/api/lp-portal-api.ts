@@ -1,6 +1,7 @@
 import { apiClient } from "./api-client"
 import { createIdempotencyKey } from "@/lib/lp-portal/format"
 import type { LpDataDomain } from "@/lib/lp-portal/config"
+import { loadLpFlags } from "@/lib/lp-portal/flags"
 import { mockLpPortalApi } from "@/lib/lp-portal/mock-api"
 
 // ── Envelopes ──────────────────────────────────────────────────────────
@@ -1375,26 +1376,35 @@ function coerceLpCounts<T>(node: T): T {
   return node
 }
 
+/** The data domain a method belongs to; unmapped methods count as live (see `LP_METHOD_DOMAIN`). */
+export function lpMethodDomain(name: string): LpDataDomain | undefined {
+  return LP_METHOD_DOMAIN[name]
+}
+
+/**
+ * Every call first waits for the runtime flags, then goes to the live client when its domain is
+ * live and to the mock store otherwise. A live call that fails rejects with the API error; it is
+ * never answered from the mock store, so a broken live domain shows its error state.
+ */
 export const lpPortalApi = new Proxy(liveLpPortalApi, {
   get(target, prop, receiver) {
     const name = String(prop)
     const value = Reflect.get(target, prop, receiver)
     if (typeof value !== "function") return value
 
-    // Demo mode: the mock store answers every method it implements.
+    const live = (value as (...args: unknown[]) => unknown).bind(target)
     const mockFn = (mockLpPortalApi as Record<string, unknown>)[name]
-    if (typeof mockFn === "function") {
-      return (mockFn as (...args: unknown[]) => unknown).bind(mockLpPortalApi)
-    }
-    // Normalise count-like fields on the way out, so every screen sees numbers instead of each
-    // call site having to remember to coerce. Blobs (downloads) are passed straight through.
-    const bound = (value as (...args: unknown[]) => unknown).bind(target)
-    return (...args: unknown[]) => {
-      const res = bound(...args)
-      if (res instanceof Promise) {
-        return res.then((r) => (r instanceof Blob ? r : coerceLpCounts(r)))
-      }
-      return res
+    const mock = typeof mockFn === "function" ? (mockFn as (...args: unknown[]) => unknown).bind(mockLpPortalApi) : null
+    const domain = LP_METHOD_DOMAIN[name]
+
+    return async (...args: unknown[]) => {
+      const flags = await loadLpFlags()
+      const isLive = domain ? flags.lp[domain] === true : true
+      if (!isLive && mock) return mock(...args)
+      // Normalise count-like fields on the way out, so every screen sees numbers instead of each
+      // call site having to remember to coerce. Blobs (downloads) are passed straight through.
+      const res = await live(...args)
+      return res instanceof Blob ? res : coerceLpCounts(res)
     }
   },
 }) as LpPortalApiService

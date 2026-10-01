@@ -2,6 +2,7 @@
 
 import * as React from "react"
 import { lpPortalApi, type LpNotificationItem, type LpSession } from "@/lib/api/lp-portal-api"
+import { isLpDomainLive } from "@/lib/lp-portal/flags"
 import { mapSessionFund } from "@/lib/lp-portal/mappers"
 import {
   joinLpPortalOrg,
@@ -10,6 +11,9 @@ import {
 import type { FundOperatingModel, LpFund, LpPortalClient, LpPortalUnreadCounts, LpRole, ValuationStatus } from "@/lib/lp-portal/types"
 
 export type LpFundContextId = "all" | string
+
+const LP_POLL_INTERVAL_MS = 60_000
+const LP_POLL_ACTIVE_WINDOW_MS = 120_000
 
 export type LpRefreshScope =
   | "dashboard"
@@ -44,7 +48,7 @@ interface LpPortalContextValue {
   refreshKeys: Partial<Record<LpRefreshScope, number>>
   setSelectedFundId: (fundId: LpFundContextId) => void
   setAsOfDate: (date: string) => void
-  refreshSession: () => Promise<void>
+  refreshSession: (options?: { quiet?: boolean }) => Promise<void>
   refreshNotifications: () => Promise<void>
   bumpRefresh: (scope: LpRefreshScope | LpRefreshScope[]) => void
 }
@@ -77,19 +81,24 @@ export function LpPortalProvider({ children }: { children: React.ReactNode }) {
     })
   }, [])
 
-  const refreshSession = React.useCallback(async () => {
-    setSessionLoading(true)
-    setSessionError(null)
+  const refreshSession = React.useCallback(async (options: { quiet?: boolean } = {}) => {
+    if (!options.quiet) {
+      setSessionLoading(true)
+      setSessionError(null)
+    }
     try {
       const response = await lpPortalApi.getSession()
       setSession(response.data)
+      setSessionError(null)
       setAsOfDate((prev) => prev || response.data.defaultAsOfDate)
     } catch (err: unknown) {
+      // A quiet (polling) refresh keeps the session it already has; a failed load shows the error.
+      if (options.quiet) return
       const message = err instanceof Error ? err.message : "Failed to load portal session"
       setSessionError(message)
       setSession(null)
     } finally {
-      setSessionLoading(false)
+      if (!options.quiet) setSessionLoading(false)
     }
   }, [])
 
@@ -153,6 +162,31 @@ export function LpPortalProvider({ children }: { children: React.ReactNode }) {
       for (const unsub of unsubs) unsub()
     }
   }, [session, bumpRefresh, refreshNotifications, refreshSession])
+
+  // Realtime is not live, so a live session is kept fresh (unread counts, notifications) by
+  // polling. Only while the tab is visible and the user was recently active, so polling never
+  // keeps an idle session alive past the idle timeout.
+  const hasSession = session !== null
+  React.useEffect(() => {
+    if (!hasSession) return
+    let lastActivity = Date.now()
+    const onActivity = () => {
+      lastActivity = Date.now()
+    }
+    const events = ["mousedown", "keydown", "scroll", "touchstart"] as const
+    for (const evt of events) window.addEventListener(evt, onActivity, { passive: true })
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return
+      if (Date.now() - lastActivity > LP_POLL_ACTIVE_WINDOW_MS) return
+      if (!isLpDomainLive("session") && !isLpDomainLive("notices")) return
+      if (isLpDomainLive("session")) void refreshSession({ quiet: true })
+      if (isLpDomainLive("notices")) void refreshNotifications()
+    }, LP_POLL_INTERVAL_MS)
+    return () => {
+      window.clearInterval(timer)
+      for (const evt of events) window.removeEventListener(evt, onActivity)
+    }
+  }, [hasSession, refreshNotifications, refreshSession])
 
   const operatingModel = React.useMemo((): FundOperatingModel | "MIXED" => {
     if (selectedFund) return selectedFund.operatingModel
