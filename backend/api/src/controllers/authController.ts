@@ -27,7 +27,7 @@ export const register: RequestHandler = async (req, res) => {
 };
 
 /** Portals where MFA is mandatory when the `mfa_required` policy is on (SRD 7.1). */
-const MFA_PORTALS = new Set(['admin', 'investor']);
+const MFA_PORTALS = new Set(['admin', 'investor', 'custodian']);
 
 export const login: RequestHandler = async (req, res) => {
   const input = req.body as LoginRequest;
