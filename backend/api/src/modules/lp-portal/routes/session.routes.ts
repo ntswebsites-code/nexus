@@ -5,6 +5,7 @@ import { lp, requireLp, type LpContext } from '../lp.context';
 import { dec, day, lpOk } from '../lp.http';
 import { fundScopeWhere } from '../services/common';
 import { visibleNoticeWhere } from '../services/notices';
+import { applyPendingColleagueScope } from '../services/organisation';
 
 export { visibleNoticeWhere };
 
@@ -72,6 +73,9 @@ export async function buildSession(ctx: LpContext): Promise<LpSession> {
 
 /** Domain `session` (+ realtime and notifications). */
 export const lpSessionRoutes = Router();
+
+/** Mounted first among the LP sub-routers, so it runs before every LP handler. */
+lpSessionRoutes.use(applyPendingColleagueScope);
 
 lpSessionRoutes.get('/session', async (req, res) => {
   lpOk(req, res, await buildSession(lp(req)));
