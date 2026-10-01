@@ -125,12 +125,15 @@ export interface Consolidated {
  * be aggregated from stored per-fund IRRs, so it is shown only when a single fund is in view.
  */
 export function consolidate(positions: FundPosition[]): Consolidated {
+  // A mixed portfolio reports private-capital KPIs (open-ended sits in openEndedSummary).
+  // A fund-scoped open-ended view has no private-capital row, so the KPIs are that fund.
   const pc = positions.filter((p) => !p.isOpenEnded);
-  const add = (f: (p: FundPosition) => Prisma.Decimal) => pc.reduce((acc, p) => acc.add(f(p)), ZERO);
+  const basis = pc.length ? pc : positions;
+  const add = (f: (p: FundPosition) => Prisma.Decimal) => basis.reduce((acc, p) => acc.add(f(p)), ZERO);
   const paidIn = add((p) => p.paidIn);
   const distributions = add((p) => p.distributions);
   const nav = add((p) => p.nav);
-  const single = pc.length === 1 ? pc[0]! : null;
+  const single = basis.length === 1 ? basis[0]! : null;
   return {
     committed: add((p) => p.committed),
     called: add((p) => p.called),

@@ -78,6 +78,9 @@ function docView(d: DocRow, names: Map<string, string>, files: Map<string, { siz
     ...(d.sourceType ? { sourceType: d.sourceType } : {}),
     ...(d.sourceRefId ? { sourceRefId: d.sourceRefId } : {}),
     ...(file ? { fileSizeBytes: file.size, mimeType: file.mime } : {}),
+    // Page count is not stored (schema freeze). Null keeps the contract key without inventing a count.
+    pageCount: null,
+    history: [] as Array<{ user: string; action: string; at: string; ip: string }>,
   };
 }
 

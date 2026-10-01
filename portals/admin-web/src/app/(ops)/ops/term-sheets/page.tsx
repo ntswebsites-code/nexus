@@ -117,7 +117,7 @@ export default function TermSheetsPage() {
             return api.post<TermSheet>(
               ops('/term-sheets'),
               {
-                companyId: str(fd, 'companyId'),
+                company: str(fd, 'companyId'),
                 title: str(fd, 'title'),
                 currency: str(fd, 'currency').toUpperCase(),
                 investmentAmount,

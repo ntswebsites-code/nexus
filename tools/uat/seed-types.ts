@@ -186,7 +186,7 @@ export interface UatSeed {
     notes: string | null;
     createdAt: string;
   }[];
-  notifications: { persona: string; type: string; title: string; link: string; createdAt: string; read: boolean }[];
+  notifications: { persona: string; type: string; title: string; link: string; createdAt: string; read: boolean; fundName?: string }[];
   companies: {
     ref: string;
     name: string;

@@ -174,6 +174,7 @@ async function position(lp: LpContext, f: FundCtx, requestedClass?: string) {
   const holding = holdings.find((h) => h.shareClassCode === shareClass) ?? null;
   const nav = f.fund.navPerUnit && f.fund.navPerUnit.gt(0) ? f.fund.navPerUnit : (holding?.navPerUnit ?? ZERO);
   const units = holding?.units ?? ZERO;
+  const storedValue = holding?.accountValue ?? null;
   const pending = await prisma.lpDealingRequest.findMany({
     where: { clientId: lp.client.id, fundId: f.fund.id, shareClassCode: shareClass, status: { in: OPEN_DEALING_STATUSES } },
     select: { requestType: true, amount: true, units: true },
@@ -187,9 +188,10 @@ async function position(lp: LpContext, f: FundCtx, requestedClass?: string) {
     holding,
     nav,
     units,
-    accountValue: units.mul(nav),
+    accountValue: storedValue ?? units.mul(nav),
     pendingSub,
     pendingRedAmount,
+    pendingRedUnits,
     freeUnits,
     freeValue: freeUnits.mul(nav),
   };
@@ -249,7 +251,10 @@ export async function overview(lp: LpContext, fundId: string | undefined): Promi
   });
   const comp = await compliance(lp, f);
   const rules = rulesPayload(f.rules);
-  const available = p ? D.max(ZERO, p.freeValue.sub(f.rules.minBalanceAmount)) : ZERO;
+  // Displayed availability is holdings minus pending redemptions. The minimum balance stays a
+  // dealing rule and is enforced when the redemption is submitted, not deducted from this figure.
+  const availableValue = p ? D.max(ZERO, p.accountValue.sub(p.pendingRedAmount)) : ZERO;
+  const availableUnits = p ? D.max(ZERO, p.units.sub(p.pendingRedUnits ?? ZERO)) : ZERO;
   return {
     fundId: f.fund.id,
     shareClass: p?.shareClass ?? f.fund.defaultShareClass ?? 'N/A',
@@ -258,8 +263,8 @@ export async function overview(lp: LpContext, fundId: string | undefined): Promi
     navPerUnit: p ? p.nav.toFixed(8) : '0',
     accountValue: money(p?.accountValue ?? ZERO),
     unitsHeld: (p?.units ?? ZERO).toFixed(6),
-    availableToRedeemValue: money(available),
-    availableUnits: p && p.nav.gt(0) ? available.div(p.nav).toFixed(6, D.ROUND_DOWN) : '0.000000',
+    availableToRedeemValue: money(availableValue),
+    availableUnits: availableUnits.toFixed(6),
     pendingSubscriptions: money(p?.pendingSub ?? ZERO),
     pendingRedemptions: money(p?.pendingRedAmount ?? ZERO),
     rules: { ...rules, compliance: comp },

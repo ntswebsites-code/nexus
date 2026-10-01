@@ -43,6 +43,17 @@ const ADOPT = process.env.SEED_UAT_ADOPT === '1';
 const MARKER = { ownerId: 'platform', key: 'uat_seed_refs' };
 
 const seed = JSON.parse(readFileSync(DATA, 'utf8')) as UatSeed;
+// The dataset's open call is "due soon" in the July 2026 snapshot. Roll only that due date
+// forward when the machine clock has passed it, so historical activity dates stay put.
+{
+  const soon = new Date();
+  soon.setUTCDate(soon.getUTCDate() + 5);
+  const soonIso = soon.toISOString().slice(0, 10);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  for (const call of seed.capitalCalls) {
+    if (call.status === 'ISSUED' && call.dueDate < todayIso) call.dueDate = soonIso;
+  }
+}
 const D = (s: string | number) => new Prisma.Decimal(s);
 const date = (s: string) => new Date(s.length === 10 ? `${s}T00:00:00Z` : s);
 const num = (s: string | number | null | undefined) => Number(s ?? 0);
@@ -218,12 +229,21 @@ async function seedCommitmentsAndHoldings() {
   for (const c of seed.commitments) {
     const cid = clientId.get(c.client)!;
     const fid = fundId.get(c.fund)!;
+    const metrics = { ...c.metrics } as Record<string, unknown>;
+    if (metrics.called != null && metrics.openingCalled == null) {
+      const platformCalled = seed.capitalCalls
+        .filter((call) => call.fund === c.fund)
+        .flatMap((call) => call.allocations)
+        .filter((a) => a.client === c.client)
+        .reduce((sum, a) => sum + num(a.amount), 0);
+      metrics.openingCalled = Math.max(0, num(metrics.called as string) - platformCalled).toFixed(2);
+    }
     const data = {
       commitmentAmount: D(c.amount),
       currency: 'USD',
       status: 'ACTIVE',
       investorAccountRef: c.investorAccountRef,
-      metricsJson: c.metrics as Prisma.InputJsonValue,
+      metricsJson: metrics as Prisma.InputJsonValue,
     };
     const row = await prisma.fundCommitment.upsert({
       where: { clientId_fundId: { clientId: cid, fundId: fid } },
@@ -602,8 +622,13 @@ async function seedNotifications() {
   for (const x of seed.notifications) {
     const userId = users.get(x.persona);
     if (!userId) continue;
-    if (await prisma.notification.findFirst({ where: { userId, title: x.title } })) continue;
-    await prisma.notification.create({ data: { userId, type: x.type, title: x.title, link: x.link, createdAt: date(x.createdAt), readAt: x.read ? date(x.createdAt) : null } });
+    const body = x.fundName ? `fund:${x.fundName}` : null;
+    const existing = await prisma.notification.findFirst({ where: { userId, title: x.title } });
+    if (existing) {
+      if (body && existing.body !== body) await prisma.notification.update({ where: { id: existing.id }, data: { body } });
+      continue;
+    }
+    await prisma.notification.create({ data: { userId, type: x.type, title: x.title, body, link: x.link, createdAt: date(x.createdAt), readAt: x.read ? date(x.createdAt) : null } });
     n++;
   }
   log(`notifications: ${n} new`);

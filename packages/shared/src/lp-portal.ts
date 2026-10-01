@@ -463,7 +463,8 @@ export interface LpDocument {
   sourceType?: string
   sourceRefId?: string
   fileSizeBytes?: number
-  pageCount?: number
+  /** Null when the file has no stored page count. */
+  pageCount?: number | null
   mimeType?: string
   history?: Array<{ user: string; action: string; at: string; ip: string }>
 }

@@ -285,9 +285,10 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           const consent = el('signatureConsent')?.checked;
           if (!name || !consent) return { error: 'Enter your name, draw your signature and confirm consent before signing.' };
           const signature = await canvasBlob();
-          const consentText = el<HTMLElement>('signatureConsentText')?.textContent?.trim() || '';
           const ts = termSheetById(tsId);
-          await api.signTermSheet(tsId, { signature, name, consent: true, consentText, documentHash: ts?.documentHash ?? undefined });
+          const consentTextVersion = ts?.consent?.version;
+          if (!consentTextVersion) return { error: 'Reload the term sheet before signing so the consent version is current.' };
+          await api.signTermSheet(tsId, { signature, name, consent: true, consentTextVersion });
           ui()?.closeOverlays?.();
           await reload();
           return { message: 'Term sheet signed', detail: 'Your signature, consent and the document hash were recorded.' };
@@ -451,15 +452,19 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     if (api.isLive('settings.letterhead')) {
       const legalName = val('settingsLetterheadLegalName');
       if (legalName) {
+        const line1 = val('settingsLetterheadLine1');
+        const city = val('settingsLetterheadCity');
+        const country = val('settingsLetterheadCountry');
+        if (!line1 || !city || !country) return { error: 'Letterhead needs a street, city and country.' };
         const body: UpdateLetterheadRequest = {
           legalName,
           registrationNumber: val('settingsLetterheadReg') || null,
           email: val('settingsLetterheadEmail') || null,
           phone: val('settingsLetterheadPhone') || null,
           website: val('settingsLetterheadWebsite') || null,
-          line1: val('settingsLetterheadLine1') || undefined,
-          city: val('settingsLetterheadCity') || undefined,
-          country: val('settingsLetterheadCountry') || undefined,
+          line1,
+          city,
+          country,
         };
         await api.updateLetterhead(body);
         saved.push('letterhead');

@@ -9,6 +9,7 @@ import { readFileObject, storeFile } from '../../../lib/storage';
 import { assertFund, type LpContext } from '../lp.context';
 import { LpError } from '../lp.http';
 import { D, ZERO, money, notifyPermission, readWire } from '../../ops/ops.common';
+import { asRecord, jsonDec } from './common';
 import { callNoLabel, callNoticeLines, callReference, type CallRow } from '../../ops/capital.service';
 import { renderPdf } from '../../ops/pdf';
 
@@ -142,6 +143,14 @@ export async function callSummary(lp: LpContext, fundId?: string): Promise<LpCap
   };
   const dists = await prisma.distributionAllocation.findMany({ where: distWhere, select: { amountPaid: true, shareAmount: true, status: true } });
   const pendingDists = dists.filter((d) => d.status !== 'PAID');
+  const commitments = await prisma.fundCommitment.findMany({
+    where: { clientId: lp.client.id, fundId: { in: fundId ? [fundId] : lp.fundIds } },
+    select: { metricsJson: true },
+  });
+  const openingDistributions = commitments.reduce((s, c) => {
+    const opening = jsonDec(asRecord(c.metricsJson).openingDistributions);
+    return opening ? s.add(opening) : s;
+  }, ZERO);
 
   let currencyCode = lp.client.baseCurrency;
   if (fundId) {
@@ -160,7 +169,7 @@ export async function callSummary(lp: LpContext, fundId?: string): Promise<LpCap
     paidCallCount: items.filter((i) => i.status === 'PAID').length,
     dueSoonCount: dueSoon.length,
     dueSoonAmount: money(sum(dueSoon, 'outstanding')),
-    totalDistributions: money(dists.reduce((s, d) => s.add(d.amountPaid), ZERO)),
+    totalDistributions: money(dists.reduce((s, d) => s.add(d.amountPaid), ZERO).add(openingDistributions)),
     upcomingDistributionNotices: { count: pendingDists.length, amount: money(pendingDists.reduce((s, d) => s.add(d.shareAmount.sub(d.amountPaid)), ZERO)) },
   };
 }

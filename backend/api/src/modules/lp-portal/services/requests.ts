@@ -151,7 +151,7 @@ async function requestViews(rows: RequestRow[], withMessages: boolean): Promise<
       priority: lpPriority(r.priority),
       subject: r.title,
       description: r.detail ?? '',
-      submittedBy: (r.openedById && who.get(r.openedById)) || null,
+      submittedBy: (r.openedById && who.get(r.openedById)?.name) || null,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
       attachments: own.map(attachmentView),
@@ -191,7 +191,7 @@ export async function listRequests(ctx: LpContext, q: { status?: string; fundId?
     orderBy: { updatedAt: 'desc' },
     take: 500,
   });
-  const views = await requestViews(rows, false);
+  const views = await requestViews(rows, true);
   const status = q.status?.toUpperCase();
   return status ? views.filter((v) => v.status === status) : views;
 }

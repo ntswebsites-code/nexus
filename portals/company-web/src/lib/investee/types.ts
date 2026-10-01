@@ -190,8 +190,10 @@ export interface TermSheet {
   updatedAt: string;
   createdBy?: { id: string; firstName: string; lastName: string; email?: string } | null;
   application?: { id: string; businessName: string; applicantName?: string; currentStage: string } | null;
-  /** Nexus: exact consent wording the signer must accept; echoed back on sign. */
+  /** Nexus: exact consent wording the signer must accept. */
   consentText?: string | null;
+  /** Nexus: `{ version, text, hash }` from the term-sheet view. Sign echoes `version`. */
+  consent?: { version: string; text: string; hash: string } | null;
   /** Nexus: SHA-256 of the document being signed. */
   documentHash?: string | null;
   /** Nexus */
@@ -212,8 +214,8 @@ export interface SignTermSheetRequest {
   signature: Blob;
   name: string;
   consent: true;
-  consentText: string;
-  documentHash?: string;
+  /** The `consent.version` from the term sheet being signed (`ts-esign-v1`). */
+  consentTextVersion: string;
 }
 
 export interface DeclineTermSheetRequest {

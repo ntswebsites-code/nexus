@@ -28,7 +28,7 @@ export function visibleNoticeWhere(ctx: LpContext): Prisma.LpNoticeWhereInput {
 
 type NoticeWithReceipt = LpNoticeRow & { receipts: LpNoticeReceipt[] };
 
-function noticeView(n: NoticeWithReceipt, names: Map<string, string>, full: boolean): LpNotice {
+function noticeView(n: NoticeWithReceipt, names: Map<string, string>): LpNotice {
   const r = n.receipts[0];
   const status = r?.acknowledgedAt ? 'ACKNOWLEDGED' : r?.openedAt ? 'OPENED' : n.status;
   return {
@@ -45,7 +45,7 @@ function noticeView(n: NoticeWithReceipt, names: Map<string, string>, full: bool
     kind: n.requiresAcknowledgement ? 'ACTION_REQUIRED' : 'INFO',
     requiresAcknowledgement: n.requiresAcknowledgement,
     preview: n.body.slice(0, 240),
-    ...(full ? { body: n.body } : {}),
+    body: n.body,
   };
 }
 
@@ -62,7 +62,7 @@ export async function listNotices(ctx: LpContext, page: number, pageSize: number
     prisma.lpNotice.count({ where }),
   ]);
   const names = await fundNames(rows.map((n) => n.fundId));
-  return { items: rows.map((n) => noticeView(n, names, false)), total };
+  return { items: rows.map((n) => noticeView(n, names)), total };
 }
 
 async function findNotice(ctx: LpContext, idOrRef: string) {
@@ -86,7 +86,7 @@ export async function getNotice(ctx: LpContext, id: string): Promise<LpNotice> {
         update: { openedAt: now },
       });
   const names = await fundNames([n.fundId]);
-  return noticeView({ ...n, receipts: [receipt] }, names, true);
+  return noticeView({ ...n, receipts: [receipt] }, names);
 }
 
 /** Acknowledgement is recorded once; repeats answer the original time (no 409). */

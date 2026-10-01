@@ -48,7 +48,7 @@ import type {
  * | kpis.submit         | POST   | /financial-reports/period-kpis                | SubmitPeriodKpisRequest -> PeriodKpis       |
  * | termSheets.list     | GET    | /term-sheets/my                               | - -> TermSheetList                          |
  * | termSheets.view     | GET    | /term-sheets/:id                              | - -> TermSheet (with consentText, documentHash) |
- * | termSheets.sign     | POST   | /term-sheets/:id/sign  (step-up MFA)          | multipart signature,name,consent,consentText,documentHash -> TermSheet |
+ * | termSheets.sign     | POST   | /term-sheets/:id/sign  (step-up MFA)          | multipart signature,name,consent,consentTextVersion -> TermSheet |
  * | termSheets.decline  | POST   | /term-sheets/:id/decline                      | DeclineTermSheetRequest -> TermSheet        |
  * | settings.profile    | PUT    | /profile                                      | UpdateProfileRequest -> InvesteeProfile     |
  * | settings.company    | PUT    | /company                                      | UpdateCompanyRequest -> InvesteeCompany     |
@@ -272,8 +272,7 @@ export function createInvesteeApi(liveActions: readonly string[]) {
       form.append('signature', req.signature, 'signature.png');
       form.append('name', req.name);
       form.append('consent', 'true');
-      form.append('consentText', req.consentText);
-      if (req.documentHash) form.append('documentHash', req.documentHash);
+      form.append('consentTextVersion', req.consentTextVersion);
       return call<TermSheet>('termSheets.sign', 'POST', `/term-sheets/${id(termSheetId)}/sign`, { body: form });
     },
     declineTermSheet: (termSheetId: string, body: DeclineTermSheetRequest) =>
@@ -288,7 +287,13 @@ export function createInvesteeApi(liveActions: readonly string[]) {
       return call<Letterhead>('settings.letterhead', 'POST', '/letterhead/logo', { body: form });
     },
 
-    startThread: (body: StartThreadRequest) => call<InvesteeThread>('threads.start', 'POST', '/threads', { body }),
+    startThread: (body: StartThreadRequest) =>
+      call<InvesteeThread>('threads.start', 'POST', '/threads', {
+        body: {
+          title: body.subject,
+          text: body.recipientTeam ? `${body.body}\n\nFor: ${body.recipientTeam}` : body.body,
+        },
+      }),
   };
 }
 

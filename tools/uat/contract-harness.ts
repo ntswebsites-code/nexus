@@ -62,13 +62,15 @@ const LIST_KEYS = ['items', 'page', 'pageSize', 'total', 'totalPages'];
 
 const naturalKey = (x: any): string | null => {
   if (!x || typeof x !== 'object') return null;
-  for (const k of ['reference', 'callNo', 'subject', 'title', 'name', 'maskedAccountNumber', 'accountNumberMasked', 'email', 'fundName']) {
+  // fundName is not unique inside a fund's activity or dealing list, so it is only part of the composite.
+  for (const k of ['reference', 'callNo', 'subject', 'title', 'name', 'maskedAccountNumber', 'accountNumberMasked', 'email']) {
     if (x[k] !== undefined && x[k] !== null && x[k] !== '') return `${k}:${String(x[k]).toLowerCase()}`;
   }
   const type = x.entryType ?? x.type ?? x.requestType ?? '';
   const when = String(x.transactionDate ?? x.date ?? x.requestedDealingDate ?? x.createdAt ?? '').slice(0, 10);
   const amt = Math.abs(Number(x.amount ?? x.netAmount ?? 0)).toFixed(2);
-  return type || when ? `${type}|${when}|${amt}` : null;
+  const fund = String(x.fundName ?? '').toLowerCase();
+  return type || when ? `${fund}|${type}|${when}|${amt}` : null;
 };
 
 /** Values seen in the mock response for each enum-like key (oracle for non-strict enums). */
@@ -200,7 +202,7 @@ const CHECKS: Check[] = [
     domain: 'dealing',
     name: 'redemption estimate',
     mock: () => data(mock.estimateRedemption({ fundId: EQUITY, shareClass: 'Class A USD', mode: 'UNITS', units: '1000', earliestDealingDate: '2026-08-01' })),
-    real: (c) => ({ method: 'POST', path: `${LP}/dealing/redemptions/estimate`, body: { fundId: fid(c, EQUITY), shareClass: 'Class A USD', mode: 'UNITS', units: '1000', earliestDealingDate: '2026-08-01' } }),
+    real: (c) => ({ method: 'POST', path: `${LP}/dealing/redemptions/estimate`, body: { fundId: fid(c, EQUITY), shareClass: 'Class A USD', mode: 'UNITS', units: '1000', earliestDealingDate: '2027-08-01' } }),
   },
   // performance
   { domain: 'performance', name: 'performance', mock: () => data(mock.getPerformance({ fundId: GROWTH })), real: (c) => `${LP}/performance${q({ fundId: fid(c, GROWTH) })}` },

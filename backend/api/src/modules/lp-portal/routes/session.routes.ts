@@ -106,6 +106,8 @@ lpSessionRoutes.get('/notifications', requireLp('lp.portal.view_notifications'),
     id: n.id,
     title: n.title,
     href: notificationHref(n.type, n.link),
+    // Seed stores `fund:<name>` in body; real notices without that prefix have no fund label.
+    fundName: n.body?.startsWith('fund:') ? n.body.slice(5) : '',
     createdAt: n.createdAt.toISOString(),
     type: n.type,
     read: !!n.readAt,

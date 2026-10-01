@@ -302,11 +302,16 @@ export function LpCapitalActivityScreen({
   const loading = callsLoading || distributionsLoading
   const error = callsError ?? distributionsError
 
+  // DEF-374: one key per attempt. A manual re-click after a network error retries the same key.
+  const attemptKeys = React.useRef<Record<string, string>>({})
+  const attemptKey = (slot: string) => (attemptKeys.current[slot] ??= createIdempotencyKey())
+
   const acknowledgeCall = async (callId: string) => {
     if (!canWrite) return
     setActionLoading(`ack-${callId}`)
     try {
-      await lpPortalApi.acknowledgeCapitalCall(callId, createIdempotencyKey())
+      await lpPortalApi.acknowledgeCapitalCall(callId, attemptKey(`ack:${callId}`))
+      delete attemptKeys.current[`ack:${callId}`]
       setAcknowledged((current) => ({ ...current, [callId]: true }))
       toast.success("Capital call acknowledged")
       void reloadCalls()
@@ -410,7 +415,8 @@ export function LpCapitalActivityScreen({
     try {
       const formData = new FormData()
       formData.append("file", file)
-      await lpPortalApi.uploadPaymentConfirmation(selectedCall.id, formData, createIdempotencyKey())
+      await lpPortalApi.uploadPaymentConfirmation(selectedCall.id, formData, attemptKey(`pay:${selectedCall.id}`))
+      delete attemptKeys.current[`pay:${selectedCall.id}`]
       toast.success(`Payment confirmation uploaded for Call No. ${selectedCall.callNo}: ${file.name}`)
       void reloadCalls()
       void reloadCallDetail()

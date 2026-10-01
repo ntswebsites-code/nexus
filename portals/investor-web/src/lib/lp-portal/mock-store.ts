@@ -2182,14 +2182,15 @@ export function estimateSubscription(body: {
   const mgmtFeeRate = Number(overview?.rules.subscription.mgmtFeeRate ?? 0.015)
   const otherFee = Number(overview?.rules.subscription.otherFeeFlat ?? 250)
   const managementFee = amount * mgmtFeeRate
-  const estimatedUnits = nav > 0 ? (amount - managementFee - otherFee) / nav : 0
+  // D-19 / BR-162: fees are added on top of the subscription amount, not deducted from it.
+  const estimatedUnits = nav > 0 ? amount / nav : 0
   return {
     estimateSnapshotId: nextEstimateId("est-sub"),
     navPerUnit: nav.toFixed(4),
     estimatedUnits: estimatedUnits.toFixed(4),
     managementFee: money(managementFee),
     otherFees: money(otherFee),
-    estimatedTotalInvestment: money(amount),
+    estimatedTotalInvestment: money(amount + managementFee + otherFee),
     isEstimate: true,
     disclaimer: "Estimates use the latest published NAV and are indicative only.",
   }

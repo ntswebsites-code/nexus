@@ -69,7 +69,7 @@ export async function ledgerEntries(ctx: LpContext, f: ActivityFilter): Promise<
       entryType: 'DISTRIBUTION',
       ...fundBits(a.distribution.fundId),
       transactionDate: day(a.distribution.distributionDate),
-      amount: fixed(a.shareAmount),
+      amount: fixed(a.shareAmount.neg()),
       currency: a.distribution.currency,
       description: `Distribution ${a.distribution.ref} declared (${a.distribution.type.replace(/_/g, ' ').toLowerCase()})`,
       status: a.status,
@@ -80,7 +80,7 @@ export async function ledgerEntries(ctx: LpContext, f: ActivityFilter): Promise<
         entryType: 'DISTRIBUTION_PAYMENT',
         ...fundBits(a.distribution.fundId),
         transactionDate: day(a.paidAt),
-        amount: fixed(a.amountPaid),
+        amount: fixed(a.amountPaid.neg()),
         currency: a.distribution.currency,
         description: `Distribution ${a.distribution.ref} payout`,
         status: 'POSTED',
@@ -93,7 +93,7 @@ export async function ledgerEntries(ctx: LpContext, f: ActivityFilter): Promise<
       entryType: d.requestType,
       ...fundBits(d.fundId),
       transactionDate: day(d.createdAt),
-      amount: d.amount ? fixed(d.amount) : '0.00',
+      amount: d.amount ? fixed(d.requestType === 'REDEMPTION' ? d.amount.neg() : d.amount) : '0.00',
       currency: d.currency,
       description: `${d.requestType === 'SUBSCRIPTION' ? 'Subscription' : 'Redemption'} request ${d.ref}`,
       status: d.status,
@@ -183,6 +183,18 @@ export async function ledgerEntry(ctx: LpContext, entryId: string): Promise<LpLe
       payments: dist.paidAt ? [{ id: `${dist.id}:paid`, amount: fixed(dist.amountPaid), recordedAt: dist.paidAt.toISOString(), bankReference: null }] : [],
       callNoticeDocumentId: null,
       documents: await relatedDocs(ctx, [dist.documentId, dist.distributionId]),
+    };
+  }
+  const deal = await prisma.lpDealingRequest.findFirst({
+    where: { id: entryId, clientId: ctx.client.id, fundId: { in: ctx.fundIds } },
+  });
+  if (deal) {
+    return {
+      entryId,
+      entryType: deal.requestType,
+      payments: deal.amount ? [{ id: deal.id, amount: fixed(deal.amount), recordedAt: deal.createdAt.toISOString(), bankReference: null }] : [],
+      callNoticeDocumentId: null,
+      documents: [],
     };
   }
   throw new LpError(404, 'LP_NOT_FOUND', 'Ledger entry not found');

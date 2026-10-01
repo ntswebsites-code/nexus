@@ -64,17 +64,21 @@ export function idempotent(action: string, opts: { required?: boolean } = {}): R
     let stored = false;
     res.json = (body: unknown) => {
       stored = true;
+      const send = () => originalJson(body);
+      // Mark the key COMPLETED before the body is sent, so an immediate replay is a replay
+      // and not 409 idempotency_in_progress.
       if (res.statusCode >= 200 && res.statusCode < 300) {
         void prisma.idempotencyKey
           .update({
             where: { userId_scope_idemKey: { userId, scope, idemKey: key } },
             data: { state: 'COMPLETED', responseStatus: res.statusCode, responseBody: JSON.stringify(body) },
           })
-          .catch(() => undefined);
+          .catch(() => undefined)
+          .finally(send);
       } else {
-        void release();
+        void release().finally(send);
       }
-      return originalJson(body);
+      return res;
     };
     res.on('finish', () => {
       if (!stored) void release();

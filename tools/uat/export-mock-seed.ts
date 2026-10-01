@@ -548,6 +548,7 @@ function buildLp(): Omit<UatSeed, 'version' | 'note' | 'asOfDate' | 'personas' |
     type: n.type ?? 'GENERAL',
     title: n.title,
     link: n.href,
+    fundName: n.fundName,
     createdAt: n.createdAt,
     read: !!n.read,
   }));

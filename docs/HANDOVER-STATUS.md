@@ -1,6 +1,27 @@
-# Build status and hand-over (1 Oct 2026, 16:15; re-verified later the same day)
+# Build status and hand-over (1 Oct 2026; UAT cut prepared locally, not deployed)
 
-## 0. Checkpoint — 3.1 re-verify merged `dev` (done)
+## 0. Checkpoint — 3.1 through 3.6 (done locally). 3.7 not deployed.
+
+3.1 re-verify of merged `dev` stays green (see the table below). After that, on disposable MySQL `nexus_uat`:
+
+| Step | Result |
+|---|---|
+| 3.2 UAT seed + LP contract harness (`lp_a_manager`, values on) | all 12 domains PASS. `LP_LIVE_DOMAINS` set locally to every domain. Rollback is clearing that env var and restarting the API. |
+| 3.3 Ops console | Term-sheet create now sends `company` (the company ref). Capital, distribution and dealing bodies already matched. J3 on the API: operations drafted and submitted, the maker's approve was `403 permission_denied`, the investment director's approve was `401 step_up_required` until a fresh code, then `200 APPROVED`, and the same Idempotency-Key replayed. Operations then issued the call. |
+| 3.4 Investee adapter | Sign sends `consentTextVersion`. New threads send `{title, text}`. Letterhead save requires street, city and country. `INVESTEE_LIVE_ACTIONS` set locally to every action except `reports.template` (still 501). |
+| 3.5 LP browser | Signatory login on port 3191, live dashboard with no Demo data ribbon, capital call 13 acknowledged. Step-up dialog appeared once the login MFA window had expired; the same call then acknowledged. DEF-374: the acknowledge and payment-confirmation keys are kept until the call succeeds. |
+| 3.6 | Idempotency completion is written before the response is sent (notice acknowledge replay returned `Idempotent-Replayed`). The other gaps below are accepted for this cut. |
+| 3.7 | Not deployed. SSH to 207.180.234.151 answered `Permission denied (publickey)`. No tag `uat-rc1` was pushed. |
+
+Flags live only in the gitignored local `.env` (API port 4150). On the UAT host, set the same lists in `/opt/matanho-nexus/.env.production` before `up`:
+
+`LP_LIVE_DOMAINS=session,dashboard,capital,activity,dealing,performance,documents,notices,requests,organisation,settings,reports`
+
+`INVESTEE_LIVE_ACTIONS=dashboard,profile,company,reports.schedule,reports.history,reports.detail,reports.draft,reports.upload,reports.submit,kpis.submit,termSheets.list,termSheets.view,termSheets.sign,termSheets.decline,settings.profile,settings.company,settings.letterhead,threads.start`
+
+The UAT seed rolls an issued-but-unpaid capital call's due date to five days ahead when the machine clock has passed the snapshot date, so the open call stays due-soon. Historical activity dates are not moved.
+
+## 0a. Checkpoint — 3.1 re-verify merged `dev` (done)
 
 Re-run on merged `dev` (`ee87cc4` plus the resume-view fix) against a disposable MySQL 8 schema (`prisma migrate deploy` of the three existing migrations, `prisma/seed.ts`). API on port 4150. No new migration.
 
@@ -17,7 +38,7 @@ Re-run on merged `dev` (`ee87cc4` plus the resume-view fix) against a disposable
 
 Integration fix: the public onboarding resume view read `beneficial_owners` without an order, so `ownerDetails[1]` was not the second owner the applicant entered. The view now follows the order stored on the draft. Schema unchanged.
 
-Not started: 3.2 contract harness and flag flips, 3.3–3.7. Nothing cut. Nothing deployed. No `LP_LIVE_DOMAINS` flip.
+3.2–3.6 continued the same day. See section 0. Nothing is deployed.
 
 Hand-over from the local build agent to Cursor cloud agents. Read with `docs/HANDOFF.md` (guardrails),
 `docs/DEV-PLAN-1DAY.md` (THE plan), `docs/BUILD-PLAN.md` sections 3, 4, 12, `docs/SRD.md` + `docs/srd/*`,
@@ -107,11 +128,10 @@ compare `portals/company-web/src/lib/investee/*` with `backend/api/src/modules/i
 
 ### 3.5 LP UI
 Browser pass with an MFA-enrolled SIGNATORY: login, live session (no ribbon), step-up dialog on capital-call acknowledge,
-same Idempotency-Key on retry. Open item DEF-374: keep the key across a manual re-click after a network error.
+same Idempotency-Key on retry. DEF-374 is closed for capital-call acknowledge and payment confirmation: the key is kept until that attempt succeeds.
 
 ### 3.6 Known gaps to close or accept
-- Idempotency (`lib/idempotency.ts`) marks COMPLETED after the response is sent; an immediate replay can get 409
-  `idempotency_in_progress` (retryable). Await the update before sending.
+- Idempotency (`lib/idempotency.ts`) now marks COMPLETED before the response is sent. Closed.
 - Identity invitation accept does not copy LP role/fund scope or un-revoke a re-invited member (D-14 workaround in place).
 - No staff screen to verify LP bank-instruction changes (they stay "Pending verification").
 - Custodian: no counterparty-user invitation/enrolment flow; if `mfa_required` is on they cannot enrol themselves.
