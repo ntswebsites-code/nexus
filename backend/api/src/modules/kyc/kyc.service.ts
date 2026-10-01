@@ -8,6 +8,7 @@ import { num } from '../../lib/http';
 import { decryptField, encryptField } from '../../lib/crypto';
 import { createInvitation } from '../identity/invitations';
 import { EVIDENCE_SLOTS, SLOT_KEYS, STAGE_LABELS, requiredSlots, type EvidenceSlot, type KycStage } from './constants';
+import { staffFormView } from './public-form';
 
 export const caseInclude = {
   application: { include: { owners: true } },
@@ -144,6 +145,7 @@ export function caseDetail(c: FullCase) {
       signingAuthority: app.signingAuthority,
       expectedActivity: app.expectedActivity,
       consentAt: app.consentAt,
+      form: staffFormView(app.formData as Record<string, unknown> | null, app.taxIdEnc),
     },
     owners: app.owners.map((o) => ({ name: o.fullName, pct: num(o.ownershipPct), controller: o.isController, pep: o.pep })),
     evidence: evidenceView(c),
@@ -219,6 +221,35 @@ export async function legacyApplications(cases: FullCase[]) {
       Active: 6,
     };
     const hasDoc = (slot: EvidenceSlot) => c.evidence.some((e) => e.slot === slot && e.fileId);
+    const form = staffFormView(app.formData as Record<string, unknown> | null, app.taxIdEnc);
+    const field = (key: string) => form?.sections.flatMap((s) => s.fields).find((f) => f.key === key)?.value ?? '';
+    // V65 applications carry the prototype's record fields so the admin case view shows them.
+    const v65Applicant = form
+      ? {
+          relationship: field('relationship'),
+          mandate: field('mandate'),
+          taxResidence: field('taxResidence'),
+          fatca: field('fatca'),
+          crs: field('crs'),
+          bank: {
+            name: field('bankName'),
+            holder: field('bankHolder'),
+            country: field('bankCountry'),
+            account: field('bankAccount'),
+            currency: field('bankCurrency'),
+            swift: field('swift'),
+          },
+          signatories: form.signatories,
+          declarations: {
+            pep: field('pep'),
+            sanctions: field('sanctions'),
+            adverseMedia: field('adverseMedia'),
+            highRiskJurisdiction: field('highRiskJurisdiction'),
+          },
+          signature: form.declaration,
+          form,
+        }
+      : {};
     return {
       id: app.ref ?? c.ref,
       caseId: c.id,
@@ -232,7 +263,7 @@ export async function legacyApplications(cases: FullCase[]) {
       screening: s.summary,
       funds: c.fundsApproved ? 'Approved' : hasDoc('doc3') ? 'Under review' : 'Queued',
       docsDone: docs.length,
-      docsTotal: 8,
+      docsTotal: requiredSlots(app.applicantType).length,
       owner: c.ownerName,
       sla: c.slaDueAt ? `Due ${c.slaDueAt.toISOString()}` : 'Just now',
       slaState: c.slaState,
@@ -251,6 +282,7 @@ export async function legacyApplications(cases: FullCase[]) {
         purpose: app.purpose,
         activity: app.expectedActivity,
         documents: docs,
+        ...v65Applicant,
       },
       ai: {
         status: s.results.length ? 'Complete' : 'Queued',

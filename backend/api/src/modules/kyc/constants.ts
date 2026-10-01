@@ -8,13 +8,51 @@ export const EVIDENCE_SLOTS = {
   doc6: 'Tax / FATCA / CRS',
   doc7: 'Authority to invest',
   doc8: 'Investment mandate',
+  doc9: 'Registry / constitutional extract',
+  doc10: 'Owners / signatories ID',
+  doc11: 'Additional supporting evidence',
 } as const;
 
 export type EvidenceSlot = keyof typeof EVIDENCE_SLOTS;
 export const SLOT_KEYS = Object.keys(EVIDENCE_SLOTS) as EvidenceSlot[];
 
-/** FR-ONB-004: individuals need three core documents, every other applicant type four. */
+/** V65 public wizard evidence cards (`data-doc-input`) -> API slot. */
+export const V65_SLOT_MAP: Record<string, EvidenceSlot> = {
+  legal: 'doc1',
+  registry: 'doc9',
+  ownership: 'doc4',
+  identity: 'doc10',
+  address: 'doc2',
+  bank: 'doc5',
+  funds: 'doc3',
+  tax: 'doc6',
+  authority: 'doc7',
+  subscription: 'doc8',
+  additional: 'doc11',
+};
+
+/** Investor types offered by the V65 public wizard. */
+export const V65_INVESTOR_TYPES = [
+  'Institutional investor',
+  'Pension / provident fund',
+  'Corporate treasury',
+  'Investment company / family office',
+  'Trust / foundation',
+  'Fund / collective investment vehicle',
+  'Individual / HNW',
+] as const;
+
+/**
+ * FR-ONB-004. V65 investor types use the SRD 5.C.5 target sets (Q-163 default): individuals
+ * legal, identity, address, bank, funds, tax; every entity type adds registry, ownership and
+ * authority. Older applicant types keep the V56 rule (three core documents for individuals,
+ * four otherwise).
+ */
 export function requiredSlots(applicantType: string | null | undefined): EvidenceSlot[] {
+  if (applicantType === 'Individual / HNW') return ['doc1', 'doc10', 'doc2', 'doc5', 'doc3', 'doc6'];
+  if ((V65_INVESTOR_TYPES as readonly string[]).includes(applicantType ?? '')) {
+    return ['doc1', 'doc9', 'doc4', 'doc10', 'doc2', 'doc5', 'doc3', 'doc6', 'doc7'];
+  }
   return applicantType === 'Individual' ? ['doc1', 'doc2', 'doc3'] : ['doc1', 'doc2', 'doc3', 'doc4'];
 }
 

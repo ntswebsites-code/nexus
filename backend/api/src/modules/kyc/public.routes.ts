@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { emailSchema } from '@matanho/shared';
 import { config } from '../../config';
+import { applicantFormView, mapPublicForm, normaliseOwners, v65Missing } from './public-form';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
@@ -15,7 +16,7 @@ import { param } from '../../lib/http';
 import { hashToken } from '../../auth/session';
 import { validateBody } from '../../middleware/validate';
 import { uploadFiles, uploadedFiles } from '../../middleware/upload';
-import { EVIDENCE_SLOTS, SLOT_KEYS, requiredSlots, slaDue, type EvidenceSlot } from './constants';
+import { EVIDENCE_SLOTS, SLOT_KEYS, V65_SLOT_MAP, requiredSlots, slaDue, type EvidenceSlot } from './constants';
 import { addEvent } from './kyc.service';
 
 /**
@@ -41,49 +42,20 @@ const draftLimiter = rateLimit({
 publicOnboardingRoutes.use(draftLimiter);
 
 const DRAFT_TTL_MS = 30 * 86_400_000;
-
-const FIELD_MAP = {
-  type: 'applicantType',
-  name: 'legalName',
-  reg: 'registrationRef',
-  phone: 'phone',
-  country: 'country',
-  relationship: 'relationship',
-  classification: 'classification',
-  baseCurrency: 'baseCurrency',
-  riskProfile: 'riskProfile',
-  liquidityNeed: 'liquidityNeed',
-  purpose: 'purpose',
-  funds: 'sourceOfFunds',
-  wealth: 'sourceOfWealth',
-  taxResidence: 'taxResidence',
-  taxStatus: 'taxStatus',
-  pep: 'pep',
-  bankJurisdiction: 'bankJurisdiction',
-  signingAuthority: 'signingAuthority',
-  activity: 'expectedActivity',
-} as const;
-
-const LIMITS: Record<string, number> = {
-  applicantType: 64,
-  legalName: 200,
-  registrationRef: 80,
-  phone: 40,
-  country: 80,
-  relationship: 80,
-  classification: 80,
-  baseCurrency: 8,
-  riskProfile: 40,
-  liquidityNeed: 40,
-  taxResidence: 80,
-  taxStatus: 80,
-  pep: 16,
-  bankJurisdiction: 80,
-  signingAuthority: 160,
-};
+/** Version of the consent wording shown on the V65 review step (FR-ONB-038). */
+const CONSENT_VERSION = 'v65-2026-10';
 
 const formSchema = z.record(z.string(), z.string().max(4000)).default({});
-const ownersSchema = z.array(z.array(z.string().max(200)).max(3)).max(20).default([]);
+const ownerObject = z.object({
+  name: z.string().max(200).default(''),
+  nationality: z.string().max(80).optional(),
+  id: z.string().max(80).optional(),
+  pct: z.union([z.string().max(20), z.number()]).optional(),
+});
+const ownersSchema = z.array(z.union([z.array(z.string().max(200)).max(3), ownerObject])).max(20).default([]);
+const signatoriesSchema = z
+  .array(z.object({ name: z.string().max(160).default(''), role: z.string().max(120).default(''), email: z.string().max(254).default('') }))
+  .max(20);
 
 async function draftFor(req: Request, opts: { allowSubmitted?: boolean } = {}) {
   const id = param(req, 'id');
@@ -102,26 +74,37 @@ async function draftFor(req: Request, opts: { allowSubmitted?: boolean } = {}) {
   return app;
 }
 
-function applyForm(form: Record<string, string>): Prisma.OnboardingApplicationUpdateInput {
-  const data: Record<string, unknown> = {};
-  for (const [field, column] of Object.entries(FIELD_MAP)) {
-    if (form[field] === undefined) continue;
-    const v = form[field].trim();
-    data[column] = v ? v.slice(0, LIMITS[column] ?? 4000) : null;
-  }
-  if (form.email !== undefined) {
-    const parsed = emailSchema.safeParse(form.email);
-    if (parsed.success) data.email = parsed.data;
-  }
-  if (form.amount !== undefined) {
-    const n = Number(String(form.amount).replace(/[^\d.]/g, ''));
-    data.expectedInvestment = Number.isFinite(n) && form.amount !== '' ? n : null;
-  }
-  if (form.taxId !== undefined) data.taxIdEnc = encryptField(form.taxId.trim());
-  const { taxId: _t, ...rest } = form;
-  void _t;
-  data.formData = rest;
-  return data as Prisma.OnboardingApplicationUpdateInput;
+type DraftApp = Awaited<ReturnType<typeof draftFor>>;
+type FormBody = { form: Record<string, string>; owners?: z.infer<typeof ownersSchema>; signatories?: z.infer<typeof signatoriesSchema> };
+
+/** Writes form, owners and signatories of a PATCH or submit body in one transaction. */
+async function saveForm(app: DraftApp, body: FormBody) {
+  const owners = body.owners ? normaliseOwners(body.owners as (string[] | Record<string, unknown>)[]) : undefined;
+  const { data, formData } = mapPublicForm(body.form, { owners, signatories: body.signatories }, app.formData as Record<string, unknown> | null);
+  await prisma.$transaction(async (tx) => {
+    await tx.onboardingApplication.update({
+      where: { id: app.id },
+      data: { ...data, formData: formData as Prisma.InputJsonValue } as Prisma.OnboardingApplicationUpdateInput,
+    });
+    if (owners) {
+      await tx.beneficialOwner.deleteMany({ where: { applicationId: app.id } });
+      if (owners.length) {
+        await tx.beneficialOwner.createMany({
+          data: owners.map((o) => {
+            const pct = Number(o.pct);
+            const has = Number.isFinite(pct) && o.pct !== '';
+            return {
+              applicationId: app.id,
+              fullName: o.name,
+              idNumberEnc: encryptField(o.id),
+              ownershipPct: has ? Math.min(100, Math.max(0, pct)) : null,
+              isController: has && pct >= 25,
+            };
+          }),
+        });
+      }
+    }
+  });
 }
 
 async function evidenceList(applicationId: string) {
@@ -131,19 +114,40 @@ async function evidenceList(applicationId: string) {
   );
   return rows.map((r) => {
     const f = r.fileId ? files.get(r.fileId) : undefined;
-    return { slot: r.slot, label: r.label, status: f ? r.status : 'Requested', name: f?.name ?? null, size: f?.size ?? null, mime: f?.mime ?? null };
+    return {
+      slot: r.slot,
+      label: r.label,
+      status: f ? r.status : 'Requested',
+      name: f?.name ?? null,
+      size: f?.size ?? null,
+      mime: f?.mime ?? null,
+      sha256: f?.sha256 ?? null,
+    };
   });
 }
 
-async function view(app: Awaited<ReturnType<typeof draftFor>>) {
+async function view(app: DraftApp) {
+  const stored = app.formData as Record<string, unknown> | null;
+  const { form, bankAccountOnFile, signatories } = applicantFormView(stored);
+  const nationality = new Map(
+    (Array.isArray(stored?.owners) ? (stored.owners as { name: string; nationality?: string }[]) : []).map((o) => [o.name, o.nationality ?? '']),
+  );
   return {
     id: app.id,
     ref: app.ref,
     status: app.status,
     email: app.email,
-    form: { ...((app.formData as Record<string, string> | null) ?? {}), taxId: '' },
+    form,
     taxIdOnFile: !!app.taxIdEnc,
+    bankAccountOnFile,
     owners: app.owners.map((o) => [o.fullName, '', o.ownershipPct ? String(o.ownershipPct.toNumber()) : '']),
+    ownerDetails: app.owners.map((o) => ({
+      name: o.fullName,
+      nationality: nationality.get(o.fullName) ?? '',
+      id: '',
+      pct: o.ownershipPct ? String(o.ownershipPct.toNumber()) : '',
+    })),
+    signatories,
     evidence: await evidenceList(app.id),
     requiredSlots: requiredSlots(app.applicantType),
     requestedSlots: app.kycCase?.stage === 'ClientAction' ? (await evidenceList(app.id)).filter((e) => e.status === 'Requested').map((e) => e.slot) : [],
@@ -183,6 +187,12 @@ publicOnboardingRoutes.post('/applications', createLimiter, validateBody(createS
           `${config.portalUrls.onboarding}/?resume=${created.id}.${token}\n\nIf you did not start an application, ignore this email.`,
       });
     }
+    await writeAudit(tx, { actorRole: 'Applicant', portal: 'onboarding', ip: req.ip, requestId: req.requestId }, {
+      action: 'application.draft.created',
+      objectType: 'onboarding_application',
+      objectId: created.id,
+      after: { applicantType: created.applicantType },
+    });
     return created;
   });
   res.status(201).json({ id: app.id, token });
@@ -196,39 +206,20 @@ publicOnboardingRoutes.get('/applications/:id', async (req, res) => {
   res.json({ application: await view(app) });
 });
 
-const patchSchema = z.object({ form: formSchema, owners: ownersSchema.optional() });
+const patchSchema = z.object({ form: formSchema, owners: ownersSchema.optional(), signatories: signatoriesSchema.optional() });
 
+/** Draft autosave. Not audited per keystroke; creation, evidence and submission are. */
 publicOnboardingRoutes.patch('/applications/:id', validateBody(patchSchema), async (req, res) => {
   const app = await draftFor(req);
-  const { form, owners } = req.body as z.infer<typeof patchSchema>;
-  await prisma.$transaction(async (tx) => {
-    await tx.onboardingApplication.update({ where: { id: app.id }, data: applyForm(form) });
-    if (owners) {
-      await tx.beneficialOwner.deleteMany({ where: { applicationId: app.id } });
-      const rows = owners.filter((o) => (o[0] ?? '').trim());
-      if (rows.length) {
-        await tx.beneficialOwner.createMany({
-          data: rows.map((o) => {
-            const pct = Number(o[2]);
-            return {
-              applicationId: app.id,
-              fullName: o[0]!.trim().slice(0, 160),
-              idNumberEnc: encryptField((o[1] ?? '').trim()),
-              ownershipPct: Number.isFinite(pct) && o[2] !== '' ? Math.min(100, Math.max(0, pct)) : null,
-              isController: Number.isFinite(pct) && pct >= 25,
-            };
-          }),
-        });
-      }
-    }
-  });
+  await saveForm(app, req.body as z.infer<typeof patchSchema>);
   res.json({ ok: true, savedAt: new Date().toISOString() });
 });
 
-/** Evidence upload for one slot (replaces any earlier file for the slot). */
+/** Evidence upload for one slot (replaces any earlier file for the slot). V65 card keys are accepted. */
 publicOnboardingRoutes.post('/applications/:id/evidence', uploadFiles('file', 1), async (req, res) => {
   const app = await draftFor(req, { allowSubmitted: true });
-  const slot = String(req.body?.slot ?? '') as EvidenceSlot;
+  const raw = String(req.body?.slot ?? '');
+  const slot = (V65_SLOT_MAP[raw] ?? raw) as EvidenceSlot;
   if (!SLOT_KEYS.includes(slot)) throw HttpError.badRequest('Unknown evidence slot');
   if (app.status !== 'Draft' && app.kycCase?.stage !== 'ClientAction') {
     throw HttpError.conflict('Evidence can only be added while the application is open', 'already_submitted');
@@ -259,49 +250,74 @@ publicOnboardingRoutes.post('/applications/:id/evidence', uploadFiles('file', 1)
           link: '/#onboarding',
         });
       }
-      await writeAudit(tx, { actorRole: 'Applicant', portal: 'onboarding', ip: req.ip, requestId: req.requestId }, {
-        action: 'kyc.evidence.uploaded',
-        objectType: 'kyc_case',
-        objectId: app.kycCase.id,
-        after: { slot, fileId: stored.id, sha256: stored.sha256 },
-      });
     }
+    await writeAudit(tx, { actorRole: 'Applicant', portal: 'onboarding', ip: req.ip, requestId: req.requestId }, {
+      action: 'kyc.evidence.uploaded',
+      objectType: app.kycCase ? 'kyc_case' : 'onboarding_application',
+      objectId: app.kycCase?.id ?? app.id,
+      after: { slot, fileId: stored.id, name: stored.name, size: stored.size, sha256: stored.sha256 },
+    });
   });
-  res.status(201).json({ slot, label: EVIDENCE_SLOTS[slot], name: stored.name, size: stored.size, mime: stored.mime });
+  res.status(201).json({ slot, label: EVIDENCE_SLOTS[slot], name: stored.name, size: stored.size, mime: stored.mime, sha256: stored.sha256 });
 });
 
-const submitSchema = z.object({ consent: z.literal(true), form: formSchema.optional(), owners: ownersSchema.optional() });
+const submitSchema = z.object({
+  consent: z.literal(true),
+  form: formSchema.optional(),
+  owners: ownersSchema.optional(),
+  signatories: signatoriesSchema.optional(),
+});
 
 /** FR-ONB-004/005/006/007: consent + required evidence, then ONB ref, KYC case and queued pre-screen. */
 publicOnboardingRoutes.post('/applications/:id/submit', validateBody(submitSchema), async (req, res) => {
   let app = await draftFor(req);
   const b = req.body as z.infer<typeof submitSchema>;
   if (b.form) {
-    await prisma.onboardingApplication.update({ where: { id: app.id }, data: applyForm(b.form) });
+    await saveForm(app, { form: b.form, owners: b.owners, signatories: b.signatories });
     app = await draftFor(req);
   }
+  const stored = app.formData as Record<string, unknown> | null;
   const missingFields = [
     ['legalName', 'Legal name'],
     ['email', 'Email'],
     ['country', 'Country'],
-  ].filter(([k]) => !(app as unknown as Record<string, unknown>)[k!]);
+  ]
+    .filter(([k]) => !(app as unknown as Record<string, unknown>)[k!])
+    .map(([, label]) => label!);
+  for (const label of v65Missing(stored, app.owners.length)) if (!missingFields.includes(label)) missingFields.push(label);
   const have = new Set(
     (await prisma.kycEvidence.findMany({ where: { applicationId: app.id, fileId: { not: null } }, select: { slot: true } })).map((e) => e.slot),
   );
   const missingSlots = requiredSlots(app.applicantType).filter((s) => !have.has(s));
   if (missingFields.length || missingSlots.length) {
     throw new HttpError(400, 'incomplete_application', 'Complete the missing items before submitting', {
-      fields: missingFields.map(([, label]) => label),
+      fields: missingFields,
       evidence: missingSlots.map((s) => EVIDENCE_SLOTS[s]),
     });
   }
 
+  const now = new Date();
+  // FR-ONB-038: signatory, capacity, consent wording version, time, IP and user agent.
+  const declaration = {
+    name: String(stored?.signatureName ?? ''),
+    capacity: String(stored?.signatureCapacity ?? ''),
+    consentVersion: CONSENT_VERSION,
+    at: now.toISOString(),
+    ip: req.ip ?? null,
+    userAgent: (req.get('user-agent') ?? '').slice(0, 255),
+  };
   const result = await prisma.$transaction(async (tx) => {
     const ref = await nextRef(tx, 'onboarding');
     const caseRef = await nextRef(tx, 'kycCase');
     await tx.onboardingApplication.update({
       where: { id: app.id },
-      data: { ref, status: 'Submitted', submittedAt: new Date(), consentAt: new Date() },
+      data: {
+        ref,
+        status: 'Submitted',
+        submittedAt: now,
+        consentAt: now,
+        formData: { ...(stored ?? {}), declaration } as Prisma.InputJsonValue,
+      },
     });
     const kycCase = await tx.kycCase.create({
       data: { ref: caseRef, applicationId: app.id, stage: 'Screening', slaState: 'Digital submission', slaDueAt: slaDue('Screening') },
@@ -326,7 +342,7 @@ publicOnboardingRoutes.post('/applications/:id/submit', validateBody(submitSchem
       action: 'application.submitted',
       objectType: 'onboarding_application',
       objectId: app.id,
-      after: { ref, caseRef, evidence: [...have] },
+      after: { ref, caseRef, evidence: [...have], consentVersion: CONSENT_VERSION, signatory: declaration.name },
     });
     return { ref, caseRef };
   });
