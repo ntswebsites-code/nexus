@@ -65,10 +65,10 @@ model Session {
 
 /// A role scoped to one portal, e.g. admin/compliance or investor/finance.
 model Role {
-  id     String @id @default(uuid()) @db.Char(36)
-  portal String @db.VarChar(32)
-  key    String @db.VarChar(64)
-  label  String @db.VarChar(120)
+  id     String  @id @default(uuid()) @db.Char(36)
+  portal String  @db.VarChar(32)
+  key    String  @db.VarChar(64)
+  label  String  @db.VarChar(120)
   /// Locked roles (system_admin) cannot have their bundle edited.
   locked Boolean @default(false)
   custom Boolean @default(false)
@@ -291,6 +291,14 @@ model Document {
   documentDate      DateTime? @map("document_date")
   requiresSignature Boolean   @default(false) @map("requires_signature")
   retentionYears    Int       @default(7) @map("retention_years")
+  /// LP category: QUARTERLY_STATEMENT | CALL_NOTICE | PERFORMANCE_REPORT | TAX | LEGAL | GOVERNANCE | MANUAL | DISTRIBUTIONS
+  category          String?   @db.VarChar(32)
+  fundId            String?   @map("fund_id") @db.Char(36)
+  /// e.g. 2026-Q2
+  period            String?   @db.VarChar(16)
+  /// GP_UPLOAD | CAPITAL_CALL | CAPITAL_CALL_ALLOCATION | FUND_REPORT_SYNC | QUARTERLY_STATEMENT_SYNC | TAX_RETURN_PACK_SYNC
+  sourceType        String?   @map("source_type") @db.VarChar(32)
+  sourceRefId       String?   @map("source_ref_id") @db.Char(36)
   makerId           String?   @map("maker_id") @db.Char(36)
   checkerId         String?   @map("checker_id") @db.Char(36)
   approvedAt        DateTime? @map("approved_at")
@@ -308,6 +316,7 @@ model Document {
   @@index([clientId])
   @@index([companyId])
   @@index([relatedType, relatedId])
+  @@index([fundId])
   @@map("documents")
 }
 
@@ -354,14 +363,17 @@ model DocumentRead {
 }
 
 model SignatureRequest {
-  id            String   @id @default(uuid()) @db.Char(36)
-  documentId    String   @map("document_id") @db.Char(36)
-  clientId      String   @map("client_id") @db.Char(36)
+  id            String    @id @default(uuid()) @db.Char(36)
+  documentId    String    @map("document_id") @db.Char(36)
+  clientId      String    @map("client_id") @db.Char(36)
   /// Pending | Signed | Cancelled
-  status        String   @default("Pending") @db.VarChar(16)
-  requestedById String?  @map("requested_by_id") @db.Char(36)
+  status        String    @default("Pending") @db.VarChar(16)
+  requestedById String?   @map("requested_by_id") @db.Char(36)
   dueDate       DateTime? @map("due_date")
-  createdAt     DateTime @default(now()) @map("created_at")
+  /// document | term_sheet
+  subjectType   String?   @map("subject_type") @db.VarChar(32)
+  subjectId     String?   @map("subject_id") @db.Char(36)
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   document   Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
   signatures Signature[]
@@ -371,16 +383,21 @@ model SignatureRequest {
 }
 
 model Signature {
-  id           String   @id @default(uuid()) @db.Char(36)
-  requestId    String   @map("request_id") @db.Char(36)
-  signerUserId String   @map("signer_user_id") @db.Char(36)
-  signerName   String   @map("signer_name") @db.VarChar(120)
-  authority    String   @db.VarChar(160)
-  consentAt    DateTime @map("consent_at")
-  mfaAt        DateTime? @map("mfa_at")
-  docSha256    String   @map("doc_sha256") @db.Char(64)
-  ip           String?  @db.VarChar(45)
-  signedAt     DateTime @default(now()) @map("signed_at")
+  id                    String    @id @default(uuid()) @db.Char(36)
+  requestId             String    @map("request_id") @db.Char(36)
+  signerUserId          String    @map("signer_user_id") @db.Char(36)
+  signerName            String    @map("signer_name") @db.VarChar(120)
+  authority             String    @db.VarChar(160)
+  consentAt             DateTime  @map("consent_at")
+  mfaAt                 DateTime? @map("mfa_at")
+  docSha256             String    @map("doc_sha256") @db.Char(64)
+  ip                    String?   @db.VarChar(45)
+  consentTextVersion    String?   @map("consent_text_version") @db.VarChar(32)
+  consentHash           String?   @map("consent_hash") @db.Char(64)
+  userAgent             String?   @map("user_agent") @db.VarChar(255)
+  sessionId             String?   @map("session_id") @db.Char(36)
+  certificateDocumentId String?   @map("certificate_document_id") @db.Char(36)
+  signedAt              DateTime  @default(now()) @map("signed_at")
 
   request SignatureRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
@@ -390,53 +407,70 @@ model Signature {
 // ============================================================ parties ======
 
 model Client {
-  id                 String    @id @default(uuid()) @db.Char(36)
-  ref                String    @unique @db.VarChar(16)
-  name               String    @db.VarChar(200)
-  type               String    @db.VarChar(64)
-  baseCurrency       String    @default("USD") @map("base_currency") @db.Char(3)
-  riskRating         String    @default("Medium") @map("risk_rating") @db.VarChar(16)
+  id                  String    @id @default(uuid()) @db.Char(36)
+  ref                 String    @unique @db.VarChar(16)
+  name                String    @db.VarChar(200)
+  type                String    @db.VarChar(64)
+  baseCurrency        String    @default("USD") @map("base_currency") @db.Char(3)
+  riskRating          String    @default("Medium") @map("risk_rating") @db.VarChar(16)
   /// Pending | Current | Review due | Enhanced review
-  kycStatus          String    @default("Pending") @map("kyc_status") @db.VarChar(24)
-  mandateLabel       String?   @map("mandate_label") @db.VarChar(120)
-  ownerName          String?   @map("owner_name") @db.VarChar(120)
-  relationshipOwnerId String?  @map("relationship_owner_id") @db.Char(36)
-  email              String?   @db.VarChar(254)
-  phone              String?   @db.VarChar(40)
-  registrationRef    String?   @map("registration_ref") @db.VarChar(80)
-  address            String?   @db.VarChar(255)
-  notes              String?   @db.Text
-  valueLabel         String?   @map("value_label") @db.VarChar(40)
-  accountsCount      Int       @default(0) @map("accounts_count")
-  nextReviewDate     DateTime? @map("next_review_date")
-  portalEnabled      Boolean   @default(false) @map("portal_enabled")
-  archivedAt         DateTime? @map("archived_at")
-  createdAt          DateTime  @default(now()) @map("created_at")
-  createdBy          String?   @map("created_by") @db.Char(36)
-  updatedAt          DateTime  @updatedAt @map("updated_at")
-  updatedBy          String?   @map("updated_by") @db.Char(36)
-  version            Int       @default(1)
+  kycStatus           String    @default("Pending") @map("kyc_status") @db.VarChar(24)
+  mandateLabel        String?   @map("mandate_label") @db.VarChar(120)
+  ownerName           String?   @map("owner_name") @db.VarChar(120)
+  relationshipOwnerId String?   @map("relationship_owner_id") @db.Char(36)
+  email               String?   @db.VarChar(254)
+  phone               String?   @db.VarChar(40)
+  registrationRef     String?   @map("registration_ref") @db.VarChar(80)
+  address             String?   @db.VarChar(255)
+  notes               String?   @db.Text
+  valueLabel          String?   @map("value_label") @db.VarChar(40)
+  accountsCount       Int       @default(0) @map("accounts_count")
+  nextReviewDate      DateTime? @map("next_review_date")
+  portalEnabled       Boolean   @default(false) @map("portal_enabled")
+  accreditedInvestor  Boolean   @default(true) @map("accredited_investor")
+  dealingHold         Boolean   @default(false) @map("dealing_hold")
+  holdReason          String?   @map("hold_reason") @db.VarChar(255)
+  country             String?   @db.VarChar(80)
+  archivedAt          DateTime? @map("archived_at")
+  createdAt           DateTime  @default(now()) @map("created_at")
+  createdBy           String?   @map("created_by") @db.Char(36)
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+  updatedBy           String?   @map("updated_by") @db.Char(36)
+  version             Int       @default(1)
 
-  users           ClientUser[]
-  mandates        Mandate[]
-  cashAccounts    CashAccount[]
-  capitalEvents   CapitalEvent[]
-  serviceRequests ServiceRequest[]
-  threads         MessageThread[]
-  snapshots       InvestorSnapshot[]
-  bankInstructions BankInstruction[]
+  users                   ClientUser[]
+  mandates                Mandate[]
+  cashAccounts            CashAccount[]
+  capitalEvents           CapitalEvent[]
+  serviceRequests         ServiceRequest[]
+  threads                 MessageThread[]
+  snapshots               InvestorSnapshot[]
+  bankInstructions        BankInstruction[]
+  commitments             FundCommitment[]
+  holdings                LpHolding[]
+  callAllocations         CapitalCallAllocation[]
+  distributionAllocations DistributionAllocation[]
+  dealingRequests         LpDealingRequest[]
 
   @@map("clients")
 }
 
 /// Links an investor-portal user to a client relationship with a role and account scope.
 model ClientUser {
-  id           String   @id @default(uuid()) @db.Char(36)
-  clientId     String   @map("client_id") @db.Char(36)
-  userId       String   @map("user_id") @db.Char(36)
-  investorRole String   @default("admin") @map("investor_role") @db.VarChar(32)
-  accountScope String   @default("all") @map("account_scope") @db.VarChar(32)
-  createdAt    DateTime @default(now()) @map("created_at")
+  id           String    @id @default(uuid()) @db.Char(36)
+  clientId     String    @map("client_id") @db.Char(36)
+  userId       String    @map("user_id") @db.Char(36)
+  investorRole String    @default("admin") @map("investor_role") @db.VarChar(32)
+  accountScope String    @default("all") @map("account_scope") @db.VarChar(32)
+  /// Fund ids this member may see; null = every commitment of the client.
+  fundIds      Json?     @map("fund_ids")
+  /// VIEWER | SIGNATORY | MANAGER; null = derived from investor_role.
+  lpRole       String?   @map("lp_role") @db.VarChar(16)
+  /// ACTIVE | INVITED | SUSPENDED
+  status       String    @default("ACTIVE") @db.VarChar(16)
+  revokedAt    DateTime? @map("revoked_at")
+  invitedById  String?   @map("invited_by_id") @db.Char(36)
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -563,29 +597,29 @@ model BeneficialOwner {
 }
 
 model KycCase {
-  id                  String    @id @default(uuid()) @db.Char(36)
-  ref                 String    @unique @db.VarChar(16)
-  applicationId       String    @unique @map("application_id") @db.Char(36)
-  clientId            String?   @map("client_id") @db.Char(36)
+  id                   String    @id @default(uuid()) @db.Char(36)
+  ref                  String    @unique @db.VarChar(16)
+  applicationId        String    @unique @map("application_id") @db.Char(36)
+  clientId             String?   @map("client_id") @db.Char(36)
   /// Submitted | Screening | ComplianceReview | ClientAction | EnhancedReview | Approved | Rejected | Activation | Active
-  stage               String    @default("Submitted") @db.VarChar(24)
+  stage                String    @default("Submitted") @db.VarChar(24)
   /// Pending | Low | Medium | High
-  risk                String    @default("Pending") @db.VarChar(16)
-  slaState            String    @default("New") @map("sla_state") @db.VarChar(24)
-  slaDueAt            DateTime? @map("sla_due_at")
-  ownerId             String?   @map("owner_id") @db.Char(36)
-  ownerName           String    @default("Client Services intake") @map("owner_name") @db.VarChar(120)
-  preparedById        String?   @map("prepared_by_id") @db.Char(36)
-  decision            String?   @db.VarChar(24)
-  decisionReason      String?   @map("decision_reason") @db.Text
-  decidedById         String?   @map("decided_by_id") @db.Char(36)
-  decidedAt           DateTime? @map("decided_at")
+  risk                 String    @default("Pending") @db.VarChar(16)
+  slaState             String    @default("New") @map("sla_state") @db.VarChar(24)
+  slaDueAt             DateTime? @map("sla_due_at")
+  ownerId              String?   @map("owner_id") @db.Char(36)
+  ownerName            String    @default("Client Services intake") @map("owner_name") @db.VarChar(120)
+  preparedById         String?   @map("prepared_by_id") @db.Char(36)
+  decision             String?   @db.VarChar(24)
+  decisionReason       String?   @map("decision_reason") @db.Text
+  decidedById          String?   @map("decided_by_id") @db.Char(36)
+  decidedAt            DateTime? @map("decided_at")
   enhancedReviewDoneAt DateTime? @map("enhanced_review_done_at")
-  fundsApproved       Boolean   @default(false) @map("funds_approved")
-  checklist           Json?
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
-  version             Int       @default(1)
+  fundsApproved        Boolean   @default(false) @map("funds_approved")
+  checklist            Json?
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  version              Int       @default(1)
 
   application OnboardingApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
   evidence    KycEvidence[]
@@ -597,18 +631,18 @@ model KycCase {
 }
 
 model KycEvidence {
-  id         String    @id @default(uuid()) @db.Char(36)
-  caseId     String?   @map("case_id") @db.Char(36)
-  applicationId String @map("application_id") @db.Char(36)
+  id            String    @id @default(uuid()) @db.Char(36)
+  caseId        String?   @map("case_id") @db.Char(36)
+  applicationId String    @map("application_id") @db.Char(36)
   /// doc1..doc8 slot keys from the onboarding form.
-  slot       String    @db.VarChar(16)
-  label      String    @db.VarChar(80)
-  fileId     String?   @map("file_id") @db.Char(36)
+  slot          String    @db.VarChar(16)
+  label         String    @db.VarChar(80)
+  fileId        String?   @map("file_id") @db.Char(36)
   /// Missing | Received | Accepted | Rejected
-  status     String    @default("Received") @db.VarChar(16)
-  reviewerId String?   @map("reviewer_id") @db.Char(36)
-  reviewedAt DateTime? @map("reviewed_at")
-  createdAt  DateTime  @default(now()) @map("created_at")
+  status        String    @default("Received") @db.VarChar(16)
+  reviewerId    String?   @map("reviewer_id") @db.Char(36)
+  reviewedAt    DateTime? @map("reviewed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   kycCase KycCase? @relation(fields: [caseId], references: [id], onDelete: Cascade)
 
@@ -689,6 +723,10 @@ model FundingEvidence {
   confirmedAt    DateTime  @default(now()) @map("confirmed_at")
   matchedAt      DateTime? @map("matched_at")
   matchedById    String?   @map("matched_by_id") @db.Char(36)
+  allocationId   String?   @map("allocation_id") @db.Char(36)
+  amountClaimed  Decimal?  @map("amount_claimed") @db.Decimal(20, 4)
+  notes          String?   @db.Text
+  sha256         String?   @db.Char(64)
 
   capitalEvent CapitalEvent @relation(fields: [capitalEventId], references: [id], onDelete: Cascade)
 
@@ -704,8 +742,12 @@ model BankInstruction {
   identifierEnc String?   @map("identifier_enc") @db.Text
   masked        String    @db.VarChar(40)
   verifiedAt    DateTime? @map("verified_at")
-  /// Active | Superseded
-  status        String    @default("Active") @db.VarChar(16)
+  /// Active | Superseded | Pending verification
+  status        String    @default("Active") @db.VarChar(24)
+  fundId        String?   @map("fund_id") @db.Char(36)
+  label         String?   @db.VarChar(128)
+  currency      String?   @db.Char(3)
+  isDefault     Boolean   @default(false) @map("is_default")
   createdAt     DateTime  @default(now()) @map("created_at")
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -714,24 +756,28 @@ model BankInstruction {
 }
 
 model ServiceRequest {
-  id        String    @id @default(uuid()) @db.Char(36)
-  ref       String    @unique @db.VarChar(16)
-  clientId  String    @map("client_id") @db.Char(36)
-  type      String    @db.VarChar(64)
-  priority  String    @default("Normal") @db.VarChar(16)
-  title     String    @db.VarChar(200)
-  detail    String?   @db.Text
+  id         String    @id @default(uuid()) @db.Char(36)
+  ref        String    @unique @db.VarChar(16)
+  clientId   String    @map("client_id") @db.Char(36)
+  type       String    @db.VarChar(64)
+  priority   String    @default("Normal") @db.VarChar(16)
+  title      String    @db.VarChar(200)
+  detail     String?   @db.Text
   /// Open | In progress | Waiting on you | Closed
-  status    String    @default("Open") @db.VarChar(20)
-  ownerName String    @default("Client Services") @map("owner_name") @db.VarChar(120)
-  ownerId   String?   @map("owner_id") @db.Char(36)
-  progress  Int       @default(10)
-  slaDueAt  DateTime? @map("sla_due_at")
-  fileId    String?   @map("file_id") @db.Char(36)
-  openedById String?  @map("opened_by_id") @db.Char(36)
-  createdAt DateTime  @default(now()) @map("created_at")
-  updatedAt DateTime  @updatedAt @map("updated_at")
-  version   Int       @default(1)
+  status     String    @default("Open") @db.VarChar(20)
+  ownerName  String    @default("Client Services") @map("owner_name") @db.VarChar(120)
+  ownerId    String?   @map("owner_id") @db.Char(36)
+  progress   Int       @default(10)
+  slaDueAt   DateTime? @map("sla_due_at")
+  fileId     String?   @map("file_id") @db.Char(36)
+  openedById String?   @map("opened_by_id") @db.Char(36)
+  fundId     String?   @map("fund_id") @db.Char(36)
+  assigneeId String?   @map("assignee_id") @db.Char(36)
+  /// LP vocabulary (SUBMITTED ... CLOSED); null on legacy rows, mapped at read time.
+  lpStatus   String?   @map("lp_status") @db.VarChar(24)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  version    Int       @default(1)
 
   client Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
   events ServiceRequestEvent[]
@@ -754,13 +800,18 @@ model ServiceRequestEvent {
 }
 
 model MessageThread {
-  id        String   @id @default(uuid()) @db.Char(36)
-  clientId  String   @map("client_id") @db.Char(36)
-  title     String   @db.VarChar(200)
-  ownerName String   @map("owner_name") @db.VarChar(120)
-  ownerRole String?  @map("owner_role") @db.VarChar(120)
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id            String    @id @default(uuid()) @db.Char(36)
+  clientId      String    @map("client_id") @db.Char(36)
+  title         String    @db.VarChar(200)
+  ownerName     String    @map("owner_name") @db.VarChar(120)
+  ownerRole     String?   @map("owner_role") @db.VarChar(120)
+  linkedType    String?   @map("linked_type") @db.VarChar(32)
+  linkedId      String?   @map("linked_id") @db.Char(36)
+  fundId        String?   @map("fund_id") @db.Char(36)
+  status        String    @default("OPEN") @db.VarChar(16)
+  lastMessageAt DateTime? @map("last_message_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
 
   client   Client        @relation(fields: [clientId], references: [id], onDelete: Cascade)
   messages Message[]
@@ -820,7 +871,7 @@ model InvestorSnapshot {
   updatedAt         DateTime  @updatedAt @map("updated_at")
   version           Int       @default(1)
 
-  client       Client                @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  client       Client                     @relation(fields: [clientId], references: [id], onDelete: Cascade)
   investments  SnapshotInvestment[]
   holdings     SnapshotHolding[]
   transactions SnapshotTransaction[]
@@ -894,12 +945,12 @@ model SnapshotTransaction {
 }
 
 model SnapshotPerformancePoint {
-  id           String  @id @default(uuid()) @db.Char(36)
-  snapshotId   String  @map("snapshot_id") @db.Char(36)
+  id           String   @id @default(uuid()) @db.Char(36)
+  snapshotId   String   @map("snapshot_id") @db.Char(36)
   /// 1M | 3M | YTD | 1Y | 3Y
-  range        String  @db.VarChar(8)
+  range        String   @db.VarChar(8)
   idx          Int
-  portfolioPct Decimal @map("portfolio_pct") @db.Decimal(9, 4)
+  portfolioPct Decimal  @map("portfolio_pct") @db.Decimal(9, 4)
   benchmarkPct Decimal? @map("benchmark_pct") @db.Decimal(9, 4)
 
   snapshot InvestorSnapshot @relation(fields: [snapshotId], references: [id], onDelete: Cascade)
@@ -923,39 +974,56 @@ model SnapshotAllocation {
 // ============================================================ company reporting
 
 model PortfolioCompany {
-  id          String   @id @default(uuid()) @db.Char(36)
-  ref         String   @unique @db.VarChar(16)
-  name        String   @db.VarChar(200)
-  legalName   String   @map("legal_name") @db.VarChar(255)
-  ticker      String   @db.VarChar(16)
-  sector      String   @db.VarChar(120)
-  country     String   @db.VarChar(80)
-  founded     Int?
-  employees   Int?
-  website     String?  @db.VarChar(255)
-  address     String?  @db.VarChar(255)
+  id                 String   @id @default(uuid()) @db.Char(36)
+  ref                String   @unique @db.VarChar(16)
+  name               String   @db.VarChar(200)
+  legalName          String   @map("legal_name") @db.VarChar(255)
+  ticker             String   @db.VarChar(16)
+  sector             String   @db.VarChar(120)
+  country            String   @db.VarChar(80)
+  founded            Int?
+  employees          Int?
+  website            String?  @db.VarChar(255)
+  address            String?  @db.VarChar(255)
   /// Fund, ownership, invested, entry, deal team.
-  relationship Json
-  contacts    Json
-  cashRunway  Json?    @map("cash_runway")
-  volumeSeries Json?   @map("volume_series")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  version     Int      @default(1)
+  relationship       Json
+  contacts           Json
+  cashRunway         Json?    @map("cash_runway")
+  volumeSeries       Json?    @map("volume_series")
+  /// Prospect | Pending | Approved | Active | Inactive | Closed | Exited
+  status             String   @default("Active") @db.VarChar(16)
+  fundId             String?  @map("fund_id") @db.Char(36)
+  registrationNumber String?  @map("registration_number") @db.VarChar(80)
+  industry           String?  @db.VarChar(120)
+  fundingStage       String?  @map("funding_stage") @db.VarChar(40)
+  reportingCurrency  String   @default("USD") @map("reporting_currency") @db.Char(3)
+  letterhead         Json?
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+  version            Int      @default(1)
 
-  users     CompanyUser[]
-  periods   ReportingPeriod[]
-  kpis      CompanyKpi[]
-  covenants Covenant[]
-  questions ReportingQuestion[]
+  users      CompanyUser[]
+  periods    ReportingPeriod[]
+  kpis       CompanyKpi[]
+  covenants  Covenant[]
+  questions  ReportingQuestion[]
+  termSheets TermSheet[]
 
   @@map("portfolio_companies")
 }
 
 model CompanyUser {
-  companyId String   @map("company_id") @db.Char(36)
-  userId    String   @map("user_id") @db.Char(36)
-  createdAt DateTime @default(now()) @map("created_at")
+  companyId        String    @map("company_id") @db.Char(36)
+  userId           String    @map("user_id") @db.Char(36)
+  /// workspace_administrator | executive_approver | report_contributor | kpi_owner | finance_editor | read_only
+  profile          String    @default("workspace_administrator") @db.VarChar(32)
+  /// active | disabled
+  status           String    @default("active") @db.VarChar(16)
+  title            String?   @db.VarChar(120)
+  invitedById      String?   @map("invited_by_id") @db.Char(36)
+  lastActiveAt     DateTime? @map("last_active_at")
+  signingAuthority Json?     @map("signing_authority")
+  createdAt        DateTime  @default(now()) @map("created_at")
 
   company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
   user    User             @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -965,16 +1033,16 @@ model CompanyUser {
 }
 
 model CompanyKpi {
-  id        String   @id @default(uuid()) @db.Char(36)
-  companyId String   @map("company_id") @db.Char(36)
-  key       String   @db.VarChar(32)
-  label     String   @db.VarChar(120)
-  unit      String   @db.VarChar(8)
-  invert    Boolean  @default(false)
-  prev      Decimal  @db.Decimal(20, 4)
-  budget    Decimal  @db.Decimal(20, 4)
+  id        String  @id @default(uuid()) @db.Char(36)
+  companyId String  @map("company_id") @db.Char(36)
+  key       String  @db.VarChar(32)
+  label     String  @db.VarChar(120)
+  unit      String  @db.VarChar(8)
+  invert    Boolean @default(false)
+  prev      Decimal @db.Decimal(20, 4)
+  budget    Decimal @db.Decimal(20, 4)
   series    Json
-  sort      Int      @default(0)
+  sort      Int     @default(0)
 
   company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
@@ -989,6 +1057,12 @@ model ReportingPeriod {
   period        String    @db.VarChar(7)
   label         String    @db.VarChar(32)
   dueDate       DateTime  @map("due_date") @db.Date
+  /// WEEKLY | MONTHLY | QUARTERLY | ANNUAL
+  periodType    String    @default("MONTHLY") @map("period_type") @db.VarChar(16)
+  periodStart   DateTime? @map("period_start") @db.Date
+  periodEnd     DateTime? @map("period_end") @db.Date
+  requestedAt   DateTime? @map("requested_at")
+  closedAt      DateTime? @map("closed_at")
   /// open | submitted | accepted | returned
   status        String    @default("open") @db.VarChar(16)
   kpiValues     Json?     @map("kpi_values")
@@ -1083,22 +1157,547 @@ model ReportingQuestionMessage {
 }
 
 model Covenant {
-  id        String   @id @default(uuid()) @db.Char(36)
-  companyId String   @map("company_id") @db.Char(36)
-  key       String   @db.VarChar(32)
-  name      String   @db.VarChar(160)
-  threshold String   @db.VarChar(120)
-  actual    Decimal  @db.Decimal(20, 4)
-  limit     Decimal  @db.Decimal(20, 4)
-  unit      String   @db.VarChar(8)
-  headroom  String   @db.VarChar(40)
+  id        String  @id @default(uuid()) @db.Char(36)
+  companyId String  @map("company_id") @db.Char(36)
+  key       String  @db.VarChar(32)
+  name      String  @db.VarChar(160)
+  threshold String  @db.VarChar(120)
+  actual    Decimal @db.Decimal(20, 4)
+  limit     Decimal @db.Decimal(20, 4)
+  unit      String  @db.VarChar(8)
+  headroom  String  @db.VarChar(40)
   /// current | expiring
-  evidence  String   @default("current") @db.VarChar(16)
-  note      String?  @db.VarChar(255)
-  sort      Int      @default(0)
+  evidence  String  @default("current") @db.VarChar(16)
+  note      String? @db.VarChar(255)
+  sort      Int     @default(0)
 
   company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@unique([companyId, key])
   @@map("covenants")
+}
+
+// ============================================================ fund operations (SRD 10.3.3, day-one slice)
+
+/// Fund master. NAV per unit, valuation status and dealing rules live here for the day-one slice (SRD 10.3.3 A).
+model Fund {
+  id                String    @id @default(uuid()) @db.Char(36)
+  ref               String    @unique @db.VarChar(16)
+  name              String    @db.VarChar(200)
+  shortName         String    @map("short_name") @db.VarChar(80)
+  publicReference   String?   @map("public_reference") @db.VarChar(40)
+  /// PRIVATE_CAPITAL | OPEN_ENDED
+  operatingModel    String    @default("PRIVATE_CAPITAL") @map("operating_model") @db.VarChar(32)
+  currency          String    @default("USD") @db.Char(3)
+  vintage           Int?      @db.SmallInt
+  /// Draft | Active | Closed
+  status            String    @default("Active") @db.VarChar(16)
+  portalVisible     Boolean   @default(true) @map("portal_visible")
+  defaultShareClass String?   @map("default_share_class") @db.VarChar(32)
+  /// ESTIMATED | PROVISIONAL | FINAL | RESTATED
+  valuationStatus   String    @default("FINAL") @map("valuation_status") @db.VarChar(16)
+  asOfDate          DateTime? @map("as_of_date") @db.Date
+  navPerUnit        Decimal?  @map("nav_per_unit") @db.Decimal(20, 8)
+  totalNav          Decimal?  @map("total_nav") @db.Decimal(20, 4)
+  /// LpDealingRules + navHistory for the day-one slice.
+  dealingRulesJson  Json?     @map("dealing_rules_json")
+  /// Default wiring for capital calls (account number encrypted at rest by the service).
+  wiringJson        Json?     @map("wiring_json")
+  makerId           String?   @map("maker_id") @db.Char(36)
+  checkerId         String?   @map("checker_id") @db.Char(36)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  version           Int       @default(1)
+
+  commitments     FundCommitment[]
+  holdings        LpHolding[]
+  capitalCalls    CapitalCall[]
+  distributions   Distribution[]
+  dealingRequests LpDealingRequest[]
+
+  @@map("funds")
+}
+
+model FundCommitment {
+  id                 String    @id @default(uuid()) @db.Char(36)
+  clientId           String    @map("client_id") @db.Char(36)
+  fundId             String    @map("fund_id") @db.Char(36)
+  commitmentAmount   Decimal   @map("commitment_amount") @db.Decimal(20, 4)
+  currency           String    @default("USD") @db.Char(3)
+  /// PENDING | ACTIVE | CLOSED
+  status             String    @default("ACTIVE") @db.VarChar(16)
+  effectiveDate      DateTime? @map("effective_date") @db.Date
+  investorAccountRef String?   @map("investor_account_ref") @db.VarChar(64)
+  /// Stored performance figures (IRR, TVPI, DPI, RVPI, NAV); never computed in the portal.
+  metricsJson        Json?     @map("metrics_json")
+  notes              String?   @db.Text
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+  version            Int       @default(1)
+
+  client                  Client                   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund                    Fund                     @relation(fields: [fundId], references: [id], onDelete: Cascade)
+  callAllocations         CapitalCallAllocation[]
+  distributionAllocations DistributionAllocation[]
+
+  @@unique([clientId, fundId])
+  @@index([fundId])
+  @@map("fund_commitments")
+}
+
+model LpHolding {
+  id              String   @id @default(uuid()) @db.Char(36)
+  clientId        String   @map("client_id") @db.Char(36)
+  fundId          String   @map("fund_id") @db.Char(36)
+  shareClassCode  String   @default("DEFAULT") @map("share_class_code") @db.VarChar(32)
+  units           Decimal  @db.Decimal(24, 8)
+  navPerUnit      Decimal  @map("nav_per_unit") @db.Decimal(20, 8)
+  accountValue    Decimal  @map("account_value") @db.Decimal(20, 4)
+  currency        String   @default("USD") @db.Char(3)
+  accountRef      String?  @map("account_ref") @db.VarChar(64)
+  asOfDate        DateTime @map("as_of_date") @db.Date
+  valuationStatus String   @default("FINAL") @map("valuation_status") @db.VarChar(16)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund   Fund   @relation(fields: [fundId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, fundId, shareClassCode])
+  @@map("lp_holdings")
+}
+
+/// A capital call header. LPs only see it once `issuedAt` is set and status is not DRAFT/CANCELLED.
+model CapitalCall {
+  id               String    @id @default(uuid()) @db.Char(36)
+  ref              String    @unique @db.VarChar(16)
+  fundId           String    @map("fund_id") @db.Char(36)
+  callNo           Int       @map("call_no")
+  callPercent      Decimal?  @map("call_percent") @db.Decimal(12, 6)
+  totalAmount      Decimal   @map("total_amount") @db.Decimal(20, 4)
+  currency         String    @default("USD") @db.Char(3)
+  dueDate          DateTime  @map("due_date") @db.Date
+  transactionDate  DateTime? @map("transaction_date") @db.Date
+  /// bank, accountName, accountNumberEnc, accountNumberMasked, abaRouting, reference
+  wireJson         Json?     @map("wire_json")
+  wireText         String?   @map("wire_text") @db.Text
+  purpose          String?   @db.Text
+  noticeDocumentId String?   @map("notice_document_id") @db.Char(36)
+  /// DRAFT | PENDING_APPROVAL | APPROVED | ISSUED | PARTIALLY_PAID | PAID | CANCELLED
+  status           String    @default("DRAFT") @db.VarChar(20)
+  makerId          String?   @map("maker_id") @db.Char(36)
+  checkerId        String?   @map("checker_id") @db.Char(36)
+  approvedAt       DateTime? @map("approved_at")
+  issuedAt         DateTime? @map("issued_at")
+  cancelledAt      DateTime? @map("cancelled_at")
+  cancelReason     String?   @map("cancel_reason") @db.VarChar(255)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  version          Int       @default(1)
+
+  fund        Fund                    @relation(fields: [fundId], references: [id], onDelete: Restrict)
+  allocations CapitalCallAllocation[]
+
+  @@unique([fundId, callNo])
+  @@index([status])
+  @@map("capital_calls")
+}
+
+/// Per-LP share of a call. The LP-facing "capital call id" is this row's id.
+model CapitalCallAllocation {
+  id                      String    @id @default(uuid()) @db.Char(36)
+  callId                  String    @map("call_id") @db.Char(36)
+  clientId                String    @map("client_id") @db.Char(36)
+  commitmentId            String    @map("commitment_id") @db.Char(36)
+  lpLegalNameSnapshot     String    @map("lp_legal_name_snapshot") @db.VarChar(255)
+  totalCommitmentSnapshot Decimal   @map("total_commitment_snapshot") @db.Decimal(20, 4)
+  uncalledBeforeSnapshot  Decimal   @map("uncalled_before_snapshot") @db.Decimal(20, 4)
+  callAmount              Decimal   @map("call_amount") @db.Decimal(20, 4)
+  amountPaid              Decimal   @default(0) @map("amount_paid") @db.Decimal(20, 4)
+  /// PENDING | PARTIALLY_PAID | PAID | CANCELLED (acknowledgement never changes this)
+  status                  String    @default("PENDING") @db.VarChar(20)
+  acknowledgedAt          DateTime? @map("acknowledged_at")
+  acknowledgedById        String?   @map("acknowledged_by_id") @db.Char(36)
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  version                 Int       @default(1)
+
+  call       CapitalCall          @relation(fields: [callId], references: [id], onDelete: Cascade)
+  client     Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  commitment FundCommitment       @relation(fields: [commitmentId], references: [id], onDelete: Restrict)
+  payments   CapitalCallPayment[]
+
+  @@unique([callId, clientId])
+  @@index([clientId])
+  @@map("capital_call_allocations")
+}
+
+/// Append-only receipt. The matcher must differ from whoever uploaded the proof of payment.
+model CapitalCallPayment {
+  id             String   @id @default(uuid()) @db.Char(36)
+  allocationId   String   @map("allocation_id") @db.Char(36)
+  amount         Decimal  @db.Decimal(20, 4)
+  recordedAt     DateTime @default(now()) @map("recorded_at")
+  recordedById   String   @map("recorded_by_id") @db.Char(36)
+  bankReference  String?  @map("bank_reference") @db.VarChar(80)
+  confirmationId String?  @map("confirmation_id") @db.Char(36)
+
+  allocation CapitalCallAllocation @relation(fields: [allocationId], references: [id], onDelete: Cascade)
+
+  @@index([allocationId])
+  @@map("capital_call_payments")
+}
+
+model Distribution {
+  id                String    @id @default(uuid()) @db.Char(36)
+  ref               String    @unique @db.VarChar(16)
+  fundId            String    @map("fund_id") @db.Char(36)
+  distributionDate  DateTime  @map("distribution_date") @db.Date
+  /// RETURN_OF_CAPITAL | REALISATION_PROCEEDS | DIVIDEND | INTEREST | INCOME | OTHER
+  type              String    @db.VarChar(32)
+  currency          String    @default("USD") @db.Char(3)
+  grossAmount       Decimal   @map("gross_amount") @db.Decimal(20, 4)
+  carryAmount       Decimal   @default(0) @map("carry_amount") @db.Decimal(20, 4)
+  adjustmentsAmount Decimal   @default(0) @map("adjustments_amount") @db.Decimal(20, 4)
+  netToLps          Decimal   @map("net_to_lps") @db.Decimal(20, 4)
+  /// DRAFT | PENDING_APPROVAL | APPROVED | ISSUED | PARTIALLY_PAID | PAID | CANCELLED
+  status            String    @default("DRAFT") @db.VarChar(20)
+  notes             String?   @db.Text
+  makerId           String?   @map("maker_id") @db.Char(36)
+  checkerId         String?   @map("checker_id") @db.Char(36)
+  issuedAt          DateTime? @map("issued_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  version           Int       @default(1)
+
+  fund        Fund                     @relation(fields: [fundId], references: [id], onDelete: Restrict)
+  allocations DistributionAllocation[]
+
+  @@index([status])
+  @@map("distributions")
+}
+
+model DistributionAllocation {
+  id                       String    @id @default(uuid()) @db.Char(36)
+  distributionId           String    @map("distribution_id") @db.Char(36)
+  clientId                 String    @map("client_id") @db.Char(36)
+  commitmentId             String    @map("commitment_id") @db.Char(36)
+  lpLegalNameSnapshot      String    @map("lp_legal_name_snapshot") @db.VarChar(255)
+  commitmentSnapshot       Decimal   @map("commitment_snapshot") @db.Decimal(20, 4)
+  paidInSnapshot           Decimal   @default(0) @map("paid_in_snapshot") @db.Decimal(20, 4)
+  grossShare               Decimal   @default(0) @map("gross_share") @db.Decimal(20, 4)
+  adjustments              Decimal   @default(0) @db.Decimal(20, 4)
+  shareAmount              Decimal   @map("share_amount") @db.Decimal(20, 4)
+  amountPaid               Decimal   @default(0) @map("amount_paid") @db.Decimal(20, 4)
+  /// PENDING | PARTIALLY_PAID | PAID | CANCELLED
+  status                   String    @default("PENDING") @db.VarChar(20)
+  destinationBankAccountId String?   @map("destination_bank_account_id") @db.Char(36)
+  documentId               String?   @map("document_id") @db.Char(36)
+  paidAt                   DateTime? @map("paid_at")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  version                  Int       @default(1)
+
+  distribution Distribution   @relation(fields: [distributionId], references: [id], onDelete: Cascade)
+  client       Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  commitment   FundCommitment @relation(fields: [commitmentId], references: [id], onDelete: Restrict)
+
+  @@unique([distributionId, clientId])
+  @@index([clientId])
+  @@map("distribution_allocations")
+}
+
+/// Targeted publication to LPs. Receipts are per person.
+model LpNotice {
+  id                      String    @id @default(uuid()) @db.Char(36)
+  ref                     String    @unique @db.VarChar(16)
+  title                   String    @db.VarChar(512)
+  body                    String    @db.Text
+  /// CAPITAL_CALL | REPORT | POLICY | GENERAL
+  category                String    @default("GENERAL") @db.VarChar(32)
+  /// ALL | FUND | ORG | USER
+  targetType              String    @default("ALL") @map("target_type") @db.VarChar(16)
+  fundId                  String?   @map("fund_id") @db.Char(36)
+  clientId                String?   @map("client_id") @db.Char(36)
+  userId                  String?   @map("user_id") @db.Char(36)
+  shareClassCode          String?   @map("share_class_code") @db.VarChar(32)
+  requiresAcknowledgement Boolean   @default(true) @map("requires_acknowledgement")
+  /// DRAFT | PUBLISHED | WITHDRAWN | EXPIRED
+  status                  String    @default("DRAFT") @db.VarChar(16)
+  publishedAt             DateTime? @map("published_at")
+  expiresAt               DateTime? @map("expires_at")
+  publishedById           String?   @map("published_by_id") @db.Char(36)
+  approvedById            String?   @map("approved_by_id") @db.Char(36)
+  createdById             String?   @map("created_by_id") @db.Char(36)
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
+  version                 Int       @default(1)
+
+  receipts LpNoticeReceipt[]
+
+  @@index([status, publishedAt])
+  @@map("lp_notices")
+}
+
+model LpNoticeReceipt {
+  id             String    @id @default(uuid()) @db.Char(36)
+  noticeId       String    @map("notice_id") @db.Char(36)
+  clientId       String    @map("client_id") @db.Char(36)
+  userId         String    @map("user_id") @db.Char(36)
+  deliveredAt    DateTime  @default(now()) @map("delivered_at")
+  openedAt       DateTime? @map("opened_at")
+  acknowledgedAt DateTime? @map("acknowledged_at")
+
+  notice LpNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, userId])
+  @@index([clientId])
+  @@map("lp_notice_receipts")
+}
+
+model LpDealingRequest {
+  id                   String    @id @default(uuid()) @db.Char(36)
+  ref                  String    @unique @db.VarChar(16)
+  clientId             String    @map("client_id") @db.Char(36)
+  fundId               String    @map("fund_id") @db.Char(36)
+  shareClassCode       String    @default("DEFAULT") @map("share_class_code") @db.VarChar(32)
+  /// SUBSCRIPTION | REDEMPTION
+  requestType          String    @map("request_type") @db.VarChar(16)
+  /// AMOUNT | UNITS | FULL
+  inputMode            String    @default("AMOUNT") @map("input_mode") @db.VarChar(8)
+  /// FULL | PARTIAL
+  redemptionMode       String?   @map("redemption_mode") @db.VarChar(8)
+  amount               Decimal?  @db.Decimal(20, 4)
+  units                Decimal?  @db.Decimal(24, 8)
+  currency             String    @default("USD") @db.Char(3)
+  requestedDealingDate DateTime? @map("requested_dealing_date") @db.Date
+  /// SUBMITTED | COMPLIANCE_REVIEW | AWAITING_FUNDS | AWAITING_NAV | UNDER_REVIEW | COMPLETED | REJECTED | CANCELLED
+  status               String    @default("SUBMITTED") @db.VarChar(20)
+  estimateId           String?   @unique @map("estimate_id") @db.Char(36)
+  estimateJson         Json?     @map("estimate_json")
+  payloadHash          String?   @map("payload_hash") @db.Char(64)
+  bankAccountId        String?   @map("bank_account_id") @db.Char(36)
+  submittedById        String?   @map("submitted_by_id") @db.Char(36)
+  notes                String?   @db.Text
+  processedById        String?   @map("processed_by_id") @db.Char(36)
+  approvedById         String?   @map("approved_by_id") @db.Char(36)
+  dealingNavPerUnit    Decimal?  @map("dealing_nav_per_unit") @db.Decimal(20, 8)
+  unitsAllocated       Decimal?  @map("units_allocated") @db.Decimal(24, 8)
+  rejectionReason      String?   @map("rejection_reason") @db.VarChar(255)
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+  version              Int       @default(1)
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  fund   Fund   @relation(fields: [fundId], references: [id], onDelete: Restrict)
+
+  @@index([clientId, fundId])
+  @@index([status])
+  @@map("lp_dealing_requests")
+}
+
+/// Short-lived estimate snapshot (15 minutes). One estimate backs at most one request.
+model DealingEstimate {
+  id                  String   @id @default(uuid()) @db.Char(36)
+  clientId            String   @map("client_id") @db.Char(36)
+  fundId              String   @map("fund_id") @db.Char(36)
+  estimateType        String   @map("estimate_type") @db.VarChar(16)
+  estimateJson        Json     @map("estimate_json")
+  payloadHash         String   @map("payload_hash") @db.Char(64)
+  consumedByRequestId String?  @map("consumed_by_request_id") @db.Char(36)
+  createdAt           DateTime @default(now()) @map("created_at")
+  expiresAt           DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@map("dealing_estimates")
+}
+
+/// Idempotency for money and portal writes: claimed before the handler runs; only 2xx replayed.
+model IdempotencyKey {
+  id             BigInt   @id @default(autoincrement())
+  userId         String   @map("user_id") @db.Char(36)
+  clientId       String?  @map("client_id") @db.Char(36)
+  scope          String   @db.VarChar(255)
+  idemKey        String   @map("idem_key") @db.VarChar(200)
+  requestHash    String   @map("request_hash") @db.Char(64)
+  /// IN_PROGRESS | COMPLETED
+  state          String   @default("IN_PROGRESS") @db.VarChar(16)
+  responseStatus Int?     @map("response_status")
+  responseBody   String?  @map("response_body") @db.LongText
+  createdAt      DateTime @default(now()) @map("created_at")
+  expiresAt      DateTime @map("expires_at")
+
+  @@unique([userId, scope, idemKey])
+  @@index([expiresAt])
+  @@map("idempotency_keys")
+}
+
+/// High-volume document access log (VIEW, PREVIEW, DOWNLOAD); DOWNLOAD is also audited.
+model DocumentAccessLog {
+  id         BigInt   @id @default(autoincrement())
+  documentId String   @map("document_id") @db.Char(36)
+  userId     String?  @map("user_id") @db.Char(36)
+  clientId   String?  @map("client_id") @db.Char(36)
+  action     String   @db.VarChar(16)
+  ip         String?  @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(255)
+  at         DateTime @default(now())
+
+  @@index([documentId])
+  @@index([clientId, action, at])
+  @@map("document_access_log")
+}
+
+/// Upload-then-attach for requests and messages (LP and Investee service desk).
+model RequestAttachment {
+  id              String   @id @db.VarChar(20)
+  clientId        String?  @map("client_id") @db.Char(36)
+  companyId       String?  @map("company_id") @db.Char(36)
+  fileId          String   @map("file_id") @db.Char(36)
+  name            String   @db.VarChar(255)
+  size            Int
+  mime            String   @db.VarChar(120)
+  sha256          String   @db.Char(64)
+  requestId       String?  @map("request_id") @db.Char(36)
+  messageId       String?  @map("message_id") @db.Char(36)
+  threadMessageId String?  @map("thread_message_id") @db.Char(36)
+  uploadedById    String   @map("uploaded_by_id") @db.Char(36)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([clientId])
+  @@index([requestId])
+  @@index([threadMessageId])
+  @@map("request_attachments")
+}
+
+// ============================================================ investee (SRD 10.3.4, day-one slice)
+
+model TermSheet {
+  id               String    @id @default(uuid()) @db.Char(36)
+  ref              String    @unique @db.VarChar(16)
+  companyId        String    @map("company_id") @db.Char(36)
+  title            String    @db.VarChar(255)
+  versionNo        Int       @default(1) @map("version_no")
+  /// DRAFT | ISSUED | VIEWED | SIGNED_BY_COMPANY | COUNTERSIGNED | EXECUTED | WITHDRAWN
+  status           String    @default("DRAFT") @db.VarChar(20)
+  investmentAmount Decimal   @map("investment_amount") @db.Decimal(20, 4)
+  valuation        Decimal   @db.Decimal(20, 4)
+  equityPercentage Decimal   @map("equity_percentage") @db.Decimal(5, 2)
+  currency         String    @default("USD") @db.Char(3)
+  keyTerms         Json?     @map("key_terms")
+  conditions       String?   @db.Text
+  timeline         String?   @db.Text
+  documentId       String?   @map("document_id") @db.Char(36)
+  createdById      String?   @map("created_by_id") @db.Char(36)
+  issuedById       String?   @map("issued_by_id") @db.Char(36)
+  approvedById     String?   @map("approved_by_id") @db.Char(36)
+  issuedAt         DateTime? @map("issued_at")
+  viewedAt         DateTime? @map("viewed_at")
+  signedAt         DateTime? @map("signed_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  version          Int       @default(1)
+
+  company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, status])
+  @@map("term_sheets")
+}
+
+// ============================================================ custodian (SRD 10.3.5, day-one slice)
+
+model Counterparty {
+  id        String   @id @default(uuid()) @db.Char(36)
+  ref       String   @unique @db.VarChar(16)
+  name      String   @db.VarChar(200)
+  /// CUSTODIAN | BROKER | OTHER
+  type      String   @default("CUSTODIAN") @db.VarChar(16)
+  /// ACTIVE | SUSPENDED
+  status    String   @default("ACTIVE") @db.VarChar(16)
+  /// Account references this counterparty may submit for.
+  accounts  Json?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users      CounterpartyUser[]
+  executions CounterpartyExecution[]
+  dayEnds    CounterpartyDayEndPackage[]
+
+  @@map("counterparties")
+}
+
+model CounterpartyUser {
+  counterpartyId String   @map("counterparty_id") @db.Char(36)
+  userId         String   @map("user_id") @db.Char(36)
+  /// submitter | approver
+  role           String   @default("submitter") @db.VarChar(16)
+  status         String   @default("active") @db.VarChar(16)
+  invitedById    String?  @map("invited_by_id") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Cascade)
+
+  @@id([counterpartyId, userId])
+  @@index([userId])
+  @@map("counterparty_users")
+}
+
+/// Immutable once submitted; a correction is a new row that supersedes the earlier one.
+model CounterpartyExecution {
+  id              String    @id @default(uuid()) @db.Char(36)
+  ref             String    @unique @db.VarChar(20)
+  counterpartyId  String    @map("counterparty_id") @db.Char(36)
+  tradeRef        String    @map("trade_ref") @db.VarChar(64)
+  executionAt     DateTime  @map("execution_at") @db.DateTime(3)
+  accountRef      String    @map("account_ref") @db.VarChar(64)
+  ticker          String    @db.VarChar(32)
+  isin            String?   @db.VarChar(12)
+  side            String    @db.VarChar(8)
+  quantity        Decimal   @db.Decimal(24, 8)
+  price           Decimal   @db.Decimal(20, 8)
+  currency        String    @db.Char(3)
+  settlementDate  DateTime? @map("settlement_date") @db.Date
+  broker          String?   @db.VarChar(120)
+  note            String?   @db.Text
+  /// Received | Matched | Exception | Queried | Superseded
+  status          String    @default("Received") @db.VarChar(16)
+  supersedesId    String?   @map("supersedes_id") @db.Char(36)
+  supersedeReason String?   @map("supersede_reason") @db.VarChar(255)
+  submittedById   String    @map("submitted_by_id") @db.Char(36)
+  submittedAt     DateTime  @default(now()) @map("submitted_at")
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Restrict)
+
+  @@unique([counterpartyId, tradeRef])
+  @@index([accountRef, executionAt])
+  @@map("counterparty_executions")
+}
+
+model CounterpartyDayEndPackage {
+  id              String    @id @default(uuid()) @db.Char(36)
+  ref             String    @unique @db.VarChar(20)
+  counterpartyId  String    @map("counterparty_id") @db.Char(36)
+  accountRef      String    @map("account_ref") @db.VarChar(64)
+  statementDate   DateTime  @map("statement_date") @db.Date
+  currency        String    @db.Char(3)
+  closingCash     Decimal   @map("closing_cash") @db.Decimal(20, 2)
+  holdingsMv      Decimal   @map("holdings_mv") @db.Decimal(20, 2)
+  tradeCount      Int       @map("trade_count")
+  fileId          String?   @map("file_id") @db.Char(36)
+  sha256          String?   @db.Char(64)
+  note            String?   @db.Text
+  /// Received | Approved | Exception | Superseded
+  status          String    @default("Received") @db.VarChar(16)
+  supersedesId    String?   @map("supersedes_id") @db.Char(36)
+  supersedeReason String?   @map("supersede_reason") @db.VarChar(255)
+  submittedById   String    @map("submitted_by_id") @db.Char(36)
+  approvedById    String?   @map("approved_by_id") @db.Char(36)
+  approvedAt      DateTime? @map("approved_at")
+  submittedAt     DateTime  @default(now()) @map("submitted_at")
+
+  counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Restrict)
+
+  @@index([accountRef, statementDate])
+  @@map("counterparty_day_end_packages")
 }

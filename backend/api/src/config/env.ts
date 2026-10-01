@@ -21,7 +21,14 @@ const schema = z.object({
   INVESTOR_PORTAL_URL: z.string().url().default(`http://localhost:${PORTALS.investor.devPort}`),
   ONBOARDING_PORTAL_URL: z.string().url().default(`http://localhost:${PORTALS.onboarding.devPort}`),
   COMPANY_PORTAL_URL: z.string().url().default(`http://localhost:${PORTALS.company.devPort}`),
+  CUSTODIAN_PORTAL_URL: z.string().url().default(`http://localhost:${PORTALS.custodian.devPort}`),
   CORS_ORIGINS: z.preprocess(emptyToUndefined, z.string().optional()),
+
+  /** Runtime flags (DEV-PLAN 7): comma lists. A flip plus an API restart is the rollback. */
+  LP_LIVE_DOMAINS: z.string().default(''),
+  INVESTEE_LIVE_ACTIONS: z.string().default(''),
+  CUSTODIAN_LIVE: z.preprocess(emptyToUndefined, boolFromString.optional()),
+  ONBOARDING_LIVE: z.preprocess(emptyToUndefined, boolFromString.optional()),
 
   SESSION_COOKIE_NAME: z.string().min(1).default('nexus_session'),
   SESSION_TTL_HOURS: z.coerce.number().positive().default(12),
@@ -70,7 +77,14 @@ export interface AppConfig {
   signingSecret: string;
   smtp?: { host: string; port: number; secure: boolean; user?: string; password?: string };
   mailFrom: string;
+  flags: { lpLiveDomains: string[]; investeeLiveActions: string[]; custodianLive: boolean; onboardingLive: boolean };
 }
+
+const list = (raw: string) =>
+  raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
 
 /** Accepts a 32-byte key as base64 or hex; derives a stable dev key when unset outside production. */
 function parseKey(raw: string | undefined, isProduction: boolean): Buffer {
@@ -103,6 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     investor: e.INVESTOR_PORTAL_URL,
     onboarding: e.ONBOARDING_PORTAL_URL,
     company: e.COMPANY_PORTAL_URL,
+    custodian: e.CUSTODIAN_PORTAL_URL,
   };
 
   const explicit = (e.CORS_ORIGINS ?? '')
@@ -149,5 +164,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         }
       : undefined,
     mailFrom: e.MAIL_FROM,
+    flags: {
+      lpLiveDomains: list(e.LP_LIVE_DOMAINS),
+      investeeLiveActions: list(e.INVESTEE_LIVE_ACTIONS),
+      custodianLive: e.CUSTODIAN_LIVE ?? false,
+      onboardingLive: e.ONBOARDING_LIVE ?? false,
+    },
   };
 }

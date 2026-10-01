@@ -1,5 +1,5 @@
 {
-  "_comment": "Roles and permission codes discovered in the original prototype (index.html rolePermissions/roleLabels and client-portal.html data-entitlement). They are seeded as-is; nothing here is invented.",
+  "_comment": "Roles and permission codes discovered in the original prototype (index.html rolePermissions/roleLabels and client-portal.html data-entitlement), plus the day-one fund-operations codes: lp.* bundles from SRD 5B (admin=MANAGER, finance=SIGNATORY, investment/auditor=VIEWER, Q-154), staff ops-console codes, and the custodian portal roles of SRD 10.3.5 (Q-165).",
   "roles": [
     {
       "portal": "admin",
@@ -25,7 +25,17 @@
         "valuation.view",
         "audit.view",
         "cash.view",
-        "cash.approve"
+        "cash.approve",
+        "funds.view",
+        "capital.view",
+        "capital.approve",
+        "distributions.approve",
+        "notices.view",
+        "dealing.view",
+        "dealing.approve",
+        "term_sheets.view",
+        "term_sheets.approve",
+        "custodian.view"
       ]
     },
     {
@@ -49,7 +59,15 @@
         "operations.view",
         "valuation.view",
         "cash.view",
-        "cash.reservation"
+        "cash.reservation",
+        "funds.view",
+        "capital.view",
+        "capital.create",
+        "distributions.create",
+        "notices.view",
+        "dealing.view",
+        "term_sheets.view",
+        "term_sheets.create"
       ]
     },
     {
@@ -83,7 +101,10 @@
         "reports.view",
         "reports.create",
         "documents.view",
-        "documents.edit"
+        "documents.edit",
+        "funds.view",
+        "term_sheets.view",
+        "term_sheets.create"
       ]
     },
     {
@@ -108,7 +129,17 @@
         "valuation.view",
         "audit.view",
         "cash.view",
-        "cash.approve"
+        "cash.approve",
+        "funds.view",
+        "capital.view",
+        "capital.approve",
+        "distributions.approve",
+        "notices.view",
+        "notices.publish",
+        "dealing.view",
+        "dealing.approve",
+        "term_sheets.view",
+        "custodian.view"
       ]
     },
     {
@@ -132,7 +163,19 @@
         "cash.journal.approve",
         "cash.reservation",
         "cash.import",
-        "cash.close"
+        "cash.close",
+        "funds.view",
+        "funds.manage",
+        "capital.view",
+        "capital.create",
+        "capital.settle",
+        "distributions.create",
+        "distributions.settle",
+        "notices.view",
+        "dealing.view",
+        "dealing.process",
+        "custodian.view",
+        "custodian.review"
       ]
     },
     {
@@ -155,7 +198,18 @@
         "cash.journal.create",
         "cash.journal.approve",
         "cash.import",
-        "cash.close"
+        "cash.close",
+        "funds.view",
+        "funds.manage",
+        "capital.view",
+        "capital.create",
+        "capital.settle",
+        "distributions.create",
+        "distributions.settle",
+        "dealing.view",
+        "dealing.process",
+        "custodian.view",
+        "custodian.review"
       ]
     },
     {
@@ -173,7 +227,13 @@
         "reports.create",
         "documents.view",
         "documents.edit",
-        "cash.view"
+        "cash.view",
+        "funds.view",
+        "capital.view",
+        "notices.view",
+        "notices.create",
+        "notices.publish",
+        "dealing.view"
       ]
     },
     {
@@ -191,7 +251,13 @@
         "operations.view",
         "valuation.view",
         "audit.view",
-        "cash.view"
+        "cash.view",
+        "funds.view",
+        "capital.view",
+        "notices.view",
+        "dealing.view",
+        "term_sheets.view",
+        "custodian.view"
       ]
     },
     {
@@ -218,7 +284,8 @@
         "audit.view",
         "admin.rbac",
         "admin.settings",
-        "cash.view"
+        "cash.view",
+        "funds.view"
       ]
     },
     {
@@ -235,7 +302,41 @@
         "requests.view",
         "messages.view",
         "profile.view",
-        "users.invite"
+        "users.invite",
+        "lp.portal.access",
+        "lp.portal.switch_fund",
+        "lp.portal.view_notifications",
+        "lp.dashboard.view",
+        "lp.investments.view",
+        "lp.commitment.view",
+        "lp.capital_account.view",
+        "lp.holdings.view",
+        "lp.capital_calls.view",
+        "lp.capital_calls.download_notice",
+        "lp.distributions.view",
+        "lp.distributions.download",
+        "lp.dealing.view",
+        "lp.dealing.estimate",
+        "lp.performance.view",
+        "lp.performance.download_report",
+        "lp.activity.view",
+        "lp.activity.export",
+        "lp.documents.view",
+        "lp.documents.download",
+        "lp.notices.view",
+        "lp.requests.view",
+        "lp.messages.view",
+        "lp.organisation.view",
+        "lp.settings.view",
+        "lp.capital_calls.acknowledge",
+        "lp.capital_calls.upload_payment_confirmation",
+        "lp.dealing.subscribe",
+        "lp.dealing.redeem",
+        "lp.notices.acknowledge",
+        "lp.requests.create",
+        "lp.messages.reply",
+        "lp.settings.manage_mfa",
+        "lp.organisation.manage_colleagues"
       ]
     },
     {
@@ -249,7 +350,32 @@
         "holdings.view",
         "documents.view",
         "messages.view",
-        "profile.view"
+        "profile.view",
+        "lp.portal.access",
+        "lp.portal.switch_fund",
+        "lp.portal.view_notifications",
+        "lp.dashboard.view",
+        "lp.investments.view",
+        "lp.commitment.view",
+        "lp.capital_account.view",
+        "lp.holdings.view",
+        "lp.capital_calls.view",
+        "lp.capital_calls.download_notice",
+        "lp.distributions.view",
+        "lp.distributions.download",
+        "lp.dealing.view",
+        "lp.dealing.estimate",
+        "lp.performance.view",
+        "lp.performance.download_report",
+        "lp.activity.view",
+        "lp.activity.export",
+        "lp.documents.view",
+        "lp.documents.download",
+        "lp.notices.view",
+        "lp.requests.view",
+        "lp.messages.view",
+        "lp.organisation.view",
+        "lp.settings.view"
       ]
     },
     {
@@ -264,7 +390,40 @@
         "documents.view",
         "requests.view",
         "messages.view",
-        "profile.view"
+        "profile.view",
+        "lp.portal.access",
+        "lp.portal.switch_fund",
+        "lp.portal.view_notifications",
+        "lp.dashboard.view",
+        "lp.investments.view",
+        "lp.commitment.view",
+        "lp.capital_account.view",
+        "lp.holdings.view",
+        "lp.capital_calls.view",
+        "lp.capital_calls.download_notice",
+        "lp.distributions.view",
+        "lp.distributions.download",
+        "lp.dealing.view",
+        "lp.dealing.estimate",
+        "lp.performance.view",
+        "lp.performance.download_report",
+        "lp.activity.view",
+        "lp.activity.export",
+        "lp.documents.view",
+        "lp.documents.download",
+        "lp.notices.view",
+        "lp.requests.view",
+        "lp.messages.view",
+        "lp.organisation.view",
+        "lp.settings.view",
+        "lp.capital_calls.acknowledge",
+        "lp.capital_calls.upload_payment_confirmation",
+        "lp.dealing.subscribe",
+        "lp.dealing.redeem",
+        "lp.notices.acknowledge",
+        "lp.requests.create",
+        "lp.messages.reply",
+        "lp.settings.manage_mfa"
       ]
     },
     {
@@ -277,7 +436,53 @@
         "performance.view",
         "holdings.view",
         "documents.view",
-        "profile.view"
+        "profile.view",
+        "lp.portal.access",
+        "lp.portal.switch_fund",
+        "lp.portal.view_notifications",
+        "lp.dashboard.view",
+        "lp.investments.view",
+        "lp.commitment.view",
+        "lp.capital_account.view",
+        "lp.holdings.view",
+        "lp.capital_calls.view",
+        "lp.capital_calls.download_notice",
+        "lp.distributions.view",
+        "lp.distributions.download",
+        "lp.dealing.view",
+        "lp.dealing.estimate",
+        "lp.performance.view",
+        "lp.performance.download_report",
+        "lp.activity.view",
+        "lp.activity.export",
+        "lp.documents.view",
+        "lp.documents.download",
+        "lp.notices.view",
+        "lp.requests.view",
+        "lp.messages.view",
+        "lp.organisation.view",
+        "lp.settings.view"
+      ]
+    },
+    {
+      "portal": "custodian",
+      "key": "submitter",
+      "label": "Custodian Submitter",
+      "permissions": [
+        "custodian.portal.access",
+        "custodian.executions.submit",
+        "custodian.dayend.submit"
+      ]
+    },
+    {
+      "portal": "custodian",
+      "key": "approver",
+      "label": "Custodian Approver",
+      "permissions": [
+        "custodian.portal.access",
+        "custodian.executions.submit",
+        "custodian.dayend.submit",
+        "custodian.dayend.approve"
       ]
     }
   ]

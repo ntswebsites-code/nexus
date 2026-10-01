@@ -2,7 +2,7 @@
  * Registry of every frontend portal that talks to the shared API.
  * The `id` is what the API uses to answer "may this user open this portal?".
  */
-export const PORTAL_IDS = ['admin', 'investor', 'onboarding', 'company'] as const;
+export const PORTAL_IDS = ['admin', 'investor', 'onboarding', 'company', 'custodian'] as const;
 
 export type PortalId = (typeof PORTAL_IDS)[number];
 
@@ -44,6 +44,13 @@ export const PORTALS: Record<PortalId, PortalDefinition> = {
     audience: 'Portfolio companies submitting monthly reporting',
     devPort: 3103,
     urlEnvVar: 'COMPANY_PORTAL_URL',
+  },
+  custodian: {
+    id: 'custodian',
+    name: 'Custodian Data Portal',
+    audience: 'Custodians and counterparties submitting executions and day-end packages',
+    devPort: 3104,
+    urlEnvVar: 'CUSTODIAN_PORTAL_URL',
   },
 };
 
