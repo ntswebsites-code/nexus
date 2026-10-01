@@ -131,9 +131,24 @@ async function evidenceList(applicationId: string) {
 async function view(app: DraftApp) {
   const stored = app.formData as Record<string, unknown> | null;
   const { form, bankAccountOnFile, signatories } = applicantFormView(stored);
-  const nationality = new Map(
-    (Array.isArray(stored?.owners) ? (stored.owners as { name: string; nationality?: string }[]) : []).map((o) => [o.name, o.nationality ?? '']),
-  );
+  const storedOwners = Array.isArray(stored?.owners) ? (stored.owners as { name: string; nationality?: string }[]) : [];
+  const nationality = new Map(storedOwners.map((o) => [o.name, o.nationality ?? '']));
+  // Resume in the order the applicant entered. beneficial_owners has no position column,
+  // and unordered reads come back by random uuid, which swapped ownerDetails[1].
+  const byName = new Map(app.owners.map((o) => [o.fullName, o]));
+  const ordered = storedOwners.flatMap((o) => {
+    const row = byName.get(o.name);
+    return row ? [row] : [];
+  });
+  for (const row of app.owners) {
+    if (!ordered.includes(row)) ordered.push(row);
+  }
+  const ownerRows = ordered.map((o) => ({
+    name: o.fullName,
+    nationality: nationality.get(o.fullName) ?? '',
+    id: '',
+    pct: o.ownershipPct ? String(o.ownershipPct.toNumber()) : '',
+  }));
   return {
     id: app.id,
     ref: app.ref,
@@ -142,13 +157,8 @@ async function view(app: DraftApp) {
     form,
     taxIdOnFile: !!app.taxIdEnc,
     bankAccountOnFile,
-    owners: app.owners.map((o) => [o.fullName, '', o.ownershipPct ? String(o.ownershipPct.toNumber()) : '']),
-    ownerDetails: app.owners.map((o) => ({
-      name: o.fullName,
-      nationality: nationality.get(o.fullName) ?? '',
-      id: '',
-      pct: o.ownershipPct ? String(o.ownershipPct.toNumber()) : '',
-    })),
+    owners: ownerRows.map((o) => [o.name, '', o.pct]),
+    ownerDetails: ownerRows,
     signatories,
     evidence: await evidenceList(app.id),
     requiredSlots: requiredSlots(app.applicantType),

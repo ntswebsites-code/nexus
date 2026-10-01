@@ -1,4 +1,23 @@
-# Build status and hand-over (1 Oct 2026, 16:15)
+# Build status and hand-over (1 Oct 2026, 16:15; re-verified later the same day)
+
+## 0. Checkpoint — 3.1 re-verify merged `dev` (done)
+
+Re-run on merged `dev` (`ee87cc4` plus the resume-view fix) against a disposable MySQL 8 schema (`prisma migrate deploy` of the three existing migrations, `prisma/seed.ts`). API on port 4150. No new migration.
+
+| Check | Result |
+|---|---|
+| `npm ci`, `npm run typecheck`, `tsc --noEmit` in all five portals | green |
+| `npm run build -w @matanho/api` and `next build` for admin, investor, onboarding, company, custodian | green (investor-web included) |
+| `scripts/test-ws2.ts` (run first; LP step-up) | all passed |
+| `scripts/smoke-ws0.ts` | all passed |
+| `scripts/test-ws1.ts` | 128 passed |
+| `scripts/test-ws3.ts` | all passed |
+| `scripts/test-ws4.ts` | all passed after one integration fix |
+| `scripts/e2e-phase1.ts` with `SEED_DEMO=1` | all passed |
+
+Integration fix: the public onboarding resume view read `beneficial_owners` without an order, so `ownerDetails[1]` was not the second owner the applicant entered. The view now follows the order stored on the draft. Schema unchanged.
+
+Not started: 3.2 contract harness and flag flips, 3.3–3.7. Nothing cut. Nothing deployed. No `LP_LIVE_DOMAINS` flip.
 
 Hand-over from the local build agent to Cursor cloud agents. Read with `docs/HANDOFF.md` (guardrails),
 `docs/DEV-PLAN-1DAY.md` (THE plan), `docs/BUILD-PLAN.md` sections 3, 4, 12, `docs/SRD.md` + `docs/srd/*`,
