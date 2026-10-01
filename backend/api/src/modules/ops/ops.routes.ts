@@ -6,6 +6,7 @@ import { opsFundsRoutes } from './funds.routes';
 import { opsCapitalRoutes } from './capital.routes';
 import { opsDistributionsRoutes } from './distributions.routes';
 import { opsDealingRoutes } from './dealing.routes';
+import { opsCustodianRoutes } from './custodian.routes';
 
 /**
  * `/api/v1/ops` - staff fund operations used by the admin `(ops)` console: funds and
@@ -20,6 +21,7 @@ opsRoutes.get('/health', (_req, res) => {
   res.json({ domain: 'ops', live: false });
 });
 opsRoutes.use('/term-sheets', opsTermSheetRoutes);
+opsRoutes.use('/custodian', opsCustodianRoutes);
 opsRoutes.use(opsFundsRoutes);
 opsRoutes.use(opsCapitalRoutes);
 opsRoutes.use(opsDistributionsRoutes);
