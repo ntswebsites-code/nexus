@@ -4,6 +4,8 @@ Branch: `dev` (created from `main`). Written 1 Oct 2026. Companion documents: `d
 
 **The constraint.** One day of development, then user acceptance testing (UAT) starts the next morning. **The goal.** On UAT day, every journey in the cut line (section 3) works from the first click to the last visible result, on real persistence, with the staff action in the admin console, an audit event and a notification, in a deployed environment.
 
+**Keep going.** Finishing a task, a workstream, or a phase is not a stop. Record what passed in `docs/HANDOVER-STATUS.md`, then start the next unfinished item in this plan, and after this plan the next phase in `docs/BUILD-PLAN.md` section 7, without waiting to be asked. Checkpoints in section 6 are notes you write while work continues. Skip only the single item that needs a decision with no default, a schema change while the schema is frozen, an external vendor that has not been selected, or a host deploy that was forbidden. Write that skip down and take the next item that can be built and tested locally.
+
 ## 1. What "fully functional from A to Z" can honestly mean in one day
 
 The whole SRD is about 380 new functional requirements across five portals plus the admin workspace. That is weeks of work, not one day, and this plan does not pretend otherwise. The plan delivers the **largest coherent slice that is credible**:
@@ -164,3 +166,5 @@ The server has no git checkout; deploys are tarball-based (`/opt/matanho-nexus`)
 ## 12. After UAT day
 
 The remaining phases of `docs/BUILD-PLAN.md` (sections 7 and 8) continue from this slice: performance and report jobs, bank-instruction change and colleague administration workflows, cap table and governance, the structured financial statement builder, realtime, malware scanning, object storage and production hardening.
+
+When the cut line in section 3 is green locally, start the next phase in that list yourself. Do not wait for a new instruction between phases. An unselected vendor (external sanctions screening, malware scanning), object storage, and a forbidden host deploy are skips of those items, not a reason to stop the rest.

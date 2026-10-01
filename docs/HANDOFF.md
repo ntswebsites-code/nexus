@@ -43,6 +43,7 @@ Reference code that is **read-only inspiration, never a runtime dependency**: th
 
 ## 4. Guardrails (non-negotiable)
 
+- **Do not stop between tasks or phases.** When the item you are on is implemented and tested, record the result in `docs/HANDOVER-STATUS.md` and start the next unfinished item in `docs/DEV-PLAN-1DAY.md` (then `docs/BUILD-PLAN.md` section 7) yourself. Do not wait for a checkpoint, a status review, or an instruction to continue. Skip only that one item when it needs a decision with no default, a schema change while the schema is frozen, an external vendor that has not been selected, or a host deploy that was forbidden. Write the skip down and take the next item that can be built and tested locally.
 - Work on `dev` and `ws/*` branches only. **Never push to GitHub, never force-push, never rewrite history** unless the product owner says so.
 - One migration for the day, additive only; schema freeze at the plan's checkpoint; hot-spot files (Prisma schema, `routes/v1.ts`, `packages/shared/**`, role catalogue, seeds) have a single owner (WS0).
 - Use the mock as the oracle: the real API must return the same shapes as `mock-api.ts` for the same persona. Per-domain flags with rollback by flag. **No silent fallback to demo data when a live call fails.**
@@ -84,10 +85,10 @@ How to work:
 
 Rules: stay on dev and ws/* branches; commit often with clear messages; never push to GitHub, never force-push; never commit .env*, secrets or credentials; use unusual free ports for local runs; do not touch other projects on the UAT server; deploy only with the runbook in plan section 8 (backups, :pre-<release> image tags, --no-deps). If a decision has no default in docs/SRD.md section 13 or the plan, record it in docs/DECISIONS-NEEDED.md and continue with another item; do not stall.
 
-Report back at each checkpoint in the plan (what is merged, what is green, what is cut, what is at risk) and at code freeze with the known-issues list.
+Do not stop when a task, workstream, or phase is done. Update docs/HANDOVER-STATUS.md with what passed, then start the next unfinished item in the plan yourself. Checkpoints are status notes you write while you keep building, not places to wait. Skip a single item only when it needs a missing decision, a frozen-schema change, an unselected vendor, or a host deploy that was forbidden, and move on.
 ```
 
 ## 8. Roles from here
 
-- **Build agent:** implements, tests, merges, deploys to UAT per the plan, and reports at checkpoints.
+- **Build agent:** implements, tests, and merges per the plan, then starts the next unfinished item without waiting. Writes the checkpoint note in `docs/HANDOVER-STATUS.md` and keeps going. Deploys to UAT only when the plan's runbook is in force and a host deploy has not been forbidden.
 - **Architect session:** answers design questions, resolves conflicts between SRD sections, reviews checkpoints and cut decisions, and keeps the SRD and plan consistent. Send questions with the exact file/section reference.
