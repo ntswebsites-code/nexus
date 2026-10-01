@@ -12,8 +12,10 @@
  *   SMOKE_MAILPIT        Mailpit base URL (e.g. http://mailpit:8025); S12 SKIPs when unset
  *   SMOKE_MAIL_TRIGGER   1 (default) sends a password-reset mail to the analyst persona for S12
  *                        (creates a reset token only; the password is unchanged). 0: reachability only.
- *   SMOKE_PORTAL_ADMIN|INVESTOR|ONBOARDING|COMPANY|CUSTODIAN  portal base URLs (Origin header and
- *                        reachability); defaults http://localhost:3100..3104
+ *   SMOKE_PORTAL_ADMIN|INVESTOR|ONBOARDING|COMPANY|CUSTODIAN  portal base URLs checked for
+ *                        reachability (only those set); defaults http://localhost:3100..3104
+ *   SMOKE_ORIGIN_<PORTAL> Origin header per portal; defaults to <PORTAL>_PORTAL_URL (present in the
+ *                        container via .env.production), then SMOKE_PORTAL_<PORTAL>
  *   SMOKE_SEED_DATA      dataset used for value checks (default tools/uat/seed-data/uat-seed.json)
  *   SMOKE_REPORT         JSON report path (optional)
  */
@@ -41,6 +43,8 @@ const PORTALS = {
   custodian: process.env.SMOKE_PORTAL_CUSTODIAN ?? 'http://localhost:3104',
 } as const;
 type Portal = keyof typeof PORTALS;
+/** Origin header per portal: must be on the API allow-list, i.e. the public portal URL, not the internal one. */
+const origin = (p: Portal) => process.env[`SMOKE_ORIGIN_${p.toUpperCase()}`] ?? process.env[`${p.toUpperCase()}_PORTAL_URL`] ?? PORTALS[p];
 const LP = '/api/v1/lp-portal';
 
 type Status = 'PASS' | 'FAIL' | 'SKIP' | 'WARN';
@@ -70,7 +74,7 @@ async function as(persona: string, portal: Portal): Promise<ApiClient | null> {
     sessions.set(key, null);
     return null;
   }
-  const c = new ApiClient(API, PORTALS[portal]);
+  const c = new ApiClient(API, origin(portal));
   const r = await login(c, cred, portal === 'company' ? undefined : portal);
   sessions.set(key, r.ok ? c : null);
   if (!r.ok) record('S2', `sign-in ${persona} (${portal})`, 'FAIL', r.reason);
@@ -103,7 +107,7 @@ const items = (r: ApiResponse): any[] => (Array.isArray(r.body?.data) ? r.body.d
 async function main() {
   creds = loadPersonas(process.env.SMOKE_USERS_FILE ?? process.env.SEED_USERS_FILE);
   console.log(`\nUAT smoke - API ${API}, mode ${FULL ? 'full' : 'readonly'}\n`);
-  const anon = new ApiClient(API, PORTALS.admin);
+  const anon = new ApiClient(API, origin('admin'));
 
   // S1 health, flags, portals
   const h = await anon.get('/api/health?deep=1');

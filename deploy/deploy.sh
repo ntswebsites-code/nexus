@@ -27,7 +27,8 @@
 #   SEED_UAT=1               run prisma/seed-uat.ts after migrate (needs secrets/users.json)
 #   SEED_UAT_MFA_REQUIRED=1  ... and switch the mfa_required policy on
 #   SMOKE=0                  skip the smoke suite
-#   SMOKE_MODE=readonly|full readonly (default) never writes; full also runs S6-S11 (writes UAT data)
+#   SMOKE_MODE=readonly|full readonly (default) writes nothing but one reset-mail token; full also
+#                            runs S8 (LP acknowledge + upload) and S10 (investee submit + accept)
 #   AUTO_ROLLBACK=0          on smoke failure stop and print the rollback command instead
 #
 # Only the compose project `matanho-nexus` and /opt/matanho-nexus are touched. Host nginx is
@@ -249,20 +250,26 @@ compose ps --format '{{.Service}} {{.Image}} {{.Status}}' > "$BK/ps-after.txt" 2
 
 # ---------------------------------------------------------------- 6. smoke
 if [ "${SMOKE:-1}" = 1 ]; then
+  # S12 sends a password-reset mail only when the API really relays to Mailpit; otherwise it
+  # just checks Mailpit is up (a mis-pointed SMTP host must not roll the release back).
+  MAIL_TRIGGER=0
+  grep -Eq '^SMTP_HOST=["'\'']?mailpit["'\'']?\s*$' "$APP_DIR/.env.production" 2>/dev/null && MAIL_TRIGGER=1
+  [ "$MAIL_TRIGGER" = 1 ] || log "    SMTP_HOST is not mailpit - S12 checks Mailpit reachability only"
   log "6/6 smoke suite (mode ${SMOKE_MODE:-readonly})"
   trap - ERR
   set +e
+  # Origins come from *_PORTAL_URL in .env.production (env_file); SMOKE_PORTAL_* are reachability targets.
   compose run --rm --no-deps \
     -e SMOKE_API=http://api:4100 \
     -e SMOKE_MODE="${SMOKE_MODE:-readonly}" \
     -e SMOKE_USERS_FILE=/run/secrets/users.json \
     -e SMOKE_MAILPIT=http://mailpit:8025 \
+    -e SMOKE_MAIL_TRIGGER="$MAIL_TRIGGER" \
     -e SMOKE_PORTAL_ADMIN=http://admin:3100 \
     -e SMOKE_PORTAL_INVESTOR=http://investor:3101 \
     -e SMOKE_PORTAL_ONBOARDING=http://onboarding:3102 \
     -e SMOKE_PORTAL_COMPANY=http://company:3103 \
     -e SMOKE_PORTAL_CUSTODIAN=http://custodian:3104 \
-    -e SMOKE_REPORT=/tmp/smoke-report.json \
     migrate npx tsx ../../tools/uat/smoke.ts 2>&1 | tee "$BK/smoke.log"
   rc=${PIPESTATUS[0]}
   set -e
