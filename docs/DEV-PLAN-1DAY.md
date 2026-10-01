@@ -4,7 +4,7 @@ Branch: `dev` (created from `main`). Written 1 Oct 2026. Companion documents: `d
 
 **The constraint.** One day of development, then user acceptance testing (UAT) starts the next morning. **The goal.** On UAT day, every journey in the cut line (section 3) works from the first click to the last visible result, on real persistence, with the staff action in the admin console, an audit event and a notification, in a deployed environment.
 
-**Keep going.** Finishing a task, a workstream, or a phase is not a stop. Record what passed in `docs/HANDOVER-STATUS.md`, then start the next unfinished item in this plan, and after this plan the next phase in `docs/BUILD-PLAN.md` section 7, without waiting to be asked. Checkpoints in section 6 are notes you write while work continues. Skip only the single item that needs a decision with no default, a schema change while the schema is frozen, an external vendor that has not been selected, or a host deploy that was forbidden. Write that skip down and take the next item that can be built and tested locally.
+**Keep going.** Finishing a task, a workstream, or a phase is not a stop. Log results to PROGRESS.md and continue to the next phase immediately. Checkpoints in section 6 are notes you write while work continues. Skip only the single item that needs a decision with no default, a schema change while the schema is frozen, an external vendor that has not been selected, or a host deploy that was forbidden. Write that skip down and take the next item that can be built and tested locally.
 
 **Click-through when the build is in place.** Before treating the cut line as done, sign in as each persona and click through every journey in section 3. A page that should be live must not show the Demo data ribbon. A failed request, a blank error, or a broken layout is a defect: fix it and click that journey again. API checks do not replace the click-through.
 
@@ -22,7 +22,7 @@ Everything outside the cut line keeps its demo data and shows a persistent "Demo
 
 | # | Decision | Default used if you say nothing |
 | --- | --- | --- |
-| D1 | **Commit the baseline.** The working tree holds about 170 uncommitted changes (the whole Phase 1 backend, the portal swaps, the SRD). Parallel agent worktrees are created from a commit, so without a baseline commit on `dev` they would start from an empty codebase. | Needs your explicit OK. One commit on `dev`: "Baseline: Phase 1 API, LP and Investee portals, SRD v2". Nothing is pushed to GitHub without your say-so. |
+| D1 | **Commit the baseline.** The working tree holds about 170 uncommitted changes (the whole Phase 1 backend, the portal swaps, the SRD). Parallel agent worktrees are created from a commit, so without a baseline commit on `dev` they would start from an empty codebase. | Log results to PROGRESS.md and continue to the next phase immediately. One commit on `dev`: "Baseline: Phase 1 API, LP and Investee portals, SRD v2". |
 | D2 | Fund is a first-class entity (BUILD-PLAN Q-NEW-01) | Yes: `funds`, `fund_commitments`, `lp_holdings` |
 | D3 | LP roles (Q-NEW-02) | Viewer, Signatory, Manager map onto the existing investor roles `finance`, `admin`, `investment`/`auditor`; permission codes `lp.*` |
 | D4 | Relationship to NVCCZ (Q-NEW-04) | Reference only. Logic is ported natively into `backend/api`; NVCCZ is not a runtime dependency |
@@ -64,7 +64,7 @@ main            frozen baseline (untouched by this plan)
 * Each workstream works in its own git worktree and branch off `dev`, with its own MySQL schema and a private port range (41xx for API, 42xx for portals; never the production ports).
 * A workstream edits only the directories it owns (section 5). Hot-spot files have one owner: Prisma schema and migrations, `routes/v1.ts`, `packages/shared/**`, role catalogue and seed belong to WS0; `deploy/**` belongs to WS8. Others ask the owner for a diff.
 * **One migration for the day**, written by WS0 before checkpoint 1, additive only. After the schema freeze only column additions, through WS0.
-* Merge to `dev` at checkpoints or when the workstream is green (typecheck + build + its tests). No force pushes. No pushes to GitHub without your approval.
+* Merge to `dev` at checkpoints or when the workstream is green (typecheck + build + its tests). No force pushes. Log results to PROGRESS.md and continue to the next phase immediately.
 
 ## 5. Workstreams
 
@@ -82,18 +82,18 @@ main            frozen baseline (untouched by this plan)
 
 ## 6. Schedule
 
-T+0 is the moment you say go (after decisions D1 to D9). Times are elapsed hours; map them to clock time when you start. The plan assumes about 13 working hours before the UAT deploy.
+T+0 is the start of the day (decisions D1 to D9 use the defaults in section 2). Times are elapsed hours. The plan assumes about 13 working hours before a local verification pass. Log results to PROGRESS.md and continue to the next phase immediately.
 
 | Elapsed | Activity | Gate |
 | --- | --- | --- |
 | T+0:00 | D1 baseline commit on `dev`; typecheck baseline; create worktrees, per-agent schemas and ports; confirm scope cut | Scope frozen |
 | T+0:30 to T+2:00 | **Block 1.** WS0 writes the migration, shared types and stub routers. Everyone else scaffolds against the mock: WS5 client and flags, WS6 adapter port, WS7 console kit, WS8 Mailpit and seed exporter | |
-| **T+2:00** | **Checkpoint 1:** schema v1 and stubs merged; Prisma client regenerated; typecheck green; harness shows stubs shape-valid. If later than T+2:30, auto-cut J4, J6, J7 | Go/no-go on the full cut |
+| **T+2:00** | **Checkpoint 1:** schema v1 and stubs merged; Prisma client regenerated; typecheck green; harness shows stubs shape-valid. If later than T+2:30, auto-cut J4, J6, J7 | Log results to PROGRESS.md and continue to the next phase immediately. |
 | T+2:00 to T+5:00 | **Block 2.** WS1 session, dashboard, documents, notices; WS2 capital; WS3 reporting adapter; WS4 onboarding mapping; WS5 and WS6 wiring; WS7 funds and call run | |
 | T+4:30 | Schema freeze: column additions only, through WS0 | |
-| **T+5:00** | **Checkpoint 2 (integration 1):** merge to `dev`, rebuild, run the harness; flip the first flag groups on the dev stack; J0, J1A, J2 smoke by hand | Fix blockers first |
+| **T+5:00** | **Checkpoint 2 (integration 1):** merge to `dev`, rebuild, run the harness; flip the first flag groups on the dev stack; J0, J1A, J2 smoke by hand | Log results to PROGRESS.md and continue to the next phase immediately. |
 | T+5:00 to T+8:00 | **Block 3.** J3 and J5 end to end, then J4 and J6; staff screens; E2E scripts; seeds final | |
-| **T+7:00** | **Checkpoint 3 (integration 2):** J3 and J5 happy paths green; rehearsal deploy to a scratch stack with the migration run against a copy of the UAT DB; per-journey decision: stay, ribbon or cut | Cut decisions logged |
+| **T+7:00** | **Checkpoint 3 (integration 2):** J3 and J5 happy paths green; local verification of the migration; per-journey decision: stay, ribbon or cut | Log results to PROGRESS.md and continue to the next phase immediately. |
 | **T+8:00** | **Feature freeze:** fixes only | |
 | T+8:00 to T+10:00 | **Block 4:** bug fixing, all-journey E2E, flag configuration, tester documents. Start image builds from T+9:30 to surface build errors early | |
 | **T+10:00** | **Code freeze:** tag `uat-rc1` on `dev` | |
@@ -169,4 +169,4 @@ The server has no git checkout; deploys are tarball-based (`/opt/matanho-nexus`)
 
 The remaining phases of `docs/BUILD-PLAN.md` (sections 7 and 8) continue from this slice: performance and report jobs, bank-instruction change and colleague administration workflows, cap table and governance, the structured financial statement builder, realtime, malware scanning, object storage and production hardening.
 
-When the cut line in section 3 is green locally, start the next phase in that list yourself. Do not wait for a new instruction between phases. An unselected vendor (external sanctions screening, malware scanning), object storage, and a forbidden host deploy are skips of those items, not a reason to stop the rest.
+When the cut line in section 3 is green locally, start the next phase in that list yourself. Log results to PROGRESS.md and continue to the next phase immediately. An unselected vendor (external sanctions screening, malware scanning), object storage, and a forbidden host deploy are skips of those items, not a reason to stop the rest.

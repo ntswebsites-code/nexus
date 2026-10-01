@@ -166,7 +166,7 @@ Before the first deploy, on the server only: add `SMTP_HOST=mailpit`, `SMTP_PORT
 do not touch other projects on that server; restart host nginx only after `nginx -t` and only for config changes.
 
 ## 4. Guardrails (unchanged)
-When a task or phase is done, do not stop. Record the result here and start the next unfinished item in `docs/DEV-PLAN-1DAY.md`, then the next phase in `docs/BUILD-PLAN.md` section 7. Checkpoints are notes, not pauses. Skip only the item that needs a decision with no default, a schema change while the schema is frozen, an unselected vendor, or a host deploy that was forbidden, and take the next item that can be built and tested locally.
+When a task or phase is done, do not stop. Log results to PROGRESS.md and continue to the next phase immediately. Checkpoints are notes, not pauses. Skip only the item that needs a decision with no default, a schema change while the schema is frozen, an unselected vendor, or a host deploy that was forbidden, and take the next item that can be built and tested locally.
 Before the cut line is called done, sign in and click through every journey in the plan. A live page must not show the Demo data ribbon. Fix failed requests, blank errors, and broken layouts, then click the failed journey again.
 Schema frozen (one additive migration for the day). Every query scoped by client/company/counterparty with IDOR tests.
 Money actions: permission + step-up + maker/checker + audit (`writeAudit` inside a transaction) + Idempotency-Key.
