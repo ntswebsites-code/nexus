@@ -1,0 +1,5 @@
+{
+  "extends": "../../backend/api/tsconfig.json",
+  "compilerOptions": { "noEmit": true },
+  "include": ["../../backend/api/src", "../../backend/api/prisma/seed-uat.ts", "seed-types.ts"]
+}
