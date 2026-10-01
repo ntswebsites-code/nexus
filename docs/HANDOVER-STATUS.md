@@ -140,12 +140,15 @@ same Idempotency-Key on retry. DEF-374 is closed for capital-call acknowledge an
 - Investee application, procurement, cap table, forecast, governance, vault and signatures now answer from `/api/v1/investee-portal`. Cap table, forecast cells, consents and requisitions are stored on `settings` (no new tables). The vault reads and writes `documents`. Signatures are the company's visible term sheets. A company can reply on an open message thread. Staff with `research.edit` decide a request and a governance consent at `/ops/investee-requests`. The company portal drops the demo ribbon on those pages when the matching action keys are allowlisted. Covered by `scripts/test-investee-workspace.ts`.
 - Dealing and activity exports accept `format=xlsx`. Subscription files on the multipart submit are stored as request attachments. Daily, weekly and month-end dealing dates skip 1 Jan, 25 Dec and 26 Dec as well as weekends. A weekly Friday that is a holiday moves to the next open Friday.
 - The screening check treats a "yes" sanctions or adverse-media declaration as an advisory match for a person to review. No external screening vendor is connected.
-- `tools/legacy-bridge.mjs --check` reports manifests out of date (pre-existing).
-- Mailpit image uses `latest` - pin before go-live. Plan data counts differ slightly from mock-derived seed.
+- `tools/legacy-bridge.mjs --check` is up to date for admin, onboarding and custodian.
+- Mailpit is pinned to `axllent/mailpit:v1.31.2` (the current stable release, including the thumbnail security fix). Plan data counts differ slightly from mock-derived seed.
 - Credential hygiene: a local `DATABASE_URL` (user `matanho_app`) from a gitignored `.env` was printed in an agent's
   local tool output once. Never committed. Rotate if it is shared with any real environment.
 
 ### 3.7 Deploy (code freeze) - plan section 8 runbook only
+
+Local gates for this cut are green. The UAT host deploy has not been run from this environment: there is no SSH private key here (`~/.ssh` has `known_hosts` only), and the earlier attempt to `207.180.234.151` was refused with `Permission denied (publickey)`.
+
 WS8 tooling: `tools/uat/pack-release.ps1 -Ref <frozen commit> -Release <rel>` -> upload as printed ->
 `SEED_UAT=1 DETACH=1 bash /root/nexus-releases/<rel>/deploy/deploy.sh <rel> api worker admin investor onboarding company custodian mailpit`
 -> `tail -f /root/nexus-backups/<rel>/deploy.log` -> rollback `bash /root/nexus-backups/<rel>/rollback.sh [--flags-off] <rel> <services>`.

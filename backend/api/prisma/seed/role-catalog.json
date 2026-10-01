@@ -285,7 +285,12 @@
         "admin.rbac",
         "admin.settings",
         "cash.view",
-        "funds.view"
+        "funds.view",
+        "capital.view",
+        "notices.view",
+        "dealing.view",
+        "term_sheets.view",
+        "custodian.view"
       ]
     },
     {

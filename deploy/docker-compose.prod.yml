@@ -165,7 +165,7 @@ services:
   # tunnel (ssh -L 8625:127.0.0.1:8625 root@<host>), or from inside the network at
   # http://mailpit:8025 (the smoke suite's S12 check uses that).
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:v1.31.2
     restart: unless-stopped
     environment:
       MP_MAX_MESSAGES: "5000"
