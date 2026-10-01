@@ -46,7 +46,7 @@ export function PaymentModal({
       subtitle={
         <>
           Outstanding {formatMoney(outstanding, currency)}. You will be asked to confirm with your authenticator.{' '}
-          {mode === 'payment' && 'The person who matched the proof of payment cannot also confirm it.'}
+          {mode === 'payment' && 'The person who uploaded the proof cannot also record the payment.'}
         </>
       }
       submitLabel={mode === 'payment' ? 'Record payment' : 'Record settlement'}

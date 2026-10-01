@@ -87,7 +87,7 @@ function CallDetail({ call, reload }: { call: CapitalCall; reload: () => void })
                 </button>
               </>
             )}
-            {status === 'APPROVED' && can('capital.approve') && (
+            {status === 'APPROVED' && can('capital.create') && (
               <ActionButton
                 primary
                 label="Issue to LPs"

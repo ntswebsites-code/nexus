@@ -86,7 +86,7 @@ function DistributionDetail({ d, reload }: { d: Distribution; reload: () => void
                 </button>
               </>
             )}
-            {status === 'APPROVED' && can('distributions.approve') && (
+            {status === 'APPROVED' && can('distributions.create') && (
               <ActionButton
                 primary
                 label="Issue to LPs"
