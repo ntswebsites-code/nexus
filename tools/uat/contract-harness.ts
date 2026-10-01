@@ -8,7 +8,7 @@
  *
  * Env:
  *   HARNESS_API          API base URL (default http://127.0.0.1:4158)
- *   HARNESS_ORIGIN       Origin header (default http://localhost:3101, the investor portal)
+ *   HARNESS_ORIGIN       Origin header (default INVESTOR_PORTAL_URL, then http://localhost:3101)
  *   HARNESS_USERS_FILE   persona credentials file (falls back to SEED_USERS_FILE)
  *   HARNESS_PERSONA      persona key (default lp_a_manager)
  *   HARNESS_VALUES       1/0: compare money values of matched records (default 1 for lp_a_manager, else 0)
@@ -26,7 +26,7 @@ import { getMockStore, MOCK_FUND_IDS } from '../../portals/investor-web/src/lib/
 import { ApiClient, isNotLive, loadPersonas, login, type ApiResponse } from './lib';
 
 const API = (process.env.HARNESS_API ?? 'http://127.0.0.1:4158').replace(/\/$/, '');
-const ORIGIN = process.env.HARNESS_ORIGIN ?? 'http://localhost:3101';
+const ORIGIN = process.env.HARNESS_ORIGIN ?? process.env.INVESTOR_PORTAL_URL ?? 'http://localhost:3101';
 const PERSONA = process.env.HARNESS_PERSONA ?? 'lp_a_manager';
 const VALUES = (process.env.HARNESS_VALUES ?? (PERSONA === 'lp_a_manager' ? '1' : '0')) === '1';
 const REPORT = process.env.HARNESS_REPORT ?? path.join(tmpdir(), `nexus-contract-${PERSONA}.json`);
