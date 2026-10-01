@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "noEmit": true,
+    "baseUrl": ".",
+    "paths": { "@/*": ["../../portals/investor-web/src/*"] }
+  },
+  "include": ["lib.ts", "contract-harness.ts", "smoke.ts", "export-mock-seed.ts", "seed-types.ts"]
+}

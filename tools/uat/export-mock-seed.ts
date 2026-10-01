@@ -232,7 +232,7 @@ function buildLp(): Omit<UatSeed, 'version' | 'note' | 'asOfDate' | 'personas' |
 
   const funds: UatSeed['funds'] = s.funds.map((f) => {
     const ov = store.dealingOverviews[f.fundId];
-    const { compliance: _c, ...rules } = (ov?.rules ?? {}) as Record<string, unknown>;
+    const { compliance: _c, ...rules } = (ov?.rules ?? {}) as unknown as Record<string, unknown>;
     const navHistory = store.dashboards[f.fundId]?.openEndedHistory?.points ?? [];
     const wiring = store.capitalCalls.find((c) => c.fundId === f.fundId)?.wiring;
     return {
