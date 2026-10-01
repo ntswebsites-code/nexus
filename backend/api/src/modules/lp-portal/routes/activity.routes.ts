@@ -1,11 +1,50 @@
-import { Router } from 'express';
-import { requireLp } from '../lp.context';
-import { lpStubArray, lpStubList, lpStubNotLive } from '../lp.http';
+import { Router, type Request } from 'express';
+import { prisma } from '../../../lib/prisma';
+import { writeAudit } from '../../../lib/audit';
+import { param } from '../../../lib/http';
+import { lp, requireLp } from '../lp.context';
+import { LpError, lpOk, lpPaginate, pageOf } from '../lp.http';
+import { lpAudit, queryFund, str } from '../services/common';
+import { ledgerEntries, ledgerEntry, toCsv, type ActivityFilter } from '../services/activity';
 
 /** Domain `activity`: account activity and ledger (WS1). */
 export const lpActivityRoutes = Router();
 
-lpActivityRoutes.get('/account-activity', requireLp('lp.activity.view'), lpStubList);
-lpActivityRoutes.get('/account-activity/export', requireLp('lp.activity.export'), lpStubNotLive);
-lpActivityRoutes.get('/ledger', requireLp('lp.capital_account.view'), lpStubArray);
-lpActivityRoutes.get('/ledger/:entryId', requireLp('lp.capital_account.view'), lpStubNotLive);
+function dateParam(req: Request, key: string) {
+  const v = str(req.query[key]);
+  if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) throw LpError.validation(`${key} must be YYYY-MM-DD`, { [key]: 'Use YYYY-MM-DD' });
+  return v;
+}
+
+function filter(req: Request): ActivityFilter {
+  const ctx = lp(req);
+  return { fundId: queryFund(req, ctx), from: dateParam(req, 'from'), to: dateParam(req, 'to'), currency: str(req.query.currency) };
+}
+
+lpActivityRoutes.get('/account-activity', requireLp('lp.activity.view'), async (req, res) => {
+  const { page, pageSize } = pageOf(req);
+  lpOk(req, res, lpPaginate(await ledgerEntries(lp(req), filter(req)), page, pageSize));
+});
+
+lpActivityRoutes.get('/account-activity/export', requireLp('lp.activity.export'), async (req, res) => {
+  const format = (str(req.query.format) ?? 'csv').toLowerCase();
+  if (format !== 'csv') throw new LpError(415, 'LP_UNSUPPORTED_MEDIA', 'Only CSV export is available');
+  const ctx = lp(req);
+  const f = filter(req);
+  const entries = await ledgerEntries(ctx, f);
+  await prisma.$transaction((tx) =>
+    writeAudit(tx, lpAudit(req), { action: 'lp_activity.exported', objectType: 'client', objectId: ctx.client.id, after: { ...f, rows: entries.length, format } }),
+  );
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="account-activity-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.status(200).send(toCsv(entries));
+});
+
+lpActivityRoutes.get('/ledger', requireLp('lp.capital_account.view'), async (req, res) => {
+  lpOk(req, res, await ledgerEntries(lp(req), filter(req)));
+});
+
+lpActivityRoutes.get('/ledger/:entryId', requireLp('lp.capital_account.view'), async (req, res) => {
+  lpOk(req, res, await ledgerEntry(lp(req), param(req, 'entryId')));
+});
