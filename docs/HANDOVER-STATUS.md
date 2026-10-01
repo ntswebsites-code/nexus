@@ -147,7 +147,7 @@ same Idempotency-Key on retry. DEF-374 is closed for capital-call acknowledge an
 
 ### 3.7 Deploy (code freeze) - plan section 8 runbook only
 
-Local gates for this cut are green. The UAT host deploy has not been run from this environment: there is no SSH private key here (`~/.ssh` has `known_hosts` only), and the earlier attempt to `207.180.234.151` was refused with `Permission denied (publickey)`.
+Local readonly smoke S1–S12 against the API on port 4150: 26 pass, 0 fail, 7 skip (migration version is recorded by `deploy.sh`, S8 and S10 are write steps, Mailpit is not running locally). The system administrator role can open the ops lists (`capital.view`, `notices.view`, `dealing.view`, `term_sheets.view`, `custodian.view`) and still cannot approve or settle. The UAT host deploy has not been run from this environment: there is no SSH private key here (`~/.ssh` has `known_hosts` only), and the earlier attempt to `207.180.234.151` was refused with `Permission denied (publickey)`.
 
 WS8 tooling: `tools/uat/pack-release.ps1 -Ref <frozen commit> -Release <rel>` -> upload as printed ->
 `SEED_UAT=1 DETACH=1 bash /root/nexus-releases/<rel>/deploy/deploy.sh <rel> api worker admin investor onboarding company custodian mailpit`
