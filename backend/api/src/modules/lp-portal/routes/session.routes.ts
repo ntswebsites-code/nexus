@@ -1,35 +1,20 @@
 import { Router } from 'express';
-import type { LpSession, LpSessionFund } from '@matanho/shared';
+import type { LpNotificationItem, LpRealtimeInfo, LpSession, LpSessionFund } from '@matanho/shared';
 import { prisma } from '../../../lib/prisma';
-import { lp, type LpContext } from '../lp.context';
-import { dec, day, lpOk, lpStubItems, lpStubNotLive } from '../lp.http';
+import { lp, requireLp, type LpContext } from '../lp.context';
+import { dec, day, lpOk } from '../lp.http';
+import { fundScopeWhere } from '../services/common';
+import { visibleNoticeWhere } from '../services/notices';
 
-/** Published, unexpired notices addressed to this member (ALL, their funds, their client, or them). */
-export function visibleNoticeWhere(ctx: LpContext) {
-  const now = new Date();
-  return {
-    status: 'PUBLISHED',
-    OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
-    AND: [
-      {
-        OR: [
-          { targetType: 'ALL' },
-          { targetType: 'FUND', fundId: { in: ctx.fundIds } },
-          { targetType: 'ORG', clientId: ctx.client.id },
-          { targetType: 'USER', userId: ctx.userId },
-        ],
-      },
-    ],
-  };
-}
+export { visibleNoticeWhere };
 
 async function unreadCounts(ctx: LpContext): Promise<LpSession['unreadCounts']> {
   const [requests, threads, notices, notifications] = await Promise.all([
     prisma.serviceRequest.count({
-      where: { clientId: ctx.client.id, OR: [{ lpStatus: 'AWAITING_INVESTOR' }, { lpStatus: null, status: 'Waiting on you' }] },
+      where: { clientId: ctx.client.id, status: 'Waiting on you', ...fundScopeWhere(ctx) },
     }),
     prisma.messageThread.findMany({
-      where: { clientId: ctx.client.id },
+      where: { clientId: ctx.client.id, ...fundScopeWhere(ctx) },
       select: {
         reads: { where: { userId: ctx.userId }, select: { readAt: true } },
         messages: { where: { fromClient: false }, orderBy: { createdAt: 'desc' }, take: 1, select: { createdAt: true } },
@@ -91,5 +76,35 @@ export const lpSessionRoutes = Router();
 lpSessionRoutes.get('/session', async (req, res) => {
   lpOk(req, res, await buildSession(lp(req)));
 });
-lpSessionRoutes.get('/realtime', lpStubNotLive);
-lpSessionRoutes.get('/notifications', lpStubItems);
+/** No push transport yet: the portal polls (decision noted in the WS1 report). */
+lpSessionRoutes.get('/realtime', (req, res) => {
+  const info: LpRealtimeInfo = { enabled: false, pollingIntervalMs: 30000, events: [] };
+  lpOk(req, res, info);
+});
+
+function notificationHref(type: string, link: string | null): string {
+  if (link?.startsWith('/lp-portal/')) return link;
+  if (type.startsWith('notice')) return '/lp-portal/notices';
+  if (type.startsWith('distribution')) return '/lp-portal/capital-activity?tab=distributions';
+  if (type.startsWith('capital')) return '/lp-portal/capital-activity?tab=calls';
+  if (type.startsWith('service_request') || type.startsWith('message')) return '/lp-portal/requests';
+  if (type.startsWith('document')) return '/lp-portal/documents';
+  if (type.startsWith('dealing')) return '/lp-portal/dealing';
+  return '/lp-portal/dashboard';
+}
+
+lpSessionRoutes.get('/notifications', requireLp('lp.portal.view_notifications'), async (req, res) => {
+  const ctx = lp(req);
+  const raw = Number.parseInt(String(req.query.limit ?? '10'), 10);
+  const limit = Math.min(50, Math.max(1, Number.isNaN(raw) ? 10 : raw));
+  const rows = await prisma.notification.findMany({ where: { userId: ctx.userId }, orderBy: { createdAt: 'desc' }, take: limit });
+  const items: LpNotificationItem[] = rows.map((n) => ({
+    id: n.id,
+    title: n.title,
+    href: notificationHref(n.type, n.link),
+    createdAt: n.createdAt.toISOString(),
+    type: n.type,
+    read: !!n.readAt,
+  }));
+  lpOk(req, res, { items });
+});
