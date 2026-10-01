@@ -127,8 +127,8 @@ function RequestPanel({ r, reload }: { r: DealingRequest; reload: () => void }) 
   const s = r.status;
   const isProcessor = !!r.processedById && r.processedById === user.id;
   const canAccept = (s === 'SUBMITTED' || s === 'COMPLIANCE_REVIEW') && can('dealing.process');
-  const canProcess = (s === 'AWAITING_FUNDS' || s === 'AWAITING_NAV') && can('dealing.process');
-  const canApprove = s === 'UNDER_REVIEW' && can('dealing.approve');
+  const canProcess = (s === 'AWAITING_FUNDS' || s === 'UNDER_REVIEW') && can('dealing.process');
+  const canApprove = s === 'AWAITING_NAV' && can('dealing.approve');
   const canReject = !TERMINAL.has(s) && can('dealing.process', 'dealing.approve');
 
   return (
@@ -188,23 +188,18 @@ function RequestPanel({ r, reload }: { r: DealingRequest; reload: () => void }) 
           onClose={() => setProcessing(false)}
           onDone={reload}
           onSubmit={(fd, key) => {
-            const nav = amount(fd, 'dealingNavPerUnit');
-            const units = amount(fd, 'unitsAllocated');
+            const nav = amount(fd, 'navPerUnit');
             if (!isDecimal(nav)) throw new Error('Enter the dealing NAV per unit as a number.');
-            if (units && !isDecimal(units)) throw new Error('Units must be a number.');
             return api.post(
               `${base}/process`,
-              { dealingNavPerUnit: nav, unitsAllocated: units || undefined, notes: optStr(fd, 'notes') },
+              { navPerUnit: nav, notes: optStr(fd, 'notes') },
               { idempotencyKey: key },
             );
           }}
         >
           <FieldGrid>
-            <Field label="Dealing NAV per unit">
-              <input className="ops-input" name="dealingNavPerUnit" inputMode="decimal" required />
-            </Field>
-            <Field label="Units (optional)" hint="Leave blank to let the system compute from the NAV">
-              <input className="ops-input" name="unitsAllocated" inputMode="decimal" />
+            <Field label="Dealing NAV per unit" hint="Units are calculated from this NAV.">
+              <input className="ops-input" name="navPerUnit" inputMode="decimal" required />
             </Field>
             <Field label="Notes" span={2}>
               <textarea className="ops-input" name="notes" maxLength={2000} />

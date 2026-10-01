@@ -74,7 +74,8 @@ export function LpStepUpProvider({ children }: { children: React.ReactNode }) {
 
   async function onSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const clean = code.replace(/\s+/g, "")
+    const field = event.currentTarget.elements.namedItem("code")
+    const clean = (field instanceof HTMLInputElement ? field.value : code).replace(/\s+/g, "")
     if (!/^\d{6}$/.test(clean)) {
       setError("Enter the 6-digit code from your authenticator app.")
       return

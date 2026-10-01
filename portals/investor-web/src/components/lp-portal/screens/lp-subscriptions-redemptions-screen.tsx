@@ -414,8 +414,8 @@ export function LpSubscriptionsRedemptionsScreen({
         shareClass: subscription.shareClass || shareClass,
         amount: subAmount.toFixed(2),
         currency: subscription.currency,
-        expectedFundingDate: subscription.fundingDate,
-        sourceBankAccountId: subscription.bankId,
+        bankAccountId: subscription.bankId,
+        requestedDealingDate: subscription.fundingDate,
         estimateSnapshotId: subEstimate.estimateSnapshotId,
       }
       if (subscriptionFiles.length > 0) {
