@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { LpDocument, LpDocumentsSummary, LpVaultDocument, LpVaultVerifyResult } from '@matanho/shared';
 import { prisma } from '../../../lib/prisma';
 import { writeAudit } from '../../../lib/audit';
@@ -135,11 +135,9 @@ async function logAccess(req: Request, ctx: LpContext, documentId: string, actio
   await prisma.documentAccessLog.create({
     data: { documentId, userId: ctx.userId, clientId: ctx.client.id, action, ip: req.ip?.slice(0, 45) ?? null, userAgent: req.get('user-agent')?.slice(0, 255) ?? null },
   });
-  await prisma.documentRead.upsert({
-    where: { documentId_userId: { documentId, userId: ctx.userId } },
-    create: { documentId, userId: ctx.userId },
-    update: {},
-  });
+  // Detail and preview record the same read together. skipDuplicates absorbs that race
+  // without a duplicate-key error on the composite primary key.
+  await prisma.documentRead.createMany({ data: [{ documentId, userId: ctx.userId }], skipDuplicates: true });
 }
 
 export async function documentDetail(req: Request, ctx: LpContext, id: string): Promise<LpDocument> {

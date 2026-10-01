@@ -246,11 +246,7 @@ async function publishedDocument(ic: InvestorContext, ref: string) {
 }
 
 async function markRead(documentId: string, userId: string) {
-  await prisma.documentRead.upsert({
-    where: { documentId_userId: { documentId, userId } },
-    create: { documentId, userId },
-    update: {},
-  });
+  await prisma.documentRead.createMany({ data: [{ documentId, userId }], skipDuplicates: true });
 }
 
 investorRoutes.post('/documents/:ref/read', async (req, res) => {
