@@ -36,6 +36,9 @@ coverage/
 mysql-data/
 .mysql/
 
+# Local file store written by API test runs
+backend/api/storage/
+
 # Hosting tooling
 .vercel/
 
