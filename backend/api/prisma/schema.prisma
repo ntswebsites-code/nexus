@@ -1701,3 +1701,147 @@ model CounterpartyDayEndPackage {
   @@index([accountRef, statementDate])
   @@map("counterparty_day_end_packages")
 }
+
+// ---------------------------------------------------------------------------
+// Portfolio foundation (SRD 10.3: portfolios, securities, prices, positions).
+// Read by the staff Orders and Risk modules; written by `modules/portfolio`.
+// ---------------------------------------------------------------------------
+
+/// A managed portfolio or mandate (SRD 5.A.2). `mandateJson` holds the limits
+/// (maxSingleNamePct, maxSectorPct, cashFloorPct, ...) the pre-trade checks read.
+model Portfolio {
+  id            String   @id @default(uuid()) @db.Char(36)
+  ref           String   @unique @db.VarChar(16)
+  name          String   @db.VarChar(160)
+  type          String   @db.VarChar(64)
+  baseCurrency  String   @default("USD") @map("base_currency") @db.Char(3)
+  /// Logical reference to clients.id (no FK, like funds.maker_id).
+  clientId      String?  @map("client_id") @db.Char(36)
+  /// Logical reference to users.id.
+  managerUserId String?  @map("manager_user_id") @db.Char(36)
+  benchmark     String?  @db.VarChar(160)
+  /// Setup | Active | Suspended | Closed
+  status        String   @default("Active") @db.VarChar(16)
+  mandateJson   Json?    @map("mandate_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+  createdBy     String?  @map("created_by") @db.Char(36)
+  updatedAt     DateTime @updatedAt @map("updated_at")
+  updatedBy     String?  @map("updated_by") @db.Char(36)
+  version       Int      @default(1)
+
+  positions PortfolioPosition[]
+  cash      PortfolioCash[]
+
+  @@index([status])
+  @@index([clientId])
+  @@index([managerUserId])
+  @@index([name])
+  @@map("portfolios")
+}
+
+/// Tradable instrument master (ZSE, VFEX, OTC).
+model Security {
+  id         String   @id @default(uuid()) @db.Char(36)
+  /// Order-ticket ticker, e.g. DLTA.ZW or ZIM.VX.
+  ticker     String   @unique @db.VarChar(24)
+  isin       String?  @unique @db.VarChar(12)
+  name       String   @db.VarChar(200)
+  /// ZSE | VFEX | OTC
+  market     String   @db.VarChar(8)
+  /// Equity | Fixed income | Cash | Fund | Private
+  assetClass String   @default("Equity") @map("asset_class") @db.VarChar(24)
+  currency   String   @default("USD") @db.Char(3)
+  boardLot   Int      @default(1) @map("board_lot")
+  sector     String?  @db.VarChar(80)
+  /// Active | Suspended | Delisted
+  status     String   @default("Active") @db.VarChar(16)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  prices    SecurityPrice[]
+  positions PortfolioPosition[]
+
+  @@index([market, status])
+  @@index([name])
+  @@map("securities")
+}
+
+model SecurityPrice {
+  id         String   @id @default(uuid()) @db.Char(36)
+  securityId String   @map("security_id") @db.Char(36)
+  priceDate  DateTime @map("price_date") @db.Date
+  price      Decimal  @db.Decimal(20, 6)
+  /// e.g. ZSE_CLOSE | MANUAL | VENDOR
+  source     String   @default("MANUAL") @db.VarChar(24)
+  createdBy  String?  @map("created_by") @db.Char(36)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  security Security @relation(fields: [securityId], references: [id], onDelete: Cascade)
+
+  @@unique([securityId, priceDate, source])
+  @@index([securityId, priceDate])
+  @@map("security_prices")
+}
+
+/// Quantity held at an as-of date. The latest row at or before the valuation date is current.
+model PortfolioPosition {
+  id          String   @id @default(uuid()) @db.Char(36)
+  portfolioId String   @map("portfolio_id") @db.Char(36)
+  securityId  String   @map("security_id") @db.Char(36)
+  quantity    Decimal  @db.Decimal(24, 6)
+  avgCost     Decimal  @map("avg_cost") @db.Decimal(20, 6)
+  asOf        DateTime @map("as_of") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  security  Security  @relation(fields: [securityId], references: [id])
+
+  @@unique([portfolioId, securityId, asOf])
+  @@index([portfolioId, asOf])
+  @@index([securityId])
+  @@map("positions")
+}
+
+/// Simple cash availability per portfolio and currency (source for pre-trade cash checks).
+model PortfolioCash {
+  id          String   @id @default(uuid()) @db.Char(36)
+  portfolioId String   @map("portfolio_id") @db.Char(36)
+  currency    String   @db.Char(3)
+  available   Decimal  @db.Decimal(20, 4)
+  asOf        DateTime @map("as_of") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  portfolio Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+
+  @@unique([portfolioId, currency, asOf])
+  @@index([portfolioId, asOf])
+  @@map("portfolio_cash")
+}
+
+/// Executing brokers for order routing.
+model Broker {
+  id        String   @id @default(uuid()) @db.Char(36)
+  name      String   @unique @db.VarChar(120)
+  email     String?  @db.VarChar(254)
+  /// Active | Inactive
+  status    String   @default("Active") @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("brokers")
+}
+
+/// Daily FX rate used to value positions in the portfolio base currency:
+/// `rate` converts one unit of `fromCurrency` into `toCurrency`.
+model FxRate {
+  id           String   @id @default(uuid()) @db.Char(36)
+  fromCurrency String   @map("from_currency") @db.Char(3)
+  toCurrency   String   @map("to_currency") @db.Char(3)
+  rateDate     DateTime @map("rate_date") @db.Date
+  rate         Decimal  @db.Decimal(20, 10)
+  source       String   @default("MANUAL") @db.VarChar(24)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([fromCurrency, toCurrency, rateDate])
+  @@map("fx_rates")
+}

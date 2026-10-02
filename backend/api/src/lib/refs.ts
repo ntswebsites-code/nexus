@@ -12,6 +12,7 @@ const FORMATS = {
   capital: { prefix: 'CAP-', pad: 4, start: 1001 },
   question: { prefix: 'Q-', pad: 4, start: 2042 },
   company: { prefix: 'PC-', pad: 3, start: 101 },
+  portfolio: { prefix: 'PF-', pad: 4, start: 1001 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;

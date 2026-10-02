@@ -8,6 +8,7 @@
       "permissions": [
         "dashboard.view",
         "portfolio.view",
+        "portfolio.manage",
         "orders.view",
         "orders.create",
         "orders.approve",
@@ -45,6 +46,7 @@
       "permissions": [
         "dashboard.view",
         "portfolio.view",
+        "portfolio.manage",
         "orders.view",
         "orders.create",
         "research.view",
@@ -150,6 +152,7 @@
       "permissions": [
         "dashboard.view",
         "portfolio.view",
+        "portfolio.manage",
         "orders.view",
         "risk.view",
         "clients.view",
