@@ -107,6 +107,9 @@ export const api = {
 
 export const ops = (path: string) => `/api/v1/ops${path}`;
 
+/** Staff domain endpoints mounted at the root of `/api/v1` (portfolios, securities, ibor, brokers). */
+export const v1 = (path: string) => `/api/v1${path}`;
+
 export function qs(params: Record<string, string | undefined | null>): string {
   const sp = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) if (v) sp.set(k, v);

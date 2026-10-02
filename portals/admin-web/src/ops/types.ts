@@ -291,3 +291,105 @@ export interface CompanyOption {
   id: string;
   name: string;
 }
+
+// ------------------------------------------------------------------ portfolio foundation (/api/v1/portfolios, /securities)
+
+export interface PortfolioMandate {
+  maxSingleNamePct?: number;
+  maxSectorPct?: number;
+  cashFloorPct?: number;
+  maxCashPct?: number;
+  maxPositions?: number;
+  restrictedTickers?: string[];
+  notes?: string;
+}
+
+export interface PortfolioSummary {
+  id: string;
+  ref: string;
+  name: string;
+  type: string;
+  baseCurrency: string;
+  clientId: string | null;
+  managerUserId: string | null;
+  benchmark: string | null;
+  status: string;
+  mandate: PortfolioMandate;
+  version: number;
+  asOf: string;
+  marketValueBase: string;
+  securitiesValueBase: string;
+  cashBase: string;
+  cashPct: string;
+  positionCount: number;
+  largestPositionTicker: string | null;
+  largestPositionPct: string;
+  warnings: number;
+}
+
+export interface SnapshotLine {
+  positionId: string;
+  securityId: string;
+  ticker: string;
+  name: string;
+  market: string;
+  assetClass: string;
+  sector: string | null;
+  currency: string;
+  quantity: string;
+  avgCost: string;
+  price: string | null;
+  priceDate: string | null;
+  marketValue: string | null;
+  marketValueBase: string | null;
+  unrealisedPnlBase: string | null;
+  weightPct: string | null;
+}
+
+export interface Breakdown {
+  key: string;
+  valueBase: string;
+  weightPct: string;
+}
+
+export interface PortfolioSnapshot {
+  portfolio: Omit<PortfolioSummary, 'asOf' | 'marketValueBase' | 'securitiesValueBase' | 'cashBase' | 'cashPct' | 'positionCount' | 'largestPositionTicker' | 'largestPositionPct' | 'warnings'>;
+  asOf: string;
+  baseCurrency: string;
+  lines: SnapshotLine[];
+  cash: { currency: string; available: string; asOf: string; availableBase: string | null }[];
+  totals: { securitiesValueBase: string; cashBase: string; totalValueBase: string; cashPct: string; positionCount: number };
+  concentration: {
+    largestPositionTicker: string | null;
+    largestPositionPct: string;
+    top5Pct: string;
+    bySector: Breakdown[];
+    byMarket: Breakdown[];
+    byAssetClass: Breakdown[];
+  };
+  warnings: string[];
+}
+
+export interface PriceView {
+  price: string;
+  priceDate: string;
+  source: string;
+}
+
+export interface SecurityRow {
+  id: string;
+  ticker: string;
+  isin: string | null;
+  name: string;
+  market: string;
+  assetClass: string;
+  currency: string;
+  boardLot: number;
+  sector: string | null;
+  status: string;
+  latestPrice: PriceView | null;
+  previousPrice: PriceView | null;
+  change: string | null;
+  changePct: string | null;
+  history?: PriceView[];
+}

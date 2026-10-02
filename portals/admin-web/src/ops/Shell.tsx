@@ -26,6 +26,13 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    section: 'Portfolio',
+    items: [
+      { href: '/ops/portfolios', label: 'Portfolios', perms: ['portfolio.view'] },
+      { href: '/ops/securities', label: 'Securities & prices', perms: ['portfolio.view', 'research.view', 'orders.view'] },
+    ],
+  },
+  {
     section: 'Dealing & deals',
     items: [
       { href: '/ops/dealing', label: 'Dealing queue', perms: ['dealing.view'] },
