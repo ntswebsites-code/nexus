@@ -33,6 +33,10 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    section: 'Trading',
+    items: [{ href: '/ops/orders', label: 'Orders', perms: ['orders.view'] }],
+  },
+  {
     section: 'Dealing & deals',
     items: [
       { href: '/ops/dealing', label: 'Dealing queue', perms: ['dealing.view'] },
