@@ -2,6 +2,12 @@
 
 Local build on `dev`. Nothing was deployed.
 
+## Cloud agent (2 Oct 2026)
+
+- Re-ran full **3.1** on `dev` @ `a565741`: typecheck, all portal builds, ws0–ws4 + e2e-phase1 green on disposable MySQL (API 4150).
+- Fixed investee **reporting KPI flattening** for `/live` (BR-204) and aligned **test-ws3** with auto-generated pack files on submit.
+- **3.2** blocked (no `SEED_USERS_FILE`). **3.7** blocked (no SSH key to UAT host).
+
 ## Phases
 
 | Phase | Status | What was built | Verification |

@@ -1,6 +1,39 @@
-# Build status and hand-over (1 Oct 2026; UAT cut prepared locally, not deployed)
+# Build status and hand-over (2 Oct 2026; cloud agent re-verify on `dev`)
 
-## 0. Checkpoint — 3.1 through 3.6 (done locally). 3.7 not deployed.
+## 0. Checkpoint — 3.1 re-verified on cloud (this run). 3.2–3.7 unchanged from prior notes.
+
+**STEP 0:** `dev` at `a565741` (≥ `ee87cc4`).
+
+**3.1 merged `dev` re-verify (disposable MySQL 8 `matanho_nexus`, API port 4150, `CUSTODIAN_LIVE` + `ONBOARDING_LIVE` for `test-ws4.ts`):**
+
+| Check | Result |
+|---|---|
+| `npm ci`, `npm run typecheck` (after `prisma generate`), `tsc --noEmit` all five portals | green |
+| `npm run build -w @matanho/api` and `next build` all portals | green |
+| Fresh DB → `prisma migrate deploy` (3 migrations) + `prisma/seed.ts` | green |
+| `scripts/test-ws2.ts` (first; LP step-up) | all passed |
+| `scripts/smoke-ws0.ts` | all passed |
+| `scripts/test-ws1.ts` | 130 passed |
+| `scripts/test-ws3.ts` | all passed (after integration fixes below) |
+| `scripts/test-ws4.ts` | all passed |
+| `SEED_DEMO=1 npm run db:seed` then `scripts/e2e-phase1.ts` (`E2E_CONFIRM=throwaway-db`) | all passed |
+
+**Integration fixes (integration breakages only):**
+
+1. **Investee live payload / reporting KPIs (BR-204):** `reportingRequestView` and `GET /kpis` period `values` now use `flattenReportingKpis()` so nested `AUTO_KPI_FLAT` is flattened to numeric fields in `/live` and schedule views (fixes `test-ws3` hydration contract).
+2. **`test-ws3.ts`:** Removed the obsolete “missing compliance → 400” assertion; pack submit now auto-generates required uploads via `attachGeneratedPackFiles` (since `e1f225d`).
+
+**Not run on cloud (blocked / prior local verification still authoritative):**
+
+| Step | Status |
+|---|---|
+| 3.2 UAT seed + contract harness | **Blocked:** no out-of-band `SEED_USERS_FILE` / `secrets/users.json` on this VM. Prior local run: 12/12 LP domains PASS with `lp_a_manager`. |
+| 3.3–3.5 Browser journeys (ops, investee, LP) | **Not repeated** this run; see section 0 archive below from 1 Oct local build. |
+| 3.7 Deploy `uat-rc1` | **Blocked:** SSH to `207.180.234.151` → `Permission denied (publickey)`; no deploy key on agent VM. |
+
+---
+
+## 0 archive. Checkpoint — 3.1 through 3.6 (done locally 1 Oct). 3.7 not deployed.
 
 3.1 re-verify of merged `dev` stays green (see the table below). After that, on disposable MySQL `nexus_uat`:
 
@@ -21,7 +54,7 @@ Flags live only in the gitignored local `.env` (API port 4150). On the UAT host,
 
 The UAT seed rolls an issued-but-unpaid capital call's due date to five days ahead when the machine clock has passed the snapshot date, so the open call stays due-soon. Historical activity dates are not moved.
 
-## 0a. Checkpoint — 3.1 re-verify merged `dev` (done)
+## 0a. Checkpoint — 3.1 re-verify merged `dev` (done locally 1 Oct)
 
 Re-run on merged `dev` (`ee87cc4` plus the resume-view fix) against a disposable MySQL 8 schema (`prisma migrate deploy` of the three existing migrations, `prisma/seed.ts`). API on port 4150. No new migration.
 
@@ -38,7 +71,7 @@ Re-run on merged `dev` (`ee87cc4` plus the resume-view fix) against a disposable
 
 Integration fix: the public onboarding resume view read `beneficial_owners` without an order, so `ownerDetails[1]` was not the second owner the applicant entered. The view now follows the order stored on the draft. Schema unchanged.
 
-3.2–3.6 continued the same day. See section 0. Nothing is deployed.
+3.2–3.6 continued the same day. See section 0 archive. Nothing is deployed.
 
 Hand-over from the local build agent to Cursor cloud agents. Read with `docs/HANDOFF.md` (guardrails),
 `docs/DEV-PLAN-1DAY.md` (THE plan), `docs/BUILD-PLAN.md` sections 3, 4, 12, `docs/SRD.md` + `docs/srd/*`,
@@ -69,14 +102,12 @@ Branch `dev` contains everything. All eight workstream branches are merged; noth
   admin-web (onboarding-web was green on ws/4).
 - Portal builds: `next build --webpack` green on ws/4 (custodian, onboarding), ws/6 (company), ws/7 (admin).
   Turbopack fails ONLY in worktrees whose `node_modules` is a junction outside the folder; not expected in Docker.
+- **Cloud agent (2 Oct):** full 3.1 script suite green on `a565741` after KPI flatten fix (see section 0).
 
 ### Not verified yet (do these first)
-- The functional test scripts have NOT been re-run on merged `dev` (only per branch). Especially `test-ws2.ts`, edited
-  for the LP step-up change (54a3b34) and never run.
-- No portal has been checked in a real browser end to end (WS7 rendered `/ops` headless; WS5 login landed on
-  `/lp-portal` but the live session render was not observed).
-- `next build` for investor-web on dev.
-- Nothing is deployed to UAT for this build. No flags are flipped.
+- **3.2 on cloud:** UAT seed + contract harness need `SEED_USERS_FILE` delivered out of band.
+- Browser end-to-end on cloud for 3.3–3.5 (prior local pass documented in section 0 archive).
+- UAT deploy / tag `uat-rc1` (needs SSH key and host access).
 
 ## 2. Journeys (UAT cut line)
 
@@ -105,6 +136,8 @@ Nothing has been cut yet. Plan cut order if behind: J8, J7, J9, J1B, J6, J4, the
    `E2E_CONFIRM=throwaway-db E2E_API=http://localhost:<port>` run `scripts/smoke-ws0.ts`, `test-ws1.ts`,
    `test-ws2.ts`, `test-ws3.ts`, `test-ws4.ts`, `e2e-phase1.ts`. Read each script header for env (CORS origins must
    include every portal origin). Fix integration breakages only.
+
+**Done on cloud 2 Oct** — see section 0.
 
 ### 3.2 Contract harness and flags (checkpoint 2)
 - Seed UAT personas into a disposable DB (`SEED_UAT_CONFIRM=1 SEED_USERS_FILE=<out-of-band json> npx tsx prisma/seed-uat.ts`),
@@ -154,6 +187,7 @@ same Idempotency-Key on retry. DEF-374 is closed for capital-call acknowledge an
 - Mailpit is pinned to `axllent/mailpit:v1.31.2` (the current stable release, including the thumbnail security fix). Plan data counts differ slightly from mock-derived seed.
 - Credential hygiene: a local `DATABASE_URL` (user `matanho_app`) from a gitignored `.env` was printed in an agent's
   local tool output once. Never committed. Rotate if it is shared with any real environment.
+- **Pack submit auto-files:** missing required attachments are generated on submit (`attachGeneratedPackFiles`); tests must not expect a 400 for a missing manual upload when other required slots are satisfied.
 
 ### 3.7 Deploy (code freeze) - plan section 8 runbook only
 
