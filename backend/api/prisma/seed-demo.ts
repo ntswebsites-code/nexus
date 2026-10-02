@@ -420,4 +420,5 @@ async function seedCompany() {
 export async function seedDemo() {
   await seedInvestor();
   await seedCompany();
+  await (await import('./seed-portfolio')).seedPortfolio();
 }
