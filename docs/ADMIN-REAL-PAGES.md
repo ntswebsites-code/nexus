@@ -276,4 +276,155 @@ CSV export and CSV/JSON import (FR-OMS-010, 012 export), FIX feed, post-trade al
 
 ## Risk
 
-(to be written by the Risk engineer)
+Risk & Compliance (SRD 5.A.7, 6.8 FR-RSK-001..005, BR-001, BR-014). Branch `feat/risk-compliance`, migration
+`20261002120000_risk` (additive, one folder; models between `// ---- Risk ----` and `// ---- end Risk ----` at the end
+of `schema.prisma`). Code: `backend/api/src/modules/risk/` (`risk.engine.ts` pure maths, `risk.service.ts` DB logic and
+the exports for Orders, `risk.routes.ts`), UI in `portals/admin-web/src/ops/risk/` and `/ops/risk`. Also touched:
+`lib/refs.ts` (kinds `riskLimit` = `LIM-1001`, `riskCase` = `RC-1001`), `routes/v1.ts` (mount `/risk`), `ops/Shell.tsx`
+(nav "Risk & compliance"), `prisma/seed-risk.ts` (called by `seed-uat.ts` and `seed-demo.ts`).
+
+### Tables
+
+| Table | Model | Notes |
+|---|---|---|
+| `risk_limits` | `RiskLimit` | `ref` LIM-####, `metric`, `scope_type` PORTFOLIO/FIRM, `scope_id` (portfolio id, null for FIRM), `threshold` (percent, 0-100), `unit` PCT, `breach_action` ALERT/ESCALATE/BLOCK, `owner_user_id`, `status` DRAFT/PENDING_APPROVAL/ACTIVE/RETIRED, `maker_id`, `checker_id`, `approved_at`, `retired_at`, `version` |
+| `risk_breaches` | `RiskBreach` | `limit_id` (FK), `portfolio_id`, `detected_on` (date), `value`, `threshold`, `detail` JSON, `status` OPEN/ACKNOWLEDGED/RESOLVED, `case_id`, ack fields. Unique (`limit_id`, `portfolio_id`, `detected_on`) |
+| `risk_scenarios` | `RiskScenario` | unique `name`, `shocks` JSON, `preset` (`liquidity`/`equity`/`fx` for the built-ins) |
+| `risk_scenario_runs` | `RiskScenarioRun` | `scenario_id` (FK), `portfolio_id`, `as_of`, `results` JSON (the full result, see below), `run_by` |
+| `risk_cases` | `RiskCase` | `ref` RC-####, `type`, `description` (required), `severity` LOW..CRITICAL, `status` OPEN/INVESTIGATING/RESOLVED/CLOSED, `owner_user_id`, `source_breach_id`, `portfolio_id`, `resolution_note`, `resolved_at`, `version` |
+
+Portfolio, user and scope ids are logical references (no FK), like the foundation. The Portfolio model is untouched.
+
+### Endpoints (`/api/v1/risk`, admin portal staff only)
+
+`risk.view` reads, `risk.manage` writes (compliance officers hold both; analysts, PMs and directors hold `risk.view`).
+Creates need `Idempotency-Key` (limits, scenarios, cases); monitor and scenario run accept it optionally. Every write
+audits inside its transaction.
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /limits?status=&metric=&portfolioId=&q=` | view | rows carry owner, maker, checker and scope names |
+| `GET /limits/:idOrRef` | view | |
+| `POST /limits` | manage | 201 DRAFT; owner defaults to the creator; `risk.limit_created` |
+| `PATCH /limits/:id` | manage | DRAFT only (409 `limit_not_editable`), `version` optimistic; `risk.limit_updated` |
+| `DELETE /limits/:id` | manage | DRAFT only; `risk.limit_deleted` |
+| `POST /limits/:id/submit` | manage | DRAFT to PENDING_APPROVAL; `risk.limit_submitted` |
+| `POST /limits/:id/approve` | manage + **step-up MFA** | PENDING_APPROVAL to ACTIVE; approver must not be the maker (403 `sod_violation`); 409 `limit_exists` if another ACTIVE limit has the same metric and scope; `risk.limit_approved` |
+| `POST /limits/:id/reject` | manage | `{reason}`, back to DRAFT; `risk.limit_rejected` |
+| `POST /limits/:id/retire` | manage | `{reason}`, ACTIVE to RETIRED; `risk.limit_retired` |
+| `POST /monitor` | manage | optional `{portfolioId}`; see Monitoring; `risk.monitor_run` |
+| `POST /check` | view | `{portfolioId, hypothetical?}`; read only, same function Orders imports |
+| `GET /breaches?status=&limitId=&portfolioId=&from=&to=` | view | |
+| `POST /breaches/:id/acknowledge` | manage | OPEN to ACKNOWLEDGED, optional `note`; `risk.breach_acknowledged` |
+| `GET /scenarios` | view | `{data, presets}` |
+| `POST /scenarios`, `PATCH`, `DELETE /scenarios/:id` | manage | presets are locked (`preset_locked`); a scenario with runs cannot be deleted |
+| `POST /scenarios/preview` | view | `{portfolioId, shocks, asOf?}`, runs the maths and stores nothing |
+| `POST /scenarios/:id/run` | manage | `{portfolioId, asOf?}`, stores a run (201); `risk.scenario_run` |
+| `GET /runs?scenarioId=&portfolioId=`, `GET /runs/:id` | view | |
+| `GET /cases?status=&severity=&ownerId=&mine=1&open=1&q=` | view | |
+| `POST /cases` | manage | `description` required; optional `sourceBreachId` links the breach; `risk.case_created` |
+| `PATCH /cases/:id` | manage | type, description, severity (`version`); not once CLOSED |
+| `POST /cases/:id/assign` | manage | `{ownerUserId}`; `risk.case_assigned` |
+| `POST /cases/:id/transition` | manage | `{status, note?}`; OPEN to INVESTIGATING, INVESTIGATING to RESOLVED or CLOSED, RESOLVED to CLOSED; a resolution note is required for RESOLVED (and for CLOSED if none yet); RESOLVED/CLOSED also resolves the source breach; `risk.case_transitioned` |
+| `DELETE /cases/:id` | manage | only an OPEN, manually created case; `risk.case_deleted` |
+| `GET /users` | view | active staff `{id, name, email}` for owner pickers |
+
+Permission and step-up matrix: read endpoints need `risk.view`; all writes need `risk.manage`; only `approve` also
+runs `requireStepUp` (a code verified within 5 minutes; 401 `step_up_required`, the console's step-up modal handles it
+and retries with the same idempotency key). Retire needs a reason but no step-up, no second person (decision for the
+owner: a retire loosens a control, so consider adding step-up). Investor, custodian and investee sessions get 403.
+
+### Metrics
+
+All weights are percent of the book's total value (securities + cash) in the portfolio base currency, 4 dp, from
+`getPortfolioSnapshot` (lines that cannot be priced are left out and listed in `valuationWarnings`).
+
+| Metric | Value measured | Breach when | Warning when |
+|---|---|---|---|
+| `SINGLE_NAME_PCT` | weight of the largest security | value > threshold | value >= 90% of threshold |
+| `SECTOR_PCT` | weight of the largest sector (unclassified securities form one sector; cash excluded) | value > threshold | value >= 90% of threshold |
+| `TOP5_PCT` | combined weight of the five largest securities | value > threshold | value >= 90% of threshold |
+| `CASH_FLOOR_PCT` | cash weight | value < threshold | value <= 110% of threshold |
+
+Equal to the limit is not a breach. FIRM-scope limits apply to every Active portfolio; PORTFOLIO-scope to one.
+
+### Monitoring and the Orders hook
+
+`POST /monitor` evaluates every ACTIVE limit for every Active portfolio (or one). A breach is recorded once per limit,
+portfolio and calendar day (unique key; re-runs and concurrent runs record nothing twice), opens a `LIMIT_BREACH` case
+owned by the limit owner and queues a `notify.users` outbox event to the owner (link `/ops/risk`). Case severity from
+how far past the limit: excess = |value - threshold| / threshold; under 5% LOW, under 15% MEDIUM, under 30% HIGH,
+otherwise CRITICAL. Warnings are counted in the response but not recorded.
+
+For Orders (do not edit the risk module, import it):
+
+```ts
+import { checkLimitsForPortfolio } from '../risk/risk.service';
+checkLimitsForPortfolio(portfolioIdOrRef: string,
+  hypothetical?: { ticker: string; side: 'BUY' | 'SELL'; quantity: number | string; price?: number | string } | null,
+  opts?: { asOf?: Date }): Promise<LimitCheckResult>
+```
+
+Pure read (records nothing). With a hypothetical, the book is recomputed as if the trade had settled: BUY adds the
+trade value (quantity x price, default the latest price, converted to base) to the holding and takes it out of the cash
+of the security currency, SELL does the reverse (capped at the holding). Result: `evaluations[]` (limit ref, metric,
+threshold, value, `state` BREACH/WARNING/OK, plus `valueBefore`, `stateBefore`, `worsened` when a trade is applied),
+`breaches[]`, `warnings[]`, `blocked` (a limit with breach action BLOCK is newly breached or made worse),
+`hypothetical` (the applied trade), `cashBase`, `valuationWarnings`. Only ACTIVE limits count; the mandate limits in
+`portfolios.mandate_json` are separate and still the Orders engineer's to check.
+
+### Scenario lab (BR-014)
+
+Shocks (all optional, defaults 0, duration 1): `equityPct` (-100..100), `fxPct` (-50..99, ZWG depreciation against USD),
+`ratePctPoints` (-20..50), `durationYears` (0..30), `redemptionPct` (0..100). Per holding:
+`post = value x local x fx`, where `local` = `1 + equityPct/100` for Equity, Fund and Private; `max(0, 1 - duration x
+ratePctPoints/100)` for Fixed income; 1 otherwise. `fx`: a ZWG depreciation of x% means one ZWG buys x% less USD, so
+ZWG holdings in a USD book are multiplied by `(1 - x)`, USD holdings in a ZWG book by `1/(1 - x)`, everything else by 1; cash is
+hit by FX only.
+
+Results (`results` JSON): `nav`, `postShockValue`, `loss` and `lossPct` (negative = gain), `impacts` {equity, rate, fx}
+(signed, sum to minus the loss), `liquidity` {`liquidAssets` = post-shock cash + post-shock fixed income,
+`redemptionAmount` = `redemptionPct` x post-shock NAV, `coverage` = liquid / redemption (null with no redemption)},
+`limitChecks` (the ACTIVE limits that apply, re-measured on the post-shock book), `notes` (for example "no fixed-income
+securities, so the interest-rate shock has no effect (0)"), `reasons`, `status`.
+
+Status: `Escalate` when a limit is breached after the shock or coverage is below 1.0x; `Review` when a limit is within
+10% of its threshold or coverage is below 1.1x; otherwise `Within`. The worst of the two wins. Presets: liquidity
+(15% redemptions), equity (-20%), fx (ZWG -25%). Hand-computed examples are in `scripts/test-risk.ts`.
+
+### Console
+
+`/ops/risk` (nav "Risk & compliance", visible with `risk.view` or `risk.manage`). Tabs: **Limits** (filter, add or edit
+a draft, submit, delete draft, approve, return to draft, retire; the Approve button is disabled for the maker and the
+server refuses it anyway; step-up is handled by the console's TOTP modal), **Breaches** (acknowledge, open a case,
+jump to the linked case), **Scenarios** (shock inputs, presets, run without saving, save, save and run, saved list,
+recent runs, result card with status), **Cases** (filters, create, assign, start investigation, resolve, close).
+Header action "Run monitor". Read-only users see the same tabs without action buttons. Typecheck only; no browser
+verification was done for this screen.
+
+### Seed
+
+`prisma/seed-risk.ts` (idempotent, run by `seed-uat.ts` and `seed-demo.ts`): the three preset scenarios; and, when two
+staff users exist, one ACTIVE firm-wide single-name limit at 15% (ESCALATE), one DRAFT top-5 limit for Balanced Growth
+Fund and one OPEN manual case (descriptions start with `[seed]`). Standalone: `npx tsx --env-file-if-exists=../../.env prisma/seed-risk.ts`.
+
+### Running the test
+
+```
+# disposable DB only (for example schema nexus_risk_test); same steps as the foundation test
+cd backend/api
+npx prisma migrate deploy --schema prisma/schema.prisma
+npx tsx --env-file-if-exists=../../.env prisma/seed.ts
+API_PORT=4170 npx tsx --env-file-if-exists=../../.env src/server.ts      # in another terminal
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4170 npx tsx --env-file-if-exists=../../.env scripts/test-risk.ts
+```
+
+Covers (168 checks, all passing on a disposable MySQL 8.4 schema): seed idempotency; 401/403 per portal and
+permission; limit lifecycle with draft-only edits, optimistic version, maker cannot approve (`sod_violation`), stale
+MFA gives `step_up_required`, a different user with step-up approves, duplicate ACTIVE guard, reject, retire, audit
+actors; each metric against known book values (40 / 50 / 80 / 15) and the warning band; hypothetical BUY, SELL and
+unheld security with `worsened` and `blocked`; monitor creates exactly one breach and one case per day and is
+idempotent (new key, no key, same key replay), FIRM scope across portfolios, severity, outbox notification;
+breach acknowledge; scenario maths for rate, equity, FX in both base currencies, liquidity coverage thresholds
+(Within/Review/Escalate), limit-driven Review and Escalate, presets, stored runs; cases (validation, filters, assign,
+every allowed and refused transition, resolution note, breach resolution); audit events.
