@@ -49,6 +49,8 @@ const mandateSchema = z
     maxCashPct: z.number().min(0).max(100).nullable(),
     maxPositions: z.number().int().min(1).max(10000).nullable(),
     restrictedTickers: z.array(z.string().trim().min(1).max(24)).max(500).nullable(),
+    allowedMarkets: z.array(z.string().trim().min(1).max(8)).max(10).nullable(),
+    allowedAssetClasses: z.array(z.string().trim().min(1).max(24)).max(20).nullable(),
     notes: z.string().trim().max(500).nullable(),
   })
   .partial()

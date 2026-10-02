@@ -1755,6 +1755,8 @@ model Security {
   sector     String?  @db.VarChar(80)
   /// Active | Suspended | Delisted
   status     String   @default("Active") @db.VarChar(16)
+  /// Average daily traded volume in shares; used by the Orders liquidity check (null = unknown).
+  averageDailyVolume Decimal? @map("average_daily_volume") @db.Decimal(24, 2)
   createdAt  DateTime @default(now()) @map("created_at")
   updatedAt  DateTime @updatedAt @map("updated_at")
 
@@ -1845,3 +1847,101 @@ model FxRate {
   @@unique([fromCurrency, toCurrency, rateDate])
   @@map("fx_rates")
 }
+
+// ---- Orders ----
+// Order management (SRD 6.6 FR-OMS-*, 7.2). portfolio_id / security_id / broker_id are logical references
+// (no foreign keys), like the other staff modules, so this block does not touch the foundation models.
+
+/// A buy or sell order and its lifecycle. Status: Draft | Validated | AwaitingApproval | Approved | Routing |
+/// PartiallyFilled | Filled | Settled | Rejected | Cancelled.
+model Order {
+  id             String    @id @default(uuid()) @db.Char(36)
+  ref            String    @unique @db.VarChar(16)
+  portfolioId    String    @map("portfolio_id") @db.Char(36)
+  securityId     String    @map("security_id") @db.Char(36)
+  /// BUY | SELL
+  side           String    @db.VarChar(4)
+  quantity       Decimal   @db.Decimal(24, 6)
+  /// MARKET | LIMIT
+  orderType      String    @map("order_type") @db.VarChar(8)
+  limitPrice     Decimal?  @map("limit_price") @db.Decimal(20, 6)
+  /// DAY | GTC | IOC
+  tif            String    @default("DAY") @db.VarChar(8)
+  /// Low | Normal | High
+  urgency        String    @default("Normal") @db.VarChar(8)
+  brokerId       String?   @map("broker_id") @db.Char(36)
+  rationale      String?   @db.Text
+  /// Security currency (orders are priced and settled in it).
+  currency       String    @db.Char(3)
+  /// Reference price when the order was made (latest security price).
+  decisionPrice  Decimal   @map("decision_price") @db.Decimal(20, 6)
+  status         String    @default("Draft") @db.VarChar(24)
+  precheckResult Json?     @map("precheck_result")
+  precheckAt     DateTime? @map("precheck_at")
+  makerId        String    @map("maker_id") @db.Char(36)
+  approverId     String?   @map("approver_id") @db.Char(36)
+  approvedAt     DateTime? @map("approved_at")
+  routerId       String?   @map("router_id") @db.Char(36)
+  routedAt       DateTime? @map("routed_at")
+  filledQty      Decimal   @default(0) @map("filled_qty") @db.Decimal(24, 6)
+  avgPrice       Decimal?  @map("avg_price") @db.Decimal(20, 6)
+  /// Buys only: cash held back while the order is open = remaining quantity x reserve_unit.
+  reserveUnit    Decimal?  @map("reserve_unit") @db.Decimal(20, 8)
+  reservedAmount Decimal   @default(0) @map("reserved_amount") @db.Decimal(20, 4)
+  estimatedFee   Decimal   @default(0) @map("estimated_fee") @db.Decimal(20, 4)
+  cancelReason   String?   @map("cancel_reason") @db.VarChar(255)
+  rejectReason   String?   @map("reject_reason") @db.VarChar(255)
+  submittedAt    DateTime? @map("submitted_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  version        Int       @default(1)
+
+  fills        OrderFill[]
+  instructions BrokerInstruction[]
+
+  @@index([status, createdAt])
+  @@index([portfolioId, status])
+  @@index([securityId])
+  @@index([makerId])
+  @@map("orders")
+}
+
+model OrderFill {
+  id         String   @id @default(uuid()) @db.Char(36)
+  orderId    String   @map("order_id") @db.Char(36)
+  quantity   Decimal  @db.Decimal(24, 6)
+  price      Decimal  @db.Decimal(20, 6)
+  fees       Decimal  @default(0) @db.Decimal(20, 4)
+  executedAt DateTime @map("executed_at")
+  /// MANUAL | FIX | CONTRACT_NOTE
+  source     String   @default("MANUAL") @db.VarChar(16)
+  sourceRef  String?  @map("source_ref") @db.VarChar(120)
+  recordedBy String   @map("recorded_by") @db.Char(36)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId, executedAt])
+  @@map("order_fills")
+}
+
+/// The instruction sent to the executing broker when an approved order is routed.
+model BrokerInstruction {
+  id             String    @id @default(uuid()) @db.Char(36)
+  orderId        String    @map("order_id") @db.Char(36)
+  brokerId       String    @map("broker_id") @db.Char(36)
+  /// EMAIL (FIX is a later channel)
+  channel        String    @default("EMAIL") @db.VarChar(8)
+  payload        Json
+  sentAt         DateTime? @map("sent_at")
+  /// QUEUED | SENT | FAILED
+  deliveryStatus String    @default("QUEUED") @map("delivery_status") @db.VarChar(12)
+  createdBy      String    @map("created_by") @db.Char(36)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("broker_instructions")
+}
+// ---- end Orders ----

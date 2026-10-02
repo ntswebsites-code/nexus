@@ -17,6 +17,7 @@ import { investeePortalRoutes } from '../modules/investee-portal/investee.routes
 import { opsRoutes } from '../modules/ops/ops.routes';
 import { custodianRoutes } from '../modules/custodian/custodian.routes';
 import { portfolioRoutes } from '../modules/portfolio/portfolio.routes';
+import { ordersRoutes } from '../modules/orders';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -28,6 +29,8 @@ v1Router.use('/ops', opsRoutes);
 v1Router.use('/custodian', custodianRoutes);
 // Staff portfolio foundation: /portfolios, /securities, /ibor/positions, /brokers (auth applied per route).
 v1Router.use('/', portfolioRoutes);
+// Orders (OMS): /orders (auth applied per route).
+v1Router.use('/orders', ordersRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

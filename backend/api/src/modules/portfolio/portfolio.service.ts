@@ -52,6 +52,10 @@ export interface PortfolioMandate {
   maxCashPct?: number;
   maxPositions?: number;
   restrictedTickers?: string[];
+  /** Orders pre-trade check: when set, only these markets (ZSE, VFEX, OTC) may be traded. */
+  allowedMarkets?: string[];
+  /** Orders pre-trade check: when set, only these asset classes may be traded. */
+  allowedAssetClasses?: string[];
   notes?: string;
 }
 
