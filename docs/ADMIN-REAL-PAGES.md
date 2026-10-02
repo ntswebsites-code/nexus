@@ -130,7 +130,149 @@ your own credentials. Never point the test at a database that holds real data.
 
 ## Orders
 
-(to be written by the Orders engineer)
+Order management (SRD 6.6 FR-OMS-001..012, 7.2, 11.3; BR-001, BR-003, BR-017). Migration
+`20261002110000_orders` (additive). Code: `backend/api/src/modules/orders/` (`orders.routes.ts`, `orders.service.ts`,
+`orders.checks.ts`, `index.ts`), screens under `portals/admin-web/src/app/(ops)/ops/orders/**`, shared UI in
+`src/ops/orders.tsx`.
+
+### Tables
+
+| Table | Prisma model | Key columns |
+|---|---|---|
+| `orders` | `Order` | `ref` (`ORD-001001`, `seqRef(tx,'order','ORD-',6,1001)`), `portfolio_id`, `security_id`, `broker_id?` (logical refs, no FK), `side` BUY/SELL, `quantity`, `order_type` MARKET/LIMIT, `limit_price?`, `tif` DAY/GTC/IOC, `urgency`, `rationale`, `currency` (security currency), `decision_price`, `status`, `precheck_result` JSON + `precheck_at`, `maker_id`, `approver_id`+`approved_at`, `router_id`+`routed_at`, `filled_qty`, `avg_price`, `reserve_unit` + `reserved_amount` (buys), `estimated_fee`, `cancel_reason`, `reject_reason`, `submitted_at`, `version` |
+| `order_fills` | `OrderFill` | `order_id`, `quantity`, `price`, `fees`, `executed_at`, `source` MANUAL/FIX/CONTRACT_NOTE, `source_ref`, `recorded_by` |
+| `broker_instructions` | `BrokerInstruction` | `order_id`, `broker_id`, `channel` (EMAIL), `payload` JSON (to, subject, text, fields), `sent_at`, `delivery_status` QUEUED/SENT/FAILED, `created_by` |
+| `securities.average_daily_volume` | (column added to `Security`) | nullable; used by the liquidity check |
+
+Models sit between `// ---- Orders ----` and `// ---- end Orders ----` at the end of `schema.prisma`; the only edit
+outside the block is the `average_daily_volume` field on `Security`. Mandate JSON gained two optional keys,
+`allowedMarkets[]` and `allowedAssetClasses[]` (interface and zod schema in the portfolio module).
+
+### State machine (SRD 7.2)
+
+```
+Draft -> Validated -> AwaitingApproval -> Approved -> Routing -> PartiallyFilled -> Filled (-> Settled, reserved)
+            |  ^            |  \-> Rejected
+            v  |            \-> Cancelled (from any open state: Draft, Validated, AwaitingApproval, Approved, Routing, PartiallyFilled)
+          Draft (check Blocked, or a material edit)
+```
+
+Any other move is `409 invalid_transition`. Every transition is a state- and version-guarded `UPDATE ... WHERE status=? AND
+version=?` plus an audit event in the same transaction; `If-Match` (or `version` in the body) is compared first and a
+mismatch is `409 version_conflict`. Drafts and Validated orders belong to their maker: other users get 404.
+
+### Endpoints (`/api/v1/orders`, admin portal staff only)
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /orders?status=&portfolioId=&securityId=&side=&q=&from=&to=&mine=1&limit=&offset=` | `orders.view` | `status` takes a comma list and the group `Working` (Approved, Routing, PartiallyFilled); `portfolioId`/`securityId` accept id, ref or ticker. Returns `data`, `total`, and `summary` (`working`, `awaitingApproval`, `filled`, fill-weighted `slippageBp`, `byStatus`) for the same filter |
+| `POST /orders/precheck` | `orders.create` | What-if check for a ticket; writes nothing |
+| `POST /orders` | `orders.create` | Creates a Draft. `Idempotency-Key` required. Security may be an id or ticker; a Suspended/Delisted security is `409 security_not_tradable`; decision price = latest price |
+| `GET /orders/:idOrRef` | `orders.view` | Order, fills, stored instruction, audit timeline, and `allowed` (actions this user may attempt) |
+| `PATCH /orders/:id` | `orders.create`, maker only | Draft or Validated; a material edit (portfolio, security, side, qty, type, limit, tif) returns a Validated order to Draft and clears the check |
+| `POST /orders/:id/validate` | `orders.create`, maker only | Runs the checks. Blocked -> stays/returns to Draft; Within/Review -> Validated |
+| `POST /orders/:id/submit` | `orders.create`, maker only | `rationale` required (10+ chars when a check is on Review). `Idempotency-Key` required. From Draft: `409 precheck_required`. Re-checks under a portfolio row lock; now Blocked -> back to Draft and `409 precheck_blocked`. Buys reserve notional + estimated fee |
+| `POST /orders/:id/approve` | `orders.approve`, step-up | Approver must not be the maker (`403 segregation_of_duties`). `Idempotency-Key` required |
+| `POST /orders/:id/reject` | `orders.approve`, step-up | `reason` required; approver != maker; releases the reservation; notifies the maker |
+| `GET /orders/:id/broker-instruction/preview?brokerId=&note=` | `orders.route` | The exact instruction that would be sent |
+| `POST /orders/:id/route` | `orders.route`, step-up | Approved only; router must not be the approver (BR-003); broker must be Active with an email (`409 broker_unavailable`); writes `broker_instructions` (EMAIL, QUEUED) and queues `email.send`. `Idempotency-Key` required |
+| `POST /orders/:id/fills` | `orders.route` | Routing or PartiallyFilled. `Idempotency-Key` required. Fill > remaining is `409 overfill`; a fill outside a limit is `409 limit_breach`; a sell above the holding is `409 insufficient_position` |
+| `POST /orders/:id/cancel` | creator or `orders.approve` | `reason` required; releases the reservation; partial fills stay |
+
+Notifications (outbox): submitted -> everyone with `orders.approve`; approved -> everyone with `orders.route`;
+rejected/cancelled by someone else -> the maker. Audit actions: `order.created`, `.updated`, `.validated`,
+`.precheck_failed`, `.submitted`, `.approved`, `.rejected`, `.routed`, `.fill_recorded`, `.cancelled`
+(object type `order`).
+
+### Pre-trade checks (`runPreTradeChecks`)
+
+`import { runPreTradeChecks } from '../orders'` (also exports `reservedCash`, `committedShares`, `estimateFee`,
+`FEE_ESTIMATE_PCT`, types). Signature:
+`runPreTradeChecks(portfolioIdOrRef, { securityId, side, quantity, price, excludeOrderId? }, { asOf? })`. Read-only, so
+Risk can run what-if trades. Returns `overall` (`Within | Review | Blocked`), `checks[]` (`key`, `label`, `result`
+`Pass | Review | Fail`, `detail`, `metrics`), `notional`, `estimatedFee` (0.75% of notional, a constant), `currency`.
+Any Fail is Blocked, otherwise any Review is Review.
+
+| Check | Fail | Review |
+|---|---|---|
+| mandate | portfolio not Active, security not Active, restricted ticker, market or asset class outside `allowedMarkets` / `allowedAssetClasses`, buy takes the name above `maxSingleNamePct`, new position beyond `maxPositions` | within 5% of `maxSingleNamePct`, post-trade cash under `cashFloorPct` (buys) or over `maxCashPct` (sells), limits that cannot be tested |
+| cash (buys) | notional + fee > cash available in the security currency minus cash reserved by other open buys | n/a |
+| position (sells) | quantity > held minus shares committed to other open sells | n/a |
+| concentration | buy takes the sector above `maxSectorPct` | within 5% of the sector limit, no name limit and weight above 25%, or the book cannot be fully valued (missing price / FX) |
+| liquidity | quantity not a multiple of the board lot, or above 25% of `average_daily_volume` | above 10% of ADV (no ADV on file: board lot only) |
+| price | no price on file | reference price more than 10% from the latest price |
+
+Weights use the portfolio snapshot (percent of securities + cash, base currency); cash is checked in the security
+currency only (no cross-currency funding). The order's own reservation is excluded when it is re-checked.
+
+### Reservation, fills and the books
+
+- Submit reserves `quantity x reference price x (1 + 0.75%)` for buys (`reserved_amount`, reference = limit price, else
+  decision price); sells reserve nothing in cash but their remaining quantity counts against the holding.
+  Reservations are released on cancel, reject and when the order is Filled, and shrink with each fill.
+- A fill runs in one transaction under a lock on the portfolio row: it upserts today's `positions` row (weighted
+  average cost on buys, cost kept on sells) and today's `portfolio_cash` row (buy: minus notional and fees; sell: plus
+  notional minus fees), inserts `order_fills`, updates `filled_qty`, weighted `avg_price`, status and reservation, and
+  writes the audit event with the position and cash after. History rows are never edited.
+- Slippage (BR-017) = (average fill - decision price) / decision price x 10,000, sign flipped for sells, so positive is
+  always worse than the decision price. The decision price is re-taken from the latest price at validate and submit.
+
+### Permission and step-up matrix
+
+| Action | Permission | Also required | Step-up | Idempotency-Key |
+|---|---|---|---|---|
+| View blotter / order | `orders.view` | Drafts only for their maker | no | n/a |
+| Create, edit, validate, submit | `orders.create` | maker only (edit, validate, submit) | no | create and submit: required |
+| Approve | `orders.approve` | approver != maker | yes | required |
+| Reject | `orders.approve` | approver != maker, reason | yes | optional |
+| Broker preview | `orders.route` | | no | n/a |
+| Route | `orders.route` | status Approved, router != approver (BR-003), broker with email | yes | required |
+| Record fill | `orders.route` | status Routing / PartiallyFilled | no | required |
+| Cancel | creator, or `orders.approve` | reason | no | optional |
+
+Seeded roles: `portfolio_manager` creates; `investment_director` creates and approves; `dealer` creates and routes;
+compliance, auditor, fund accountant, operations and system admin only view. The `order_approval` policy flag is not
+read yet (approval is always required).
+
+### Screens
+
+`/ops/orders` (blotter: status / portfolio / security / date filters, tiles for working, awaiting approval, filled and
+slippage), `/ops/orders/new` (ticket with security search and price, **Run pre-trade check**, Save as draft, Submit for
+approval), `/ops/orders/[id]` (details, checks, fills, instruction, timeline, and the actions in `allowed`). Nav section
+"Trading". Approve, reject and route use the shared step-up prompt (`StepUpHost`).
+
+### Demo seed
+
+`prisma/seed-orders.ts` (called from `seed-demo.ts` and `seed-uat.ts`, also standalone): sets average daily volumes on
+the demo securities and adds four orders on Zimbabwe Opportunities (awaiting approval, approved, filled, rejected).
+Inserted directly, so positions and cash are not changed by the seeded fills. Idempotent; skipped when no
+`portfolio_manager` / `investment_director` user exists.
+
+### Running the test
+
+```
+# disposable DB only, e.g. a schema named nexus_orders_test on the local private MySQL
+cd backend/api
+npx prisma migrate deploy --schema prisma/schema.prisma
+npx tsx --env-file-if-exists=../../.env prisma/seed.ts
+API_PORT=4191 npx tsx --env-file-if-exists=../../.env src/server.ts       # another terminal; avoid 4190 (blocked by fetch)
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4191 npx tsx --env-file-if-exists=../../.env scripts/test-orders.ts
+```
+
+Covers: portal and permission refusals, create with `Idempotency-Key` (replay, reuse, missing), validation, draft
+visibility, version conflict, every pre-trade outcome (mandate fail/review, restricted, market, cash, position,
+liquidity lot and ADV, price), Blocked cannot be submitted, reservation reducing free cash and released on cancel,
+re-check under lock at submit, share commitment on sells, the full lifecycle, SoD (maker cannot approve or reject,
+approver cannot route), step-up on approve / reject / route, fills (partial, over-fill, limit breach, average price,
+position and cash, snapshot), slippage, cancel rules, blotter filters and KPIs, audit events and timeline, outbox
+notifications and the instruction email. Verified locally: 153 checks, all passing, on a throwaway MySQL 8.4 instance.
+Needs `FILE_ENCRYPTION_KEY` (64 hex chars) in the API environment for the TOTP enrolment.
+
+### Not done
+
+CSV export and CSV/JSON import (FR-OMS-010, 012 export), FIX feed, post-trade allocation and contract-note matching
+(FR-OMS-011), Settled transition, stop-limit orders, and a worker update of `broker_instructions.delivery_status`
+(stays `QUEUED`; the email itself goes through the outbox).
 
 ## Risk
 
