@@ -12,7 +12,7 @@ import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } fr
 import { audit } from '../ops/ops.common';
 import { loadPortfolio } from '../portfolio/portfolio.service';
 import { PRESETS, RISK_METRICS, DEFAULT_SHOCKS, METRIC_LABEL } from './risk.engine';
-import { computeScenario, runMonitor } from './risk.service';
+import { checkLimitsForPortfolio, computeScenario, runMonitor } from './risk.service';
 
 /**
  * Risk & Compliance (SRD 11.3 `/risk/*`, 5.A.7, 6.8). Admin-portal staff only: `risk.view` reads, `risk.manage`
@@ -303,6 +303,30 @@ riskRoutes.post('/monitor', ...canManage, validateBody(monitorBody), idempotent(
     }),
   );
   res.json({ data: summary });
+});
+
+// ================================================================ pre-trade check (read only)
+
+const checkBody = z
+  .object({
+    portfolioId: id36,
+    asOf: dateStr.optional(),
+    hypothetical: z
+      .object({
+        ticker: z.string().trim().min(1).max(36),
+        side: z.enum(['BUY', 'SELL']),
+        quantity: z.union([z.number().positive(), z.string().regex(/^\d+(\.\d{1,6})?$/)]),
+        price: z.union([z.number().positive(), z.string().regex(/^\d+(\.\d{1,6})?$/)]).optional(),
+      })
+      .strict()
+      .optional(),
+  })
+  .strict();
+
+/** What the ACTIVE limits say about a portfolio now, or after a hypothetical trade. Records nothing. */
+riskRoutes.post('/check', ...canView, validateBody(checkBody), async (req, res) => {
+  const b = req.body as z.infer<typeof checkBody>;
+  res.json({ data: await checkLimitsForPortfolio(b.portfolioId, b.hypothetical, { asOf: b.asOf ? toDate(b.asOf) : undefined }) });
 });
 
 // ================================================================ breaches
