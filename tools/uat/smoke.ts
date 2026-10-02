@@ -281,7 +281,9 @@ async function main() {
           const r = await inv.upload(`/api/v1/company/periods/${cur.id}/items/${it.id}/files`, form);
           if (r.status !== 201) record('S10', `upload ${it.id}`, 'FAIL', brief(r));
         }
-        const sub = await inv.request('POST', `/api/v1/company/periods/${cur.id}/submit`, {});
+        // A contributor uploads; only an approver holds the submit_pack profile right.
+        const approver = (await as('investee_101_approver', 'company')) ?? inv;
+        const sub = await approver.request('POST', `/api/v1/company/periods/${cur.id}/submit`, {});
         record('S10', 'investee submits period', sub.status === 200 ? 'PASS' : 'FAIL', brief(sub));
         const reviewer = (await as('analyst', 'admin')) ?? (await as('investment_director', 'admin')) ?? staff;
         if (sub.status === 200 && reviewer) {

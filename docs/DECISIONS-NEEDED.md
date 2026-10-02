@@ -37,3 +37,15 @@ interim choice the build took so work could continue; the owner confirms or over
 | D-30 | Smoke rollback | Auto-rollback on smoke failure | On by default (`AUTO_ROLLBACK=1`) | WS8 |
 | D-31 | LP flags caching | Where flags are cached | In memory per page load; rollback takes effect on next reload | WS5 |
 | D-32 | Ops console permissions | Button gating | Approve disabled for the preparer; server stays authoritative; single-user notice targets take a raw user id (no user picker endpoint) | WS7 |
+
+## Confirmed on 2 Oct 2026
+
+The product owner delegated these decisions. **D-01 to D-32 are confirmed as the interim choices in the table above.** Further decisions taken while closing the gaps:
+
+| # | Area | Decision | Why |
+|---|------|----------|-----|
+| D-33 | Mandatory MFA in UAT | The `mfa_required` policy stays **off**. Step-up MFA still applies to money actions for any account that has enrolled an authenticator. Turn it on later with `SEED_UAT_MFA_REQUIRED=1` and a re-seed. | Forcing every admin, LP and custodian login to enrol would lock out testers without an authenticator on day one. |
+| D-34 | Reading UAT mail | All mail goes to Mailpit, which is not exposed publicly. Testers read it through an SSH tunnel to port 8025 on the host (or the owner adds a protected hostname). | No new DNS name or public mail viewer is created without the owner. |
+| D-35 | UAT test data | After the automated smoke runs, the UAT workflow data is reset with `SEED_UAT_RESET=1` so testers start from the seeded state. Persona accounts keep their passwords. | Smoke runs consume the open capital call and open reporting period. |
+| D-36 | Smoke persona for investee submit | The smoke suite submits the reporting pack as the company approver, not the contributor (the contributor uploads; only an approver holds the `submit_pack` right). | The permission is correct; the test used the wrong persona. |
+| D-37 | Scope not built | The V56 admin pages for orders, IBOR, research, risk, reconciliations, NAV, accounting, financing and corporate actions stay prototype pages on demo data. They are outside the UAT cut line (docs/DEV-PLAN-1DAY.md section 3). | One-day scope; the SRD lists their requirements for later phases. |
