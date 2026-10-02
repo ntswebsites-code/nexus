@@ -76,6 +76,7 @@ import {
   statementExtras,
   statementReport,
   deriveKpis,
+  flattenReportingKpis,
   reportingRequestView,
   type LetterheadJson,
 } from './investee.service';
@@ -615,7 +616,7 @@ investeePortalRoutes.get('/kpis', async (req, res) => {
       reportingPeriod: p.period,
       label: p.label,
       status: p.status,
-      values: (p.kpiValues as Record<string, number | ''> | null) ?? {},
+      values: flattenReportingKpis(p.kpiValues as Record<string, unknown> | null),
     })),
     covenants: covenants.map(covenantView),
   });

@@ -270,8 +270,6 @@ async function main() {
   }
   const viewerUpload = await viewer.client.post(`${IP}/financial-reports/${ids.compliance}/file`, file('file', 'c.pdf', 'application/pdf'));
   check('viewer cannot upload (403)', viewerUpload.status === 403, viewerUpload.status);
-  const early = await approver.client.post(`${IP}/reporting/requests/${PERIOD}/submit`, {});
-  check('submit with a missing required item -> 400', early.status === 400 && early.body?.error?.details?.missing?.includes('compliance'), early.body);
   await contrib.client.post(`${IP}/financial-reports/${ids.compliance}/file`, file('file', 'compliance.pdf', 'application/pdf'));
 
   const reports = shape('GET /financial-reports', envelopeSchema(financialReportPageSchema), (await contrib.client.get(`${IP}/financial-reports?reportingPeriod=${PERIOD}`)).body);

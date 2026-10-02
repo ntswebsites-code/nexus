@@ -95,6 +95,24 @@ export function investedAmount(c: PortfolioCompany): number {
   return 0;
 }
 
+/** Numeric KPI fields for portal views (flatten `AUTO_KPI_FLAT`; drop nested buckets). BR-204 */
+export function flattenReportingKpis(raw: Record<string, unknown> | null | undefined): Record<string, number | ''> {
+  const values = raw ?? {};
+  const out: Record<string, number | ''> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (key === 'manualEntries' || key === 'derived' || key === 'AUTO_KPI_FLAT') continue;
+    if (typeof value === 'number') out[key] = value;
+    else if (value === '') out[key] = '';
+  }
+  const flat = values.AUTO_KPI_FLAT;
+  if (flat && typeof flat === 'object' && !Array.isArray(flat)) {
+    for (const [key, value] of Object.entries(flat as Record<string, unknown>)) {
+      if (typeof value === 'number') out[key] = value;
+    }
+  }
+  return out;
+}
+
 function companySize(employees: number | null) {
   if (employees === null) return null;
   if (employees < 10) return '1-9';
@@ -262,7 +280,7 @@ export function reportingRequestView(p: PeriodRow, company: PortfolioCompany, pr
     reviewedAt: iso(p.reviewedAt),
     reviewerName: p.reviewerName,
     reviewNote: p.reviewNote,
-    kpis: (p.kpiValues as Record<string, number | ''> | null) ?? {},
+    kpis: flattenReportingKpis(p.kpiValues as Record<string, unknown> | null),
     notes: p.notes ?? '',
     version: p.version,
     canEdit: editable && profileCan(profile, 'edit_draft'),
