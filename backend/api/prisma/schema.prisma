@@ -1845,3 +1845,128 @@ model FxRate {
   @@unique([fromCurrency, toCurrency, rateDate])
   @@map("fx_rates")
 }
+
+// ---- Risk ----
+// Risk & Compliance (SRD 5.A.7, 6.8 FR-RSK-001..005, BR-001, BR-014). Written by `modules/risk`.
+// portfolio_id / scope_id / user ids are logical references (no FK), like the portfolio foundation.
+
+/// A risk limit. DRAFT -> PENDING_APPROVAL -> ACTIVE -> RETIRED; the approver must differ from the maker (BR-001).
+model RiskLimit {
+  id           String    @id @default(uuid()) @db.Char(36)
+  /// LIM-1001 ...
+  ref          String    @unique @db.VarChar(16)
+  /// SINGLE_NAME_PCT | SECTOR_PCT | CASH_FLOOR_PCT | TOP5_PCT
+  metric       String    @db.VarChar(24)
+  /// PORTFOLIO | FIRM (FIRM applies to every portfolio)
+  scopeType    String    @default("PORTFOLIO") @map("scope_type") @db.VarChar(12)
+  /// portfolios.id when scope_type = PORTFOLIO
+  scopeId      String?   @map("scope_id") @db.Char(36)
+  /// Percent, 0-100 (10 = 10%)
+  threshold    Decimal   @db.Decimal(10, 4)
+  unit         String    @default("PCT") @db.VarChar(8)
+  /// ALERT | ESCALATE | BLOCK
+  breachAction String    @default("ALERT") @map("breach_action") @db.VarChar(16)
+  description  String?   @db.VarChar(500)
+  ownerUserId  String    @map("owner_user_id") @db.Char(36)
+  /// DRAFT | PENDING_APPROVAL | ACTIVE | RETIRED
+  status       String    @default("DRAFT") @db.VarChar(20)
+  makerId      String    @map("maker_id") @db.Char(36)
+  checkerId    String?   @map("checker_id") @db.Char(36)
+  approvedAt   DateTime? @map("approved_at")
+  retiredAt    DateTime? @map("retired_at")
+  version      Int       @default(1)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  breaches RiskBreach[]
+
+  @@index([status])
+  @@index([scopeType, scopeId])
+  @@map("risk_limits")
+}
+
+/// One limit breached by one portfolio on one day; the monitor never records a duplicate.
+model RiskBreach {
+  id          String    @id @default(uuid()) @db.Char(36)
+  limitId     String    @map("limit_id") @db.Char(36)
+  portfolioId String    @map("portfolio_id") @db.Char(36)
+  detectedOn  DateTime  @map("detected_on") @db.Date
+  /// Measured value in percent (for example the largest single-name weight)
+  value       Decimal   @db.Decimal(20, 6)
+  threshold   Decimal   @db.Decimal(10, 4)
+  detail      Json?
+  /// OPEN | ACKNOWLEDGED | RESOLVED
+  status      String    @default("OPEN") @db.VarChar(16)
+  caseId      String?   @map("case_id") @db.Char(36)
+  ackBy       String?   @map("ack_by") @db.Char(36)
+  ackAt       DateTime? @map("ack_at")
+  ackNote     String?   @map("ack_note") @db.VarChar(500)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  limit RiskLimit @relation(fields: [limitId], references: [id])
+
+  @@unique([limitId, portfolioId, detectedOn])
+  @@index([status])
+  @@index([portfolioId, detectedOn])
+  @@map("risk_breaches")
+}
+
+/// A saved stress scenario (BR-014). `shocks` = equityPct, fxPct, ratePctPoints, durationYears, redemptionPct.
+model RiskScenario {
+  id        String   @id @default(uuid()) @db.Char(36)
+  name      String   @unique @db.VarChar(120)
+  shocks    Json
+  /// liquidity | equity | fx for the built-in presets
+  preset    String?  @db.VarChar(16)
+  createdBy String?  @map("created_by") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  runs RiskScenarioRun[]
+
+  @@map("risk_scenarios")
+}
+
+model RiskScenarioRun {
+  id          String   @id @default(uuid()) @db.Char(36)
+  scenarioId  String   @map("scenario_id") @db.Char(36)
+  portfolioId String   @map("portfolio_id") @db.Char(36)
+  asOf        DateTime @map("as_of") @db.Date
+  results     Json
+  runBy       String?  @map("run_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  scenario RiskScenario @relation(fields: [scenarioId], references: [id])
+
+  @@index([scenarioId, createdAt])
+  @@index([portfolioId, createdAt])
+  @@map("risk_scenario_runs")
+}
+
+/// A compliance / risk case. Opened by hand or automatically from a breach.
+model RiskCase {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// RC-1001 ...
+  ref            String    @unique @db.VarChar(16)
+  type           String    @db.VarChar(40)
+  description    String    @db.VarChar(2000)
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  severity       String    @default("MEDIUM") @db.VarChar(12)
+  /// OPEN | INVESTIGATING | RESOLVED | CLOSED
+  status         String    @default("OPEN") @db.VarChar(16)
+  ownerUserId    String?   @map("owner_user_id") @db.Char(36)
+  sourceBreachId String?   @map("source_breach_id") @db.Char(36)
+  portfolioId    String?   @map("portfolio_id") @db.Char(36)
+  resolutionNote String?   @map("resolution_note") @db.VarChar(2000)
+  resolvedAt     DateTime? @map("resolved_at")
+  createdBy      String?   @map("created_by") @db.Char(36)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+  version        Int       @default(1)
+
+  @@index([status, severity])
+  @@index([ownerUserId])
+  @@index([sourceBreachId])
+  @@map("risk_cases")
+}
+// ---- end Risk ----

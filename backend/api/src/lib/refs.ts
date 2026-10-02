@@ -13,6 +13,8 @@ const FORMATS = {
   question: { prefix: 'Q-', pad: 4, start: 2042 },
   company: { prefix: 'PC-', pad: 3, start: 101 },
   portfolio: { prefix: 'PF-', pad: 4, start: 1001 },
+  riskLimit: { prefix: 'LIM-', pad: 4, start: 1001 },
+  riskCase: { prefix: 'RC-', pad: 4, start: 1001 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;
