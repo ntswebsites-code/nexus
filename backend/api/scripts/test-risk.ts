@@ -211,7 +211,9 @@ async function main() {
       check(`GET /risk/${p} as an investor -> 403`, r.status === 403, r.status);
       check(`GET /risk/${p} as an analyst (risk.view) -> 200`, (await analyst.get(`${R}/${p}`)).status === 200);
     }
-    const denyLimit = await analyst.post(`${R}/limits`, { metric: 'SINGLE_NAME_PCT', scopeType: 'PORTFOLIO', scopeId: pA.id, threshold: 35 }, { 'Idempotency-Key': key('deny') });
+    const staffList = await analyst.get(`${R}/users`);
+    check('GET /risk/users lists active staff (id and name only) for pickers; investors get 403', staffList.status === 200 && staffList.body?.data?.some((u: any) => u.id === makerU.id && u.name === 'RK maker' && !('passwordHash' in u)) && (await lp.get(`${R}/users`)).status === 403, staffList.body);
+    const denyLimit =await analyst.post(`${R}/limits`, { metric: 'SINGLE_NAME_PCT', scopeType: 'PORTFOLIO', scopeId: pA.id, threshold: 35 }, { 'Idempotency-Key': key('deny') });
     check('analyst cannot create a limit -> 403 permission_denied', denyLimit.status === 403 && denyLimit.body?.error?.code === 'permission_denied', denyLimit.body);
     check('analyst cannot run the monitor -> 403', (await analyst.post(`${R}/monitor`, {})).status === 403);
     check('analyst cannot create a case -> 403', (await analyst.post(`${R}/cases`, { description: 'x y z' }, { 'Idempotency-Key': key('dc') })).status === 403);

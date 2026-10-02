@@ -54,6 +54,17 @@ async function assertActiveUser(userId: string, path: string) {
   if (!u?.isActive) throw HttpError.badRequest('Validation failed', [{ path, message: 'Unknown or inactive user' }]);
 }
 
+/** Active admin-portal staff, for owner / assignee pickers (read-only, id and name only). */
+riskRoutes.get('/users', ...canView, async (_req, res) => {
+  const rows = await prisma.user.findMany({
+    where: { isActive: true, roles: { some: { role: { portal: 'admin' } } } },
+    orderBy: { name: 'asc' },
+    select: { id: true, name: true, email: true },
+    take: 500,
+  });
+  res.json({ data: rows.map((u) => ({ id: u.id, name: u.name || u.email, email: u.email })), total: rows.length });
+});
+
 // ================================================================ limits
 
 type LimitRow = Prisma.RiskLimitGetPayload<object>;

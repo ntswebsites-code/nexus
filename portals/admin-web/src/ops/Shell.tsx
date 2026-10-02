@@ -33,6 +33,10 @@ const NAV: { section: string; items: NavItem[] }[] = [
     ],
   },
   {
+    section: 'Risk & compliance',
+    items: [{ href: '/ops/risk', label: 'Risk & compliance', perms: ['risk.view', 'risk.manage'] }],
+  },
+  {
     section: 'Dealing & deals',
     items: [
       { href: '/ops/dealing', label: 'Dealing queue', perms: ['dealing.view'] },
