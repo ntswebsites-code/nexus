@@ -1,12 +1,56 @@
 # Progress
 
-Local build on `dev`. Nothing was deployed.
+`dev` @ **`c56fadd`** (pushed to `origin/dev`). Nothing deployed to UAT.
 
-## Cloud agent (2 Oct 2026)
+## Cloud agent session — 2 Oct 2026 (Matanho Nexus takeover)
 
-- Re-ran full **3.1** on `dev` @ `a565741`: typecheck, all portal builds, ws0–ws4 + e2e-phase1 green on disposable MySQL (API 4150).
-- Fixed investee **reporting KPI flattening** for `/live` (BR-204) and aligned **test-ws3** with auto-generated pack files on submit.
-- **3.2** blocked (no `SEED_USERS_FILE`). **3.7** blocked (no SSH key to UAT host).
+### What was done
+
+1. **Repository sync (STEP 0)**  
+   - `git fetch origin`, checkout `dev`, `git pull --ff-only origin dev`.  
+   - Started from `a565741`; ended at `c56fadd` after two commits (see below).
+
+2. **HANDOVER plan §3.1 — re-verify merged `dev` (blocking)**  
+   - `npm ci`; `npx prisma generate` in `backend/api`; `npm run typecheck`; `tsc --noEmit` in all five portals.  
+   - `npm run build -w @matanho/api`; `next build` for admin, investor, onboarding, company, custodian.  
+   - Fresh disposable DB: drop/create `matanho_nexus`, `prisma migrate deploy` (3 migrations), `prisma/seed.ts`.  
+   - API started on port **4150** with `CUSTODIAN_LIVE=true` and `ONBOARDING_LIVE=true` (required by `test-ws4.ts` header).  
+   - Integration scripts (in order): `test-ws2.ts` → `smoke-ws0.ts` → `test-ws1.ts` → `test-ws3.ts` → `test-ws4.ts`, each with `E2E_CONFIRM=throwaway-db` and `E2E_API=http://127.0.0.1:4150`.  
+   - `SEED_DEMO=1 npm run db:seed`, then `e2e-phase1.ts` with `E2E_CONFIRM=throwaway-db` — all checks passed.
+
+3. **Code changes (integration breakages only; schema unchanged)**  
+   - **`backend/api/src/modules/investee-portal/investee.service.ts`:** added `flattenReportingKpis()`; `reportingRequestView` now returns numeric KPI maps only (flatten `AUTO_KPI_FLAT`, drop nested buckets per BR-204).  
+   - **`backend/api/src/modules/investee-portal/investee.routes.ts`:** `GET /kpis` period `values` uses the same flatten helper.  
+   - **`backend/api/scripts/test-ws3.ts`:** removed assertion that expected HTTP 400 when compliance file was missing before submit; behaviour changed when `attachGeneratedPackFiles` auto-generates required uploads on pack submit (`e1f225d`).
+
+4. **Documentation**  
+   - **`docs/HANDOVER-STATUS.md`:** new §0 cloud checkpoint (3.1 results, fixes, blocked 3.2/3.7); prior 1 Oct notes kept as §0 archive.  
+   - **`PROGRESS.md`:** this session log.
+
+5. **Git**  
+   - Branch used: `cursor/ws3-reporting-kpis-flatten-78f1`, fast-forward merged into `dev`.  
+   - Commits on `dev`:  
+     - `c541bc1` — Fix investee reporting KPI flattening for live hydration payload.  
+     - `c56fadd` — Document cloud 3.1 re-verify and blocked 3.2/3.7 steps.  
+   - Pushed: `origin/dev`, `origin/cursor/ws3-reporting-kpis-flatten-78f1`.
+
+### What was not done (blocked)
+
+| HANDOVER step | Reason |
+| --- | --- |
+| 3.2 UAT seed + `tools/uat/contract-harness.ts` | No out-of-band `SEED_USERS_FILE` / `secrets/users.json` on the cloud VM. |
+| 3.3–3.5 Browser journeys | Not re-run; 1 Oct local verification remains authoritative until personas file + portals are configured here. |
+| 3.7 Deploy, tag `uat-rc1`, smoke S1–S12 on host | SSH to `207.180.234.151` fails (`Permission denied (publickey)` / no deploy key). |
+
+### Artifact paths (cloud run)
+
+- `/opt/cursor/artifacts/api-4150.log` — API on 4150  
+- `/opt/cursor/artifacts/e2e-phase1.log` — e2e after demo seed  
+
+### Next actions (when unblocked)
+
+1. Mount or inject `SEED_USERS_FILE` → `SEED_UAT_CONFIRM=1 npx tsx prisma/seed-uat.ts` → contract harness → set `LP_LIVE_DOMAINS` only when green.  
+2. Provision UAT SSH key → runbook §8 (`pack-release` + `deploy.sh`) → tag `uat-rc1` → smoke S1–S12 on host.
 
 ## Phases
 
@@ -36,10 +80,12 @@ Local build on `dev`. Nothing was deployed.
 
 ## Blockers
 
-- UAT host deploy was not run. Deploy remains forbidden.
-- No penetration test, k6 load test, or backup restore drill. Those need a host and a drill environment that are not part of this local run.
-- Mailpit is not running, so the mail smoke check still skips.
-- The workstream scripts `test-ws1.ts` through `test-ws4.ts` refuse to run unless `E2E_CONFIRM=throwaway-db`. They were not pointed at the local UAT database.
+- **UAT deploy / `uat-rc1`:** no SSH private key on the cloud agent VM (2 Oct attempt).
+- **3.2 harness:** no `SEED_USERS_FILE` on the cloud agent VM.
+- UAT host deploy was not run on the original local machine either (forbidden / no key).
+- No penetration test, k6 load test, or backup restore drill.
+- Mailpit is not running locally, so mail smoke (S12) still skips on API-only runs.
+- Workstream scripts require `E2E_CONFIRM=throwaway-db` and a disposable DB (used correctly on 2 Oct cloud 3.1).
 
 ## Manual follow-up
 

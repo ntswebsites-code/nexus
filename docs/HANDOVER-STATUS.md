@@ -2,7 +2,7 @@
 
 ## 0. Checkpoint — 3.1 re-verified on cloud (this run). 3.2–3.7 unchanged from prior notes.
 
-**STEP 0:** `dev` at `a565741` (≥ `ee87cc4`).
+**STEP 0:** `dev` at **`c56fadd`** (≥ `ee87cc4`; includes KPI flatten fix + doc update).
 
 **3.1 merged `dev` re-verify (disposable MySQL 8 `matanho_nexus`, API port 4150, `CUSTODIAN_LIVE` + `ONBOARDING_LIVE` for `test-ws4.ts`):**
 
@@ -102,7 +102,7 @@ Branch `dev` contains everything. All eight workstream branches are merged; noth
   admin-web (onboarding-web was green on ws/4).
 - Portal builds: `next build --webpack` green on ws/4 (custodian, onboarding), ws/6 (company), ws/7 (admin).
   Turbopack fails ONLY in worktrees whose `node_modules` is a junction outside the folder; not expected in Docker.
-- **Cloud agent (2 Oct):** full 3.1 script suite green on `a565741` after KPI flatten fix (see section 0).
+- **Cloud agent (2 Oct):** full 3.1 script suite green on `dev` after KPI flatten fix; merged commits `c541bc1`, `c56fadd` (see section 0 and `PROGRESS.md`).
 
 ### Not verified yet (do these first)
 - **3.2 on cloud:** UAT seed + contract harness need `SEED_USERS_FILE` delivered out of band.
