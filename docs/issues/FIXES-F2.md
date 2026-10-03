@@ -68,3 +68,7 @@ Status key: fixed / not-a-defect / needs-other-group / not-fixed. All changes ar
 ## Needs other group
 - Field-level validation envelope for the generic `Validation failed` text (ADA-010) is F3 (`middleware/validate.ts`); F2 only supplies field paths through the existing envelope.
 - ADA-008/ADA-019 stale price data are F4.
+
+## Verification
+- `npx tsc --noEmit` passed in `backend/api` and `portals/admin-web` (no schema change, no migration, no seed change).
+- `npm run build -w @matanho/admin-web` could not be completed in this worktree: Turbopack rejects the `node_modules` junction that points to the main checkout ("Symlink [project]/node_modules is invalid, it points out of the filesystem root"). This is an environment limit, not a code error; no `next.config.ts` change was made. Re-run the build after merge in a normal checkout.
