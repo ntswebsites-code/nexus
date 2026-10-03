@@ -12,6 +12,8 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { D, ZERO, assertSegregation, assertUpdated, audit, notifyPermission, seqRef } from '../ops/ops.common';
 import { getBrokerList, latestPrices, loadPortfolio } from '../portfolio/portfolio.service';
+import { ensureOrderReservation, releaseOrderCash, reserveOrderCash, syncOrderReservation } from '../cash/cash.orders';
+import { settleOrder } from './orders.settle';
 import { RESERVING_STATUSES, estimateFee, runPreTradeChecks, type PreTradeResult } from './orders.checks';
 import {
   CANCELLABLE,
@@ -500,7 +502,9 @@ ordersRoutes.post('/:id/submit', ...staff, requirePermission('orders.create'), v
       after: { overall: result.overall, reservedAmount: reserve ? reserve.amount.toFixed(4) : '0', currency: o.currency },
       reason: rationale,
     });
-    const sec = await tx.security.findUnique({ where: { id: o.securityId }, select: { ticker: true } });
+    // FR-CASH-015: a buy holds cash on the portfolio's bank ledger (row-locked availability check; 409 when short).
+    if (reserve) await reserveOrderCash(tx, audit(req), { id: o.id, ref: o.ref, portfolioId: o.portfolioId, currency: o.currency }, reserve.amount);
+    const sec =await tx.security.findUnique({ where: { id: o.securityId }, select: { ticker: true } });
     await notifyPermission(tx, 'orders.approve', {
       type: 'order.submitted',
       title: `Order ${o.ref} awaiting approval: ${o.side} ${o.quantity.toString()} ${sec?.ticker ?? ''}`,
@@ -527,6 +531,7 @@ ordersRoutes.post('/:id/approve', ...staff, requirePermission('orders.approve'),
   const { note } = req.body as z.infer<typeof approveSchema>;
   await prisma.$transaction(async (tx) => {
     await move(tx, req, o, 'Approved', { data: { approverId: req.user!.id, approvedAt: new Date() }, action: 'order.approved', reason: note ?? null });
+    if (o.side === 'BUY' && o.reservedAmount.gt(0)) await ensureOrderReservation(tx, audit(req), { id: o.id, ref: o.ref, portfolioId: o.portfolioId, currency: o.currency }, o.reservedAmount);
     const sec = await tx.security.findUnique({ where: { id: o.securityId }, select: { ticker: true } });
     await notifyPermission(tx, 'orders.route', {
       type: 'order.approved',
@@ -546,6 +551,7 @@ ordersRoutes.post('/:id/reject', ...staff, requirePermission('orders.approve'), 
   const { reason } = req.body as z.infer<typeof reasonSchema>;
   await prisma.$transaction(async (tx) => {
     await move(tx, req, o, 'Rejected', { data: { rejectReason: reason, reservedAmount: ZERO }, action: 'order.rejected', reason, after: { releasedReservation: o.reservedAmount.toFixed(4) } });
+    await releaseOrderCash(tx, audit(req), o.id, `Order ${o.ref} rejected: ${reason}`);
     await enqueue(tx, 'notify.users', { userIds: [o.makerId], type: 'order.rejected', title: `Order ${o.ref} was rejected`, body: reason, link: `/ops/orders/${o.id}` });
   });
   await respond(res, req, o.id);
@@ -680,8 +686,27 @@ ordersRoutes.post('/:id/fills', ...staff, requirePermission('orders.route'), val
         source: b.source,
       },
     });
+    // The cash hold now covers what was filled plus the unfilled remainder; it is consumed when the settlement journal posts.
+    if (buy) await syncOrderReservation(tx, audit(req), { id: o.id, ref: o.ref, portfolioId: o.portfolioId, currency: o.currency }, { quantity: o.quantity, filledQty, reserveUnit: o.reserveUnit });
   });
   await respond(res, req, first.id, 201);
+});
+
+// ---------------------------------------------------------------- settle
+
+/** Filled -> Settled. Creates the trade journals (accounting and cash ledger) as PENDING_APPROVAL by the system actor; idempotent per order. */
+ordersRoutes.post('/:id/settle', ...staff, requirePermission('orders.route'), idempotent('orders.settle', { required: false }), async (req, res) => {
+  const first = await loadOrderRow(param(req, 'id'));
+  if (!visibleTo(first, req.user!.id)) throw HttpError.notFound('Order not found');
+  if (first.status !== 'Filled') throw new HttpError(409, 'invalid_transition', `An order that is ${first.status} cannot be settled; only a Filled order can`);
+  const journals = await prisma.$transaction(async (tx) => {
+    await lockPortfolio(tx, first.portfolioId);
+    const o = await loadOrderRow(first.id, tx);
+    await move(tx, req, o, 'Settled', { action: 'order.settled', after: { filledQty: o.filledQty.toString() } });
+    return settleOrder(tx, audit(req), o);
+  });
+  const data = await detail(req, await loadOrderRow(first.id));
+  res.json({ data: { ...data, settlementJournals: journals } });
 });
 
 // ---------------------------------------------------------------- cancel
@@ -704,6 +729,7 @@ ordersRoutes.post('/:id/cancel', ...staff, requirePermission('orders.view'), val
       reason,
       after: { releasedReservation: o.reservedAmount.toFixed(4), filledQty: o.filledQty.toString() },
     });
+    await releaseOrderCash(tx, audit(req), o.id, `Order ${o.ref} cancelled: ${reason}`);
     if (o.makerId !== me.id) {
       await enqueue(tx, 'notify.users', { userIds: [o.makerId], type: 'order.cancelled', title: `Order ${o.ref} was cancelled`, body: reason, link: `/ops/orders/${o.id}` });
     }

@@ -788,6 +788,7 @@ try {
   await (await import('./seed-accounting')).seedAccounting();
   await (await import('./seed-corporate-actions')).seedCorporateActions();
   await (await import('./seed-cash')).seedCash();
+  await (await import('./seed-wiring')).seedWiring();
   await (await import('./seed-recon')).seedRecon();
 
   if (process.env.SEED_UAT_MFA_REQUIRED === '1') {

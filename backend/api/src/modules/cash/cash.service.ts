@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
+import { SYSTEM_ACTOR_ID, SYSTEM_NAME } from '../../lib/system';
 import { AGED_DAYS, availability, AVAIL_VERSION, coverageProblems, daysBetween, EFFECTIVE, LIVE_RESERVATION, signed, UNPOSTED } from './cash.engine';
 
 const D = Prisma.Decimal;
@@ -23,7 +24,9 @@ const f2 = (v: Dec | null | undefined) => (v === null || v === undefined ? null 
 export async function names(userIds: (string | null | undefined)[]) {
   const ids = [...new Set(userIds.filter((x): x is string => !!x))];
   const rows = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } }) : [];
-  return new Map(rows.map((u) => [u.id, u.name || u.email]));
+  const m = new Map(rows.map((u) => [u.id, u.name || u.email]));
+  if (ids.includes(SYSTEM_ACTOR_ID)) m.set(SYSTEM_ACTOR_ID, SYSTEM_NAME);
+  return m;
 }
 
 async function portfolioMap(ids: string[]) {

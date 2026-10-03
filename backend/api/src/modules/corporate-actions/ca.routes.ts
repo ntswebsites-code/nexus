@@ -11,6 +11,7 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
 import { CA_STATUSES, CA_TYPES, ELECTION_OPTIONS, dateErrors, needsRate, needsRatio, normaliseOption, type CaType } from './ca.engine';
+import { postCorporateActionJournals } from '../wiring/autojournals';
 import { applyEntitlements, calculateEntitlements, eventDetail, eventViews, isoDay, electionOpen, loadEvent, repriceFor, startOfDay, type EventRow } from './ca.service';
 
 /**
@@ -361,11 +362,14 @@ corporateActionsRoutes.post('/events/:id/process', ...canProcess, requireStepUp,
     const summary = await applyEntitlements(tx, fresh);
     if (summary.applied === 0) throw HttpError.conflict('No portfolio holds this security at the record date; nothing to process', 'no_entitlements');
     await tx.corpActionEvent.update({ where: { id: e.id }, data: { detail: summary as unknown as Prisma.InputJsonValue } });
-    await writeAudit(tx, audit(req), { action: 'corp_action.processed', objectType: 'corp_action', objectId: e.id, before: { status: 'CONFIRMED' }, after: { status: 'PROCESSED', ref: e.ref, creatorId: e.makerId, processedBy: req.user!.id, ...summary } });
-    return summary;
+    // Cash legs book to Accounting and the cash ledger as PENDING_APPROVAL journals made by the system actor (idempotent per action and portfolio).
+    const applied = await tx.corpActionEntitlement.findMany({ where: { eventId: e.id, status: 'APPLIED' }, select: { portfolioId: true, grossAmount: true, taxAmount: true, cashAmount: true } });
+    const journals = await postCorporateActionJournals(tx, fresh, applied);
+    await writeAudit(tx, audit(req), { action: 'corp_action.processed', objectType: 'corp_action', objectId: e.id, before: { status: 'CONFIRMED' }, after: { status: 'PROCESSED', ref: e.ref, creatorId: e.makerId, processedBy: req.user!.id, ...summary, journals: journals.map((j) => ({ portfolioId: j.portfolioId, accounting: j.accounting.ref ?? j.accounting.skipped, cash: j.cash?.ref ?? j.cash?.skipped ?? null })) } });
+    return { summary, journals };
   });
   const detail = await eventDetail(await loadEvent(e.id), req.user!);
-  res.json({ data: { ...detail, applied: out } });
+  res.json({ data: { ...detail, applied: out.summary, journals: out.journals.map((j) => ({ portfolioId: j.portfolioId, accountingJournal: j.accounting.ref ?? null, accountingSkipped: j.accounting.skipped ?? null, cashJournal: j.cash?.ref ?? null, cashSkipped: j.cash?.skipped ?? null })) } });
 });
 
 corporateActionsRoutes.post('/events/:id/cancel', ...canView, validateBody(cancelSchema), idempotent('corp_action.cancel', { required: false }), async (req, res) => {

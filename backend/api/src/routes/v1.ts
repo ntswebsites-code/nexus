@@ -24,6 +24,7 @@ import { accountingRoutes } from '../modules/accounting';
 import { corporateActionsRoutes } from '../modules/corporate-actions';
 import { cashRoutes } from '../modules/cash';
 import { reconRoutes } from '../modules/recon/recon.routes';
+import { operationsRoutes, dashboardRoutes } from '../modules/wiring';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -49,6 +50,9 @@ v1Router.use('/corporate-actions', corporateActionsRoutes);
 v1Router.use('/cash', cashRoutes);
 // Reconciliations: /recon/* (runs, breaks, sources, signoffs, account-map).
 v1Router.use('/recon', reconRoutes);
+// Operations Control (runbook tasks, live status) and Command Centre (today KPIs).
+v1Router.use('/operations', operationsRoutes);
+v1Router.use('/dashboard', dashboardRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

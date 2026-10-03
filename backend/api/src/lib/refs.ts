@@ -23,6 +23,7 @@ const FORMATS = {
   cashReservation: { prefix: 'RSV-', pad: 4, start: 1001 },
   cashExpectation: { prefix: 'EXP-', pad: 4, start: 1001 },
   cashImport: { prefix: 'IMP-', pad: 4, start: 1001 },
+  opsTask: { prefix: 'OPT-', pad: 4, start: 1 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;

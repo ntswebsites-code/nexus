@@ -177,6 +177,7 @@ export function allowedActions(o: OrderRow, userId: string, perms: string[]): st
   if (o.status === 'AwaitingApproval' && has('orders.approve') && !isMaker) out.push('approve', 'reject');
   if (o.status === 'Approved' && has('orders.route') && o.approverId !== userId) out.push('route');
   if (['Routing', 'PartiallyFilled'].includes(o.status) && has('orders.route')) out.push('fill');
+  if (o.status === 'Filled' && has('orders.route')) out.push('settle');
   if ((CANCELLABLE as string[]).includes(o.status) && (isMaker || has('orders.approve'))) out.push('cancel');
   return out;
 }

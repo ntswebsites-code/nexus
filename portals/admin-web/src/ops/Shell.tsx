@@ -18,6 +18,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: 'Fund operations',
     items: [
       { href: '/ops', label: 'Overview', perms: [] },
+      { href: '/ops/command', label: 'Today', perms: ['dashboard.view'] },
       { href: '/ops/funds', label: 'Funds & commitments', perms: ['funds.view'] },
       { href: '/ops/capital-calls', label: 'Capital calls', perms: ['capital.view'] },
       { href: '/ops/distributions', label: 'Distributions', perms: ['capital.view', 'distributions.create', 'distributions.approve', 'distributions.settle'] },
@@ -55,6 +56,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
   {
     section: 'Operations',
     items: [
+      { href: '/ops/operations', label: 'Operations control', perms: ['operations.view'] },
       { href: '/ops/reconciliation', label: 'Reconciliations', perms: ['operations.view'] },
       { href: '/ops/corporate-actions', label: 'Corporate actions', perms: ['operations.view'] },
     ],

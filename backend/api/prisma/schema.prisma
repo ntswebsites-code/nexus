@@ -2358,6 +2358,8 @@ model AccJournal {
   reversedById  String?   @map("reversed_by_id") @db.Char(36)
   reversedAt    DateTime? @map("reversed_at")
   reverseReason String?   @map("reverse_reason") @db.VarChar(500)
+  /// System-generated journals only (NAV:<ref>, CA:<ref>:<portfolio>, ORDER:<ref>:SETTLE): at most one journal per source.
+  sourceRef     String?   @unique @map("source_ref") @db.VarChar(80)
   version       Int       @default(1)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -2738,3 +2740,35 @@ model CashPeriodClose {
 }
 
 // ---- end Cash ----
+
+// ---- Wiring ----
+/// Operations Control runbook task (SRD 5.A.16 page `operations`). Generated tasks carry a unique `sourceRef`
+/// (e.g. RECON:BREAKS, CA:<ref>:JOURNALS) so refreshing the runbook never duplicates them.
+/// area: SETTLEMENT | CASH | CORPORATE_ACTIONS | VALUATION | CLOSE | REPORTING | RISK | OTHER.
+/// status: OPEN | IN_PROGRESS | BLOCKED | DONE | CANCELLED.
+model OpsTask {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// OPT-0001 ...
+  ref           String    @unique @db.VarChar(16)
+  area          String    @db.VarChar(20)
+  title         String    @db.VarChar(200)
+  detail        String?   @db.VarChar(1000)
+  dueAt         DateTime  @map("due_at")
+  status        String    @default("OPEN") @db.VarChar(12)
+  ownerId       String?   @map("owner_id") @db.Char(36)
+  dependsOnId   String?   @map("depends_on_id") @db.Char(36)
+  blockedReason String?   @map("blocked_reason") @db.VarChar(500)
+  link          String?   @db.VarChar(300)
+  sourceRef     String?   @unique @map("source_ref") @db.VarChar(80)
+  createdBy     String    @map("created_by") @db.Char(36)
+  completedBy   String?   @map("completed_by") @db.Char(36)
+  completedAt   DateTime? @map("completed_at")
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, dueAt])
+  @@index([area, status])
+  @@map("ops_tasks")
+}
+// ---- end Wiring ----

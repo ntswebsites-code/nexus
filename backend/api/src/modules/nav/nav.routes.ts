@@ -10,6 +10,8 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
 import { loadPortfolio } from '../portfolio/portfolio.service';
+import { postNavJournals } from '../wiring/autojournals';
+import { ensureTask } from '../wiring/tasks';
 import { stageFor } from './nav.engine';
 import {
   EDITABLE,
@@ -306,7 +308,9 @@ navRoutes.post('/runs/:id/release', ...canRelease, requireStepUp, idempotent('na
     );
     // the previous released version for the same portfolio and date is superseded
     const prior = await tx.navRun.findMany({ where: { portfolioId: r.portfolioId, navDate: r.navDate, status: 'RELEASED', id: { not: r.id } } });
+    const supersededRuns: { ref: string; fees: Prisma.Decimal; accruals: Prisma.Decimal }[] = [];
     for (const old of prior) {
+      supersededRuns.push({ ref: old.ref, fees: old.fees, accruals: old.accruals });
       await tx.navRun.update({ where: { id: old.id }, data: { status: 'SUPERSEDED' } });
       await writeAudit(tx, audit(req), { action: 'nav.run_superseded', objectType: 'nav_run', objectId: old.id, before: { status: 'RELEASED' }, after: { status: 'SUPERSEDED', supersededBy: r.ref } });
     }
@@ -338,17 +342,22 @@ navRoutes.post('/runs/:id/release', ...canRelease, requireStepUp, idempotent('na
         fundAfter = newest ? { navPerUnit: r.navPerUnit.toFixed(4), totalNav: r.nav.toFixed(2), asOfDate: isoDay(r.navDate), valuationStatus: 'FINAL' } : { skipped: 'NAV date is older than the fund as-of date; only the NAV history was updated' };
       }
     }
+    // Fee and income accruals for the period: a PENDING_APPROVAL accounting journal made by the system actor (idempotent per run).
+    const journal = await postNavJournals(tx, r, supersededRuns);
+    if (journal?.skipped === 'period_closed') {
+      await ensureTask(tx, { area: 'CLOSE', title: `Book fee and accrual journal for ${r.ref}`, detail: journal.detail ?? 'The accounting period is closed; reopen it or book the journal manually.', dueAt: new Date(), sourceRef: `NAV:${r.ref}:JOURNAL`, link: `/ops/nav/${r.id}` });
+    }
     await writeAudit(tx, audit(req), {
       action: 'nav.released',
       objectType: 'nav_run',
       objectId: r.id,
       before: { status: 'MAKER_REVIEWED' },
-      after: { status: 'RELEASED', ref: r.ref, version: r.version, navDate: isoDay(r.navDate), nav: r.nav.toFixed(2), navPerUnit: r.navPerUnit?.toFixed(4) ?? null, checkerId: req.user!.id, reviewerId: r.reviewerId, supersededVersions: prior.map((p) => p.version), fundBefore, fundAfter },
+      after: { status: 'RELEASED', ref: r.ref, version: r.version, navDate: isoDay(r.navDate), nav: r.nav.toFixed(2), navPerUnit: r.navPerUnit?.toFixed(4) ?? null, checkerId: req.user!.id, reviewerId: r.reviewerId, supersededVersions: prior.map((p) => p.version), fundBefore, fundAfter, accountingJournal: journal ? (journal.ref ?? journal.skipped ?? null) : null },
     });
-    return { fundAfter };
+    return { fundAfter, journal };
   });
   const detail = await runDetail(await loadRun(r.id), req.user!);
-  res.json({ data: { ...detail, fundUpdate: out.fundAfter } });
+  res.json({ data: { ...detail, fundUpdate: out.fundAfter, accountingJournal: out.journal ? { ref: out.journal.ref ?? null, created: out.journal.created, skipped: out.journal.skipped ?? null } : null } });
 });
 
 export { allowedActions, REPLACEABLE };

@@ -52,6 +52,7 @@ import {
   startOfDay,
   type JournalRow,
 } from './cash.service';
+import { restoreReservationOnReverse } from './cash.orders';
 
 /**
  * Cash & Ledgers (SRD 5.A.15 `cash`; FR-CASH-001..008). Admin-portal staff only. Mounted at `/api/v1/cash`.
@@ -483,6 +484,8 @@ cashRoutes.post('/journals/:id/reverse', ...canApprove, requireStepUp, validateB
       },
     });
     await tx.cashJournal.update({ where: { id: r.id }, data: { reversedById: j.id } });
+    // A settlement journal consumed its order's cash hold when it posted; reversing it puts that amount back on hold.
+    await restoreReservationOnReverse(tx, audit(req), r, lines);
     await writeAudit(tx, audit(req), { action: 'cash.journal_reversed', objectType: 'cash_journal', objectId: r.id, before: { status: 'POSTED' }, after: { status: 'REVERSED', reversedBy: ref }, reason: b.reason });
     await writeAudit(tx, audit(req), { action: 'cash.journal_posted', objectType: 'cash_journal', objectId: j.id, after: { status: 'POSTED', ref, reversalOf: r.ref, entryDate: isoDay(entryDate), totalDebit: r.totalCredit.toFixed(2) }, reason: b.reason });
     return j;

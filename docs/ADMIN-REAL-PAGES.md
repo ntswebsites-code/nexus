@@ -914,3 +914,41 @@ E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exi
 
 - Orders do not yet call the reservation service on submit, cancel or fill (FR-CASH-015); `releaseOrderReservations` is exported for that and the order ticket still reads its own availability.
 - Reversing a settlement journal does not restore a consumed reservation; no CAMT.053 parser; no client/mandate context bar; no holds, pending-withdrawal or reusable-proceeds components in availability; no sub-ledger-to-GL tie-out to the accounting module; cash-account lifecycle stays on the Clients page.
+
+## Wiring, Operations Control and Command Centre
+
+Cross-module wiring plus two pages. Migration `20261012100000_wiring` adds `acc_journals.source_ref` (unique) and the `ops_tasks` table. No new permission codes.
+
+### Orders and Cash (FR-CASH-015)
+
+- The ticket's cash check reads the portfolio's active BANK cash ledger (posted balance less buffer and every hold) when one exists in the currency; otherwise it keeps the old portfolio-cash behaviour. The check metrics name the source.
+- Submit holds cash on the ledger (`cash.orders.ts`, row-locked; 409 `insufficient_available_cash` rolls the submit back). Approve ensures a single live hold. Cancel and reject release it. Each fill resizes the hold to filled value plus fees plus the unfilled remainder; a complete fill makes it the exact cost.
+- `POST /orders/:id/settle` (`orders.route`): Filled to Settled. Creates two PENDING_APPROVAL journals by the system actor, idempotent per order (`ORDER:<ref>:SETTLE`): a cash-ledger journal linked to the hold (posting it consumes the hold) and an accounting journal. Realised gains are not split out.
+- Reversing a cash journal that consumed a reservation puts the consumed amount back on hold (`cash.reservation_restored` audit).
+
+### Automatic journals
+
+The system actor (`lib/system.ts`, shown as "System") is the maker, so a human with the posting permission must still post. Each journal is unique per source ref (accounting by unique index, cash by lookup) and a closed period is skipped, never written to.
+
+- NAV release: fee and accrual journal `NAV:<ref>` (Dr 5000 / Cr 2000, Dr 1200 / Cr 4100). A superseded run's pending journal is discarded; if already posted, only the difference is booked. A closed period raises a runbook task.
+- Corporate action processing: per portfolio `CA:<ref>:<portfolioId>` accounting journal (dividend: net cash, withholding 5300, income 4000) and cash-ledger journal (bank against clearing), plus a runbook task and a notification to `operations.view`. Missing chart accounts (including 5300) are added to the portfolio chart.
+- Risk breaches already notify the limit owner and open a case; the runbook generator adds a task while any breach is open.
+
+### Operations Control (`/ops/operations`, `operations.view`)
+
+`GET /api/v1/operations/status` aggregates recon breaks, cash close pre-check blockers (previous month end, first 25 active portfolios), NAV runs, accounting periods and pending journals, corporate actions due, unsettled orders and database health into six KPIs and four dependency tiles with readiness percentages. Runbook tasks are persisted (`ops_tasks`): `GET /tasks?filter=all|due|blocked|scheduled|done&format=csv`, `POST /tasks` (Idempotency-Key), `PATCH /tasks/:id`, `POST /tasks/:id/start|complete|block|reopen|cancel`, `POST /tasks/generate`. A task with an unfinished dependency shows BLOCKED and cannot complete. Generated tasks are unique per source and per day and are closed by the system when their condition clears. Every change is audited.
+
+### Command Centre (`/ops/command`, `dashboard.view`)
+
+`GET /api/v1/dashboard/today`: AUM by currency, orders working, open breaks, approval queue (only queues the caller can act on), bank cash after holds, NAV status, risk breaches, runbook tasks due. Sections the caller lacks permission for are null.
+
+### Demo seed and test
+
+`prisma/seed-wiring.ts` (called by `seed-uat.ts` and `seed-demo.ts`, idempotent) generates today's runbook and adds two manual tasks, one dependent on the other. Run `scripts/test-wiring.ts` the same way as the other module tests (disposable DB, running API).
+
+### Not done
+
+- Buy settlement books at the filled cost; sells do not compute realised gain. Settlement is a manual step (no custodian settlement feed).
+- The hold is kept through fills until the settlement journal posts, so "consume on fill" is deliberately "consume on settlement posting": consuming earlier would free cash that has not left the ledger.
+- Operations: no calendar, no workload or cash-deadline charts, no per-task comments, no CSV button in the UI (the endpoint exists). Cash readiness uses the previous month end for the first 25 portfolios.
+- Command Centre has the KPI and queue panels only; performance chart, allocation and scenario panels are not built.

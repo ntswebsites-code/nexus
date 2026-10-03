@@ -102,6 +102,7 @@ function Detail({ order: o, reload }: { order: OrderDetail; reload: () => void }
                 Record fill
               </button>
             )}
+            {can('settle') && <ActionButton label="Settle (create trade journals)" primary confirm="Settle this order? Trade journals will be created for approval in Accounting and Cash." onRun={() => api.post(`${base}/settle`, {})} onDone={reload} />}
             {can('cancel') && (
               <button className="ops-btn danger" type="button" onClick={() => setDialog('cancel')}>
                 Cancel order

@@ -21,6 +21,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
+import { orderCashView } from '../cash/cash.orders';
 import { getPortfolioSnapshot, loadPortfolio, resolveFxRate, latestPrices } from '../portfolio/portfolio.service';
 
 const D = Prisma.Decimal;
@@ -175,8 +176,10 @@ export async function runPreTradeChecks(portfolioIdOrRef: string, input: PreTrad
       checks.push({ key: 'cash', label: 'Cash', result: 'Pass', detail: 'Not applicable to a sell order.' });
     } else {
       const cashRow = snapshot.cash.find((c) => c.currency === security.currency);
-      const available = cashRow ? new D(cashRow.available) : ZERO;
-      const reserved = await reservedCash(portfolioRow.id, security.currency, input.excludeOrderId);
+      // The cash ledger (posted balance less buffer and every hold) is the book of record once the portfolio has a bank ledger.
+      const ledgerView = await orderCashView(portfolioRow.id, security.currency, input.excludeOrderId);
+      const available = ledgerView ? ledgerView.available : cashRow ? new D(cashRow.available) : ZERO;
+      const reserved = ledgerView ? ledgerView.reserved : await reservedCash(portfolioRow.id, security.currency, input.excludeOrderId);
       const free = available.sub(reserved);
       const need = notional.add(fee);
       const ok = need.lte(free);
@@ -187,7 +190,7 @@ export async function runPreTradeChecks(portfolioIdOrRef: string, input: PreTrad
         detail: ok
           ? `Needs ${security.currency} ${m2(need)} (notional ${m2(notional)} + estimated fee ${m2(fee)}); ${m2(free)} is free after ${m2(reserved)} reserved by other open buys.`
           : `Needs ${security.currency} ${m2(need)} (notional ${m2(notional)} + estimated fee ${m2(fee)}) but only ${m2(free)} is free (${m2(available)} available less ${m2(reserved)} reserved by other open buys).`,
-        metrics: { available: m2(available), reserved: m2(reserved), free: m2(free), required: m2(need), currency: security.currency },
+        metrics: { available: m2(available), reserved: m2(reserved), free: m2(free), required: m2(need), currency: security.currency, source: ledgerView ? `cash ledger ${ledgerView.ledgerRef}` : 'portfolio cash' },
       });
     }
   }
