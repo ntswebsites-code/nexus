@@ -1182,7 +1182,6 @@ Migration `20261021100000_orders_pm_wiring`. Typechecked only (backend, admin-we
 - Private markets (GAP-005): paying a call or distribution and approving a mark create PENDING_APPROVAL system journals (`PMX:<ref>`, `PMM:<ref>`) and a `pm_postings` row (carrying value, FX rate used, journal refs). Accounts 1150, 4300, 4400 were added to the auto-journal chart. Non-USD funds need an FX rate (409 `no_fx_rate` otherwise); pooled summary totals are in USD with `fxMissing`. Distributions can carry `returnOfCapital`. `GET /private-markets/jcurve` and `/clients` (exposure per client). Evidence files: `POST /marks/:id/evidence/upload` (multipart) files a restricted vault document; `documentId` links an existing one.
 - Corporate actions (GAP-007): per-event `cashInLieu` + `cilPrice` pay fractions in cash (the fraction's cost leaves the position, gain to 4300); `POST /events/:id/reverse` (process permission, step-up, not the processor) reverses by adjustment (new rows dated today, pending journals discarded, posted ones get an inverse `:REV` journal); status REVERSED. Client level: `GET /events/:id/clients` and `GET /corporate-actions/clients/:clientId/entitlements`.
 - Seed: `prisma/seed-orders-pm.ts` (called last by seed-demo and seed-uat). Remaining: realised gain uses the position average cost, not IBOR lots; a CA reversal limits itself to what is held if the position moved since.
-=======
 
 ## Reconciliation depth and Operations control (WP-3, GAP-006, GAP-010 operations part)
 
@@ -1242,7 +1241,6 @@ packages); automatic ingestion from a custodian feed (needs the WP-8 `CustodianF
 positions reconciled per lot or per currency of listing; settlement fails do not read an MT548 status; notifications to
 the custodian for queries are recorded and audited but not sent (no custodian-side inbox); the NAV gate is not applied to
 the cash period close or accounting period close endpoints (only their runbook tasks).
-=======
 ## Admin shell, security hardening and notifications (WP-4)
 
 Migration `20261023100000_admin_shell_security`; API `/api/v1/shell/*` (`modules/search`), `/api/v1/notifications/preferences`, `/api/v1/admin/permissions` (custom codes), `/api/v1/admin-core/{retention,sod/rules}`. Screens: the shell itself (`ops/Shell.tsx`, components in `ops/shell/*`), `/ops/profile`, `/ops/notifications`, `/ops/security`, `/ops/record/<kind>/<id>`. Seed: `prisma/seed-admin-shell.ts`. Test: `scripts/test-admin-shell.ts` (the pure rules run without a database; the API, outbox claim, digest and purge sections need a throwaway database and a running API).
@@ -1263,7 +1261,6 @@ Migration `20261023100000_admin_shell_security`; API `/api/v1/shell/*` (`modules
 - Create-role and staff-invite still use the direct `/admin` endpoints (now guarded against privileged grants) rather than change requests.
 - Role focus changes the menu only. The session list shows the user agent string, not a parsed device name.
 - Nothing here was run against a database or browser; typechecked only.
-=======
 ## Investee workspace tables (WP-5, GAP-016)
 
 Migration `20261024100000_investee_workspace` (16 tables, no change to existing tables). Cap table, forecast, governance consents, requisitions are tables now; old `settings` JSON (`workspace.cap|governance|forecast|requests`) is copied once per company on first use (`ensureWorkspace`) and then ignored.
@@ -1272,7 +1269,6 @@ Migration `20261024100000_investee_workspace` (16 tables, no change to existing 
 - Forecast cells are rows with month locks (approver locks, administrator unlocks). Board meetings, pack (frozen and hashed on publish), board actions. Company-initiated signature requests with tokened public signer page (`/sign/<token>` on company-web, `/api/v1/investee-public/sign/*`), remind (rotates link, 1 per hour, 5 max) and void. Share links (max 7 days, hash-only storage, access count, text watermark, revoke). Global search, derived KPI history with CSV/xlsx export, MFA coverage and access review.
 - Company-web: `/workspace` page (needs `workspace` in `INVESTEE_LIVE_ACTIONS` or `all`).
 - Not done: cap-table GL journals still need approval in accounting; non-text share files are not watermarked; signature e-mail goes through the existing outbox mailer (adapter comes from WP-8); no staff-side screen for cap-table data.
-=======
 ## WP-6: reports, data fabric, models, vault and clients (supersedes the matching "Not done" lines above)
 
 Migration `20261025100000_wp6_reports_data_models_vault`. Test: `npx tsx scripts/test-wp6.ts` (pure block runs anywhere; API flows need `E2E_CONFIRM=throwaway-db`; typechecked, flows not run here).
@@ -1286,7 +1282,6 @@ Migration `20261025100000_wp6_reports_data_models_vault`. Test: `npx tsx scripts
 ### Not done (WP-6)
 
 - Scheduled-report email carries a link, not an attachment, until the EmailAdapter exists. Feed upload is CSV only (no MT535 or CAMT, no API pull). Cross-table rules compare one column to one reference column. The review sweep is a button and an exported function, not yet called by the worker (worker.ts belongs to WP-4).
-=======
 ## WP-7: custodian, onboarding and legacy retirement
 
 Migration `20261026100000_custodian_ops`. Closed: GAP-018 (bulk CSV upload with declared control totals, amend and cancel with reason, status history, day-end quantity/notional control totals), GAP-019 (DEF-458 live script already replaces the disabled bridge; DEF-459 dead `v57-rail-nav.js` is not in the tree; DEF-460 rail forward validation fixed in `legacy-static/v65/public-onboarding.html` and the published `01-inline.js`; Playwright smoke in `tools/uat/e2e`), GAP-021 (`/` redirects to `/ops`, prototype moved to `/classic` with only live-bridged pages in its nav, old `/#page` links forwarded), GAP-017 (LP realtime polling contract `GET /lp-portal/realtime?since=`, styled performance statement PDF), GAP-025 (zod contracts in `packages/shared/src/staff-contracts.ts`, `ops/types.ts` derives four types from them, `tools/uat/contract-staff.ts` validates every module against a live API).
@@ -1294,7 +1289,6 @@ Migration `20261026100000_custodian_ops`. Closed: GAP-018 (bulk CSV upload with 
 Custodian API additions (all under `/api/v1/custodian`): `POST /executions/bulk` (multipart CSV, optional `declaredCount`, `declaredQuantity`, `declaredNotional`, `dryRun`; any invalid row or control mismatch rejects the whole file and keeps a Rejected batch), `GET /executions-batches`, `PATCH /executions/:id` (amend), `POST /executions/:id/cancel`, `GET /executions/:id/history`, `GET /history`, `GET /day-end/:id/history`. Amend and cancel are allowed while the status is Received, Exception or Queried and no Approved/Accepted day-end package covers the account and date. A day-end package may declare `tradeQuantity` and `tradeNotional`; submit is blocked (`control_total_mismatch`) when a declared total disagrees with the executions received. Test: `backend/api/scripts/test-custodian-ops.ts` (needs a disposable DB and a running API).
 
 Not done: the superseded legacy page fragments are unreachable (redirected) but not yet deleted from `src/legacy/markup`; the Playwright suites were written but not run (no browser in this build); staff `/ops/custodian` does not yet list bulk batches.
-=======
 ## Integrations layer (WP-8): `/ops/integrations`
 
 Migration `20261027100000_integrations` (`integration_calls`, `integration_inbox`, `integration_state`). Code: `backend/api/src/integrations/` (registry in `core/`, one folder per adapter with `types.ts`, `fake.ts`, `live.ts`, `index.ts`), API `/api/v1/admin-core/integrations/*` (`modules/admin-core/integrations.routes.ts`, permission `admin.settings`), screen `/ops/integrations`, banner `ops/IntegrationsBanner.tsx`. Seed: `prisma/seed-integrations.ts` (state rows and one baseline call per adapter; called by `seed-demo.ts` and `seed-uat.ts`). Test: `npx tsx scripts/test-integrations.ts` (startup rules, live stubs, redaction and the deterministic fakes need no database; `E2E_CONFIRM=throwaway-db` adds persistence, failure simulation and upload scanning).
@@ -1308,7 +1302,6 @@ Migration `20261027100000_integrations` (`integration_calls`, `integration_inbox
 
 - Fake SSO has the dev identity-provider page and code exchange but no staff login flow consumes it yet. SMS, identity verification, e-sign, payment payouts and broker routing have adapters, fakes and test calls but no business module calls them yet (distribution payouts, term-sheet signing, order routing, OTP sign-in are the next wiring steps).
 - The three feed simulations need only `admin.settings` and an audit event (no step-up).
-=======
 ## E-signatures (`/ops/esign`)
 
 Migration `20261030100000_esign` (tables `esign_requests`, `esign_signers`, `esign_events`; no columns added to existing tables). API `/api/v1/esign/*` (module `backend/api/src/modules/esign`), adapter `backend/api/src/integrations/esign` (`INTEGRATION_ESIGN=native|live`; `live` is a `NotConfiguredError` stub for a future vendor). Native sealing uses `pdf-lib` (MIT); there is no paid vendor. Files use the existing `lib/storage.ts` (no object-storage adapter exists yet).
@@ -1331,7 +1324,6 @@ Test: `npx tsx scripts/test-esign.ts` (hash chain, tamper detection, ordering, P
 - No in-document signature field placement: signatures are stamped on an appended signature page, not at positions chosen on the PDF. Not a qualified or PAdES cryptographic signature; tamper evidence is the hash chain plus the recorded sealed hash.
 - No vendor integration (`live` is a stub); external signer e-mails go through the console transport until SMTP is configured; the OTP and link sit in outbox payloads until sent.
 - The flows screen takes a commitment or allocation id by hand; a capital call acknowledgement waits for one signatory. The legacy investee prototype's "signatures" page is untouched (the real inbox is `/esign`); LP acknowledgement through the old button still works and is not blocked by an open request.
-=======
 ## Integrations: Market Data and Custodian Feed (`backend/api/src/integrations`)
 
 Migration `20261032100000_market_data` (models between `// ---- MarketData ----` markers at the end of `schema.prisma`: `md_source_status`, `md_provenance`, `md_refresh_runs`, `custodian_feed_files`, `custodian_feed_holdings`). APIs: `/api/v1/market-data/*` and `/api/v1/custodian-feed/*`. Screens: a "Market data feed" section on `/ops/securities` and a "Custodian feed" tab on `/ops/reconciliation`. Seed: `prisma/seed-market-data.ts` (registers the sources; called by `seed-demo.ts` and `seed-uat.ts`).

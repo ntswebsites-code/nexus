@@ -13,9 +13,7 @@ import { runScreening } from './modules/kyc/screening';
 import { scanReportingReminders } from './modules/company/reminders';
 import { runDueSchedules } from './modules/reports';
 import { assertIntegrationsConfig, integrationTick } from './integrations';
-=======
 import { scanEsign } from './modules/esign';
-=======
 import { marketDataTick } from './integrations/market-data/scheduler';
 
 /**
@@ -92,9 +90,6 @@ async function scheduled(name: string, everyMs: number, run: () => Promise<numbe
     await releaseJob(name);
   }
 }
-=======
-let lastReminderScan = 0;
-let lastReportScan = 0;
 let lastEsignScan = 0;
 
 async function tick() {
@@ -105,29 +100,16 @@ async function tick() {
     if (purged) console.log(`[worker] retention purge: ${JSON.stringify(purged)}`);
   } catch (error) {
     console.error('[worker] retention purge failed', error);
-=======
+  }
   await integrationTick();
-=======
   // Market data: exchange-hours price refresh, EOD close and daily FX (no-op unless the scheduler is enabled).
   void marketDataTick().catch((error) => console.error('[worker] market data tick failed', error));
-  if (Date.now() - lastReportScan > 60 * 60 * 1000) {
-    lastReportScan = Date.now();
-    try {
-      const ran = await runDueSchedules();
-      if (ran) console.log(`[worker] scheduled reports generated: ${ran}`);
-    } catch (error) {
-      console.error('[worker] scheduled report run failed', error);
-      lastReportScan = 0;
-    }
-  }
   try {
     const sent = await runDigests();
     if (sent) console.log(`[worker] digests queued: ${sent}`);
   } catch (error) {
     console.error('[worker] digest run failed', error);
   }
-  const events = await claimEvents(INSTANCE_ID, BATCH);
-=======
   if (Date.now() - lastEsignScan > 15 * 60 * 1000) {
     lastEsignScan = Date.now();
     try {
@@ -138,11 +120,7 @@ async function tick() {
       lastEsignScan = 0;
     }
   }
-  const events = await prisma.outboxEvent.findMany({
-    where: { publishedAt: null, attempts: { lt: MAX_ATTEMPTS } },
-    orderBy: { id: 'asc' },
-    take: BATCH,
-  });
+  const events = await claimEvents(INSTANCE_ID, BATCH);
   for (const event of events) {
     const handler = handlers[event.type];
     try {

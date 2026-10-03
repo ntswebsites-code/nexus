@@ -792,7 +792,6 @@ try {
   await (await import('./seed-market-data')).seedMarketData();
   await (await import('./seed-admin-core')).seedAdminCore();
   await (await import('./seed-admin-shell')).seedAdminShell();
-=======
   await (await import('./seed-esign')).seedEsign();
   await (await import('./seed-recon')).seedRecon();
   await (await import('./seed-recon-ops')).seedReconOps();
@@ -801,11 +800,8 @@ try {
   await (await import('./seed-clients-onboarding')).seedClientsOnboarding();
   await (await import('./seed-reports')).seedReports();
   await (await import('./seed-orders-pm')).seedOrdersPm();
-=======
   await (await import('./seed-investee-workspace')).seedInvesteeWorkspace();
-=======
   await (await import('./seed-custodian-ops')).seedCustodianOps();
-=======
   await (await import('./seed-integrations')).seedIntegrations();
 
   if (process.env.SEED_UAT_MFA_REQUIRED === '1') {

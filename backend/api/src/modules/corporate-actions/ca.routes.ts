@@ -258,9 +258,7 @@ corporateActionsRoutes.post('/events', ...canWrite, validateBody(createSchema), 
   await respond(res, req, created.id, 201);
 });
 
-corporateActionsRoutes.patch('/events/:id', ...canWrite, validateBody(patchSchema), async (req, res) => {
-=======
-corporateActionsRoutes.patch('/events/:id', ...canView, validateBody(patchSchema), idempotent('corporate-actions.patch.events_id', { required: false }), async (req, res) => {
+corporateActionsRoutes.patch('/events/:id', ...canWrite, validateBody(patchSchema), idempotent('corporate-actions.patch.events_id', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'edited');
   if (e.status !== 'ANNOUNCED') throw HttpError.conflict(`${e.ref} is ${e.status}; only an ANNOUNCED action can be edited`, 'invalid_state');
@@ -345,9 +343,7 @@ corporateActionsRoutes.post('/events/:id/entitlements/calculate', ...canWrite, i
   await respond(res, req, e.id);
 });
 
-corporateActionsRoutes.put('/events/:id/elections', ...canWrite, validateBody(electionSchema), async (req, res) => {
-=======
-corporateActionsRoutes.put('/events/:id/elections', ...canView, validateBody(electionSchema), idempotent('corporate-actions.put.events_id_elections', { required: false }), async (req, res) => {
+corporateActionsRoutes.put('/events/:id/elections', ...canWrite, validateBody(electionSchema), idempotent('corporate-actions.put.events_id_elections', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'changed');
   const opts = ELECTION_OPTIONS[e.type as CaType];
@@ -396,8 +392,6 @@ corporateActionsRoutes.post('/events/:id/process', ...canProcess, requireStepUp,
   res.json({ data: { ...detail, applied: out.summary, journals: out.journals.map((j) => ({ portfolioId: j.portfolioId, accountingJournal: j.accounting.ref ?? null, accountingSkipped: j.accounting.skipped ?? null, cashJournal: j.cash?.ref ?? null, cashSkipped: j.cash?.skipped ?? null })) } });
 });
 
-corporateActionsRoutes.post('/events/:id/cancel', ...canWrite, validateBody(cancelSchema), idempotent('corp_action.cancel', { required: false }), async (req, res) => {
-=======
 const reverseSchema = z.object({ reason: z.string().trim().min(5, 'Give a reason (5+ characters)').max(1000) }).strict();
 
 /**
@@ -437,7 +431,7 @@ corporateActionsRoutes.get('/clients/:clientId/entitlements', ...canView, async 
   res.json({ data: { client: c, entitlements: await entitlementsForClient(c.id) } });
 });
 
-corporateActionsRoutes.post('/events/:id/cancel', ...canView, validateBody(cancelSchema), idempotent('corp_action.cancel', { required: false }), async (req, res) => {
+corporateActionsRoutes.post('/events/:id/cancel', ...canWrite, validateBody(cancelSchema), idempotent('corp_action.cancel', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'cancelled');
   const b = req.body as z.infer<typeof cancelSchema>;

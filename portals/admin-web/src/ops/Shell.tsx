@@ -11,7 +11,6 @@ import { Breadcrumbs } from './shell/Breadcrumbs';
 import { CommandPalette } from './shell/CommandPalette';
 import { NotificationBell } from './shell/NotificationBell';
 import { UserMenu, type RoleFocus } from './shell/UserMenu';
-=======
 import { IntegrationsBanner } from './IntegrationsBanner';
 
 interface NavItem {

@@ -3222,8 +3222,6 @@ model PmEvidence {
   /// Vault document (documents.id, logical reference) holding the evidence file.
   documentId String? @map("document_id") @db.Char(36)
   note      String?  @db.VarChar(500)
-  /// WP-6: vault document holding the evidence file.
-  documentId String? @map("document_id") @db.Char(36)
   addedBy   String   @map("added_by") @db.Char(36)
   createdAt DateTime @default(now()) @map("created_at")
 

@@ -18,7 +18,6 @@ import { HttpError } from './errors';
 /**
  * Encrypted object store (SRD 10.3 "S3-compatible, encrypted"). Bytes go through the object-storage adapter
  * (fake = local AES-256-GCM files under STORAGE_DIR) and every upload is scanned by the av-scan adapter first.
-=======
  * Encrypted object store (SRD 10.3 "S3-compatible, encrypted"). Files are AES-256-GCM
  * encrypted by the app before they reach the backend chosen by INTEGRATION_OBJECT_STORAGE
  * (local filesystem under STORAGE_DIR, or S3 / MinIO). Every document, upload, vault, report
@@ -42,7 +41,6 @@ const ALLOWED_MIME = new Set([
 
 const putObject = (key: string, data: Buffer) => getObjectStorageAdapter().put(key, data);
 const getObject = (key: string): Promise<Buffer> => getObjectStorageAdapter().get(key);
-=======
 async function putObject(storageKey: string, data: Buffer, mime: string, sha256: string) {
   const { bucket, key } = resolveStorageKey(storageKey);
   await objectStorage().put(key, encryptBuffer(data), { bucket, contentType: mime, sha256 });
@@ -90,7 +88,6 @@ export async function storeFile(input: StoredFileInput, db: Prisma.TransactionCl
   }
   const storageKey = randomUUID().replace(/-/g, '');
   await putObject(storageKey, input.data);
-=======
   const storageKey = makeStorageKey(input.bucket ?? 'documents', randomUUID().replace(/-/g, ''));
   const sha256 = sha256Hex(input.data);
   await putObject(storageKey, input.data, mime, sha256);

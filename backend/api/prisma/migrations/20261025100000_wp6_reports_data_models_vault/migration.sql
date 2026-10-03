@@ -6,7 +6,6 @@ ALTER TABLE `report_runs` ADD COLUMN `delivered_at` DATETIME(3) NULL, ADD COLUMN
 ALTER TABLE `data_sources` ADD COLUMN `schema_spec` JSON NULL;
 ALTER TABLE `data_ingestion_jobs` ADD COLUMN `file_id` CHAR(36) NULL, ADD COLUMN `file_name` VARCHAR(255) NULL, ADD COLUMN `file_sha256` CHAR(64) NULL;
 ALTER TABLE `data_quality_rules` MODIFY COLUMN `dataset` VARCHAR(64) NOT NULL;
-ALTER TABLE `pm_evidence` ADD COLUMN `document_id` CHAR(36) NULL;
 
 CREATE TABLE `kyc_risk_factors` (
     `id` CHAR(36) NOT NULL,
