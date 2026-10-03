@@ -53,6 +53,12 @@ const schema = z.object({
   SMTP_PASSWORD: z.preprocess(emptyToUndefined, z.string().optional()),
   SMTP_SECURE: z.preprocess(emptyToUndefined, boolFromString.optional()),
   MAIL_FROM: z.string().default('Matanho Nexus <no-reply@nexus.matanho.com>'),
+
+  /** General API limits per client IP (NFR-SEC-014). Production defaults 600/min and 30 uploads/min; development is looser so flow scripts are not throttled. */
+  RATE_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
+  UPLOAD_LIMIT_PER_MIN: z.coerce.number().int().positive().optional(),
+  /** Bearer token for GET /api/internal/metrics; the endpoint answers 404 when unset. */
+  METRICS_TOKEN: z.preprocess(emptyToUndefined, z.string().min(16).optional()),
 });
 
 export interface AppConfig {
@@ -78,6 +84,8 @@ export interface AppConfig {
   smtp?: { host: string; port: number; secure: boolean; user?: string; password?: string };
   mailFrom: string;
   flags: { lpLiveDomains: string[]; investeeLiveActions: string[]; custodianLive: boolean; onboardingLive: boolean };
+  limits: { perMinute: number; uploadsPerMinute: number };
+  metricsToken?: string;
 }
 
 const list = (raw: string) =>
@@ -170,5 +178,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       custodianLive: e.CUSTODIAN_LIVE ?? false,
       onboardingLive: e.ONBOARDING_LIVE ?? false,
     },
+    limits: { perMinute: e.RATE_LIMIT_PER_MIN ?? (isProduction ? 600 : 6000), uploadsPerMinute: e.UPLOAD_LIMIT_PER_MIN ?? (isProduction ? 30 : 300) },
+    metricsToken: e.METRICS_TOKEN,
   };
 }

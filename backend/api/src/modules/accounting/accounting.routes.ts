@@ -126,7 +126,7 @@ accountingRoutes.post('/accounts/default-chart', ...canPost, validateBody(z.obje
   res.status(201).json({ data: created.map(accountView), created: created.length, skipped: DEFAULT_COA.length - created.length });
 });
 
-accountingRoutes.patch('/accounts/:id', ...canPost, validateBody(accountPatch), async (req, res) => {
+accountingRoutes.patch('/accounts/:id', ...canPost, validateBody(accountPatch), idempotent('accounting.patch.accounts_id', { required: false }), async (req, res) => {
   const a = await prisma.accAccount.findUnique({ where: { id: param(req, 'id') } });
   if (!a) throw HttpError.notFound('Account not found');
   const b = req.body as z.infer<typeof accountPatch>;
@@ -238,7 +238,7 @@ accountingRoutes.post('/journals', ...canView, validateBody(createJournal), idem
   await respond(res, req, row.id, 201);
 });
 
-accountingRoutes.patch('/journals/:id', ...canView, validateBody(patchJournal), async (req, res) => {
+accountingRoutes.patch('/journals/:id', ...canView, validateBody(patchJournal), idempotent('accounting.patch.journals_id', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
   if (r.status !== 'DRAFT') throw new HttpError(409, 'journal_immutable', `${r.ref} is ${r.status}; only a DRAFT can be edited. Posted journals are corrected by reversal.`);
   assertMaker(r, req);
@@ -278,7 +278,7 @@ accountingRoutes.post('/journals/:id/submit', ...canView, idempotent('accounting
   await respond(res, req, r.id);
 });
 
-accountingRoutes.post('/journals/:id/return', ...canPost, validateBody(reasonSchema), async (req, res) => {
+accountingRoutes.post('/journals/:id/return', ...canPost, validateBody(reasonSchema), idempotent('accounting.post.journals_id_return', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
   if (r.status !== 'PENDING_APPROVAL') throw HttpError.conflict(`${r.ref} is ${r.status}; only a pending journal can be returned`, 'invalid_state');
   if (r.makerId === req.user!.id) throw HttpError.forbidden('Return a journal you did not create, or discard your own', 'segregation_of_duties');
@@ -290,7 +290,7 @@ accountingRoutes.post('/journals/:id/return', ...canPost, validateBody(reasonSch
   await respond(res, req, r.id);
 });
 
-accountingRoutes.post('/journals/:id/discard', ...canView, validateBody(reasonSchema), async (req, res) => {
+accountingRoutes.post('/journals/:id/discard', ...canView, validateBody(reasonSchema), idempotent('accounting.post.journals_id_discard', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
   if (!['DRAFT', 'PENDING_APPROVAL'].includes(r.status)) throw new HttpError(409, 'journal_immutable', `${r.ref} is ${r.status} and cannot be discarded. Posted journals are corrected by reversal.`);
   const canDiscard = r.makerId === req.user!.id || (r.status === 'PENDING_APPROVAL' && req.user!.permissions.includes('accounting.post'));

@@ -162,7 +162,7 @@ coServicesRoutes.post('/services/requests', requirePermission('clients.edit'), v
 
 const assignSchema = z.object({ userId: z.string().uuid().nullable(), note: z.string().trim().max(500).optional() }).strict();
 
-coServicesRoutes.post('/services/requests/:ref/assign', requirePermission('clients.edit'), validateBody(assignSchema), async (req, res) => {
+coServicesRoutes.post('/services/requests/:ref/assign', requirePermission('clients.edit'), validateBody(assignSchema), idempotent('clients-onboarding.post.services_requests_ref_assign', { required: false }), async (req, res) => {
   const r = await findRequest(param(req, 'ref'));
   if (r.status === 'Closed') throw HttpError.conflict('A closed request cannot be reassigned', 'invalid_state');
   const staff = req.body.userId ? await assertStaff(req.body.userId) : null;
@@ -183,7 +183,7 @@ const statusSchema = z
   .object({ status: z.enum(['Open', 'In progress', 'Waiting on you', 'Closed']), note: z.string().trim().max(2000).optional(), notifyClient: z.boolean().default(true) })
   .strict();
 
-coServicesRoutes.post('/services/requests/:ref/status', requirePermission('clients.edit'), validateBody(statusSchema), async (req, res) => {
+coServicesRoutes.post('/services/requests/:ref/status', requirePermission('clients.edit'), validateBody(statusSchema), idempotent('clients-onboarding.post.services_requests_ref_status', { required: false }), async (req, res) => {
   const r = await findRequest(param(req, 'ref'));
   const b = req.body as z.infer<typeof statusSchema>;
   if (r.status === b.status) throw HttpError.conflict(`The request is already ${b.status}`, 'invalid_state');
@@ -202,7 +202,7 @@ coServicesRoutes.post('/services/requests/:ref/status', requirePermission('clien
   res.json({ request: view(row, await userNames([row.assigneeId])) });
 });
 
-coServicesRoutes.post('/services/requests/:ref/note', requirePermission('clients.edit'), validateBody(z.object({ note: z.string().trim().min(1).max(2000) }).strict()), async (req, res) => {
+coServicesRoutes.post('/services/requests/:ref/note', requirePermission('clients.edit'), validateBody(z.object({ note: z.string().trim().min(1).max(2000) }).strict()), idempotent('clients-onboarding.post.services_requests_ref_note', { required: false }), async (req, res) => {
   const r = await findRequest(param(req, 'ref'));
   await prisma.$transaction(async (tx) => {
     await tx.serviceRequestEvent.create({ data: { requestId: r.id, title: 'Internal note', detail: req.body.note, actorId: req.user!.id } });
@@ -213,7 +213,7 @@ coServicesRoutes.post('/services/requests/:ref/note', requirePermission('clients
 
 const slaSchema = z.object({ dueAt: z.coerce.date(), reason: z.string().trim().min(5).max(500) }).strict();
 
-coServicesRoutes.post('/services/requests/:ref/sla', requirePermission('clients.edit'), validateBody(slaSchema), async (req, res) => {
+coServicesRoutes.post('/services/requests/:ref/sla', requirePermission('clients.edit'), validateBody(slaSchema), idempotent('clients-onboarding.post.services_requests_ref_sla', { required: false }), async (req, res) => {
   const r = await findRequest(param(req, 'ref'));
   if (r.status === 'Closed') throw HttpError.conflict('A closed request has no active SLA', 'invalid_state');
   if (req.body.dueAt.getTime() <= r.createdAt.getTime()) throw HttpError.badRequest('Validation failed', [{ path: 'dueAt', message: 'Due date must be after the request was opened' }]);
@@ -233,7 +233,7 @@ coServicesRoutes.get('/services/sla-policies', requirePermission('clients.view')
 
 const policySchema = z.object({ requestType: z.union([z.enum(REQUEST_TYPES), z.literal('*')]), priority: z.enum(PRIORITIES), targetHours: z.number().int().min(1).max(24 * 30) }).strict();
 
-coServicesRoutes.put('/services/sla-policies', requirePermission('clients.edit'), validateBody(policySchema), async (req, res) => {
+coServicesRoutes.put('/services/sla-policies', requirePermission('clients.edit'), validateBody(policySchema), idempotent('clients-onboarding.put.services_sla_policies', { required: false }), async (req, res) => {
   const b = req.body as z.infer<typeof policySchema>;
   const key = { requestType_priority: { requestType: b.requestType, priority: b.priority } };
   const before = await prisma.serviceSlaPolicy.findUnique({ where: key });

@@ -177,7 +177,7 @@ modelRoutes.post('/models', ...canAuthor, validateBody(modelBody), idempotent('m
 });
 
 const modelPatch = z.object({ purpose: z.string().trim().min(10).max(600), ownerName: z.string().trim().min(2).max(120), tier: z.coerce.number().int().min(1).max(3), nextReviewOn: dateStr }).partial().strict().refine((b) => Object.keys(b).length > 0, 'Nothing to change');
-modelRoutes.patch('/models/:id', ...canAuthor, validateBody(modelPatch), async (req, res) => {
+modelRoutes.patch('/models/:id', ...canAuthor, validateBody(modelPatch), idempotent('model-governance.patch.models_id', { required: false }), async (req, res) => {
   const m = await loadModel(param(req, 'id'));
   if (m.status === 'RETIRED') throw HttpError.conflict(`${m.ref} is retired and cannot be edited`, 'invalid_state');
   const b = req.body as z.infer<typeof modelPatch>;
@@ -188,7 +188,7 @@ modelRoutes.patch('/models/:id', ...canAuthor, validateBody(modelPatch), async (
   res.json({ data: (await modelViews([await loadModel(m.id)]))[0] });
 });
 
-modelRoutes.post('/models/:id/retire', ...canValidate, requireStepUp, validateBody(reasonSchema), async (req, res) => {
+modelRoutes.post('/models/:id/retire', ...canValidate, requireStepUp, validateBody(reasonSchema), idempotent('model-governance.post.models_id_retire', { required: false }), async (req, res) => {
   const m = await loadModel(param(req, 'id'));
   if (m.status === 'RETIRED') throw HttpError.conflict(`${m.ref} is already retired`, 'invalid_state');
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -218,7 +218,7 @@ modelRoutes.post('/models/:id/versions', ...canAuthor, validateBody(versionBody)
   res.status(201).json({ data: { id: v.id, version: v.version, status: v.status } });
 });
 
-modelRoutes.post('/versions/:vid/submit', ...canAuthor, async (req, res) => {
+modelRoutes.post('/versions/:vid/submit', ...canAuthor, idempotent('model-governance.post.versions_vid_submit', { required: false }), async (req, res) => {
   const v = await loadVersion(param(req, 'vid'));
   if (v.status !== 'DRAFT') throw HttpError.conflict(`Version ${v.version} is ${v.status}; only a DRAFT can be submitted for validation`, 'invalid_state');
   if (v.authorId !== req.user!.id) throw sod('Only the author can submit this version');
@@ -272,7 +272,7 @@ modelRoutes.post('/versions/:vid/approve', ...canValidate, requireStepUp, idempo
   res.json({ data: (await modelViews([await loadModel(v.modelId)]))[0] });
 });
 
-modelRoutes.post('/versions/:vid/reject', ...canValidate, validateBody(reasonSchema), async (req, res) => {
+modelRoutes.post('/versions/:vid/reject', ...canValidate, validateBody(reasonSchema), idempotent('model-governance.post.versions_vid_reject', { required: false }), async (req, res) => {
   const v = await loadVersion(param(req, 'vid'));
   if (!['SUBMITTED', 'VALIDATED'].includes(v.status)) throw HttpError.conflict(`Version ${v.version} is ${v.status}; it cannot be rejected`, 'invalid_state');
   if (v.authorId === req.user!.id) throw sod('The author cannot reject their own version; discard it by drafting a new one');

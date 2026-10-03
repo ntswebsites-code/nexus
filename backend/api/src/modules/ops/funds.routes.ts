@@ -8,6 +8,7 @@ import { expectVersion, param } from '../../lib/http';
 import { validateBody } from '../../middleware/validate';
 import { requirePermission } from '../../middleware/requireAuth';
 import { D, ZERO, assertUpdated, audit, dateInput, isoDay, money, moneyInput, optionalMoneyInput, seqRef, storeWire, wireInput, wireView } from './ops.common';
+import { idempotent } from '../../lib/idempotency';
 
 /** `/ops/funds`, `/ops/commitments`: fund master data, commitments and open-ended holdings. */
 export const opsFundsRoutes = Router();
@@ -123,7 +124,7 @@ const fundSchema = z.object({
   wiring: wireInput.optional(),
 });
 
-opsFundsRoutes.post('/funds', requirePermission('funds.manage'), validateBody(fundSchema), async (req, res) => {
+opsFundsRoutes.post('/funds', requirePermission('funds.manage'), validateBody(fundSchema), idempotent('ops.post.funds', { required: false }), async (req, res) => {
   const b = req.body as z.infer<typeof fundSchema>;
   const id = await prisma.$transaction(async (tx) => {
     const ref = await seqRef(tx, 'fund', 'FND-', 4);
@@ -162,7 +163,7 @@ const fundPatchSchema = fundSchema
   .partial()
   .extend({ totalNav: optionalMoneyInput.nullable().optional(), navPerUnit: optionalMoneyInput.nullable().optional(), version: z.number().int().optional() });
 
-opsFundsRoutes.patch('/funds/:id', requirePermission('funds.manage'), validateBody(fundPatchSchema), async (req, res) => {
+opsFundsRoutes.patch('/funds/:id', requirePermission('funds.manage'), validateBody(fundPatchSchema), idempotent('ops.patch.funds_id', { required: false }), async (req, res) => {
   const f = await loadFund(param(req, 'id'));
   expectVersion(req, f.version);
   const b = req.body as z.infer<typeof fundPatchSchema>;
@@ -222,7 +223,7 @@ const commitmentSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
-opsFundsRoutes.post('/funds/:id/commitments', requirePermission('funds.manage'), validateBody(commitmentSchema), async (req, res) => {
+opsFundsRoutes.post('/funds/:id/commitments', requirePermission('funds.manage'), validateBody(commitmentSchema), idempotent('ops.post.funds_id_commitments', { required: false }), async (req, res) => {
   const f = await loadFund(param(req, 'id'));
   const b = req.body as z.infer<typeof commitmentSchema>;
   const client = await clientByIdOrRef(b.clientId);
@@ -262,7 +263,7 @@ const commitmentPatchSchema = z.object({
   version: z.number().int().optional(),
 });
 
-opsFundsRoutes.patch('/commitments/:id', requirePermission('funds.manage'), validateBody(commitmentPatchSchema), async (req, res) => {
+opsFundsRoutes.patch('/commitments/:id', requirePermission('funds.manage'), validateBody(commitmentPatchSchema), idempotent('ops.patch.commitments_id', { required: false }), async (req, res) => {
   const c = await prisma.fundCommitment.findUnique({ where: { id: param(req, 'id') } });
   if (!c) throw HttpError.notFound('Commitment not found');
   expectVersion(req, c.version);
@@ -331,7 +332,7 @@ const holdingSchema = z.object({
 });
 
 /** Sets an LP's open-ended position (units at the fund NAV unless one is given). */
-opsFundsRoutes.put('/funds/:id/holdings', requirePermission('funds.manage'), validateBody(holdingSchema), async (req, res) => {
+opsFundsRoutes.put('/funds/:id/holdings', requirePermission('funds.manage'), validateBody(holdingSchema), idempotent('ops.put.funds_id_holdings', { required: false }), async (req, res) => {
   const f = await loadFund(param(req, 'id'));
   const b = req.body as z.infer<typeof holdingSchema>;
   const client = await clientByIdOrRef(b.clientId);

@@ -6,11 +6,40 @@
 
 export const SYSTEM_ADMIN = 'system_admin';
 
-/** Monetary permissions a platform administrator must never hold (matches the admin routes' SoD scan). */
-export const MONETARY = ['orders.create', 'orders.approve', 'orders.route', 'cash.approve', 'cash.journal.create', 'cash.journal.approve', 'cash.close'];
+/**
+ * Money-moving and approval permissions a platform administrator must never hold (SoD). Single source of truth:
+ * the legacy `/admin` direct endpoints and the admin-core change-request flow both import this list.
+ */
+export const MONETARY = [
+  'orders.create',
+  'orders.approve',
+  'orders.route',
+  'cash.approve',
+  'cash.journal.create',
+  'cash.journal.approve',
+  'cash.close',
+  'performance.lock',
+  'valuation.release',
+  'accounting.close',
+  'accounting.reopen',
+  'capital.create',
+  'capital.approve',
+  'capital.settle',
+  'distributions.create',
+  'distributions.approve',
+  'distributions.settle',
+  'corporate_actions.process',
+  'financing.manage',
+  'financing.approve',
+  'private.mark.approve',
+  'research.ic.decide',
+  'reports.approve',
+  'reports.submit',
+  'model.approve',
+];
 
 /** Permissions whose grant needs an independent checker. */
-export const PRIVILEGED_PERMISSIONS = new Set<string>([...MONETARY, 'admin.rbac', 'admin.settings', 'accounting.close', 'accounting.reopen', 'valuation.release', 'risk.manage']);
+export const PRIVILEGED_PERMISSIONS = new Set<string>([...MONETARY, 'admin.rbac', 'admin.settings', 'risk.manage']);
 
 export type ChangeKind = 'USER_ROLES' | 'ROLE_PERMISSIONS' | 'USER_DISABLE';
 
@@ -51,6 +80,23 @@ export const SOD_RULES: { id: string; a: string; b: string; why: string }[] = [
   { id: 'nav-release', a: 'valuation.release', b: 'accounting.post', why: 'Release NAV and post the ledger entries behind it' },
   { id: 'rbac-orders', a: 'admin.rbac', b: 'orders.approve', why: 'Grant access and use it to approve orders' },
   { id: 'rbac-cash', a: 'admin.rbac', b: 'cash.journal.approve', why: 'Grant access and use it to approve cash' },
+  { id: 'financing-maker-checker', a: 'financing.manage', b: 'financing.approve', why: 'Set up a facility or drawdown and approve it' },
+  { id: 'pm-mark', a: 'portfolio.manage', b: 'private.mark.approve', why: 'Propose a private-markets NAV mark and approve it' },
+  { id: 'research-ic', a: 'research.edit', b: 'research.ic.decide', why: 'Write a research case and decide it at the investment committee' },
+  { id: 'reports-maker-checker', a: 'reports.create', b: 'reports.approve', why: 'Prepare a report or regulatory filing and approve it' },
+  { id: 'reports-approve-submit', a: 'reports.approve', b: 'reports.submit', why: 'Approve a regulatory filing and submit it to the regulator' },
+  { id: 'model-maker-checker', a: 'risk.manage', b: 'model.approve', why: 'Develop a model and validate or approve it' },
+  { id: 'capital-maker-checker', a: 'capital.create', b: 'capital.approve', why: 'Raise a capital call and approve it' },
+  { id: 'capital-approve-settle', a: 'capital.approve', b: 'capital.settle', why: 'Approve a capital call and confirm its receipt' },
+  { id: 'distributions-maker-checker', a: 'distributions.create', b: 'distributions.approve', why: 'Prepare a distribution and approve it' },
+  { id: 'distributions-approve-settle', a: 'distributions.approve', b: 'distributions.settle', why: 'Approve a distribution and mark it paid' },
+  { id: 'accounting-reopen', a: 'accounting.post', b: 'accounting.reopen', why: 'Post journals and reopen the closed period they sit in' },
+  { id: 'rbac-ic', a: 'admin.rbac', b: 'research.ic.decide', why: 'Grant access and use it to decide at the investment committee' },
+  { id: 'rbac-financing', a: 'admin.rbac', b: 'financing.approve', why: 'Grant access and use it to approve financing' },
+  { id: 'rbac-marks', a: 'admin.rbac', b: 'private.mark.approve', why: 'Grant access and use it to approve private-markets marks' },
+  { id: 'rbac-reports', a: 'admin.rbac', b: 'reports.approve', why: 'Grant access and use it to approve regulatory filings' },
+  { id: 'rbac-models', a: 'admin.rbac', b: 'model.approve', why: 'Grant access and use it to approve models' },
+  { id: 'rbac-nav', a: 'admin.rbac', b: 'valuation.release', why: 'Grant access and use it to release NAV' },
   { id: 'rbac-settings', a: 'admin.rbac', b: 'admin.settings', why: 'Change access and the controls that police it' },
 ];
 
@@ -108,15 +154,15 @@ export interface SettingDef {
 
 export const SETTINGS: SettingDef[] = [
   { key: 'feature.copilot', category: 'Feature flags', label: 'Investment Copilot', help: 'Show and serve the Copilot on the admin console.', type: 'boolean', default: true, enforced: true },
-  { key: 'feature.lp_dealing', category: 'Feature flags', label: 'LP dealing requests', help: 'Let investors submit dealing requests from the LP portal.', type: 'boolean', default: true, enforced: false },
-  { key: 'feature.investee_requests', category: 'Feature flags', label: 'Investee information requests', help: 'Allow staff to send reporting questions to portfolio companies.', type: 'boolean', default: true, enforced: false },
-  { key: 'feature.statement_import', category: 'Feature flags', label: 'Bank statement import', help: 'Allow cash statement files to be staged.', type: 'boolean', default: true, enforced: false },
-  { key: 'retention.audit_years', category: 'Retention', label: 'Audit evidence retention (years)', help: 'Minimum time audit events are kept. Regulatory floor is 7 years.', type: 'int', default: 7, min: 7, max: 25, stepUp: true, enforced: false },
-  { key: 'retention.documents_years', category: 'Retention', label: 'Client document retention (years)', help: 'Time superseded client documents are kept after the relationship ends.', type: 'int', default: 7, min: 5, max: 25, enforced: false },
-  { key: 'retention.session_days', category: 'Retention', label: 'Session record retention (days)', help: 'How long expired session rows are kept for forensics.', type: 'int', default: 30, min: 7, max: 365, enforced: false },
-  { key: 'notify.email_enabled', category: 'Notifications', label: 'Email notifications', help: 'Send email for approvals, notices and alerts.', type: 'boolean', default: true, enforced: false },
-  { key: 'notify.digest_hour', category: 'Notifications', label: 'Daily digest hour (Harare time)', help: 'Hour of day for the operations digest.', type: 'int', default: 7, min: 0, max: 23, enforced: false },
-  { key: 'notify.critical_channel', category: 'Notifications', label: 'Critical alert channel', help: 'Where breaches and failed controls are announced.', type: 'enum', default: 'in_app_email', options: ['in_app', 'email', 'in_app_email'], enforced: false },
+  { key: 'feature.lp_dealing', category: 'Feature flags', label: 'LP dealing requests', help: 'Let investors submit dealing requests from the LP portal.', type: 'boolean', default: true, enforced: true },
+  { key: 'feature.investee_requests', category: 'Feature flags', label: 'Investee information requests', help: 'Allow staff to send reporting questions to portfolio companies.', type: 'boolean', default: true, enforced: true },
+  { key: 'feature.statement_import', category: 'Feature flags', label: 'Bank statement import', help: 'Allow cash statement files to be staged.', type: 'boolean', default: true, enforced: true },
+  { key: 'retention.audit_years', category: 'Retention', label: 'Audit evidence retention (years)', help: 'Minimum time audit events are kept (the hash chain is never purged; this is the floor reported by the retention job). Regulatory floor is 7 years.', type: 'int', default: 7, min: 7, max: 25, stepUp: true, enforced: true },
+  { key: 'retention.documents_years', category: 'Retention', label: 'Client document retention (years)', help: 'Time superseded client documents are kept after the relationship ends.', type: 'int', default: 7, min: 5, max: 25, enforced: true },
+  { key: 'retention.session_days', category: 'Retention', label: 'Session record retention (days)', help: 'How long expired session rows are kept for forensics.', type: 'int', default: 30, min: 7, max: 365, enforced: true },
+  { key: 'notify.email_enabled', category: 'Notifications', label: 'Email notifications', help: 'Send email for approvals, notices and alerts.', type: 'boolean', default: true, enforced: true },
+  { key: 'notify.digest_hour', category: 'Notifications', label: 'Daily digest hour (Harare time)', help: 'Hour of day for the operations digest.', type: 'int', default: 7, min: 0, max: 23, enforced: true },
+  { key: 'notify.critical_channel', category: 'Notifications', label: 'Critical alert channel', help: 'Where breaches and failed controls are announced.', type: 'enum', default: 'in_app_email', options: ['in_app', 'email', 'in_app_email'], enforced: true },
   { key: 'security.mfa_required', category: 'Security', label: 'Require MFA for all staff', help: 'Staff must enrol an authenticator before using the console.', type: 'boolean', default: false, stepUp: true, policyKey: 'mfa_required', enforced: true },
   { key: 'security.session_idle_minutes', category: 'Security', label: 'Idle session timeout (minutes)', help: 'Sessions end after this long without activity.', type: 'int', default: 30, min: 5, max: 240, stepUp: true, policyKey: 'session_idle_minutes', enforced: true },
   { key: 'security.document_approval', category: 'Security', label: 'Independent document approval', help: 'Client documents need a different approver before publishing.', type: 'boolean', default: true, stepUp: true, policyKey: 'document_approval', enforced: true },

@@ -268,7 +268,7 @@ researchRoutes.get('/cases/:id', ...canView, async (req, res) => {
 
 const isAuthor = (c: CaseRow, req: Request) => c.analystId === req.user!.id;
 
-researchRoutes.patch('/cases/:id', ...canEdit, validateBody(casePatch), async (req, res) => {
+researchRoutes.patch('/cases/:id', ...canEdit, validateBody(casePatch), idempotent('research.patch.cases_id', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   if (c.status !== 'DRAFT') throw invalidState(`${c.ref} is ${c.status}; only a DRAFT can be edited. Use Revise on a published case.`);
   if (!isAuthor(c, req)) throw HttpError.forbidden('Only the case author can edit a draft', 'not_maker');
@@ -293,7 +293,7 @@ researchRoutes.post('/cases/:id/submit', ...canEdit, idempotent('research.case_s
   await respondCase(res, c.id);
 });
 
-researchRoutes.post('/cases/:id/return', ...canDecide, validateBody(reasonSchema), async (req, res) => {
+researchRoutes.post('/cases/:id/return', ...canDecide, validateBody(reasonSchema), idempotent('research.post.cases_id_return', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   if (c.status !== 'IN_REVIEW') throw invalidState(`${c.ref} is ${c.status}; only a case in review can be returned`);
   if (isAuthor(c, req)) throw sod('You cannot review your own case');
@@ -319,7 +319,7 @@ researchRoutes.post('/cases/:id/publish', ...canDecide, idempotent('research.cas
   await respondCase(res, c.id);
 });
 
-researchRoutes.post('/cases/:id/revise', ...canEdit, validateBody(reasonSchema), async (req, res) => {
+researchRoutes.post('/cases/:id/revise', ...canEdit, validateBody(reasonSchema), idempotent('research.post.cases_id_revise', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   if (c.status !== 'PUBLISHED') throw invalidState(`${c.ref} is ${c.status}; only a published case can be revised`);
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -330,7 +330,7 @@ researchRoutes.post('/cases/:id/revise', ...canEdit, validateBody(reasonSchema),
   await respondCase(res, c.id);
 });
 
-researchRoutes.post('/cases/:id/archive', ...canEdit, validateBody(reasonSchema), async (req, res) => {
+researchRoutes.post('/cases/:id/archive', ...canEdit, validateBody(reasonSchema), idempotent('research.post.cases_id_archive', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   if (c.status === 'ARCHIVED') throw invalidState(`${c.ref} is already archived`);
   if (!isAuthor(c, req) && !req.user!.permissions.includes('research.ic.decide')) throw HttpError.forbidden('Only the author or an IC reviewer can archive a case', 'forbidden');
@@ -380,7 +380,7 @@ researchRoutes.get('/meetings/:id', ...canView, async (req, res) => {
   res.json({ data: { ...meetingView(m, { decisions: decisions.length, open: decisions.filter((d) => OPEN_DECISION.includes(d.status)).length }, usr), decisionList: await decisionViews(decisions, req.user!.id) } });
 });
 
-researchRoutes.patch('/meetings/:id', ...canEdit, validateBody(meetingPatch), async (req, res) => {
+researchRoutes.patch('/meetings/:id', ...canEdit, validateBody(meetingPatch), idempotent('research.patch.meetings_id', { required: false }), async (req, res) => {
   const m = await loadMeeting(param(req, 'id'));
   if (m.status !== 'SCHEDULED') throw invalidState(`${m.ref} is ${m.status} and can no longer be changed`);
   const b = req.body as z.infer<typeof meetingPatch>;
@@ -458,7 +458,7 @@ researchRoutes.post('/decisions/:id/open-voting', ...canEdit, idempotent('resear
 
 const voteBody = z.object({ vote: z.enum(VOTES), comment: z.string().trim().max(500).optional() }).strict();
 
-researchRoutes.post('/decisions/:id/vote', ...canEdit, validateBody(voteBody), async (req, res) => {
+researchRoutes.post('/decisions/:id/vote', ...canEdit, validateBody(voteBody), idempotent('research.post.decisions_id_vote', { required: false }), async (req, res) => {
   const d = await loadDecision(param(req, 'id'));
   if (d.status !== 'VOTING') throw invalidState(`${d.ref} is ${d.status}; voting is not open`);
   const b = req.body as z.infer<typeof voteBody>;
@@ -496,7 +496,7 @@ researchRoutes.post('/decisions/:id/ratify', ...canDecide, requireStepUp, valida
   await respondDecision(res, req, d.id);
 });
 
-researchRoutes.post('/decisions/:id/withdraw', ...canEdit, validateBody(reasonSchema), async (req, res) => {
+researchRoutes.post('/decisions/:id/withdraw', ...canEdit, validateBody(reasonSchema), idempotent('research.post.decisions_id_withdraw', { required: false }), async (req, res) => {
   const d = await loadDecision(param(req, 'id'));
   if (!OPEN_DECISION.includes(d.status)) throw invalidState(`${d.ref} is ${d.status} and cannot be withdrawn`);
   if (d.proposerId !== req.user!.id) throw HttpError.forbidden('Only the proposer can withdraw a decision', 'not_maker');

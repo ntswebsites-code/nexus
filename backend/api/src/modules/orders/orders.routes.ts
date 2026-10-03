@@ -353,7 +353,7 @@ ordersRoutes.get('/:id', ...staff, requirePermission('orders.view'), async (req,
   res.json({ data: await detail(req, o) });
 });
 
-ordersRoutes.patch('/:id', ...staff, requirePermission('orders.create'), validateBody(patchSchema), async (req, res) => {
+ordersRoutes.patch('/:id', ...staff, requirePermission('orders.create'), validateBody(patchSchema), idempotent('orders.patch.id', { required: false }), async (req, res) => {
   const o = await loadOrderRow(param(req, 'id'));
   if (!visibleTo(o, req.user!.id)) throw HttpError.notFound('Order not found');
   assertMaker(o, req.user!.id);
@@ -434,7 +434,7 @@ ordersRoutes.patch('/:id', ...staff, requirePermission('orders.create'), validat
 
 // ---------------------------------------------------------------- validate
 
-ordersRoutes.post('/:id/validate', ...staff, requirePermission('orders.create'), async (req, res) => {
+ordersRoutes.post('/:id/validate', ...staff, requirePermission('orders.create'), idempotent('orders.post.id_validate', { required: false }), async (req, res) => {
   const o = await loadOrderRow(param(req, 'id'));
   if (!visibleTo(o, req.user!.id)) throw HttpError.notFound('Order not found');
   assertMaker(o, req.user!.id);
@@ -542,7 +542,7 @@ ordersRoutes.post('/:id/approve', ...staff, requirePermission('orders.approve'),
   await respond(res, req, o.id);
 });
 
-ordersRoutes.post('/:id/reject', ...staff, requirePermission('orders.approve'), requireStepUp, validateBody(reasonSchema), async (req, res) => {
+ordersRoutes.post('/:id/reject', ...staff, requirePermission('orders.approve'), requireStepUp, validateBody(reasonSchema), idempotent('orders.post.id_reject', { required: false }), async (req, res) => {
   const o = await loadOrderRow(param(req, 'id'));
   if (!visibleTo(o, req.user!.id)) throw HttpError.notFound('Order not found');
   assertTransition(o.status, 'Rejected');
@@ -711,7 +711,7 @@ ordersRoutes.post('/:id/settle', ...staff, requirePermission('orders.route'), id
 
 // ---------------------------------------------------------------- cancel
 
-ordersRoutes.post('/:id/cancel', ...staff, requirePermission('orders.view'), validateBody(reasonSchema), async (req, res) => {
+ordersRoutes.post('/:id/cancel', ...staff, requirePermission('orders.view'), validateBody(reasonSchema), idempotent('orders.post.id_cancel', { required: false }), async (req, res) => {
   const o = await loadOrderRow(param(req, 'id'));
   if (!visibleTo(o, req.user!.id)) throw HttpError.notFound('Order not found');
   const me = req.user!;

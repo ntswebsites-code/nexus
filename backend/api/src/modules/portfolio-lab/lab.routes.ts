@@ -115,7 +115,7 @@ portfolioLabRoutes.get('/models/:id', ...canView, async (req, res) => {
   res.json({ data: await modelDetail(await loadModel(param(req, 'id'))) });
 });
 
-portfolioLabRoutes.patch('/models/:id', ...canManage, validateBody(modelPatch), async (req, res) => {
+portfolioLabRoutes.patch('/models/:id', ...canManage, validateBody(modelPatch), idempotent('portfolio-lab.patch.models_id', { required: false }), async (req, res) => {
   const m = await loadModel(param(req, 'id'));
   if (m.status !== 'DRAFT') throw invalidState(`${m.ref} is ${m.status}; only a DRAFT model can be edited. Clone it to make changes.`);
   const b = req.body as z.infer<typeof modelPatch>;
@@ -150,7 +150,7 @@ portfolioLabRoutes.post('/models/:id/activate', ...canManage, idempotent('lab.mo
   await respondModel(res, m.id);
 });
 
-portfolioLabRoutes.post('/models/:id/retire', ...canManage, validateBody(reasonSchema), async (req, res) => {
+portfolioLabRoutes.post('/models/:id/retire', ...canManage, validateBody(reasonSchema), idempotent('portfolio-lab.post.models_id_retire', { required: false }), async (req, res) => {
   const m = await loadModel(param(req, 'id'));
   if (m.status === 'RETIRED') throw invalidState(`${m.ref} is already retired`);
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -377,7 +377,7 @@ portfolioLabRoutes.get('/rebalances/:id', ...canView, async (req, res) => {
   res.json({ data: await rebalanceDetail(await loadRebalance(param(req, 'id'))) });
 });
 
-portfolioLabRoutes.post('/rebalances/:id/discard', ...canManage, validateBody(reasonSchema), async (req, res) => {
+portfolioLabRoutes.post('/rebalances/:id/discard', ...canManage, validateBody(reasonSchema), idempotent('portfolio-lab.post.rebalances_id_discard', { required: false }), async (req, res) => {
   const r = await loadRebalance(param(req, 'id'));
   if (r.status !== 'PROPOSED') throw invalidState(`${r.ref} is ${r.status}; only a proposal can be discarded`);
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;

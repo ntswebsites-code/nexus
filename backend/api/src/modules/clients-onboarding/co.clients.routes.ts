@@ -102,7 +102,7 @@ coClientsRoutes.post('/clients/:id/dealing-hold', requirePermission('clients.edi
 
 const ownerSchema = z.object({ userId: z.string().uuid().nullable() }).strict();
 
-coClientsRoutes.post('/clients/:id/relationship-owner', requirePermission('clients.edit'), validateBody(ownerSchema), async (req, res) => {
+coClientsRoutes.post('/clients/:id/relationship-owner', requirePermission('clients.edit'), validateBody(ownerSchema), idempotent('clients-onboarding.post.clients_id_relationship_owner', { required: false }), async (req, res) => {
   const client = await findClientByRef(param(req, 'id'));
   const staff = req.body.userId ? await assertStaff(req.body.userId) : null;
   await prisma.$transaction(async (tx) => {
@@ -114,7 +114,7 @@ coClientsRoutes.post('/clients/:id/relationship-owner', requirePermission('clien
 
 const reviewSchema = z.object({ nextReviewDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(), note: z.string().trim().max(255).optional() }).strict();
 
-coClientsRoutes.post('/clients/:id/review-date', requirePermission('clients.edit'), validateBody(reviewSchema), async (req, res) => {
+coClientsRoutes.post('/clients/:id/review-date', requirePermission('clients.edit'), validateBody(reviewSchema), idempotent('clients-onboarding.post.clients_id_review_date', { required: false }), async (req, res) => {
   const client = await findClientByRef(param(req, 'id'));
   const next = req.body.nextReviewDate ? new Date(`${req.body.nextReviewDate}T00:00:00.000Z`) : null;
   if (next && Number.isNaN(next.getTime())) throw HttpError.badRequest('Invalid date');
@@ -128,7 +128,7 @@ coClientsRoutes.post('/clients/:id/review-date', requirePermission('clients.edit
 const mandateStatus = z.object({ status: z.enum(['Shell', 'Active', 'Closed']), reason: z.string().trim().max(255).optional() }).strict();
 
 /** Mandate lifecycle: Shell -> Active (only for a client with current KYC and an approved cash account) -> Closed. */
-coClientsRoutes.post('/clients/:id/mandates/:mref/status', requirePermission('clients.edit'), validateBody(mandateStatus), async (req, res) => {
+coClientsRoutes.post('/clients/:id/mandates/:mref/status', requirePermission('clients.edit'), validateBody(mandateStatus), idempotent('clients-onboarding.post.clients_id_mandates_mref_status', { required: false }), async (req, res) => {
   const client = await findClientByRef(param(req, 'id'));
   const m = await prisma.mandate.findFirst({ where: { ref: param(req, 'mref'), clientId: client.id } });
   if (!m) throw HttpError.notFound('Mandate not found');

@@ -177,7 +177,7 @@ coVaultRoutes.get('/vault/access-log', requireAnyPermission('audit.view', 'docum
 
 const linkSchema = z.object({ clientId: z.string().trim().max(40).nullable().optional(), fundId: z.string().trim().max(40).nullable().optional(), relatedLabel: z.string().trim().max(160).optional() }).strict();
 
-coVaultRoutes.post('/vault/documents/:id/link', requirePermission('documents.edit'), validateBody(linkSchema), async (req, res) => {
+coVaultRoutes.post('/vault/documents/:id/link', requirePermission('documents.edit'), validateBody(linkSchema), idempotent('clients-onboarding.post.vault_documents_id_link', { required: false }), async (req, res) => {
   const d = await findDoc(param(req, 'id'));
   const b = req.body as z.infer<typeof linkSchema>;
   const client = b.clientId ? await prisma.client.findFirst({ where: { OR: [{ ref: b.clientId }, { id: b.clientId }], archivedAt: null }, select: { id: true, ref: true } }) : null;
@@ -260,10 +260,10 @@ async function decideChange(req: Request, approve: boolean) {
   return d.ref;
 }
 
-coVaultRoutes.post('/vault/changes/:id/approve', requirePermission('documents.approve'), validateBody(decideSchema), requireStepUp, async (req, res) => {
+coVaultRoutes.post('/vault/changes/:id/approve', requirePermission('documents.approve'), validateBody(decideSchema), requireStepUp, idempotent('clients-onboarding.post.vault_changes_id_approve', { required: false }), async (req, res) => {
   res.json({ ok: true, document: await decideChange(req, true) });
 });
-coVaultRoutes.post('/vault/changes/:id/reject', requirePermission('documents.approve'), validateBody(decideSchema), async (req, res) => {
+coVaultRoutes.post('/vault/changes/:id/reject', requirePermission('documents.approve'), validateBody(decideSchema), idempotent('clients-onboarding.post.vault_changes_id_reject', { required: false }), async (req, res) => {
   res.json({ ok: true, document: await decideChange(req, false) });
 });
 
@@ -281,7 +281,7 @@ coVaultRoutes.post('/vault/documents/:id/hold', requirePermission('documents.edi
 });
 
 /** Releasing a hold is the checker step: a different person from whoever placed it, with step-up. */
-coVaultRoutes.post('/vault/holds/:id/release', requirePermission('documents.approve'), validateBody(z.object({ note: z.string().trim().min(5).max(500) }).strict()), requireStepUp, async (req, res) => {
+coVaultRoutes.post('/vault/holds/:id/release', requirePermission('documents.approve'), validateBody(z.object({ note: z.string().trim().min(5).max(500) }).strict()), requireStepUp, idempotent('clients-onboarding.post.vault_holds_id_release', { required: false }), async (req, res) => {
   const h = await prisma.documentHold.findUnique({ where: { id: param(req, 'id') } });
   if (!h) throw HttpError.notFound('Hold not found');
   if (h.releasedAt) throw HttpError.conflict('The hold was already released', 'invalid_state');

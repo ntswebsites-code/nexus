@@ -10,7 +10,8 @@ import { ctx, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { createInvitation } from '../identity/invitations';
-import { privilegedPermissionAdds, privilegedRoleAdds } from '../admin-core/admin-core.engine';
+import { MONETARY, privilegedPermissionAdds, privilegedRoleAdds, sodHits } from '../admin-core/admin-core.engine';
+import { idempotent } from '../../lib/idempotency';
 
 /** `/api/v1/admin` - staff access control, platform settings and audit evidence (SRD 7.2, 7.13, 11). */
 export const adminRoutes = Router();
@@ -22,8 +23,7 @@ const SETTINGS = requirePermission('admin.settings');
 const AUDIT = requirePermission('audit.view');
 
 const SYSTEM_ADMIN = 'system_admin';
-/** Monetary permissions a platform administrator must never hold (SoD). */
-const MONETARY = ['orders.create', 'orders.approve', 'orders.route', 'cash.approve', 'cash.journal.create', 'cash.journal.approve', 'cash.close', 'performance.lock'];
+// MONETARY (the SoD blocklist) is shared with admin-core: see admin-core.engine.ts.
 
 const staffRoleInclude = {
   roles: { where: { role: { portal: 'admin' } }, include: { role: { include: { permissions: true } } } },
@@ -106,12 +106,17 @@ adminRoutes.get('/users', RBAC, async (_req, res) => {
 
 const addUserSchema = z.object({ name: z.string().trim().min(1).max(120), email: emailSchema, role: z.string().trim().min(1).max(64) });
 
-adminRoutes.post('/users', RBAC, requireStepUp, validateBody(addUserSchema), async (req, res) => {
+adminRoutes.post('/users', RBAC, requireStepUp, idempotent('staff.invite'), validateBody(addUserSchema), async (req, res) => {
   const b = req.body as z.infer<typeof addUserSchema>;
   const role = await prisma.role.findUnique({ where: { portal_key: { portal: 'admin', key: b.role } } });
   if (!role) throw HttpError.badRequest('Unknown role');
   const existing = await prisma.user.findUnique({ where: { email: b.email }, include: staffRoleInclude });
   if (existing?.roles.length) throw HttpError.conflict('This person already has workspace access - change their role instead', 'already_member');
+  const roleWithPerms = await prisma.role.findUnique({ where: { id: role.id }, include: { permissions: true } });
+  const privileged = privilegedRoleAdds([], [{ key: role.key, permissions: (roleWithPerms?.permissions ?? []).map((p) => p.permission) }]);
+  if (privileged.length) {
+    throw HttpError.conflict(`Inviting someone as ${role.label} grants ${privileged.join(', ')} and needs an independent checker. Invite with a non-privileged role, then raise an access change request.`, 'approval_required');
+  }
   await prisma.$transaction(async (tx) => {
     const { invitation } = await createInvitation(tx, {
       email: b.email,
@@ -194,8 +199,45 @@ adminRoutes.get('/roles', RBAC, async (_req, res) => {
 });
 
 adminRoutes.get('/permissions', RBAC, async (_req, res) => {
-  const rows = await prisma.rolePermission.findMany({ where: { role: { portal: 'admin' } }, distinct: ['permission'], select: { permission: true } });
-  res.json({ data: rows.map((r) => r.permission).sort(), protected: MONETARY });
+  const [rows, custom] = await Promise.all([
+    prisma.rolePermission.findMany({ where: { role: { portal: 'admin' } }, distinct: ['permission'], select: { permission: true } }),
+    prisma.customPermission.findMany({ orderBy: { code: 'asc' } }),
+  ]);
+  const codes = [...new Set([...rows.map((r) => r.permission), ...custom.map((c) => c.code)])].sort();
+  res.json({ data: codes, protected: MONETARY, custom: custom.map((c) => ({ code: c.code, label: c.label, description: c.description })) });
+});
+
+const customPermSchema = z.object({
+  code: z.string().trim().toLowerCase().regex(/^[a-z][a-z_]{1,30}(\.[a-z_]{1,30}){1,2}$/, 'Use lowercase area.action, e.g. vendor.review'),
+  label: z.string().trim().min(2).max(120),
+  description: z.string().trim().max(500).optional(),
+});
+
+/** Defines a new permission code that roles can then carry. Codes already used by the platform cannot be redefined. */
+adminRoutes.post('/permissions', RBAC, requireStepUp, idempotent('permission.define'), validateBody(customPermSchema), async (req, res) => {
+  const b = req.body as z.infer<typeof customPermSchema>;
+  if ((await prisma.customPermission.findUnique({ where: { code: b.code } })) || (await prisma.rolePermission.findFirst({ where: { permission: b.code } }))) {
+    throw HttpError.conflict('That permission code already exists', 'permission_exists');
+  }
+  if (MONETARY.includes(b.code) || b.code.startsWith('admin.') || b.code.startsWith('lp.')) throw HttpError.badRequest('That code is reserved by the platform');
+  await prisma.$transaction(async (tx) => {
+    await tx.customPermission.create({ data: { code: b.code, label: b.label, description: b.description ?? null, createdBy: req.user!.id } });
+    await writeAudit(tx, audit(req), { action: 'permission.defined', objectType: 'permission', objectId: b.code, after: { label: b.label, description: b.description ?? null } });
+  });
+  res.status(201).json({ code: b.code, label: b.label, description: b.description ?? null });
+});
+
+adminRoutes.delete('/permissions/:code', RBAC, requireStepUp, async (req, res) => {
+  const code = param(req, 'code');
+  const row = await prisma.customPermission.findUnique({ where: { code } });
+  if (!row) throw HttpError.notFound('Custom permission not found');
+  const inUse = await prisma.rolePermission.count({ where: { permission: code } });
+  if (inUse) throw HttpError.conflict(`Remove ${code} from ${inUse} role${inUse === 1 ? '' : 's'} first`, 'permission_in_use');
+  await prisma.$transaction(async (tx) => {
+    await tx.customPermission.delete({ where: { code } });
+    await writeAudit(tx, audit(req), { action: 'permission.removed', objectType: 'permission', objectId: code, before: { label: row.label } });
+  });
+  res.json({ ok: true });
 });
 
 const newRoleSchema = z.object({ label: z.string().trim().min(2).max(120), template: z.string().max(64).default('blank') });
@@ -208,14 +250,23 @@ adminRoutes.post('/roles', RBAC, requireStepUp, validateBody(newRoleSchema), asy
   const template =
     b.template === 'blank' ? null : await prisma.role.findUnique({ where: { portal_key: { portal: 'admin', key: b.template } }, include: { permissions: true } });
   if (template?.key === SYSTEM_ADMIN) throw HttpError.badRequest('System Administrator cannot be used as a template');
-  const perms = template ? template.permissions.map((p) => p.permission) : ['dashboard.view'];
+  const templatePerms = template ? template.permissions.map((p) => p.permission) : ['dashboard.view'];
+  // A new role cannot start with privileged permissions: they need the independent-checker change request.
+  const deferred = privilegedPermissionAdds([], templatePerms);
+  const perms = templatePerms.filter((p) => !deferred.includes(p));
   const role = await prisma.$transaction(async (tx) => {
     const r = await tx.role.create({ data: { portal: 'admin', key, label: b.label, custom: true, permissions: { create: perms.map((permission) => ({ permission })) } } });
-    await writeAudit(tx, audit(req), { action: 'role.created', objectType: 'role', objectId: r.id, after: { key, label: b.label, template: b.template, permissions: perms } });
+    await writeAudit(tx, audit(req), { action: 'role.created', objectType: 'role', objectId: r.id, after: { key, label: b.label, template: b.template, permissions: perms, deferredPrivileged: deferred } });
     return r;
   });
-  res.status(201).json({ role: { key: role.key, label: role.label, permissions: perms.sort() } });
+  res.status(201).json({ role: { key: role.key, label: role.label, permissions: perms.sort() }, deferredPrivileged: deferred });
 });
+
+/** Every code a role may carry: codes already granted somewhere in the catalogue plus administrator-defined ones. */
+async function knownPermissionCodes() {
+  const [rows, custom] = await Promise.all([prisma.rolePermission.findMany({ distinct: ['permission'], select: { permission: true } }), prisma.customPermission.findMany({ select: { code: true } })]);
+  return new Set([...rows.map((r) => r.permission), ...custom.map((c) => c.code)]);
+}
 
 const permsSchema = z.object({ permissions: z.array(z.string().regex(/^[a-z_]+(\.[a-z_]+)+$/)).max(200) });
 
@@ -224,6 +275,9 @@ adminRoutes.put('/roles/:key/permissions', RBAC, requireStepUp, validateBody(per
   if (!role) throw HttpError.notFound('Role not found');
   if (role.locked || role.key === SYSTEM_ADMIN) throw HttpError.forbidden('System Administrator privileges are platform-only and cannot be edited', 'role_locked');
   const next = [...new Set((req.body as z.infer<typeof permsSchema>).permissions)].sort();
+  const known = await knownPermissionCodes();
+  const unknown = next.filter((p) => !known.has(p));
+  if (unknown.length) throw HttpError.badRequest(`Unknown permission code${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}. Define a custom permission first.`);
   const before = role.permissions.map((p) => p.permission).sort();
   const mine = req.user!.roles.some((r) => r.portal === 'admin' && r.key === role.key);
   if (mine && before.includes('admin.rbac') && !next.includes('admin.rbac')) {
@@ -337,8 +391,17 @@ async function sodScan(): Promise<Finding[]> {
   const sysRole = roles.find((r) => r.key === SYSTEM_ADMIN);
   const adminMoney = MONETARY.filter((m) => sysRole?.permissions.some((x) => x.permission === m));
   if (adminMoney.length) out.push({ severity: 'block', title: 'Platform admin monetary privilege', detail: adminMoney.join(', '), action: 'Remove immediately' });
+  for (const r of roles) {
+    for (const h of sodHits(r.permissions.map((x) => x.permission))) {
+      out.push({ severity: 'warn', title: `Role ${r.label} combines ${h.a} and ${h.b}`, detail: h.why, action: 'Split role' });
+    }
+  }
   for (const u of users) {
     const perms = new Set(u.roles.flatMap((r) => r.role.permissions.map((x) => x.permission)));
+    for (const h of sodHits(perms)) {
+      const withinOneRole = u.roles.some((r) => sodHits(r.role.permissions.map((x) => x.permission)).some((x) => x.rule === h.rule));
+      if (!withinOneRole) out.push({ severity: 'block', title: `${u.name ?? u.email} holds ${h.a} and ${h.b} through separate roles`, detail: h.why, action: 'Split roles' });
+    }
     if (perms.has('admin.rbac') && MONETARY.some((m) => perms.has(m))) {
       out.push({ severity: 'block', title: 'Access control combined with money movement', detail: `${u.name ?? u.email} can change roles and move money through combined roles.`, action: 'Split roles' });
     }
