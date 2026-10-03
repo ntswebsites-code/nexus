@@ -37,6 +37,7 @@ import { regulatoryRoutes } from '../modules/regulatory';
 import { dataRoutes } from '../modules/data-fabric';
 import { modelRoutes } from '../modules/model-governance';
 import { adminCoreRoutes } from '../modules/admin-core';
+import { integrationsPublicRoutes } from '../modules/admin-core/integrations.routes';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -86,6 +87,8 @@ v1Router.use('/data', dataRoutes);
 v1Router.use('/model-governance', modelRoutes);
 // Admin Core: /admin-core/* (RBAC change requests, access reviews, SoD, platform settings, audit facets, Copilot).
 v1Router.use('/admin-core', adminCoreRoutes);
+// Integrations (WP-8): development-only fake SSO identity provider page (404 in production). Ops API is under /admin-core/integrations.
+v1Router.use('/integrations', integrationsPublicRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

@@ -5,6 +5,7 @@ import type { EmailPayload, NotifyPermissionPayload, NotifyUsersPayload } from '
 import { runScreening } from './modules/kyc/screening';
 import { scanReportingReminders } from './modules/company/reminders';
 import { runDueSchedules } from './modules/reports';
+import { assertIntegrationsConfig, integrationTick } from './integrations';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -53,6 +54,7 @@ let lastReminderScan = 0;
 let lastReportScan = 0;
 
 async function tick() {
+  await integrationTick();
   if (Date.now() - lastReportScan > 60 * 60 * 1000) {
     lastReportScan = Date.now();
     try {
@@ -101,6 +103,7 @@ async function tick() {
 let stopping = false;
 
 async function main() {
+  assertIntegrationsConfig();
   console.log(`[worker] Matanho Nexus worker started (${config.nodeEnv}); SMTP ${config.smtp ? 'on' : 'console'}`);
   while (!stopping) {
     let handled = 0;

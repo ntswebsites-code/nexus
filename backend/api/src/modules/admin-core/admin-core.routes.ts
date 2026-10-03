@@ -28,7 +28,9 @@ import {
   type ChangeKind,
   type SettingDef,
 } from './admin-core.engine';
-import { answerQuestion, SUGGESTIONS } from './copilot';
+import { SUGGESTIONS } from './copilot';
+import { getLlmAdapter } from '../../integrations/llm';
+import { integrationsRoutes } from './integrations.routes';
 
 /**
  * Admin Core (SRD 5A `rbac`, `settings`, `audit`, `copilot`). Mounted at `/api/v1/admin-core`. Extends the staff
@@ -38,6 +40,8 @@ import { answerQuestion, SUGGESTIONS } from './copilot';
  */
 export const adminCoreRoutes = Router();
 adminCoreRoutes.use(requireAuth, requirePortalAccess('admin'));
+// Integrations ops screen API (WP-8): /admin-core/integrations/*
+adminCoreRoutes.use('/integrations', integrationsRoutes);
 
 const RBAC = requirePermission('admin.rbac');
 const SETTINGS_PERM = requirePermission('admin.settings');
@@ -713,7 +717,7 @@ adminCoreRoutes.get('/copilot/history', COPILOT, async (req, res) => {
 adminCoreRoutes.post('/copilot/ask', COPILOT, validateBody(z.object({ question: z.string().trim().min(3).max(500) })), async (req, res) => {
   if (!(await copilotEnabled())) throw HttpError.forbidden('The Copilot is switched off in platform settings', 'feature_disabled');
   const question = (req.body as { question: string }).question;
-  const result = await answerQuestion(question, new Set(req.user!.permissions));
+  const result = await getLlmAdapter().answer({ question, permissions: [...req.user!.permissions] });
   const row = await prisma.copilotQuery.create({ data: { userId: req.user!.id, question, intent: result.intent, answer: result.answer, sources: result.sources as unknown as Prisma.InputJsonValue } });
   res.json({ data: { id: row.id, question, ...result, at: row.createdAt.toISOString() } });
 });

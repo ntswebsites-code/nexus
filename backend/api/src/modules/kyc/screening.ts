@@ -1,12 +1,11 @@
 import { prisma } from '../../lib/prisma';
 import { writeAudit } from '../../lib/audit';
 import { enqueue } from '../../lib/outbox';
-import { HIGH_RISK_COUNTRIES, STUB_WATCHLIST, slaDue } from './constants';
-
-const PROVIDER = 'stub-screening-v1';
+import { slaDue } from './constants';
+import { getScreeningAdapter } from '../../integrations/screening';
 
 /**
- * Screening provider stub (SRD 12: vendor not selected). Produces advisory
+ * Screening through the screening adapter (INTEGRATION_SCREENING; fake = the former stub, SRD 12: vendor not selected). Produces advisory
  * sanctions / PEP / adverse-media / document results and a risk rating, then
  * hands the case to human compliance review. The result never decides a case.
  */
@@ -19,30 +18,26 @@ export async function runScreening(caseId: string) {
   if (!['Submitted', 'Screening', 'ComplianceReview', 'ClientAction', 'EnhancedReview'].includes(kycCase.stage)) return;
 
   const app = kycCase.application;
-  const names = [app.legalName ?? '', ...app.owners.map((o) => o.fullName)].map((n) => n.toLowerCase());
   const formData = app.formData && typeof app.formData === 'object' && !Array.isArray(app.formData) ? (app.formData as Record<string, unknown>) : {};
   const declared = (key: string) => (typeof formData[key] === 'string' ? formData[key] : '').toLowerCase().startsWith('yes');
-  const sanctionsHit = declared('sanctions') || names.some((n) => STUB_WATCHLIST.some((w) => n.includes(w)));
   const pep = (app.pep ?? '').toLowerCase().startsWith('yes') || app.owners.some((o) => o.pep);
-  const country = `${app.country ?? ''} ${app.taxResidence ?? ''}`.toLowerCase();
-  const highRiskCountry = HIGH_RISK_COUNTRIES.some((c) => country.includes(c));
-  const adverse = highRiskCountry || declared('adverseMedia');
-  const amount = app.expectedInvestment?.toNumber() ?? 0;
-  const docsPresent = kycCase.evidence.filter((e) => e.fileId).length;
-
-  const results = [
-    { type: 'sanctions', outcome: sanctionsHit ? 'Match' : 'Clear', score: sanctionsHit ? 92 : 0 },
-    { type: 'pep', outcome: pep ? 'Review' : 'Clear', score: pep ? 70 : 0 },
-    { type: 'adverse_media', outcome: adverse ? 'Review' : 'Clear', score: adverse ? 55 : 0 },
-    { type: 'document', outcome: docsPresent >= 3 ? 'Clear' : 'Review', score: docsPresent >= 3 ? 0 : 40 },
-  ];
-  const risk = sanctionsHit || pep || highRiskCountry || declared('adverseMedia') ? 'High' : amount >= 5_000_000 ? 'Medium' : 'Low';
-  const rawRef = `SCR-${kycCase.ref.replace(/\D/g, '')}-${Date.now().toString().slice(-4)}`;
+  const { provider, rawRef, risk, results } = await getScreeningAdapter().screen({
+    caseRef: kycCase.ref,
+    legalName: app.legalName ?? '',
+    ownerNames: app.owners.map((o) => o.fullName),
+    pep,
+    declaredSanctions: declared('sanctions'),
+    declaredAdverseMedia: declared('adverseMedia'),
+    country: app.country ?? '',
+    taxResidence: app.taxResidence ?? '',
+    expectedInvestment: app.expectedInvestment?.toNumber() ?? 0,
+    documentsPresent: kycCase.evidence.filter((e) => e.fileId).length,
+  });
   const exceptions = results.filter((r) => r.outcome !== 'Clear').map((r) => r.type);
 
   await prisma.$transaction(async (tx) => {
     await tx.screeningResult.createMany({
-      data: results.map((r) => ({ caseId, provider: PROVIDER, type: r.type, outcome: r.outcome, score: r.score, rawRef })),
+      data: results.map((r) => ({ caseId, provider, type: r.type, outcome: r.outcome, score: r.score, rawRef })),
     });
     const toReview = kycCase.stage === 'Submitted' || kycCase.stage === 'Screening';
     await tx.kycCase.update({

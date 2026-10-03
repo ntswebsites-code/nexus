@@ -1,16 +1,15 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { config } from '../config';
 import { prisma } from './prisma';
-import { decryptBuffer, encryptBuffer, hmacHex, safeEqualHex, sha256Hex } from './crypto';
+import { hmacHex, safeEqualHex, sha256Hex } from './crypto';
+import { getAvScanAdapter } from '../integrations/av-scan';
+import { getObjectStorageAdapter } from '../integrations/object-storage';
 import { HttpError } from './errors';
 
 /**
- * Local encrypted object store (SRD 10.3 "S3-compatible, encrypted"). Files are
- * AES-256-GCM encrypted at rest under STORAGE_DIR; swapping to S3 only changes
- * `putObject`/`getObject`.
+ * Encrypted object store (SRD 10.3 "S3-compatible, encrypted"). Bytes go through the object-storage adapter
+ * (fake = local AES-256-GCM files under STORAGE_DIR) and every upload is scanned by the av-scan adapter first.
  */
 const ALLOWED_MIME = new Set([
   'application/pdf',
@@ -27,19 +26,8 @@ const ALLOWED_MIME = new Set([
   'application/octet-stream',
 ]);
 
-function objectPath(key: string) {
-  return path.resolve(config.storage.dir, key.slice(0, 2), key);
-}
-
-async function putObject(key: string, data: Buffer) {
-  const target = objectPath(key);
-  await mkdir(path.dirname(target), { recursive: true });
-  await writeFile(target, encryptBuffer(data));
-}
-
-async function getObject(key: string): Promise<Buffer> {
-  return decryptBuffer(await readFile(objectPath(key)));
-}
+const putObject = (key: string, data: Buffer) => getObjectStorageAdapter().put(key, data);
+const getObject = (key: string): Promise<Buffer> => getObjectStorageAdapter().get(key);
 
 export interface StoredFileInput {
   name: string;
@@ -56,6 +44,10 @@ export async function storeFile(input: StoredFileInput, db: Prisma.TransactionCl
   }
   if (input.data.length > config.storage.maxUploadBytes) {
     throw new HttpError(413, 'payload_too_large', 'File is larger than the upload limit');
+  }
+  const scan = await getAvScanAdapter().scan({ name: input.name, mime, data: input.data });
+  if (scan.verdict !== 'clean') {
+    throw new HttpError(422, 'malware_detected', `The file was rejected by the malware scan${scan.signature ? ` (${scan.signature})` : ''}`);
   }
   const storageKey = randomUUID().replace(/-/g, '');
   await putObject(storageKey, input.data);

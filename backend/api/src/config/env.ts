@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { PORTALS, PORTAL_IDS } from '@matanho/shared';
+import { INTEGRATION_NAMES, integrationEnvKey, type IntegrationMode, type IntegrationName } from '../integrations/core/names';
 
 const boolFromString = z
   .enum(['true', 'false', '1', '0'])
@@ -8,7 +9,15 @@ const boolFromString = z
 
 const emptyToUndefined = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
 
+const integrationFlags = Object.fromEntries(
+  INTEGRATION_NAMES.map((n) => [integrationEnvKey(n), z.preprocess(emptyToUndefined, z.enum(['fake', 'live']).default('fake'))]),
+);
+
 const schema = z.object({
+  ...integrationFlags,
+  /// Production refuses `fake` adapters unless this is set (see integrations/core/registry.ts).
+  ALLOW_FAKE_INTEGRATIONS: z.preprocess(emptyToUndefined, boolFromString.optional()),
+
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4100),
   API_HOST: z.string().default('0.0.0.0'),
@@ -77,6 +86,8 @@ export interface AppConfig {
   signingSecret: string;
   smtp?: { host: string; port: number; secure: boolean; user?: string; password?: string };
   mailFrom: string;
+  integrations: Record<IntegrationName, IntegrationMode>;
+  allowFakeIntegrations: boolean;
   flags: { lpLiveDomains: string[]; investeeLiveActions: string[]; custodianLive: boolean; onboardingLive: boolean };
 }
 
@@ -164,6 +175,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
         }
       : undefined,
     mailFrom: e.MAIL_FROM,
+    integrations: Object.fromEntries(
+      INTEGRATION_NAMES.map((n) => [n, (e as Record<string, unknown>)[integrationEnvKey(n)] as IntegrationMode]),
+    ) as Record<IntegrationName, IntegrationMode>,
+    allowFakeIntegrations: e.ALLOW_FAKE_INTEGRATIONS ?? false,
     flags: {
       lpLiveDomains: list(e.LP_LIVE_DOMAINS),
       investeeLiveActions: list(e.INVESTEE_LIVE_ACTIONS),

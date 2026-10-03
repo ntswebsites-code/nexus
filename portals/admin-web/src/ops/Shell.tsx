@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 import { signOut, userInitials } from '@matanho/portal-kit/session';
 import { useSession } from './session';
 import { StepUpHost } from './StepUp';
+import { IntegrationsBanner } from './IntegrationsBanner';
 
 interface NavItem {
   href: string;
@@ -108,6 +109,7 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: '/ops/rbac', label: 'RBAC & Controls', perms: ['admin.rbac'] },
       { href: '/ops/settings', label: 'Settings', perms: ['admin.settings'] },
+      { href: '/ops/integrations', label: 'Integrations', perms: ['admin.settings'] },
       { href: '/ops/audit', label: 'Audit Trail', perms: ['audit.view'] },
       { href: '/ops/copilot', label: 'Investment Copilot', perms: ['dashboard.view'] },
     ],
@@ -172,7 +174,10 @@ export function OpsShell({ children }: { children: ReactNode }) {
             </button>
           </div>
         </header>
-        <main className="ops-content">{children}</main>
+        <main className="ops-content">
+          <IntegrationsBanner />
+          {children}
+        </main>
       </div>
       <StepUpHost />
     </>

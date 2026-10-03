@@ -1172,3 +1172,17 @@ Test: `npx tsx scripts/test-admin-core.ts` (engine rules, no database needed). T
 - No LLM; unrecognised questions get a help message. Copilot does not add values across currencies.
 - Retention, notification and most feature-flag settings are recorded but not yet read by other modules. No scheduled purge.
 - Custom permission codes cannot be created; role creation and staff invitation still use the direct `/admin` endpoints.
+
+## Integrations layer (WP-8): `/ops/integrations`
+
+Migration `20261027100000_integrations` (`integration_calls`, `integration_inbox`, `integration_state`). Code: `backend/api/src/integrations/` (registry in `core/`, one folder per adapter with `types.ts`, `fake.ts`, `live.ts`, `index.ts`), API `/api/v1/admin-core/integrations/*` (`modules/admin-core/integrations.routes.ts`, permission `admin.settings`), screen `/ops/integrations`, banner `ops/IntegrationsBanner.tsx`. Seed: `prisma/seed-integrations.ts` (state rows and one baseline call per adapter; called by `seed-demo.ts` and `seed-uat.ts`). Test: `npx tsx scripts/test-integrations.ts` (startup rules, live stubs, redaction and the deterministic fakes need no database; `E2E_CONFIRM=throwaway-db` adds persistence, failure simulation and upload scanning).
+
+- **Adapters (GAP-A01..A13)**: email, sms, screening, identity-verification, market-data, custodian-feed, bank-statement, payment, esign, av-scan, llm, sso, object-storage, regulator-filing, broker-routing. Flag `INTEGRATION_<NAME>=fake|live` (default fake). `live` needs its credentials (listed on the screen and in `deploy/.env.production.example`) or the API and worker refuse to start; in production `fake` is refused unless `ALLOW_FAKE_INTEGRATIONS=1` (email over SMTP, local encrypted file storage and the deterministic Copilot are exempt). Live classes are throwing stubs (`NotConfiguredError`, HTTP 503) except email, which is a real SMTP relay.
+- **Logging**: the registry wraps every adapter, so each operation writes a row to `integration_calls` (request hash, redacted request and result, status, duration, correlation id). Fakes keep simulated artefacts in `integration_inbox` (emails outside production, SMS codes, payment instructions, envelopes, receipts). Failure simulation (`PUT /:name/failure`, fake only) fails the next N calls or all until cleared.
+- **Rewired call sites** (same behaviour in fake mode): `lib/mailer.ts` (email), `lib/storage.ts` (object-storage plus an av-scan of every upload; EICAR is rejected 422), `modules/kyc/screening.ts` (screening logic moved into `integrations/screening/fake.ts`), `admin-core` Copilot route (llm), regulatory filing submit (regulator-filing receipt stored in the audit event), worker tick (fake payments settle).
+- **Simulated feeds**: `POST /market-data/sync` (alias `/simulate`) writes `VENDOR` prices and FX without overwriting existing ones, `POST /bank-statement/simulate` stages a cash statement import for a different person to commit, `POST /custodian-feed/simulate` records a Received day-end package.
+
+### Not done
+
+- Fake SSO has the dev identity-provider page and code exchange but no staff login flow consumes it yet. SMS, identity verification, e-sign, payment payouts and broker routing have adapters, fakes and test calls but no business module calls them yet (distribution payouts, term-sheet signing, order routing, OTP sign-in are the next wiring steps).
+- The three feed simulations need only `admin.settings` and an audit event (no step-up).

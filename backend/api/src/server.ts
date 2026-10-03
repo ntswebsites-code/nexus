@@ -1,6 +1,10 @@
 import { config } from './config';
 import { createApp } from './app';
 import { checkDatabase, prisma } from './lib/prisma';
+import { assertIntegrationsConfig } from './integrations';
+
+// Refuses to start on inconsistent INTEGRATION_<NAME> flags (live without credentials, fake in production).
+assertIntegrationsConfig();
 
 const app = createApp();
 
