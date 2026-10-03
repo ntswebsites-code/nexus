@@ -14,7 +14,10 @@ import type {
   InvesteeCompany,
   InvesteeConversation,
   InvesteeDashboard,
+  InvesteeLivePayload,
   InvesteeProfile,
+  InvesteeSettings,
+  KpiCentre,
   InvesteeRequisition,
   InvesteeTeamMember,
   InvesteeThread,
@@ -124,6 +127,26 @@ export type InvesteeActionKey = (typeof INVESTEE_ACTION_KEYS)[number];
 
 export const INVESTEE_API_PREFIX = '/api/v1/investee-portal';
 
+const COMPANY_KEY = 'matanho.investee.company';
+
+/** The workspace (company ref) the user picked in the company switcher; sent as `?company=` on every call (INO-006). */
+export function selectedCompany(): string | null {
+  try {
+    return window.sessionStorage.getItem(COMPANY_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setSelectedCompany(ref: string | null): void {
+  try {
+    if (ref) window.sessionStorage.setItem(COMPANY_KEY, ref);
+    else window.sessionStorage.removeItem(COMPANY_KEY);
+  } catch {
+    /* storage unavailable: the API falls back to the first workspace */
+  }
+}
+
 export function apiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100').replace(/\/+$/, '');
 }
@@ -143,10 +166,29 @@ export class InvesteeApiError extends Error {
     this.action = action;
   }
 
-  /** One line for toasts and error panels, e.g. "Not available yet (501 not_implemented)". */
+  /** First few field-level problems from the error envelope, e.g. "contactEmail: Invalid email". */
+  fieldProblems(): string[] {
+    const d = this.details;
+    const out: string[] = [];
+    if (Array.isArray(d)) {
+      for (const item of d) {
+        if (item && typeof item === 'object') {
+          const o = item as { path?: unknown; field?: unknown; message?: unknown };
+          const path = Array.isArray(o.path) ? o.path.join('.') : String(o.path ?? o.field ?? '');
+          if (typeof o.message === 'string') out.push(path ? `${path}: ${o.message}` : o.message);
+        }
+      }
+    } else if (d && typeof d === 'object') {
+      for (const [k, v] of Object.entries(d as Record<string, unknown>)) if (typeof v === 'string') out.push(`${k}: ${v}`);
+    }
+    return out.slice(0, 3);
+  }
+
+  /** One line for toasts and error panels. Names the offending fields; never shows the raw status/code pair. */
   describe(): string {
-    if (this.status === 0) return this.message;
-    return `${this.message} (${this.status} ${this.code})`;
+    const fields = this.fieldProblems();
+    const base = this.code === 'register_locked' ? 'The register already has transactions. Record a new transaction in Workspace tools > Cap table instead.' : this.message;
+    return fields.length && !fields.some((f) => base.includes(f)) ? `${base} - ${fields.join('; ')}` : base;
   }
 }
 
@@ -190,6 +232,28 @@ export async function confirmEnrolment(code: string): Promise<void> {
   } catch (e) {
     const err = e as { status?: number; code?: string; message?: string };
     throw new InvesteeApiError(err.status ?? 0, err.code ?? 'enrol_failed', err.message ?? 'That code could not be confirmed');
+  }
+}
+
+/** GET /api/v1/notifications: the signed-in user's own notifications (INO-027). */
+export async function loadNotifications(): Promise<NonNullable<InvesteeLivePayload['notifications']>> {
+  const res = await fetch(`${apiBaseUrl()}/api/v1/notifications?pageSize=20`, {
+    credentials: 'include',
+    headers: { Accept: 'application/json' },
+    cache: 'no-store',
+  });
+  if (!res.ok) throw await toError(res);
+  const body = (await res.json()) as { items?: NonNullable<InvesteeLivePayload['notifications']> };
+  return Array.isArray(body.items) ? body.items : [];
+}
+
+/** GET /api/v1/investee-portal/health: reachable and signed in. */
+export async function loadHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${apiBaseUrl()}${INVESTEE_API_PREFIX}/health`, { credentials: 'include', cache: 'no-store' });
+    return res.ok;
+  } catch {
+    return false;
   }
 }
 
@@ -264,7 +328,9 @@ export function createInvesteeApi(liveActions: readonly string[]) {
       if (opts.body !== undefined && !isForm) headers.set('Content-Type', 'application/json');
       if (idempotencyKey) headers.set('Idempotency-Key', idempotencyKey);
       try {
-        return await fetch(`${base}${path}`, {
+        const company = selectedCompany();
+        const url = company ? `${base}${path}${path.includes('?') ? '&' : '?'}company=${encodeURIComponent(company)}` : `${base}${path}`;
+        return await fetch(url, {
           method,
           headers,
           credentials: 'include',
@@ -363,6 +429,10 @@ export function createInvesteeApi(liveActions: readonly string[]) {
       call<{ id: string; email: string; status: string }>('team.invite', 'POST', '/team', { body }),
 
     getThreads: () => call<InvesteeConversation[]>('threads.list', 'GET', '/threads'),
+    getLetterhead: () => call<Letterhead>('settings.letterhead', 'GET', '/letterhead'),
+    getSettings: () => call<InvesteeSettings>('profile', 'GET', '/settings'),
+    getKpis: () => call<KpiCentre>('company', 'GET', '/kpis'),
+    getWorkspaceSignatures: async () => (await call<{ requests: NonNullable<InvesteeLivePayload['workspaceSignatures']> }>('workspace', 'GET', '/signature-requests')).requests,
     getTeam: () => call<InvesteeTeamMember[]>('team.list', 'GET', '/team'),
     getApplication: () => call<InvesteeApplication>('application', 'GET', '/application'),
     getRequests: () => call<{ requisitions: InvesteeRequisition[] }>('requests.list', 'GET', '/procurement'),

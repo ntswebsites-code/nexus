@@ -55,6 +55,8 @@ export interface KpiHistoryRow {
   label: string;
   status: string;
   values: Record<Col, number | null>;
+  /** Every numeric company KPI recorded for the period, keyed by KPI key (INO-009). */
+  metrics: Record<string, number>;
 }
 
 const r1 = (v: number) => Math.round(v * 10) / 10;
@@ -72,10 +74,13 @@ export async function kpiHistory(companyId: string): Promise<KpiHistoryRow[]> {
     const revenue = d.totalRevenue ?? null;
     const growth = revenue !== null && prev !== null && prev !== 0 ? r1(((revenue - prev) / Math.abs(prev)) * 100) : null;
     if (revenue !== null) prev = revenue;
+    const metrics: Record<string, number> = {};
+    for (const [k, v] of Object.entries(raw)) if (typeof v === 'number' && Number.isFinite(v)) metrics[k] = v;
     return {
       period: p.period,
       label: p.label,
       status: p.status,
+      metrics,
       values: { revenue, revenueGrowthPct: growth, grossProfit: d.grossProfit ?? null, grossMarginPct: d.grossMargin ?? null, netProfit: d.netProfit ?? null, netMarginPct: d.netMargin ?? null, cashFlowNet: d.cashFlowNet ?? null, runwayMonths: d.runwayMonths ?? null },
     };
   });
@@ -86,8 +91,17 @@ function csvCell(v: string) {
 }
 
 export async function kpiExport(companyId: string, format: 'csv' | 'xlsx') {
-  const rows = await kpiHistory(companyId);
-  const table: string[][] = [['period', 'status', ...COLUMNS], ...rows.map((r) => [r.period, r.status, ...COLUMNS.map((c) => (r.values[c] === null ? '' : String(r.values[c])))])];
+  const [rows, defs] = await Promise.all([kpiHistory(companyId), prisma.companyKpi.findMany({ where: { companyId }, orderBy: { sort: 'asc' } })]);
+  // Derived columns first, then one column per company KPI definition with its label and unit.
+  const table: string[][] = [
+    ['period', 'status', ...COLUMNS, ...defs.map((d) => (d.unit ? `${d.label} (${d.unit})` : d.label))],
+    ...rows.map((r) => [
+      r.period,
+      r.status,
+      ...COLUMNS.map((c) => (r.values[c] === null ? '' : String(r.values[c]))),
+      ...defs.map((d) => (r.metrics[d.key] === undefined ? '' : String(r.metrics[d.key]))),
+    ]),
+  ];
   if (format === 'xlsx') return { body: workbook('KPI history', table), type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', name: 'kpi-history.xlsx' };
   return { body: Buffer.from(table.map((r) => r.map(csvCell).join(',')).join('\r\n') + '\r\n', 'utf8'), type: 'text/csv; charset=utf-8', name: 'kpi-history.csv' };
 }

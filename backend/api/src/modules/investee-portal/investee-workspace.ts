@@ -1,3 +1,4 @@
+import { HttpError } from '../../lib/errors';
 import { prisma } from '../../lib/prisma';
 import { writeAudit, type AuditContext } from '../../lib/audit';
 import { nextRef } from '../../lib/refs';
@@ -51,12 +52,31 @@ export async function vaultDocuments(companyId: string) {
   }));
 }
 
+/** INO-021: the bytes must match the declared type; executables are refused whatever they are called. */
+export function assertFileContentMatches(file: { originalname: string; mimetype: string; buffer: Buffer }) {
+  const b = file.buffer;
+  const starts = (sig: number[]) => b.length >= sig.length && sig.every((v, i) => b[i] === v);
+  const ext = (file.originalname.split('.').pop() ?? '').toLowerCase();
+  const mime = file.mimetype.toLowerCase();
+  if (starts([0x4d, 0x5a]) || starts([0x7f, 0x45, 0x4c, 0x46]) || starts([0x23, 0x21]) || starts([0xca, 0xfe, 0xba, 0xbe])) {
+    throw HttpError.badRequest('This file looks like a program, not a document, and was not stored', [{ path: 'file', message: 'Executable content is not accepted' }]);
+  }
+  const bad = (what: string) =>
+    HttpError.badRequest(`The file content is not a valid ${what}; it does not match its name or type`, [{ path: 'file', message: `Not a valid ${what}` }]);
+  if ((ext === 'pdf' || mime === 'application/pdf') && !b.subarray(0, 1024).includes('%PDF-')) throw bad('PDF');
+  if ((ext === 'png' || mime === 'image/png') && !starts([0x89, 0x50, 0x4e, 0x47])) throw bad('PNG image');
+  if ((ext === 'jpg' || ext === 'jpeg' || mime === 'image/jpeg') && !starts([0xff, 0xd8, 0xff])) throw bad('JPEG image');
+  if (['docx', 'xlsx', 'pptx', 'zip'].includes(ext) && !starts([0x50, 0x4b])) throw bad('Office document');
+  if (['csv', 'txt'].includes(ext) && b.subarray(0, 4096).includes(0)) throw bad('text file');
+}
+
 export async function uploadVaultFile(
   c: InvesteeContext,
   file: { originalname: string; mimetype: string; buffer: Buffer },
   meta: { name?: string; type?: string },
   audit: AuditContext,
 ) {
+  assertFileContentMatches(file);
   const id = await prisma.$transaction(async (tx) => {
     const stored = await storeFile({ name: file.originalname, mime: file.mimetype, data: file.buffer, uploadedById: c.userId }, tx);
     const ref = await nextRef(tx, 'document');

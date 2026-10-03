@@ -38,6 +38,8 @@ export const publicSignSchema = z.object({
   reason: z.string().trim().max(300).optional(),
 });
 
+// INO-014: recipients land on a portal page (document, recipient, expiry, watermark notice) instead of a raw API download.
+const shareLandingUrl = (token: string) => `${config.portalUrls.company}/sign/share/${encodeURIComponent(token)}`;
 const signLink = (token: string) => `${config.portalUrls.company}/sign/${encodeURIComponent(token)}`;
 
 async function queueSignerMail(tx: Tx, a: { companyId: string; requestId: string; signerId: string; to: string; name: string; company: string; title: string; token: string; expiresAt: Date; message?: string | null; reminder?: number }) {
@@ -216,7 +218,12 @@ export async function publicSign(token: string, body: z.infer<typeof publicSignS
   const audit: AuditContext = { actorId: null, actorRole: `signer:${signer.email}`, portal: 'company', ip, requestId: null };
   if (body.action === 'SIGN') {
     if (!body.consent) throw HttpError.badRequest('Confirm that you agree to sign electronically');
-    if (!body.name) throw HttpError.badRequest('Type your full name to sign');
+    if (!body.name) throw HttpError.badRequest('Type your full name to sign', [{ path: 'name', message: 'Type your full name' }]);
+    // INO-012: the typed name is the signature, so it must be the person the request was sent to.
+    const norm = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
+    if (norm(body.name) !== norm(signer.name)) {
+      throw HttpError.badRequest(`The name must match the person this request was sent to (${signer.name})`, [{ path: 'name', message: `Type your name exactly as invited: ${signer.name}` }]);
+    }
     const when = new Date();
     const evidence = sha256([req.docSha256, signer.email, body.name, when.toISOString()].join('|'));
     await prisma.$transaction(async (tx) => {
@@ -295,7 +302,7 @@ export async function createShareLink(c: InvesteeContext, body: z.infer<typeof s
 ${c.company.name} has shared "${doc.name}" with you. The copy you download is watermarked with your name and the link expires on ${isoDay(l.expiresAt)}.
 
 Download it here:
-${config.publicApiUrl}/api/v1/investee-public/share/${encodeURIComponent(token)}/file
+${shareLandingUrl(token)}
 
 If you were not expecting this, you can ignore this email.`,
       });
@@ -303,7 +310,7 @@ If you were not expecting this, you can ignore this email.`,
     await writeAudit(tx, audit, { action: 'company.share_link.created', objectType: 'investee_share_link', objectId: l.id, after: { documentId: doc.id, recipient: body.recipient, emailed: !!body.recipientEmail, expiresAt: l.expiresAt.toISOString() } });
     return l;
   });
-  return { emailed: !!body.recipientEmail, ...linkView(row, doc.name), url: `${config.publicApiUrl}/api/v1/investee-public/share/${encodeURIComponent(token)}/file`, previewUrl: `${config.publicApiUrl}/api/v1/investee-public/share/${encodeURIComponent(token)}` };
+  return { emailed: !!body.recipientEmail, ...linkView(row, doc.name), url: shareLandingUrl(token), fileUrl: `${config.publicApiUrl}/api/v1/investee-public/share/${encodeURIComponent(token)}/file`, previewUrl: `${config.publicApiUrl}/api/v1/investee-public/share/${encodeURIComponent(token)}` };
 }
 
 export async function revokeShareLink(c: InvesteeContext, id: string, audit: AuditContext) {

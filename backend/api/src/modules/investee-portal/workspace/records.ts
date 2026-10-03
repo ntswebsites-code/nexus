@@ -15,7 +15,7 @@ const monthStr = z.string().regex(/^\d{4}-\d{2}$/);
 
 export const forecastSchema = z.object({
   scenario: z.enum(['Base case', 'Upside', 'Downside']).optional(),
-  revenue: z.record(monthStr, z.number().finite()).optional(),
+  revenue: z.record(monthStr, z.number().finite().min(0, 'Forecast revenue cannot be negative')).optional(),
 });
 export const forecastLockSchema = z.object({ periods: z.array(monthStr).min(1).max(24) });
 
@@ -119,7 +119,7 @@ export async function lockForecast(c: InvesteeContext, body: z.infer<typeof fore
 export const consentSchema = z.object({
   title: z.string().trim().min(3).max(200),
   basis: z.string().trim().min(3).max(160),
-  due: dayStr.optional(),
+  due: dayStr.refine((v) => v >= new Date().toISOString().slice(0, 10), { message: 'The decision date cannot be in the past' }).optional(),
   note: z.string().trim().max(2000).optional(),
 });
 export const consentDecisionSchema = z.object({ status: z.enum(['Approved', 'Declined']), note: z.string().trim().max(2000).optional() });
@@ -205,7 +205,7 @@ export async function governanceView(c: InvesteeContext) {
   const consentRows = consents.map(consentView);
   const actionRows = actions.map(actionView);
   const calendar = [
-    ...periods.map((p) => ({ title: p.label, due: isoDay(p.dueDate)!, status: p.status, kind: 'reporting' })),
+    ...periods.map((p) => ({ title: p.label, due: isoDay(p.dueDate)!, status: isoDay(p.dueDate)! < day() ? `${p.status} - overdue` : p.status, kind: 'reporting' })),
     ...meetings.filter((m) => m.status === 'SCHEDULED').map((m) => ({ title: m.title, due: m.meetingAt.slice(0, 10), status: m.status.toLowerCase(), kind: 'board' })),
   ].sort((a, b) => a.due.localeCompare(b.due));
   return {

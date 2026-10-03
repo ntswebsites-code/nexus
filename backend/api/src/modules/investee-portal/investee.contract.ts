@@ -141,7 +141,7 @@ export const updateCompanySchema = z
     name: optionalText(200),
     registrationNumber: optionalText(80),
     industry: optionalText(120),
-    website: optionalText(255),
+    website: optionalText(255).refine((v) => !v || /^https?:\/\/[^\s]+$/i.test(v), { message: 'Website must start with http:// or https://' }),
     address: optionalText(255),
     description: optionalText(2000),
     employeeCount: z.number().int().min(0).max(10_000_000).optional(),

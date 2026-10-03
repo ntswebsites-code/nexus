@@ -213,7 +213,21 @@ investeePortalRoutes.get('/live', async (req, res) => {
 investeePortalRoutes.get('/profile', async (req, res) => {
   const c = inv(req);
   const user = await prisma.user.findUniqueOrThrow({ where: { id: c.userId } });
-  ok(res, profileView(user, c, await mfaEnabled(c.userId)));
+  // INO-006: every active workspace the caller belongs to, so the portal can offer a company switcher.
+  const [links, fund] = await Promise.all([
+    prisma.companyUser.findMany({
+      where: { userId: c.userId, status: 'active' },
+      include: { company: { select: { ref: true, name: true, fundId: true } } },
+      orderBy: { createdAt: 'asc' },
+    }),
+    c.company.fundId ? prisma.fund.findUnique({ where: { id: c.company.fundId }, select: { name: true } }) : Promise.resolve(null),
+  ]);
+  const base = profileView(user, c, await mfaEnabled(c.userId));
+  ok(res, {
+    ...base,
+    company: { ...base.company, fundName: fund?.name ?? null },
+    companies: links.map((l) => ({ id: l.company.ref, name: l.company.name, accessProfile: asProfile(l.profile), current: l.company.ref === c.company.ref })),
+  });
 });
 
 investeePortalRoutes.put('/profile', validateBody(updateProfileSchema), async (req, res) => {
@@ -679,23 +693,45 @@ investeePortalRoutes.get('/team', async (req, res) => {
   const c = inv(req);
   const links = await prisma.companyUser.findMany({
     where: { companyId: c.company.id },
-    include: { user: { select: { id: true, name: true, email: true, mfaFactors: { where: { verifiedAt: { not: null } }, select: { id: true } } } } },
+    include: { user: { select: { id: true, name: true, email: true, lastLoginAt: true, mfaFactors: { where: { verifiedAt: { not: null } }, select: { id: true } } } } },
     orderBy: { createdAt: 'asc' },
   });
+  const pending = await prisma.invitation.findMany({
+    where: { companyId: c.company.id, portal: 'company', acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+    orderBy: { createdAt: 'desc' },
+  });
+  const activeEmails = new Set(links.map((l) => l.user.email.toLowerCase()));
   ok(
     res,
-    links.map((l) => ({
+    [
+    ...links.map((l) => ({
       id: l.userId,
       name: l.user.name ?? l.user.email,
       email: l.user.email,
       title: l.title,
       accessProfile: asProfile(l.profile),
       status: l.status,
-      lastActiveAt: l.lastActiveAt ? l.lastActiveAt.toISOString() : null,
+      lastActiveAt: (l.lastActiveAt ?? l.user.lastLoginAt)?.toISOString() ?? null,
       mfaEnabled: l.user.mfaFactors.length > 0,
       signingAuthority: authorityText(l.signingAuthority, l.title) !== null,
       isYou: l.userId === c.userId,
     })),
+    // INO-020: pending invitations are visible to the team.
+    ...pending
+      .filter((p) => !activeEmails.has(p.email.toLowerCase()))
+      .map((p) => ({
+        id: p.id,
+        name: p.name ?? p.email,
+        email: p.email,
+        title: null,
+        accessProfile: 'read_only' as const,
+        status: 'invited',
+        lastActiveAt: null,
+        mfaEnabled: false,
+        signingAuthority: false,
+        isYou: false,
+      })),
+    ],
   );
 });
 const PROFILE_LABELS: Record<string, (typeof COMPANY_PROFILES)[number]> = {

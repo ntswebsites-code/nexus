@@ -1,4 +1,5 @@
-import { InvesteeApiError, type InvesteeActionKey, type InvesteeApi } from './api';
+import { InvesteeApiError, loadNotifications, setSelectedCompany, type InvesteeActionKey, type InvesteeApi } from './api';
+import { pathToIp8Page } from '../nav';
 import type {
   FinancialReportDraftRequest,
   FinancialStatementKind,
@@ -18,6 +19,18 @@ export interface InvesteeRuntimeUI {
   showReportDetail?: (report: unknown) => void;
   notify?: (title: string, message?: string, type?: 'success' | 'error' | 'danger' | 'info') => void;
   closeOverlays?: () => void;
+  openDrawer?: (title: string, sub: string, bodyHtml: string, footHtml?: string) => void;
+  openModal?: (title: string, sub: string, bodyHtml: string, footHtml?: string) => void;
+  /** Shows a validation message at the top of the open modal or drawer. */
+  inlineError?: (message: string) => boolean;
+}
+
+/** Things the host needs from the React shell. */
+export interface InvesteeHostHooks {
+  /** Opens the in-portal two-factor enrolment dialog; resolves true when a code was confirmed. */
+  enrolMfa?: () => Promise<boolean>;
+  /** Called after every load so the shell chrome (company card, role, footer) can follow the live records. */
+  onLoaded?: (payload: InvesteeLivePayload) => void;
 }
 
 declare global {
@@ -58,6 +71,8 @@ export interface ActionDetail {
   report?: {
     type?: string;
     period?: number;
+    /** YYYY-MM of the live reporting request (preferred over the rolling index). */
+    periodKey?: string;
     owner?: string;
     values?: Record<string, unknown>;
     notes?: Record<string, unknown>;
@@ -143,6 +158,8 @@ function normalizeCompany(co: InvesteeCompany): InvesteeCompany {
   return { ...co, financialKpis: { ...co.financialKpis, kpiValues: cleaned } };
 }
 
+const esc = (v: unknown) =>
+  String(v ?? '').replace(/[&<>'"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' })[c] as string);
 const el = <T extends HTMLElement = HTMLInputElement>(id: string) => document.getElementById(id) as T | null;
 const val = (id: string) => el<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>(id)?.value?.trim() ?? '';
 const num = (v: unknown) => {
@@ -216,7 +233,7 @@ function saveBlob(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI | undefined) {
+export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI | undefined, hooks: InvesteeHostHooks = {}) {
   const livePages = livePagesFor(api);
   let payload: InvesteeLivePayload | null = null;
 
@@ -225,18 +242,20 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
   async function load(): Promise<InvesteeLivePayload> {
     const errors: string[] = [];
     const failed = new Map<InvesteeActionKey, string>();
+    let noCompany = false;
     const run = async <T>(key: InvesteeActionKey, fn: () => Promise<T>): Promise<T | null> => {
       if (!api.isLive(key)) return null;
       try {
         return await fn();
       } catch (e) {
+        if (e instanceof InvesteeApiError && e.code === 'no_company_access') noCompany = true;
         const msg = errorText(e);
         failed.set(key, msg);
         errors.push(`${key}: ${msg}`);
         return null;
       }
     };
-    const [dashboard, profile, company, reportingRequests, financialReports, termSheets, application, requests, capTable, governance, forecast, vault, threads, team] =
+    const [dashboard, profile, company, reportingRequests, financialReports, termSheets, application, requests, capTable, governance, forecast, vault, threads, team, kpis, letterhead, settings, workspaceSignatures] =
       await Promise.all([
         run('dashboard', api.getDashboard),
         run('profile', api.getProfile),
@@ -252,7 +271,13 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         run('vault', api.getVault),
         run('threads.list', api.getThreads),
         run('team.list', api.getTeam),
+        run('company', api.getKpis),
+        run('settings.letterhead', api.getLetterhead),
+        run('profile', api.getSettings),
+        run('workspace', api.getWorkspaceSignatures),
       ]);
+    // The bell reads the caller's own notifications; a failure just leaves it empty.
+    const notifications = noCompany ? null : await loadNotifications().catch(() => null);
     const pageErrors: Record<string, string> = {};
     for (const page of livePages) {
       const msgs = LIVE_PAGE_LOADERS[page].filter((k) => failed.has(k)).map((k) => `${k}: ${failed.get(k)}`);
@@ -272,6 +297,12 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
       forecast,
       threads,
       team,
+      kpis,
+      letterhead,
+      settings,
+      workspaceSignatures,
+      notifications,
+      noCompany,
       errors,
       pageErrors,
     };
@@ -282,6 +313,7 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     if (!LOADERS.some((k) => api.isLive(k))) return null;
     const p = await load();
     ui()?.hydrate?.(p);
+    hooks.onLoaded?.(p);
     return p;
   }
 
@@ -333,6 +365,17 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         return pageLive('cap-table') && api.isLive('capTable');
       case 'complete-upload':
         return api.isLive('vault.upload');
+      case 'notifications':
+        return payload !== null;
+      case 'company-menu':
+      case 'switch-company':
+        return payload?.profile != null;
+      case 'profile':
+        return payload?.profile != null;
+      case 'setup-mfa':
+        return true;
+      case 'export-kpi-history':
+        return api.isLive('workspace');
       default:
         return false;
     }
@@ -343,8 +386,79 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     const ds = detail.dataset ?? {};
     try {
       switch (a) {
+        case 'notifications': {
+          const items = payload?.notifications ?? [];
+          const rows = items.length
+            ? items
+                .map((n) => {
+                  const page = n.link ? pathToIp8Page(n.link) : '';
+                  const nav = page && page !== 'dashboard' ? ` data-action="navigate" data-page="${esc(page)}"` : '';
+                  return `<div class="action-row"${nav}><span class="action-copy"><strong>${esc(n.title)}</strong><span>${esc(n.body ?? '')} ${esc(String(n.createdAt).slice(0, 10))}</span></span>${n.readAt ? '' : '<span class="status danger">New</span>'}</div>`;
+                })
+                .join('')
+            : '<div class="empty"><strong>No notifications</strong><span>Alerts and reminders for you will appear here.</span></div>';
+          ui()?.openDrawer?.('Notifications', 'Your alerts and reminders', `<div class="action-list">${rows}</div>`);
+          return {};
+        }
+
+        case 'company-menu': {
+          const list = payload?.profile?.companies ?? [];
+          const fund = payload?.company?.fund?.name ?? payload?.profile?.company?.fundName ?? '';
+          const rows = list
+            .map(
+              (c) =>
+                `<div class="action-row" ${c.current ? '' : `data-action="switch-company" data-ref="${esc(c.id)}"`}><span class="action-copy"><strong>${esc(c.name)}</strong><span>${esc(c.id)} · ${esc(c.accessProfile.replace(/_/g, ' '))}${c.current && fund ? ` · ${esc(fund)}` : ''}</span></span>${c.current ? '<span class="status success">Current</span>' : '<span class="status neutral">Switch</span>'}</div>`,
+            )
+            .join('');
+          ui()?.openDrawer?.(
+            'Company workspace',
+            list.length > 1 ? 'Choose the company you are working in' : 'The company you are signed in to',
+            `<div class="action-list">${rows || '<div class="empty"><strong>No workspace</strong></div>'}</div>`,
+          );
+          return {};
+        }
+
+        case 'switch-company': {
+          if (!ds.ref) return {};
+          setSelectedCompany(ds.ref);
+          ui()?.closeOverlays?.();
+          await reload();
+          return { message: 'Workspace switched', detail: payload?.profile?.company?.name ?? ds.ref };
+        }
+
+        case 'profile': {
+          const p = payload?.profile;
+          if (!p) return {};
+          const name = p.name ?? `${p.firstName} ${p.lastName}`.trim();
+          const role = (p.title || (p.accessProfile ?? p.roleCode ?? '').replace(/_/g, ' ') || 'Company user') as string;
+          ui()?.openDrawer?.(
+            'Your profile',
+            `${name} · ${role}`,
+            `<dl class="detail-list"><div class="detail-row"><dt>Email</dt><dd>${esc(p.email)}</dd></div><div class="detail-row"><dt>Company</dt><dd>${esc(p.company?.name ?? '')}</dd></div><div class="detail-row"><dt>Access profile</dt><dd>${esc((p.accessProfile ?? '').replace(/_/g, ' '))}</dd></div><div class="detail-row"><dt>Two-factor sign-in</dt><dd>${p.mfaEnabled ? 'On' : 'Not set up'}</dd></div></dl>`,
+            `<button class="btn" data-action="sign-out">Sign out</button>${p.mfaEnabled ? '' : '<button class="btn" data-action="setup-mfa">Set up two-factor</button>'}<button class="btn primary" data-action="navigate" data-page="settings">Edit profile</button>`,
+          );
+          return {};
+        }
+
+        case 'setup-mfa': {
+          if (!hooks.enrolMfa) return { error: 'Two-factor setup is not available here.' };
+          const ok = await hooks.enrolMfa();
+          if (!ok) return {};
+          await reload();
+          return { message: 'Two-factor sign-in is on', detail: 'You can now sign term sheets and approve transactions.' };
+        }
+
+        case 'export-kpi-history': {
+          const blob = await api.workspaceFile('/kpis/export?format=csv');
+          saveBlob(blob, 'kpi-history.csv');
+          return { message: 'KPI history exported', detail: 'kpi-history.csv' };
+        }
+
         case 'sign-document': {
           const tsId = ds.termSheetId || ds.id;
+          if (tsId && payload?.termSheets && !payload.termSheets.some((t) => String(t.id) === tsId)) {
+            return { error: 'Workspace signature requests are signed by each signer through the link e-mailed to them. Only term sheets are signed here.' };
+          }
           const fresh = normalizeTermSheet(await api.getTermSheet(tsId));
           if (payload?.termSheets) {
             payload = { ...payload, termSheets: payload.termSheets.map((t) => (String(t.id) === tsId ? { ...t, ...fresh } : t)) };
@@ -359,7 +473,8 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           if (!tsId) return { error: 'This signature request has no term sheet id.' };
           const name = val('signatureName');
           const consent = el('signatureConsent')?.checked;
-          if (!name || !consent) return { error: 'Enter your name, draw your signature and confirm consent before signing.' };
+          if (!name) return { error: 'Type your full name to sign.' };
+          if (!consent) return { error: 'Tick the box to confirm you consent to sign electronically.' };
           const signature = await canvasBlob();
           const ts = termSheetById(tsId);
           const consentTextVersion = ts?.consent?.version;
@@ -436,10 +551,11 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           const profile = fields[2]?.value.trim();
           const title = fields[3]?.value.trim();
           if (!email) return { error: 'A work email is required.' };
+          if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return { error: 'Enter a valid work e-mail address.' };
           await api.inviteTeamMember({ name, email, profile: profile || 'Report contributor', title });
           ui()?.closeOverlays?.();
           await reload();
-          return { message: 'Invitation sent', detail: 'They will set a password from the invitation email.' };
+          return { message: 'Invitation sent', detail: `${email} is listed under Team & Access as an invitation pending acceptance.` };
         }
 
         case 'create-request':
@@ -447,6 +563,7 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
           const req = detail.request;
           const title = req?.title || val('newRequestTitle');
           if (!title) return { error: 'Enter a request title.' };
+          if (req?.amount !== undefined && req.amount < 0) return { error: 'The amount cannot be negative.' };
           await api.createRequest({
             title,
             description: req?.description || val('newRequestDescription'),
@@ -466,7 +583,11 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
         case 'send-approval': {
           const title = val('approvalTitle');
           const basis = val('approvalBasis');
-          if (!title || !basis) return { error: 'Enter the matter and the approval category.' };
+          if (!title) return { error: 'Enter the matter requiring approval.' };
+          if (!basis) return { error: 'Choose an approval category.' };
+          const dueBy = val('approvalDue');
+          if (dueBy && dueBy < iso(new Date())) return { error: 'The decision date cannot be in the past.' };
+          if (title.length < 3) return { error: 'The matter needs at least 3 characters.' };
           await api.requestConsent({ title, basis, due: val('approvalDue') || undefined, note: val('approvalNote') || undefined });
           ui()?.closeOverlays?.();
           await reload();
@@ -487,6 +608,8 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
             const month = input.dataset.month;
             if (month) revenue[month] = num(input.value);
           });
+          const negative = Object.entries(revenue).filter(([, v]) => v < 0).map(([m]) => m);
+          if (negative.length) return { error: `Forecast revenue cannot be negative (${negative.join(', ')}).` };
           await api.saveForecast({ revenue });
           await reload();
           return { message: 'Forecast saved', detail: 'Forecast revenue was stored for the open months.' };
@@ -563,9 +686,44 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     const type = String(report.type || 'management');
     const statements = STATEMENTS_BY_REPORT_TYPE[type];
     if (!statements) return { error: `${type} reports cannot be submitted to the live API yet.` };
-    const period = periodFromIndex(Number(report.period));
-    if (!period) return { error: 'Choose a monthly reporting period (the rolling 12-month view cannot be submitted).' };
+    const keyIn = String(report.periodKey ?? '');
+    let period: { periodStart: string; periodEnd: string; label: string } | null;
+    if (keyIn) {
+      const row = payload?.reportingRequests?.find((r) => r.reportingPeriod === keyIn);
+      if (!row) return { error: 'There is no open reporting request for the selected period.' };
+      const [y, m] = keyIn.split('-').map(Number);
+      const monthEnd = iso(new Date(y, m, 0));
+      period = {
+        periodStart: (row.periodStart ?? `${keyIn}-01`).slice(0, 10),
+        periodEnd: (row.periodEnd ?? monthEnd).slice(0, 10),
+        label: row.label ?? new Date(y, m - 1, 1).toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
+      };
+    } else {
+      period = periodFromIndex(Number(report.period));
+    }
+    if (!period) return { error: 'Choose a reporting period that has an open request.' };
     const values = report.values ?? {};
+    // INO-003: check the balance sheet before anything is saved so the form stays open with a clear message.
+    let balanceNote = '';
+    if (statements.includes('balance-sheet')) {
+      const sum = (keys: string[]) => keys.reduce((t, k) => t + num(values[k]), 0);
+      const assets = sum(['cashAndEquivalents', 'tradeReceivables', 'otherCurrentAssets', 'fixedAssets', 'otherAssets']);
+      const rhs = sum(['tradePayables', 'accruedExpenses', 'debt', 'otherLiabilities', 'shareCapital', 'retainedEarnings']);
+      const diff = Math.round((assets - rhs) * 100) / 100;
+      if (Math.abs(diff) > 0.5) {
+        const text = `Balance sheet does not balance: total assets ${assets} and liabilities plus equity ${rhs} differ by ${diff} (USD 000).`;
+        if (submit) {
+          const box = el('reportValidation');
+          const msg = el('reportValidationText');
+          if (box && msg) {
+            msg.textContent = text;
+            box.classList.add('show');
+          }
+          return { error: text };
+        }
+        balanceNote = ` Note: ${text}`;
+      }
+    }
     if (submit) {
       const required = statements.flatMap((s) => (s === 'balance-sheet' ? [] : STATEMENT_FIELDS[s]));
       const missing = required.filter((k) => !Number.isFinite(Number(values[k])));
@@ -621,7 +779,7 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     if (!submit) {
       ui()?.closeOverlays?.();
       await reload();
-      return { message: 'Report draft saved', detail: `${label} for ${period.label} is saved as a draft.` };
+      return { message: 'Report draft saved', detail: `${label} for ${period.label} is saved as a draft.${balanceNote}` };
     }
 
     if (api.isLive('kpis.submit')) {
@@ -648,58 +806,85 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     return { message: 'Investor report submitted', detail: `${label} for ${period.label} was sent for review.` };
   }
 
+  /** INO-019: validate every part first, then write only the parts that changed. */
   async function saveSettings(): Promise<ActionResult> {
-    const saved: string[] = [];
-    if (api.isLive('settings.profile')) {
-      const body: UpdateProfileRequest = { firstName: val('settingsFirstName') || undefined, lastName: val('settingsLastName') || undefined };
-      if (body.firstName || body.lastName) {
-        await api.updateProfile(body);
-        saved.push('profile');
-      }
+    const problems: string[] = [];
+    const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
+    const urlOk = (v: string) => /^https?:\/\/[^\s]+$/i.test(v);
+    const profileBody: UpdateProfileRequest = { firstName: val('settingsFirstName') || undefined, lastName: val('settingsLastName') || undefined };
+    const companyBody: UpdateCompanyRequest = Object.fromEntries(
+      Object.entries({
+        industry: val('settingsIndustry'),
+        website: val('settingsWebsite'),
+        description: val('settingsDescription'),
+        contactEmail: val('settingsContactEmail'),
+        contactPhone: val('settingsContactPhone'),
+      }).filter(([, v]) => v !== ''),
+    );
+    if (companyBody.contactEmail && !emailOk(companyBody.contactEmail)) problems.push('Contact email is not a valid e-mail address.');
+    if (companyBody.website && !urlOk(companyBody.website)) problems.push('Website must start with http:// or https://.');
+
+    const loaded = payload?.letterhead ?? null;
+    const lh = {
+      legalName: val('settingsLetterheadLegalName'),
+      registrationNumber: val('settingsLetterheadReg'),
+      email: val('settingsLetterheadEmail'),
+      phone: val('settingsLetterheadPhone'),
+      website: val('settingsLetterheadWebsite'),
+      line1: val('settingsLetterheadLine1'),
+      city: val('settingsLetterheadCity'),
+      country: val('settingsLetterheadCountry'),
+    };
+    const before = {
+      legalName: loaded?.legalName ?? '',
+      registrationNumber: loaded?.registrationNumber ?? '',
+      email: loaded?.email ?? '',
+      phone: loaded?.phone ?? '',
+      website: loaded?.website ?? '',
+      line1: loaded?.line1 ?? '',
+      city: loaded?.city ?? '',
+      country: loaded?.country ?? '',
+    };
+    const lhChanged = (Object.keys(lh) as (keyof typeof lh)[]).some((k) => lh[k] !== before[k]);
+    const logo = el('settingsLetterheadLogo')?.files?.[0];
+    if (api.isLive('settings.letterhead') && lhChanged && lh.legalName) {
+      if (!lh.line1 || !lh.city || !lh.country) problems.push('Letterhead needs a street, city and country.');
+      if (lh.email && !emailOk(lh.email)) problems.push('Letterhead email is not a valid e-mail address.');
+      if (lh.website && !urlOk(lh.website)) problems.push('Letterhead website must start with http:// or https://.');
     }
-    if (api.isLive('settings.company')) {
-      const body: UpdateCompanyRequest = Object.fromEntries(
-        Object.entries({
-          industry: val('settingsIndustry'),
-          website: val('settingsWebsite'),
-          description: val('settingsDescription'),
-          contactEmail: val('settingsContactEmail'),
-          contactPhone: val('settingsContactPhone'),
-        }).filter(([, v]) => v !== ''),
-      );
-      if (Object.keys(body).length) {
-        await api.updateCompany(body);
-        saved.push('company profile');
-      }
+    if (problems.length) return { error: problems.join(' ') };
+
+    const saved: string[] = [];
+    if (api.isLive('settings.profile') && (profileBody.firstName || profileBody.lastName)) {
+      await api.updateProfile(profileBody);
+      saved.push('profile');
+    }
+    if (api.isLive('settings.company') && Object.keys(companyBody).length) {
+      await api.updateCompany(companyBody);
+      saved.push('company profile');
     }
     if (api.isLive('settings.letterhead')) {
-      const legalName = val('settingsLetterheadLegalName');
-      if (legalName) {
-        const line1 = val('settingsLetterheadLine1');
-        const city = val('settingsLetterheadCity');
-        const country = val('settingsLetterheadCountry');
-        if (!line1 || !city || !country) return { error: 'Letterhead needs a street, city and country.' };
+      if (lhChanged && lh.legalName) {
         const body: UpdateLetterheadRequest = {
-          legalName,
-          registrationNumber: val('settingsLetterheadReg') || null,
-          email: val('settingsLetterheadEmail') || null,
-          phone: val('settingsLetterheadPhone') || null,
-          website: val('settingsLetterheadWebsite') || null,
-          line1,
-          city,
-          country,
+          legalName: lh.legalName,
+          registrationNumber: lh.registrationNumber || null,
+          email: lh.email || null,
+          phone: lh.phone || null,
+          website: lh.website || null,
+          line1: lh.line1,
+          city: lh.city,
+          country: lh.country,
         };
         await api.updateLetterhead(body);
         saved.push('letterhead');
       }
-      const logo = el('settingsLetterheadLogo')?.files?.[0];
       if (logo) {
         await api.uploadLetterheadLogo(logo);
         saved.push('logo');
       }
     }
     await reload();
-    if (!saved.length) return { error: 'Nothing to save: fill in at least one field.' };
+    if (!saved.length) return { error: 'Nothing to save: change at least one field.' };
     return { message: 'Settings saved', detail: `Updated: ${saved.join(', ')}.` };
   }
 

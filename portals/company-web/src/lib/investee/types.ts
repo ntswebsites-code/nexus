@@ -17,6 +17,13 @@ export interface InvesteeProfile {
   roleCode: string | null;
   createdAt: string;
   updatedAt: string;
+  name?: string;
+  accessProfile?: string;
+  title?: string | null;
+  mfaEnabled?: boolean;
+  company?: { id: string; name: string; fundName?: string | null };
+  /** Every workspace this account belongs to (INO-006). */
+  companies?: Array<{ id: string; name: string; accessProfile: string; current: boolean }>;
 }
 
 /** PUT /profile. Email is not editable from the portal (it is the sign-in identifier). */
@@ -285,6 +292,11 @@ export interface ReportingRequest {
   status?: 'OPEN' | 'SUBMITTED' | string;
   portalStatus?: 'REPORTING_OPEN' | 'SUBMITTED' | string;
   lastRequestedAt?: string;
+  periodStart?: string;
+  periodEnd?: string;
+  label?: string;
+  canEdit?: boolean;
+  canSubmit?: boolean;
   mandatoryAttachments?: Array<{ name: string; formats: string[] }>;
 }
 
@@ -411,6 +423,8 @@ export interface InvesteeTeamMember {
   status: string;
   lastActiveAt: string | null;
   mfaEnabled: boolean;
+  signingAuthority?: boolean;
+  isYou?: boolean;
 }
 
 export interface InvesteeMessage {
@@ -431,6 +445,16 @@ export interface InvesteeConversation {
 }
 
 /** The object handed to the runtime's `hydrate()`. Keys mirror the NVCCZ host loader. */
+export interface InvesteeSettings {
+  security: { mfaEnabled: boolean; mfaRequired: boolean; sessionTimeoutMinutes: number };
+  accessProfile: string;
+}
+
+export interface KpiCentre {
+  definitions: Array<{ id: string; label: string; unit: string; prev: number; budget: number; invert: boolean; series: number[]; latest: number | null }>;
+  periods: Array<{ reportingPeriod: string; label: string; status: string; values: Record<string, number | ''> }>;
+}
+
 export interface InvesteeLivePayload {
   profile: InvesteeProfile | null;
   company: InvesteeCompany | null;
@@ -445,6 +469,16 @@ export interface InvesteeLivePayload {
   forecast: ForecastView | null;
   threads: InvesteeConversation[] | null;
   team: InvesteeTeamMember[] | null;
+  letterhead: Letterhead | null;
+  settings: InvesteeSettings | null;
+  /** GET /kpis: company KPI definitions with labels, units and the latest value. */
+  kpis: KpiCentre | null;
+  /** Workspace e-signature requests (SIG-xxxx). */
+  workspaceSignatures: Array<{ ref: string; title: string; status: string; createdBy: string; expiresAt: string; completedAt: string | null; signers: Array<{ name: string; status: string }> }> | null;
+  /** Unread/recent notifications for the bell. */
+  notifications: Array<{ id: string; title: string; body?: string | null; link?: string | null; createdAt: string; readAt: string | null }> | null;
+  /** True when the account is not linked to any portfolio company. */
+  noCompany: boolean;
   errors: string[];
   /** runtime page id -> error message shown instead of the page */
   pageErrors: Record<string, string>;
