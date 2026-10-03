@@ -17,6 +17,7 @@ import {
   classTermsSchema,
   createCapTransaction,
   decideCapTransaction,
+  withdrawCapTransaction,
   updateClassTerms,
   waterfallSchema,
   waterfallView,
@@ -80,6 +81,9 @@ workspaceRoutes.post('/cap-table/transactions', edit, validateBody(capTxSchema),
 workspaceRoutes.post('/cap-table/transactions/:ref/decide', requireProfile('sign'), requireStepUp, validateBody(capDecisionSchema), idempotent('investee.cap_tx.decide'), async (req, res) => {
   const row = await decideCapTransaction(inv(req), param(req, 'ref'), body(req), investeeAudit(req));
   ok(res, row, row.status === 'APPROVED' ? 'Transaction approved' : 'Transaction rejected');
+});
+workspaceRoutes.post('/cap-table/transactions/:ref/withdraw', edit, async (req, res) => {
+  ok(res, await withdrawCapTransaction(inv(req), param(req, 'ref'), investeeAudit(req)), 'Transaction withdrawn');
 });
 workspaceRoutes.get('/cap-table/certificates', async (req, res) => {
   ok(res, { certificates: await certificatesView(inv(req).company.id) });

@@ -30,7 +30,7 @@ export function SignPage({ token }: { token: string }) {
     fetch(base, { headers: { Accept: 'application/json' }, cache: 'no-store' })
       .then(async (r) => {
         const body = await r.json();
-        if (!r.ok) throw new Error(body?.message ?? 'This link is not valid');
+        if (!r.ok) throw new Error(body?.error?.message ?? body?.message ?? 'This link is not valid');
         setInfo(body.data as Info);
       })
       .catch((e: unknown) => setError(e instanceof Error ? e.message : 'This link is not valid'));
@@ -38,12 +38,20 @@ export function SignPage({ token }: { token: string }) {
 
   async function respond(action: 'SIGN' | 'DECLINE', e?: FormEvent) {
     e?.preventDefault();
+    if (action === 'SIGN') {
+      // INO-011: say what is missing instead of doing nothing.
+      if (name.trim().length < 2) return setError('Type your full name to sign.');
+      if (!consent) return setError('Tick the box to confirm you agree to sign electronically.');
+    }
     setBusy(true);
     setError('');
     try {
       const r = await fetch(base, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(action === 'SIGN' ? { action, name, consent } : { action }) });
       const body = await r.json();
-      if (!r.ok) throw new Error(body?.message ?? 'Could not record your response');
+      if (!r.ok) {
+        const detail = Array.isArray(body?.error?.details) ? (body.error.details as { message?: string }[]).map((d) => d.message).filter(Boolean)[0] : undefined;
+        throw new Error(detail ?? body?.error?.message ?? body?.message ?? 'Could not record your response');
+      }
       setDone(action === 'SIGN' ? 'Thank you. Your signature is recorded.' : 'You declined to sign. The sender has been told.');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not record your response');
@@ -73,7 +81,7 @@ export function SignPage({ token }: { token: string }) {
                   <span style={{ fontSize: 12, color: '#6b7280' }}>Document fingerprint (SHA-256): <code>{info.docSha256.slice(0, 16)}</code></span>
                 </p>
                 <label style={{ display: 'block', fontSize: 13, marginBottom: 10 }}>
-                  Type your full name
+                  Type your full name exactly as invited ({info.signerName})
                   <input value={name} onChange={(e) => setName(e.target.value)} required minLength={2} style={{ display: 'block', width: '100%', marginTop: 4, padding: 8, border: '1px solid #d1d5db', borderRadius: 8, boxSizing: 'border-box' }} />
                 </label>
                 <label style={{ display: 'flex', gap: 8, fontSize: 13, marginBottom: 14 }}>
@@ -81,7 +89,7 @@ export function SignPage({ token }: { token: string }) {
                   <span>{info.consentText}</span>
                 </label>
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button disabled={busy || !consent || name.trim().length < 2} style={{ border: 0, borderRadius: 8, padding: '9px 16px', background: '#4f46e5', color: '#fff', cursor: 'pointer' }}>Sign</button>
+                  <button disabled={busy} style={{ border: 0, borderRadius: 8, padding: '9px 16px', background: '#4f46e5', color: '#fff', cursor: 'pointer' }}>Sign</button>
                   <button type="button" disabled={busy} onClick={() => void respond('DECLINE')} style={{ border: '1px solid #d1d5db', borderRadius: 8, padding: '9px 16px', background: '#fff', cursor: 'pointer' }}>Decline</button>
                 </div>
               </form>

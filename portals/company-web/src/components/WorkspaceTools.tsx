@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { createInvesteeApi, InvesteeApiError, loadPlatformFlags, setStepUpHandler, type InvesteeApi } from '@/lib/investee/api';
 import { StepUpDialog } from '@/components/StepUpDialog';
+import { useSessionUser } from '@matanho/portal-kit/session';
 
 type Tab = 'cap' | 'board' | 'signatures' | 'sharing' | 'kpis' | 'access';
 const TABS: { id: Tab; label: string }[] = [
@@ -20,7 +21,7 @@ interface CapView {
   classes: { id?: string; name: string; outstanding: number; preference: string }[];
   pendingTransactions: number;
 }
-interface CapTx { id: string; kind: string; status: string; holder: string; fromHolder: string | null; className: string; shares: number; consideration: number; currency: string; effectiveDate: string; maker: string; glStatus: string; glRef: string | null; glNote: string | null }
+interface CapTx { makerId?: string; id: string; kind: string; status: string; holder: string; fromHolder: string | null; className: string; shares: number; consideration: number; currency: string; effectiveDate: string; maker: string; glStatus: string; glRef: string | null; glNote: string | null }
 interface Cert { id: string; holder: string; className: string; shares: number; issuedOn: string; sha256: string }
 interface WaterfallOut { distributed: number; classes: { name: string; shares: number; preferencePaid: number; residual: number; total: number; perShare: number; converted: boolean }[]; holders: { holder: string; className: string; shares: number; payout: number }[] }
 interface Meeting { id: string; ref: string; title: string; meetingAt: string; status: string; packStatus: string; packSha256: string | null; pack: { id: string; documentId: string; name: string }[] }
@@ -51,7 +52,9 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Table({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+/** `rows` is null while the data is still loading, so an empty register is never shown as "Nothing recorded yet". */
+function Table({ head, rows }: { head: string[]; rows: ReactNode[][] | null }) {
+  if (rows === null) return <p role="status" style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Loading...</p>;
   if (!rows.length) return <p style={{ fontSize: 13, color: '#6b7280', margin: 0 }}>Nothing recorded yet.</p>;
   return (
     <div style={{ overflowX: 'auto' }}>
@@ -101,7 +104,7 @@ export function WorkspaceTools() {
       setMsg({ kind: 'ok', text: label });
       return out;
     } catch (e) {
-      setMsg({ kind: 'err', text: e instanceof InvesteeApiError ? e.message : 'Something went wrong' });
+      setMsg({ kind: 'err', text: e instanceof InvesteeApiError ? e.describe() : 'Something went wrong' });
       return undefined;
     }
   }, []);
@@ -147,7 +150,7 @@ export function WorkspaceTools() {
       {api && tab === 'signatures' && <SignaturesTab api={api} run={run} docs={docs} />}
       {api && tab === 'sharing' && <SharingTab api={api} run={run} docs={docs} />}
       {api && tab === 'kpis' && <KpiTab api={api} run={run} />}
-      {api && tab === 'access' && <AccessTab api={api} run={run} />}
+      {api && tab === 'access' && <AccessTab api={api} run={run} enrol={() => new Promise<boolean>((resolve) => setStepUp({ reason: '', mode: 'enroll', resolve }))} />}
 
       {stepUp && <StepUpDialog reason={stepUp.reason} mode={stepUp.mode} onDone={(ok) => { stepUp.resolve(ok); setStepUp(null); }} />}
     </div>
@@ -170,6 +173,7 @@ function useLoad<T>(api: InvesteeApi, run: Run, path: string) {
 }
 
 function CapTab({ api, run }: TabProps) {
+  const me = useSessionUser();
   const [cap, loadCap] = useLoad<CapView>(api, run, '/cap-table');
   const [txs, loadTxs] = useLoad<{ transactions: CapTx[] }>(api, run, '/cap-table/transactions');
   const [certs] = useLoad<{ certificates: Cert[] }>(api, run, '/cap-table/certificates');
@@ -192,6 +196,9 @@ function CapTab({ api, run }: TabProps) {
   const decide = async (id: string, decision: 'APPROVE' | 'REJECT') => {
     if (await run(decision === 'APPROVE' ? 'Approved' : 'Rejected', () => api.workspace('POST', `/cap-table/transactions/${id}/decide`, { decision }))) reload();
   };
+  const withdraw = async (id: string) => {
+    if (await run('Transaction withdrawn', () => api.workspace('POST', `/cap-table/transactions/${id}/withdraw`, {}))) reload();
+  };
   async function download(id: string) {
     const out = await run('Link ready', () => api.workspace<{ url: string }>('GET', `/cap-table/certificates/${id}/download-url`));
     if (out) window.open(out.url, '_blank', 'noopener');
@@ -205,7 +212,7 @@ function CapTab({ api, run }: TabProps) {
   return (
     <>
       <Section title={`Register${cap?.derived ? ' (estimated from the term sheet)' : ''}`}>
-        <Table head={['Holder', 'Class', 'Shares', '%']} rows={(cap?.shareholders ?? []).map((s) => [s.name, s.type, n(s.shares), `${s.pct}%`])} />
+        <Table head={['Holder', 'Class', 'Shares', '%']} rows={cap ? cap.shareholders.map((s) => [s.name, s.type, n(s.shares), `${s.pct}%`]) : null} />
         {cap && cap.pendingTransactions > 0 && <p style={{ fontSize: 13 }}>{cap.pendingTransactions} transaction(s) wait for approval.</p>}
       </Section>
       <Section title="New transaction">
@@ -223,33 +230,40 @@ function CapTab({ api, run }: TabProps) {
           <input style={{ ...input, flex: 1 }} placeholder="Note" value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} />
           <button style={btn}>Submit</button>
         </form>
-        <p style={{ fontSize: 12, color: '#6b7280' }}>The person who enters a transaction cannot approve it. Approval needs an administrator or approver and an authentication code.</p>
+        <p style={{ fontSize: 12, color: '#6b7280' }}>The person who enters a transaction cannot approve it, but can withdraw it while it is pending. Approval needs an administrator or approver; if two-factor sign-in is not set up yet you will be asked to set it up first.</p>
       </Section>
       <Section title="Transactions">
         <Table
           head={['Ref', 'Kind', 'Holder', 'Class', 'Shares', 'Amount', 'Status', 'Ledger', '']}
-          rows={(txs?.transactions ?? []).map((t) => [
+          rows={txs ? txs.transactions.map((t) => [
             t.id,
             t.kind,
             t.fromHolder ? `${t.fromHolder} to ${t.holder}` : t.holder,
             t.className,
             n(t.shares),
             t.consideration ? `${t.currency} ${n(t.consideration)}` : '',
-            t.status.replace('_', ' ').toLowerCase(),
+            t.status.replace(/_/g, ' ').toLowerCase(),
             t.glStatus === 'NONE' ? '' : t.glRef ? `${t.glRef} (awaiting accounting)` : (t.glNote ?? t.glStatus),
             t.status === 'PENDING_APPROVAL' ? (
-              <span key={t.id} style={{ display: 'flex', gap: 6 }}>
-                <button style={btn} onClick={() => void decide(t.id, 'APPROVE')}>Approve</button>
-                <button style={ghost} onClick={() => void decide(t.id, 'REJECT')}>Reject</button>
-              </span>
+              t.makerId && me && t.makerId === me.id ? (
+                <span key={t.id} style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>Entered by you</span>
+                  <button style={ghost} onClick={() => void withdraw(t.id)}>Withdraw</button>
+                </span>
+              ) : (
+                <span key={t.id} style={{ display: 'flex', gap: 6 }}>
+                  <button style={btn} onClick={() => void decide(t.id, 'APPROVE')}>Approve</button>
+                  <button style={ghost} onClick={() => void decide(t.id, 'REJECT')}>Reject</button>
+                </span>
+              )
             ) : (
               ''
             ),
-          ])}
+          ]) : null}
         />
       </Section>
       <Section title="Share certificates">
-        <Table head={['Certificate', 'Holder', 'Class', 'Shares', 'Issued', 'SHA-256', '']} rows={(certs?.certificates ?? []).map((c) => [c.id, c.holder, c.className, n(c.shares), c.issuedOn, <code key={c.id} title={c.sha256}>{c.sha256.slice(0, 12)}</code>, <button key={`d${c.id}`} style={ghost} onClick={() => void download(c.id)}>Download</button>])} />
+        <Table head={['Certificate', 'Holder', 'Class', 'Shares', 'Issued', 'SHA-256', '']} rows={certs ? certs.certificates.map((c) => [c.id, c.holder, c.className, n(c.shares), c.issuedOn, <code key={c.id} title={c.sha256}>{c.sha256.slice(0, 12)}</code>, <button key={`d${c.id}`} style={ghost} onClick={() => void download(c.id)}>Download</button>]) : null} />
       </Section>
       <Section title="Exit waterfall">
         <form onSubmit={model} style={row}>
@@ -328,7 +342,7 @@ function BoardTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
       <Section title="Board actions">
         <Table
           head={['Action', 'Owner', 'Due', 'Status', '']}
-          rows={(gov?.actions ?? []).map((x) => [x.title, x.owner, x.due, x.status, x.status === 'Complete' ? '' : <button key={x.id} style={ghost} onClick={() => void run('Marked complete', () => api.workspace('PATCH', `/governance/actions/${x.id}`, { status: 'COMPLETE' })).then(reload)}>Complete</button>])}
+          rows={gov ? gov.actions.map((x) => [x.title, x.owner, x.due, x.status, x.status === 'Complete' ? '' : <button key={x.id} style={ghost} onClick={() => void run('Marked complete', () => api.workspace('PATCH', `/governance/actions/${x.id}`, { status: 'COMPLETE' })).then(reload)}>Complete</button>]) : null}
         />
         <form onSubmit={action} style={row}>
           <input style={{ ...input, flex: 1 }} placeholder="New action" value={a.title} onChange={(e) => setA({ ...a, title: e.target.value })} required />
@@ -353,6 +367,9 @@ function SignaturesTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
   const [f, setF] = useState({ documentId: '', title: '', signers: '' });
   async function create(e: FormEvent) {
     e.preventDefault();
+    // INO-011: say what is missing instead of failing silently.
+    if (!f.documentId) return void run('', async () => { throw new InvesteeApiError(0, 'validation', 'Choose the document to send for signature.'); });
+    if (!f.signers.trim()) return void run('', async () => { throw new InvesteeApiError(0, 'validation', 'Add at least one signer, one per line: Name, email.'); });
     const signers = f.signers.split(/\n|;/).map((s) => s.trim()).filter(Boolean).map((s) => {
       const [name, email] = s.includes(',') ? s.split(',').map((x) => x.trim()) : [s.split('@')[0] ?? s, s];
       return { name: name ?? '', email: email ?? '' };
@@ -365,7 +382,7 @@ function SignaturesTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
   return (
     <>
       <Section title="Ask people to sign a document">
-        <form onSubmit={create}>
+        <form onSubmit={create} noValidate>
           <div style={row}>
             <select style={input} value={f.documentId} onChange={(e) => setF({ ...f, documentId: e.target.value })} required aria-label="Document">
               <option value="">Choose a document</option>
@@ -380,7 +397,7 @@ function SignaturesTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
       <Section title="Requests">
         <Table
           head={['Ref', 'Document', 'Signers', 'Status', 'Expires', '']}
-          rows={(data?.requests ?? []).map((r) => [
+          rows={data ? data.requests.map((r) => [
             r.ref,
             r.title,
             r.signers.map((s) => `${s.name}: ${s.status.toLowerCase()}`).join(', '),
@@ -392,7 +409,7 @@ function SignaturesTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
                 <button style={ghost} onClick={() => { const reason = window.prompt('Why is this request being voided?'); if (reason) void run('Voided', () => api.workspace('POST', `/signature-requests/${r.id}/void`, { reason })).then(() => load()); }}>Void</button>
               </span>
             ) : '',
-          ])}
+          ]) : null}
         />
       </Section>
     </>
@@ -403,11 +420,13 @@ function SharingTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
   const [data, load] = useLoad<{ links: ShareLink[] }>(api, run, '/share-links');
   const [f, setF] = useState({ documentId: '', recipient: '', email: '', days: '7' });
   const [fresh, setFresh] = useState('');
+  const [copied, setCopied] = useState(false);
   async function create(e: FormEvent) {
     e.preventDefault();
-    const out = await run('Link created. Copy it now; it is not shown again.', () => api.workspace<{ url: string }>('POST', '/share-links', { documentId: f.documentId, recipient: f.recipient, ...(f.email ? { recipientEmail: f.email } : {}), expiresInDays: Number(f.days) }));
+    const out = await run('Link created. Copy it now: only a fingerprint is stored, so it cannot be shown again.', () => api.workspace<{ url: string }>('POST', '/share-links', { documentId: f.documentId, recipient: f.recipient, ...(f.email ? { recipientEmail: f.email } : {}), expiresInDays: Number(f.days) }));
     if (out) {
       setFresh(out.url);
+      setCopied(false);
       void load();
     }
   }
@@ -426,13 +445,21 @@ function SharingTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
           </select>
           <button style={btn}>Create link</button>
         </form>
-        {fresh && <p style={{ fontSize: 13, wordBreak: 'break-all' }}><code>{fresh}</code></p>}
+        {fresh && (
+          <div style={{ fontSize: 13, wordBreak: 'break-all' }}>
+            <code>{fresh}</code>
+            <span style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+              <button type="button" style={ghost} onClick={() => void navigator.clipboard?.writeText(fresh).then(() => setCopied(true)).catch(() => setCopied(false))}>{copied ? 'Copied' : 'Copy link'}</button>
+              <a href={fresh} target="_blank" rel="noopener noreferrer" style={{ ...ghost, textDecoration: 'none', display: 'inline-block' }}>Open</a>
+            </span>
+          </div>
+        )}
         <p style={{ fontSize: 12, color: '#6b7280' }}>Links last at most 7 days. Every copy is watermarked with the recipient name (PDF, image and text files only). Each open is counted; add an e-mail address to send the link for you.</p>
       </Section>
       <Section title="Links">
         <Table
           head={['Document', 'Recipient', 'Status', 'Expires', 'Opened', '']}
-          rows={(data?.links ?? []).map((l) => [l.documentName, l.recipient, l.status.toLowerCase(), l.expiresAt.slice(0, 10), String(l.accessCount), l.status === 'ACTIVE' ? <button key={l.id} style={ghost} onClick={() => void run('Link revoked', () => api.workspace('DELETE', `/share-links/${l.id}`)).then(() => load())}>Revoke</button> : ''])}
+          rows={data ? data.links.map((l) => [l.documentName, l.recipient, l.status.toLowerCase(), l.expiresAt.slice(0, 10), String(l.accessCount), l.status === 'ACTIVE' ? <button key={l.id} style={ghost} onClick={() => void run('Link revoked', () => api.workspace('DELETE', `/share-links/${l.id}`)).then(() => load())}>Revoke</button> : '']) : null}
         />
       </Section>
     </>
@@ -459,12 +486,12 @@ function KpiTab({ api, run }: TabProps) {
         <button style={btn} onClick={() => void exportAs('csv')}>Export CSV</button>
         <button style={ghost} onClick={() => void exportAs('xlsx')}>Export Excel</button>
       </div>
-      <Table head={['Period', 'Status', ...KPI_COLS.map((c) => c[1])]} rows={(data?.rows ?? []).map((r) => [r.period, r.status, ...KPI_COLS.map(([k]) => (r.values[k] === null || r.values[k] === undefined ? '' : n(r.values[k]!)))])} />
+      <Table head={['Period', 'Status', ...KPI_COLS.map((c) => c[1])]} rows={data ? data.rows.map((r) => [r.period, r.status, ...KPI_COLS.map(([k]) => (r.values[k] === null || r.values[k] === undefined ? '' : n(r.values[k]!)))]) : null} />
     </Section>
   );
 }
 
-function AccessTab({ api, run }: TabProps) {
+function AccessTab({ api, run, enrol }: TabProps & { enrol: () => Promise<boolean> }) {
   const [data, load] = useLoad<Access>(api, run, '/access');
   const [revoke, setRevoke] = useState<Set<string>>(new Set());
   const active = useMemo(() => (data?.members ?? []).filter((m) => m.status === 'active'), [data]);
@@ -479,19 +506,23 @@ function AccessTab({ api, run }: TabProps) {
     <>
       <Section title="MFA coverage">
         <p style={{ margin: 0, fontSize: 14 }}>{data ? `${data.coverage.mfa} of ${data.coverage.active} active members have two-factor sign-in (${data.coverage.pct}%).` : 'Loading'}</p>
+        <div style={row}>
+          <button style={btn} onClick={() => void enrol().then((ok) => { if (ok) void load(); })}>Set up two-factor authentication</button>
+          <span style={{ fontSize: 12, color: '#6b7280' }}>Needed to sign term sheets and approve cap-table transactions. Add the key to an authenticator app and confirm one code.</span>
+        </div>
         <p style={{ fontSize: 13, color: data?.reviewDue ? '#b45309' : '#6b7280' }}>{data?.lastReview ? `Last access review: ${data.lastReview.reviewedAt.slice(0, 10)}${data.reviewDue ? ' (more than 90 days ago)' : ''}` : 'No access review has been recorded.'}</p>
       </Section>
       <Section title="Access review">
         <Table
           head={['Member', 'Profile', 'Status', 'MFA', 'Last sign-in', 'Revoke']}
-          rows={(data?.members ?? []).map((m) => [
+          rows={data ? data.members.map((m) => [
             `${m.name ?? ''} ${m.email}`.trim(),
             m.profile.replace(/_/g, ' '),
             m.status,
             m.mfa ? 'Yes' : 'No',
             m.lastLoginAt?.slice(0, 10) ?? 'never',
             m.status === 'active' ? <input key={m.userId} type="checkbox" aria-label={`Revoke ${m.email}`} checked={revoke.has(m.userId)} onChange={(e) => setRevoke((s) => { const next = new Set(s); if (e.target.checked) next.add(m.userId); else next.delete(m.userId); return next; })} /> : '',
-          ])}
+          ]) : null}
         />
         <div style={row}>
           <button style={btn} onClick={() => void record()} disabled={active.length === 0}>Record review</button>

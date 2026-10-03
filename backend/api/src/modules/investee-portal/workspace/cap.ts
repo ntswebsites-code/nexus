@@ -132,6 +132,8 @@ async function derivedCap(company: PortfolioCompany): Promise<HolderView[]> {
 export async function capTableView(company: PortfolioCompany, asOf?: string) {
   const companyId = company.id;
   const approved = await prisma.investeeCapTx.count({ where: { companyId, status: 'APPROVED' } });
+  // INO-007: tells the portal when the baseline is closed and changes must go through transactions.
+  const locked = (await prisma.investeeCapTx.count({ where: { companyId, kind: { not: 'OPENING' } } })) > 0;
   const [classes, holders, pending] = await Promise.all([
     prisma.investeeShareClass.findMany({ where: { companyId }, orderBy: { name: 'asc' } }),
     prisma.investeeShareholder.findMany({ where: { companyId } }),
@@ -144,6 +146,7 @@ export async function capTableView(company: PortfolioCompany, asOf?: string) {
     return {
       asOf: day(),
       derived: true,
+      locked,
       pendingTransactions: pending,
       shareholders,
       classes: [...grouped].map(([name, outstanding]) => ({ name, outstanding, voting: /preferred/i.test(name) ? 'As-converted' : '1 vote / share', preference: /preferred/i.test(name) ? '1x non-participating' : 'None', conversion: /preferred/i.test(name) ? '1:1' : 'n/a', status: 'Active' })),
@@ -174,6 +177,7 @@ export async function capTableView(company: PortfolioCompany, asOf?: string) {
   return {
     asOf: asOf ?? day(),
     derived: false,
+    locked,
     pendingTransactions: pending,
     shareholders,
     classes: classes
@@ -347,6 +351,25 @@ function certificateText(a: { certNo: string; company: string; companyRef: strin
     '',
     'Recorded in the Matanho investee register after maker and checker approval.',
   ].join('\n');
+}
+
+/** INO-008: the maker may withdraw their own pending transaction (no checker needed). */
+export async function withdrawCapTransaction(c: InvesteeContext, ref: string, audit: AuditContext) {
+  const companyId = c.company.id;
+  const names = await nameMap(companyId);
+  return prisma.$transaction(async (tx) => {
+    const t = await tx.investeeCapTx.findFirst({ where: { companyId, ref } });
+    if (!t) throw HttpError.notFound('Transaction not found');
+    if (t.makerId !== c.userId) throw HttpError.forbidden('Only the person who entered a transaction can withdraw it', 'not_maker');
+    const claim = await tx.investeeCapTx.updateMany({
+      where: { id: t.id, status: 'PENDING_APPROVAL' },
+      data: { status: 'WITHDRAWN', decidedAt: new Date(), decisionNote: 'Withdrawn by the person who entered it' },
+    });
+    if (claim.count === 0) throw HttpError.conflict(`A ${t.status} transaction cannot be withdrawn`, 'invalid_state');
+    await writeAudit(tx, audit, { action: 'company.cap_tx.withdrawn', objectType: 'investee_cap_tx', objectId: t.id, after: { ref } });
+    const row = await tx.investeeCapTx.findUniqueOrThrow({ where: { id: t.id } });
+    return txView(row, names);
+  });
 }
 
 export async function decideCapTransaction(c: InvesteeContext, ref: string, body: z.infer<typeof capDecisionSchema>, audit: AuditContext) {
