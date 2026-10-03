@@ -104,11 +104,12 @@ function assertNotImmutable(r: RunRow, action: string) {
   }
 }
 
-async function respond(res: import('express').Response, req: import('express').Request, id: string, status = 200) {
-  // The write has already committed when this runs, so a transient database drop (Prisma P1001/P1002/P1017) must not
-  // turn a successful action into a 500: retry the read-back a few times before giving up.
+async function respond(res: import('express').Response, req: import('express').Request, id: string, status = 200, committed = true) {
+  // Mutations call this after their transaction (including its audit rows) has committed. The read-back below is
+  // read-only: if the database drops during it (Prisma P1001/P1002/P1017) we retry briefly, and if it still fails we
+  // answer with the committed id instead of a 500 that would tell the user a successful write failed.
   let lastErr: unknown;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const data = await runDetail(await loadRun(id), req.user!);
       res.status(status).json({ data });
@@ -117,10 +118,13 @@ async function respond(res: import('express').Response, req: import('express').R
       lastErr = err;
       const code = (err as { code?: string } | null)?.code;
       if (!(code === 'P1001' || code === 'P1002' || code === 'P1017')) throw err;
-      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+      await new Promise((r) => setTimeout(r, 200 * (attempt + 1)));
     }
   }
-  throw lastErr;
+  if (!committed) throw lastErr;
+  // eslint-disable-next-line no-console
+  console.error('nav: read-back after commit failed', { id, code: (lastErr as { code?: string } | null)?.code });
+  res.status(status).json({ data: { id, readBackFailed: true }, warning: 'The change was saved but the page could not be refreshed. Reload to see the current state.' });
 }
 
 // ================================================================ list and read
@@ -143,7 +147,7 @@ navRoutes.get('/runs', ...canView, validateQuery(listQuery), async (req, res) =>
 });
 
 navRoutes.get('/runs/:id', ...canView, async (req, res) => {
-  await respond(res, req, param(req, 'id'));
+  await respond(res, req, param(req, 'id'), 200, false);
 });
 
 /** JSON summary suitable for a printable preview of the run (FR-VAL pack). */

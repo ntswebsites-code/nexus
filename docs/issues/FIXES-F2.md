@@ -72,3 +72,15 @@ Status key: fixed / not-a-defect / needs-other-group / not-fixed. All changes ar
 ## Verification
 - `npx tsc --noEmit` passed in `backend/api` and `portals/admin-web` (no schema change, no migration, no seed change).
 - `npm run build -w @matanho/admin-web` could not be completed in this worktree: Turbopack rejects the `node_modules` junction that points to the main checkout ("Symlink [project]/node_modules is invalid, it points out of the filesystem root"). This is an environment limit, not a code error; no `next.config.ts` change was made. Re-run the build after merge in a normal checkout.
+
+## Rework round
+- ADA-011 (REWORK): the audit write is already INSIDE the maker-review/release transactions, so only the read-only read-back in `respond()` runs after commit. Short retry kept (3 attempts); if the DB is still unreachable, mutations now log and answer 200 with `{data:{id, readBackFailed:true}, warning}` instead of a 500 contradicting a committed write; GETs still error. UI already reloads. File: `nav.routes.ts`. Status: fixed.
+- ADA-018 (REWORK): not-a-defect. `AccJournal` has no `periodId` column; the period is derived from the entry date (`periodFor`), so once posting creates the month's period the journal resolves to it. Opening the month on post by an `accounting.post` holder is intended; manual `POST /periods` still needs only `valuation.view` (pre-existing, unchanged).
+- ADA-007 notes: (a) a failed unrecorded-exceedance check is logged and shown as "over-limit check unavailable" (`unrecordedUnavailable`), never as 0; (b) `countUnrecordedExceedances` now runs 3 queries and builds snapshots only for portfolios with applicable limits; (c) new read-only `GET /risk/portfolios/:id/limits` returns engine evaluations and the portfolio card renders them (no browser re-implementation). Files: `risk.service.ts`, `risk.routes.ts`, `control.service.ts`, `command/page.tsx`, `portfolios/[id]/page.tsx`.
+- ADA-012 note: NAV market value always uses the snapshot `securitiesValueBase` (valued lines only), rounded-sum fallback removed. `nav.service.ts`.
+- ADA-013 note: NAV page says "stale after N business days (weekdays, as on Securities)". The `nav_stale_days` policy label is in the Settings UI (F3).
+- ADA-020 note: 10x ADV bound is the named constant `ADV_SANITY_MULTIPLE` in `orders.checks.ts`.
+- ADA-028 (orphaned): Accounting no-access text names valuation.view (shared with NAV) and accounting.post. `accounting/page.tsx`.
+- ADA-008 follow-up (orphaned, F4): `staleWarnings` shown on the portfolio page; `stalePrices` per portfolio in the list and on the Today AUM tile (`aum.stalePrices`).
+- ADA-017 fills/cash (from F1): not-a-defect. Filled -> Settle creates cash and accounting journals PENDING_APPROVAL -> checker posts. Seeded orders are Filled, not Settled, so no cash journal exists by design.
+- Verification: tsc clean in backend/api (only pre-existing F5 error in `seed-research-privates.ts`, `nextRef` missing) and admin-web. `npm run build` fails only on Turbopack's node_modules junction in the worktree; `next build --webpack` passes.

@@ -32,6 +32,9 @@ const HUNDRED = new D(100);
 /** Estimated brokerage, levies and taxes as a percent of notional (reserved on buys, shown on the ticket). */
 export const FEE_ESTIMATE_PCT = 0.75;
 /** Orders in these states hold cash (buys) or shares (sells) against the portfolio. */
+/** Order create/edit refuses a quantity above this many times the average daily volume (a sanity bound; the pre-trade liquidity check still judges 10%/25% of volume). */
+export const ADV_SANITY_MULTIPLE = 10;
+
 export const RESERVING_STATUSES = ['AwaitingApproval', 'Approved', 'Routing', 'PartiallyFilled'] as const;
 
 export type CheckResult = 'Pass' | 'Review' | 'Fail';

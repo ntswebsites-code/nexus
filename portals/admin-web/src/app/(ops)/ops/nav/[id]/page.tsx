@@ -278,7 +278,7 @@ function Detail({ run: r, reload }: { run: NavDetail; reload: () => void }) {
             ['Maker review', r.reviewerName ? `${r.reviewerName} · ${formatDateTime(r.reviewedAt)}` : '—'],
             ['Released by', r.checkerName ? `${r.checkerName} · ${formatDateTime(r.releasedAt)}` : '—'],
             ['Notes', r.notes ?? '—'],
-            ['Tolerances', r.settings ? `stale after ${r.settings.staleDays} days · price move ${r.settings.priceMovePct}% · material above ${r.settings.tolerancePct}% of position or ${r.settings.toleranceAbs.toLocaleString()}` : '—'],
+            ['Tolerances', r.settings ? `stale after ${r.settings.staleDays} business days (weekdays, as on Securities) · price move ${r.settings.priceMovePct}% · material above ${r.settings.tolerancePct}% of position or ${r.settings.toleranceAbs.toLocaleString()}` : '—'],
           ]}
         />
       </Card>

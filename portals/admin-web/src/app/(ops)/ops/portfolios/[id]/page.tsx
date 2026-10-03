@@ -7,7 +7,6 @@ import { api, v1 } from '@/ops/api';
 import { formatDecimal } from '@/ops/money';
 import { useCan } from '@/ops/session';
 import type { PortfolioMandate, PortfolioSnapshot } from '@/ops/types';
-import type { RiskLimit } from '@/ops/risk/types';
 import { Alert, Card, DefinitionList, Empty, Field, FieldGrid, FormModal, Loaded, Money, PageHeader, StatusBadge, str, useResource } from '@/ops/ui';
 
 const pct = (v: string | null | undefined, dp = 2) => (v == null ? '—' : `${formatDecimal(v, dp)}%`);
@@ -51,6 +50,7 @@ export default function PortfolioDetailPage() {
               }
             />
             {s.warnings.length > 0 && <Alert kind="warn">{s.warnings.join(' · ')}</Alert>}
+            {((s as { staleWarnings?: string[] }).staleWarnings ?? []).length > 0 && <Alert kind="warn">Stale prices (still valued): {((s as { staleWarnings?: string[] }).staleWarnings ?? []).join(' · ')}</Alert>}
             <Card title="Overview">
               <DefinitionList
                 items={[
@@ -89,7 +89,7 @@ export default function PortfolioDetailPage() {
               </div>
               {m.restrictedTickers?.length ? <p className="ops-hint">Restricted: {m.restrictedTickers.join(', ')}</p> : null}
             </Card>
-            {canViewRisk && <RiskLimitsCard portfolioId={p.id} snap={s} />}
+            {canViewRisk && <RiskLimitsCard portfolioId={p.id} />}
             <Card title="Positions">
               {s.lines.length === 0 && s.cash.length === 0 ? (
                 <Empty>No positions.</Empty>
@@ -200,20 +200,23 @@ function MandateModal({ snap, onClose, onDone }: { snap: PortfolioSnapshot; onCl
   );
 }
 
-/** Firm and portfolio-scoped risk limits (the ones the Risk monitor and Today dashboard use), judged on the same snapshot. */
-function RiskLimitsCard({ portfolioId, snap }: { portfolioId: string; snap: PortfolioSnapshot }) {
-  const res = useResource<{ data: RiskLimit[] } | RiskLimit[]>(() => api.get(v1(`/risk/limits?status=ACTIVE&portfolioId=${encodeURIComponent(portfolioId)}`)), [portfolioId]);
+interface LimitEvaluation {
+  limitId: string;
+  ref: string;
+  metric: string;
+  scopeType: string;
+  threshold: string;
+  value: string;
+  state: 'OK' | 'WARNING' | 'BREACH' | string;
+  detail?: string;
+}
+
+/** Firm and portfolio-scoped risk limits, evaluated by the API with the same engine the Risk monitor and Today dashboard use. */
+function RiskLimitsCard({ portfolioId }: { portfolioId: string }) {
+  const res = useResource<{ evaluations: LimitEvaluation[] }>(() => api.get<{ evaluations: LimitEvaluation[] }>(v1(`/risk/portfolios/${encodeURIComponent(portfolioId)}/limits`)), [portfolioId]);
   if (res.state !== 'ok') return null;
-  const limits = Array.isArray(res.data) ? res.data : res.data.data;
+  const limits = res.data.evaluations;
   if (!limits?.length) return null;
-  const topSector = snap.concentration.bySector[0];
-  const current = (metric: string): { value: number | null; floor: boolean } => {
-    if (metric === 'SINGLE_NAME_PCT') return { value: Number(snap.concentration.largestPositionPct), floor: false };
-    if (metric === 'SECTOR_PCT') return { value: topSector ? Number(topSector.weightPct) : null, floor: false };
-    if (metric === 'CASH_FLOOR_PCT') return { value: Number(snap.totals.cashPct), floor: true };
-    if (metric === 'TOP5_PCT') return { value: Number(snap.concentration.top5Pct), floor: false };
-    return { value: null, floor: false };
-  };
   return (
     <Card title="Risk limits (firm and portfolio)">
       <div className="ops-table-wrap">
@@ -228,22 +231,22 @@ function RiskLimitsCard({ portfolioId, snap }: { portfolioId: string; snap: Port
             </tr>
           </thead>
           <tbody>
-            {limits.map((l) => {
-              const c = current(l.metric);
-              const breach = c.value !== null && (c.floor ? c.value < Number(l.threshold) : c.value > Number(l.threshold));
-              return (
-                <tr key={l.id}>
-                  <td>
-                    {l.ref}
-                    <span className="ops-sub">{l.scopeType === 'FIRM' ? 'Firm-wide' : 'This portfolio'}</span>
-                  </td>
-                  <td>{l.metric.replace(/_/g, ' ').toLowerCase()}</td>
-                  <td className="r">{pct(l.threshold)}</td>
-                  <td className="r">{c.value === null ? '—' : pct(String(c.value))}</td>
-                  <td>{c.value === null ? '—' : <span className={`ops-badge ${breach ? 'red' : 'green'}`}>{breach ? 'breach' : 'within'}</span>}</td>
-                </tr>
-              );
-            })}
+            {limits.map((l) => (
+              <tr key={l.limitId}>
+                <td>
+                  {l.ref}
+                  <span className="ops-sub">{l.scopeType === 'FIRM' ? 'Firm-wide' : 'This portfolio'}</span>
+                </td>
+                <td>{l.metric.replace(/_/g, ' ').toLowerCase()}</td>
+                <td className="r">{pct(l.threshold)}</td>
+                <td className="r">{pct(l.value)}</td>
+                <td>
+                  <span className={`ops-badge ${l.state === 'BREACH' ? 'red' : l.state === 'WARNING' ? 'amber' : 'green'}`} title={l.detail}>
+                    {l.state === 'BREACH' ? 'breach' : l.state === 'WARNING' ? 'warning' : 'within'}
+                  </span>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
