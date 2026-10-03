@@ -257,7 +257,11 @@ export async function uploadPaymentConfirmation(req: Request, lp: LpContext, id:
   const a = await findAllocation(lp, id);
   const outstanding = D.max(ZERO, a.callAmount.sub(a.amountPaid));
   if (outstanding.lte(0)) throw LpError.validation('This capital call is already fully paid', { amountClaimed: 'Nothing is outstanding on this call' });
-  const amountClaimed = body.amountClaimed ? new D(body.amountClaimed) : outstanding;
+  const rawAmount = body.amountClaimed?.trim();
+  if (rawAmount && !/^\d+(\.\d{1,2})?$/.test(rawAmount)) {
+    throw LpError.validation('Amount must be a number', { amountClaimed: 'Enter an amount such as 150000.00' });
+  }
+  const amountClaimed = rawAmount ? new D(rawAmount) : outstanding;
   if (amountClaimed.lte(0)) throw LpError.validation('Amount must be greater than zero', { amountClaimed: 'Enter an amount greater than zero' });
   if (amountClaimed.gt(outstanding)) {
     throw LpError.validation('Amount exceeds the outstanding balance', { amountClaimed: `Cannot exceed the outstanding ${money(outstanding)} ${a.call.currency}` });

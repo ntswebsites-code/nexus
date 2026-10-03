@@ -107,7 +107,6 @@ export const lpErrorHandler: ErrorRequestHandler = (err, req, res, _next) => {
     ...(retryable !== undefined ? { retryable } : {}),
     timestamp: new Date().toISOString(),
     meta: { requestId: req.requestId },
-    ...(status >= 500 && !config.isProduction && err instanceof Error ? { details: { stack: err.stack } } : {}),
   });
 };
 

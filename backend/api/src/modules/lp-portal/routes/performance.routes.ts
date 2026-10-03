@@ -3,7 +3,7 @@ import { idempotent } from '../../../lib/idempotency';
 import { param } from '../../../lib/http';
 import { lp, requireLp } from '../lp.context';
 import { lpOk } from '../lp.http';
-import { asRecord, queryFund, str } from '../services/common';
+import { asRecord, dateQuery, enumQuery, queryFund, str } from '../services/common';
 import { assertFund } from '../lp.context';
 import { createPerformanceJob, getBenchmarks, getByFund, getHistory, getJob, getPerformance } from '../services/performance';
 import { latestAsOf, loadPositions } from '../services/positions';
@@ -11,7 +11,8 @@ import { latestAsOf, loadPositions } from '../services/positions';
 /** Domain `performance` (+ report jobs) (WS1). */
 export const lpPerformanceRoutes = Router();
 
-const periodOf = (v: unknown) => (str(v) ?? 'SI').toUpperCase().slice(0, 8);
+const PERIODS = ['SI', '1Y', '3Y', '5Y', '10Y', 'MAX', 'YTD'] as const;
+const periodOf = (v: unknown, field = 'period') => enumQuery(v, field, PERIODS) ?? 'SI';
 
 lpPerformanceRoutes.get('/performance', requireLp('lp.performance.view'), async (req, res) => {
   const ctx = lp(req);
@@ -20,7 +21,7 @@ lpPerformanceRoutes.get('/performance', requireLp('lp.performance.view'), async 
 
 lpPerformanceRoutes.get('/performance/history', requireLp('lp.performance.view'), async (req, res) => {
   const ctx = lp(req);
-  lpOk(req, res, await getHistory(ctx, queryFund(req, ctx), periodOf(req.query.range ?? req.query.period)));
+  lpOk(req, res, await getHistory(ctx, queryFund(req, ctx), periodOf(req.query.range ?? req.query.period, req.query.range !== undefined ? 'range' : 'period')));
 });
 
 lpPerformanceRoutes.get('/performance/by-fund', requireLp('lp.performance.view'), async (req, res) => {
@@ -29,6 +30,7 @@ lpPerformanceRoutes.get('/performance/by-fund', requireLp('lp.performance.view')
 
 lpPerformanceRoutes.get('/performance/benchmarks', requireLp('lp.performance.view'), async (req, res) => {
   const ctx = lp(req);
+  dateQuery(req.query.asOfDate, 'asOfDate');
   const { asOfDate } = latestAsOf(await loadPositions(ctx));
   lpOk(req, res, getBenchmarks((str(req.query.metric) ?? 'NET_IRR').toUpperCase().slice(0, 32), (str(req.query.benchmarkId) ?? 'CAMBRIDGE').toUpperCase().slice(0, 32), asOfDate));
 });

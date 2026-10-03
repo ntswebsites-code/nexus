@@ -5,6 +5,7 @@ import { idempotent } from '../../../lib/idempotency';
 import { requireStepUp } from '../../../middleware/requireAuth';
 import { uploadFiles } from '../../../middleware/upload';
 import { lp, requireLp, requireLpRole } from '../lp.context';
+import { dateQuery } from '../services/common';
 import { LpError, lpList, lpOk, pageOf } from '../lp.http';
 import {
   bankAccounts,
@@ -113,7 +114,7 @@ lpDealingRoutes.post(
       await submitRedemption(req, lp(req), {
         ...body,
         full: extra.full === true || extra.full === 'true',
-        earliestDealingDate: typeof extra.earliestDealingDate === 'string' ? extra.earliestDealingDate : undefined,
+        earliestDealingDate: dateQuery(extra.earliestDealingDate, 'earliestDealingDate'),
       }),
       'Redemption submitted',
       201,

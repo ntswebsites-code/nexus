@@ -44,6 +44,24 @@ export function str(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+/** Optional query value that must be a real calendar date (YYYY-MM-DD); 400 with a field error otherwise (LPC-006). */
+export function dateQuery(value: unknown, field: string): string | undefined {
+  const v = str(value);
+  if (v === undefined) return undefined;
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(v) && new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) === v;
+  if (!ok) throw LpError.validation(`${field} must be a date (YYYY-MM-DD)`, { [field]: 'Use the format YYYY-MM-DD' });
+  return v;
+}
+
+/** Optional query value that must be one of `allowed` (case-insensitive, returned upper-case); 400 otherwise (LPC-006). */
+export function enumQuery<T extends string>(value: unknown, field: string, allowed: readonly T[]): T | undefined {
+  const v = str(value);
+  if (v === undefined) return undefined;
+  const up = v.toUpperCase() as T;
+  if (!allowed.includes(up)) throw LpError.validation(`${field} is not valid`, { [field]: `Use one of ${allowed.join(', ')}` });
+  return up;
+}
+
 /** `fundId` from the query: 404 when outside the caller's scope, `undefined` for none/"all". */
 export function queryFund(req: Request, ctx: LpContext): string | undefined {
   const raw = str(req.query.fundId);

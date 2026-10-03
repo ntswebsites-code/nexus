@@ -442,8 +442,9 @@ export function LpCapitalActivityScreen({
       formData.append("file", paymentFile)
       formData.append("amountClaimed", amount)
       if (paymentNotes.trim()) formData.append("notes", paymentNotes.trim())
-      await lpPortalApi.uploadPaymentConfirmation(selectedCall.id, formData, attemptKey(`pay:${selectedCall.id}:${amount}:${paymentFile.name}`))
-      attemptKeys.current = {}
+      const payKey = `pay:${selectedCall.id}:${amount}:${paymentFile.name}`
+      await lpPortalApi.uploadPaymentConfirmation(selectedCall.id, formData, attemptKey(payKey))
+      delete attemptKeys.current[payKey]
       toast.success(`Payment confirmation uploaded for Call No. ${selectedCall.callNo}: ${paymentFile.name}`)
       setPaymentFile(null)
       void reloadCalls()
