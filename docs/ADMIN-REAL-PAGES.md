@@ -1430,3 +1430,13 @@ Test: `npx tsx scripts/test-esign-depth.ts` (field validation, layout hash, cade
 - Boxes are not editable after sending (void and re-send instead). Signers cannot move or add boxes. No per-field text input (free text fields).
 - Pack text is generic legal boilerplate and must be replaced by counsel-approved wording before production use.
 - Bulk send runs the recipients one after another inside the request (100 at most); no background job or CSV import.
+## Onboarding portal, native (R4-6)
+
+The public onboarding portal (`portals/onboarding-web`) is now native React; the legacy injected-script page (`legacy-runtime`, `public/live/onboarding-live.js`) is removed from it.
+
+- Routes: `/` six-step wizard (entity types, UBOs, directors, signatories, KYC/AML declarations, tax + bank, evidence, review/submit), `/resume` magic-link exchange and request, `/status` tracker with the admin loop-back (upload requested documents, reply). Legacy `/?resume=<id>.<token>` links still work.
+- API (all under `/api/v1/public`): existing `applications` endpoints plus `directors` on PATCH/submit/GET, `scanStatus` on evidence; new `GET /onboarding/meta`, `POST /onboarding/resume-link` (always 202, rate limited), `POST /onboarding/resume` (single use, rotates the draft token), `GET /applications/:id/status`, `POST /applications/:id/reply` (idempotent).
+- Uploads go through `storeFile`, which calls the av-scan adapter; infected files are refused 422 and audited (`kyc.evidence.rejected_malware`). Magic-link and loop-back emails go through the outbox/email adapter.
+- Admin side is unchanged: `POST /kyc/cases/:id/request-evidence` moves the case to Client action; the applicant's upload returns it to Compliance review.
+- Migration `20261106100000_onboarding_resume` (table `onboarding_resume_links`). Seed: `prisma/seed-onboarding.ts`. Test: `npx tsx scripts/test-onboarding.ts` (flow part with `E2E_CONFIRM=throwaway-db`).
+- Remaining: no browser run was done; OCR assist from the prototype is not ported; admin case view does not yet render `directors` beyond the staff form view JSON.

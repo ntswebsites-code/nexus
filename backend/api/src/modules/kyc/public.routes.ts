@@ -18,6 +18,7 @@ import { validateBody } from '../../middleware/validate';
 import { uploadFiles, uploadedFiles } from '../../middleware/upload';
 import { EVIDENCE_SLOTS, SLOT_KEYS, V65_SLOT_MAP, requiredSlots, slaDue, type EvidenceSlot } from './constants';
 import { addEvent } from './kyc.service';
+import { onboardingExtraRoutes } from './public-extra.routes';
 
 /**
  * Public onboarding (SRD 5.C, FR-ONB-001..007). No account: a draft is owned by
@@ -59,7 +60,7 @@ const signatoriesSchema = z
   .array(z.object({ name: z.string().max(160).default(''), role: z.string().max(120).default(''), email: z.string().max(254).default('') }))
   .max(20);
 
-async function draftFor(req: Request, opts: { allowSubmitted?: boolean } = {}) {
+export async function draftFor(req: Request, opts: { allowSubmitted?: boolean } = {}) {
   const id = param(req, 'id');
   const token = req.get('x-draft-token') ?? '';
   const app = await prisma.onboardingApplication.findUnique({ where: { id }, include: { owners: true, kycCase: true } });
@@ -77,18 +78,25 @@ async function draftFor(req: Request, opts: { allowSubmitted?: boolean } = {}) {
 }
 
 type DraftApp = Awaited<ReturnType<typeof draftFor>>;
-type FormBody = { form: Record<string, string>; owners?: z.infer<typeof ownersSchema>; signatories?: z.infer<typeof signatoriesSchema> };
+type FormBody = {
+  form: Record<string, string>;
+  owners?: z.infer<typeof ownersSchema>;
+  signatories?: z.infer<typeof signatoriesSchema>;
+  directors?: z.infer<typeof signatoriesSchema>;
+};
 
 /** Writes form, owners and signatories of a PATCH or submit body in one transaction. */
 async function saveForm(app: DraftApp, body: FormBody) {
   const owners = body.owners ? normaliseOwners(body.owners as (string[] | Record<string, unknown>)[]) : undefined;
-  const { data, formData } = mapPublicForm(body.form, { owners, signatories: body.signatories }, app.formData as Record<string, unknown> | null);
+  const { data, formData } = mapPublicForm(body.form, { owners, signatories: body.signatories, directors: body.directors }, app.formData as Record<string, unknown> | null);
   await prisma.$transaction(async (tx) => {
     await tx.onboardingApplication.update({
       where: { id: app.id },
       data: { ...data, formData: formData as Prisma.InputJsonValue } as Prisma.OnboardingApplicationUpdateInput,
     });
     if (owners) {
+      // A resumed draft never receives owner id numbers back, so a blank id keeps the one on file.
+      const keep = new Map((await tx.beneficialOwner.findMany({ where: { applicationId: app.id } })).map((o) => [o.fullName, o.idNumberEnc]));
       await tx.beneficialOwner.deleteMany({ where: { applicationId: app.id } });
       if (owners.length) {
         await tx.beneficialOwner.createMany({
@@ -98,7 +106,7 @@ async function saveForm(app: DraftApp, body: FormBody) {
             return {
               applicationId: app.id,
               fullName: o.name,
-              idNumberEnc: encryptField(o.id),
+              idNumberEnc: o.id ? encryptField(o.id) : (keep.get(o.name) ?? null),
               ownershipPct: has ? Math.min(100, Math.max(0, pct)) : null,
               isController: has && pct >= 25,
             };
@@ -124,13 +132,14 @@ async function evidenceList(applicationId: string) {
       size: f?.size ?? null,
       mime: f?.mime ?? null,
       sha256: f?.sha256 ?? null,
+      scanStatus: f?.scanStatus ?? null,
     };
   });
 }
 
 async function view(app: DraftApp) {
   const stored = app.formData as Record<string, unknown> | null;
-  const { form, bankAccountOnFile, signatories } = applicantFormView(stored);
+  const { form, bankAccountOnFile, signatories, directors } = applicantFormView(stored);
   const storedOwners = Array.isArray(stored?.owners) ? (stored.owners as { name: string; nationality?: string }[]) : [];
   const nationality = new Map(storedOwners.map((o) => [o.name, o.nationality ?? '']));
   // Resume in the order the applicant entered. beneficial_owners has no position column,
@@ -160,6 +169,7 @@ async function view(app: DraftApp) {
     owners: ownerRows.map((o) => [o.name, '', o.pct]),
     ownerDetails: ownerRows,
     signatories,
+    directors,
     evidence: await evidenceList(app.id),
     requiredSlots: requiredSlots(app.applicantType),
     requestedSlots: app.kycCase?.stage === 'ClientAction' ? (await evidenceList(app.id)).filter((e) => e.status === 'Requested').map((e) => e.slot) : [],
@@ -218,7 +228,12 @@ publicOnboardingRoutes.get('/applications/:id', async (req, res) => {
   res.json({ application: await view(app) });
 });
 
-const patchSchema = z.object({ form: formFields, owners: ownersSchema.optional(), signatories: signatoriesSchema.optional() });
+const patchSchema = z.object({
+  form: formFields,
+  owners: ownersSchema.optional(),
+  signatories: signatoriesSchema.optional(),
+  directors: signatoriesSchema.optional(),
+});
 
 /** Draft autosave. Not audited per keystroke; creation, evidence and submission are. */
 publicOnboardingRoutes.patch('/applications/:id', validateBody(patchSchema), async (req, res) => {
@@ -238,7 +253,22 @@ publicOnboardingRoutes.post('/applications/:id/evidence', uploadFiles('file', 1)
   }
   const [file] = uploadedFiles(req);
   if (!file) throw HttpError.badRequest('Attach a file');
-  const stored = await storeFile({ name: file.originalname, mime: file.mimetype, data: file.buffer, applicationId: app.id });
+  let stored: Awaited<ReturnType<typeof storeFile>>;
+  try {
+    stored = await storeFile({ name: file.originalname, mime: file.mimetype, data: file.buffer, applicationId: app.id });
+  } catch (err) {
+    if (err instanceof HttpError && err.code === 'malware_detected') {
+      await prisma.$transaction((tx) =>
+        writeAudit(tx, { actorRole: 'Applicant', portal: 'onboarding', ip: req.ip, requestId: req.requestId }, {
+          action: 'kyc.evidence.rejected_malware',
+          objectType: 'onboarding_application',
+          objectId: app.id,
+          after: { slot, name: file.originalname.slice(0, 200), size: file.size },
+        }),
+      );
+    }
+    throw err;
+  }
   await prisma.$transaction(async (tx) => {
     await tx.kycEvidence.upsert({
       where: { applicationId_slot: { applicationId: app.id, slot } },
@@ -270,7 +300,7 @@ publicOnboardingRoutes.post('/applications/:id/evidence', uploadFiles('file', 1)
       after: { slot, fileId: stored.id, name: stored.name, size: stored.size, sha256: stored.sha256 },
     });
   });
-  res.status(201).json({ slot, label: EVIDENCE_SLOTS[slot], name: stored.name, size: stored.size, mime: stored.mime, sha256: stored.sha256 });
+  res.status(201).json({ slot, label: EVIDENCE_SLOTS[slot], name: stored.name, size: stored.size, mime: stored.mime, sha256: stored.sha256, scanStatus: stored.scanStatus });
 });
 
 const submitSchema = z.object({
@@ -278,6 +308,7 @@ const submitSchema = z.object({
   form: formFields.optional(),
   owners: ownersSchema.optional(),
   signatories: signatoriesSchema.optional(),
+  directors: signatoriesSchema.optional(),
 });
 
 /** FR-ONB-004/005/006/007: consent + required evidence, then ONB ref, KYC case and queued pre-screen. */
@@ -285,7 +316,7 @@ publicOnboardingRoutes.post('/applications/:id/submit', validateBody(submitSchem
   let app = await draftFor(req);
   const b = req.body as z.infer<typeof submitSchema>;
   if (b.form) {
-    await saveForm(app, { form: b.form, owners: b.owners, signatories: b.signatories });
+    await saveForm(app, { form: b.form, owners: b.owners, signatories: b.signatories, directors: b.directors });
     app = await draftFor(req);
   }
   const stored = app.formData as Record<string, unknown> | null;
@@ -296,7 +327,7 @@ publicOnboardingRoutes.post('/applications/:id/submit', validateBody(submitSchem
   ]
     .filter(([k]) => !(app as unknown as Record<string, unknown>)[k!])
     .map(([, label]) => label!);
-  for (const label of v65Missing(stored, app.owners.length)) if (!missingFields.includes(label)) missingFields.push(label);
+  for (const label of v65Missing(stored, app.owners.length, app.applicantType)) if (!missingFields.includes(label)) missingFields.push(label);
   const have = new Set(
     (await prisma.kycEvidence.findMany({ where: { applicationId: app.id, fileId: { not: null } }, select: { slot: true } })).map((e) => e.slot),
   );
@@ -360,3 +391,6 @@ publicOnboardingRoutes.post('/applications/:id/submit', validateBody(submitSchem
   });
   res.json({ ref: result.ref, status: 'Submitted', screening: 'Queued' });
 });
+
+// Resume links, status tracker, applicant reply and wizard metadata (R4-6).
+publicOnboardingRoutes.use(onboardingExtraRoutes);

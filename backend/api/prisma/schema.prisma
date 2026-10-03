@@ -5409,3 +5409,20 @@ model EsignBatch {
   @@map("esign_batches")
 }
 // ---- end EsignDepth ----
+
+// ---- Onboarding ----
+/// Single-use magic link that lets an applicant who lost their browser token resume a draft (R4-6).
+/// Only the sha256 of the link token is stored. No relation field: onboarding_applications is untouched.
+model OnboardingResumeLink {
+  id            String    @id @default(uuid()) @db.Char(36)
+  applicationId String    @map("application_id") @db.Char(36)
+  tokenHash     String    @unique @map("token_hash") @db.Char(64)
+  expiresAt     DateTime  @map("expires_at")
+  usedAt        DateTime? @map("used_at")
+  requestIp     String?   @map("request_ip") @db.VarChar(64)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([applicationId, createdAt])
+  @@map("onboarding_resume_links")
+}
+// ---- end Onboarding ----

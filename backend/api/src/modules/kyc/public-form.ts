@@ -143,7 +143,7 @@ const cell = (v: string | undefined, column: string) => {
  */
 export function mapPublicForm(
   form: Record<string, string>,
-  extras: { signatories?: Signatory[]; owners?: OwnerInput[] },
+  extras: { signatories?: Signatory[]; directors?: Signatory[]; owners?: OwnerInput[] },
   existing: Stored | null,
 ): { data: Record<string, unknown>; formData: Stored } {
   const data: Record<string, unknown> = {};
@@ -197,6 +197,11 @@ export function mapPublicForm(
       .map((s) => ({ name: s.name.trim().slice(0, 160), role: s.role.trim().slice(0, 120), email: s.email.trim().slice(0, 254) }))
       .filter((s) => s.name);
   } else if (existing?.signatories) formData.signatories = existing.signatories;
+  if (extras.directors) {
+    formData.directors = extras.directors
+      .map((s) => ({ name: s.name.trim().slice(0, 160), role: s.role.trim().slice(0, 120), email: s.email.trim().slice(0, 254) }))
+      .filter((s) => s.name);
+  } else if (existing?.directors) formData.directors = existing.directors;
   if (extras.owners) {
     // Owner id numbers live encrypted on beneficial_owners only.
     formData.owners = extras.owners.map((o) => ({ name: o.name, nationality: o.nationality, pct: o.pct }));
@@ -207,7 +212,7 @@ export function mapPublicForm(
 
 /** Draft view for the applicant: never returns the tax id or account number. */
 export function applicantFormView(formData: Stored | null) {
-  const { bankAccountEnc, bankAccountLast4: _l, owners: _o, signatories, declaration: _d, ...form } = formData ?? {};
+  const { bankAccountEnc, bankAccountLast4: _l, owners: _o, signatories, directors, declaration: _d, ...form } = formData ?? {};
   void _l;
   void _o;
   void _d;
@@ -215,10 +220,11 @@ export function applicantFormView(formData: Stored | null) {
     form: { ...(form as Record<string, string>), taxId: '', bankAccount: '' },
     bankAccountOnFile: typeof bankAccountEnc === 'string',
     signatories: Array.isArray(signatories) ? (signatories as Signatory[]) : [],
+    directors: Array.isArray(directors) ? (directors as Signatory[]) : [],
   };
 }
 
-export function v65Missing(formData: Stored | null, ownerCount: number): string[] {
+export function v65Missing(formData: Stored | null, ownerCount: number, applicantType?: string | null): string[] {
   const f = (formData ?? {}) as Record<string, unknown>;
   if (f.formVersion !== 'v65') return [];
   const missing = V65_REQUIRED.filter(([k]) => {
@@ -228,6 +234,11 @@ export function v65Missing(formData: Stored | null, ownerCount: number): string[
   if (!ownerCount) missing.push('At least one beneficial owner or controller');
   const sigs = Array.isArray(f.signatories) ? f.signatories : [];
   if (!sigs.length) missing.push('At least one authorised signatory');
+  // Entities (every type but an individual) must name their directors / trustees / governing persons.
+  const dirs = Array.isArray(f.directors) ? f.directors : [];
+  if (applicantType && applicantType !== 'Individual / HNW' && applicantType !== 'Individual' && !dirs.length) {
+    missing.push('At least one director, trustee or governing person');
+  }
   return missing;
 }
 
@@ -281,6 +292,7 @@ export function staffFormView(formData: Stored | null, taxIdEnc: string | null) 
     sections,
     owners: Array.isArray(f.owners) ? f.owners : [],
     signatories: Array.isArray(f.signatories) ? f.signatories : [],
+    directors: Array.isArray(f.directors) ? f.directors : [],
     declaration: f.declaration ?? null,
   };
 }

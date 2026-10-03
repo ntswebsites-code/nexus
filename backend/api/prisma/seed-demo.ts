@@ -441,4 +441,5 @@ export async function seedDemo() {
   await (await import('./seed-integrations')).seedIntegrations();
   await (await import('./seed-esign')).seedEsign();
   await (await import('./seed-investee-remainders')).seedInvesteeRemainders();
+  await (await import('./seed-onboarding')).seedOnboarding();
 }
