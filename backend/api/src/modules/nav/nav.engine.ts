@@ -90,7 +90,18 @@ export function daysBetween(from: Date, to: Date): number {
   return Math.round((t - f) / 86_400_000);
 }
 
-export const isStale = (priceDate: Date, navDate: Date, staleDays: number) => daysBetween(priceDate, navDate) > staleDays;
+/** Weekdays elapsed from `from` to `to` (same rule as the Securities price-freshness table, so both screens agree). */
+export function businessDaysBetween(from: Date, to: Date): number {
+  let n = 0;
+  const end = Date.UTC(to.getUTCFullYear(), to.getUTCMonth(), to.getUTCDate());
+  for (let t = Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), from.getUTCDate()); t < end; t += 86_400_000) {
+    const dow = new Date(t + 86_400_000).getUTCDay();
+    if (dow !== 0 && dow !== 6) n += 1;
+  }
+  return n;
+}
+
+export const isStale = (priceDate: Date, navDate: Date, staleDays: number) => businessDaysBetween(priceDate, navDate) > staleDays;
 
 /** Percent move of `price` against `previous`, signed (null when there is no usable previous price). */
 export function movePct(price: Dec, previous: Dec | null | undefined): Dec | null {

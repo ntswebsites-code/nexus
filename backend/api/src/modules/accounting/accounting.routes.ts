@@ -312,7 +312,15 @@ accountingRoutes.post('/journals/:id/post', ...canPost, requireStepUp, idempoten
   const errors = validateLines(lines);
   if (errors.length) throw HttpError.badRequest('Journal is not balanced', errors);
   await prisma.$transaction(async (tx) => {
-    await assertPeriodOpen(r.portfolioId, r.entryDate, tx);
+    // A journal must always land in a period so the close controls see it: open the month automatically when none exists.
+    if (!(await assertPeriodOpen(r.portfolioId, r.entryDate, tx))) {
+      const { start, end } = monthBounds(r.entryDate.toISOString().slice(0, 7));
+      const exists = await tx.accPeriod.findUnique({ where: { portfolioId_periodEnd: { portfolioId: r.portfolioId, periodEnd: end } }, select: { id: true } });
+      if (!exists) {
+        const np = await tx.accPeriod.create({ data: { portfolioId: r.portfolioId, periodStart: start, periodEnd: end, createdBy: req.user!.id } });
+        await writeAudit(tx, audit(req), { action: 'accounting.period_opened', objectType: 'acc_period', objectId: np.id, after: { portfolioId: r.portfolioId, periodStart: isoDay(start), periodEnd: isoDay(end), status: 'OPEN', automatic: true, trigger: r.ref } });
+      }
+    }
     assertUpdated((await tx.accJournal.updateMany({ where: { id: r.id, status: 'PENDING_APPROVAL' }, data: { status: 'POSTED', postedBy: req.user!.id, postedAt: new Date() } })).count);
     await writeAudit(tx, audit(req), {
       action: 'accounting.journal_posted',

@@ -90,7 +90,7 @@ export default function PortfoliosPage() {
                             {p.largestPositionTicker ?? '—'}
                             {p.largestPositionTicker && (
                               <span className="ops-sub">
-                                {formatDecimal(p.largestPositionPct, 1)}%{limit !== undefined ? ` of ${limit}% limit${over ? ' (over)' : ''}` : ''}
+                                {formatDecimal(p.largestPositionPct, 1)}%{limit !== undefined ? ` of ${limit}% mandate limit${over ? ' (over)' : ''}` : ''}
                               </span>
                             )}
                           </td>

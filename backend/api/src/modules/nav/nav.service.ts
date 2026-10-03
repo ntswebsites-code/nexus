@@ -10,6 +10,7 @@ import {
   NAV_SETTING_DEFAULTS,
   NAV_SETTING_KEYS,
   NAV_STAGES,
+  businessDaysBetween,
   daysBetween,
   isMaterial,
   isStale,
@@ -128,10 +129,10 @@ export async function calculateValuation(portfolioId: string, navDate: Date, s: 
       valued = valued.add(valueBase);
       if (priceDate && isStale(priceDate, navDate, s.staleDays)) {
         flags.push('STALE_PRICE');
-        const age = daysBetween(priceDate, navDate);
+        const age = businessDaysBetween(priceDate, navDate);
         add({
           type: 'STALE_PRICE',
-          detail: `${l.ticker}: price dated ${isoDay(priceDate)} is ${age} days old (limit ${s.staleDays})`,
+          detail: `${l.ticker}: price dated ${isoDay(priceDate)} is ${age} business days old (limit ${s.staleDays})`,
           currentValue: valueBase,
           referenceValue: valueBase,
           difference: ZERO,
@@ -202,7 +203,8 @@ export async function calculateValuation(portfolioId: string, navDate: Date, s: 
 
   return {
     baseCurrency: snap.baseCurrency,
-    marketValue: valued,
+    // Use the portfolio's own total (sum of unrounded line values, rounded once) so NAV and the Portfolio page agree to the cent.
+    marketValue: unvaluedRef.gt(ZERO) || snap.lines.some((l) => !l.marketValueBase) ? valued : new D(snap.totals.securitiesValueBase),
     cash: new D(snap.totals.cashBase),
     coverage: priceCoverage(valued, unvaluedRef),
     positionCount: snap.lines.length,

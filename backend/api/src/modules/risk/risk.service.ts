@@ -204,6 +204,30 @@ export async function checkLimitsForPortfolio(portfolioIdOrRef: string, hypothet
   return checkWithSnapshot(snap, limits, current, book, applied);
 }
 
+/**
+ * Read-only: how many (limit, portfolio) pairs are over their limit RIGHT NOW but have no breach recorded for today
+ * (the monitor has not run yet). Used by the Today dashboard so a seeded limit breach is never reported as "0".
+ */
+export async function countUnrecordedExceedances(asOf: Date = new Date()): Promise<number> {
+  const detectedOn = startOfDay(asOf);
+  const portfolios = await prisma.portfolio.findMany({ where: { status: 'Active' }, select: { id: true }, take: 1000 });
+  let n = 0;
+  for (const p of portfolios) {
+    const limits = await activeLimitsFor(p.id);
+    if (!limits.length) continue;
+    const snap = await getPortfolioSnapshot(p.id, { asOf });
+    const measures = measureBook(bookFromSnapshot(snap));
+    if (!measures) continue;
+    for (const l of limits) {
+      const ev = evaluateMeasure(l.metric as RiskMetric, l.threshold, measures[l.metric as RiskMetric]);
+      if (ev.state !== 'BREACH') continue;
+      const existing = await prisma.riskBreach.findUnique({ where: { limitId_portfolioId_detectedOn: { limitId: l.id, portfolioId: p.id, detectedOn } }, select: { id: true } });
+      if (!existing) n += 1;
+    }
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------- monitor
 
 export interface MonitorSummary {

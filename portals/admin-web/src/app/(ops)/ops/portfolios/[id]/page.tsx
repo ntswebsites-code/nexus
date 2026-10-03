@@ -7,6 +7,7 @@ import { api, v1 } from '@/ops/api';
 import { formatDecimal } from '@/ops/money';
 import { useCan } from '@/ops/session';
 import type { PortfolioMandate, PortfolioSnapshot } from '@/ops/types';
+import type { RiskLimit } from '@/ops/risk/types';
 import { Alert, Card, DefinitionList, Empty, Field, FieldGrid, FormModal, Loaded, Money, PageHeader, StatusBadge, str, useResource } from '@/ops/ui';
 
 const pct = (v: string | null | undefined, dp = 2) => (v == null ? '—' : `${formatDecimal(v, dp)}%`);
@@ -14,6 +15,7 @@ const pct = (v: string | null | undefined, dp = 2) => (v == null ? '—' : `${fo
 export default function PortfolioDetailPage() {
   const { id } = useParams<{ id: string }>();
   const canManage = useCan('portfolio.manage');
+  const canViewRisk = useCan('risk.view');
   const [editing, setEditing] = useState(false);
   const snap = useResource<PortfolioSnapshot>(() => api.get<PortfolioSnapshot>(v1(`/portfolios/${encodeURIComponent(id)}`)), [id]);
 
@@ -87,6 +89,7 @@ export default function PortfolioDetailPage() {
               </div>
               {m.restrictedTickers?.length ? <p className="ops-hint">Restricted: {m.restrictedTickers.join(', ')}</p> : null}
             </Card>
+            {canViewRisk && <RiskLimitsCard portfolioId={p.id} snap={s} />}
             <Card title="Positions">
               {s.lines.length === 0 && s.cash.length === 0 ? (
                 <Empty>No positions.</Empty>
@@ -194,5 +197,56 @@ function MandateModal({ snap, onClose, onDone }: { snap: PortfolioSnapshot; onCl
         </Field>
       </FieldGrid>
     </FormModal>
+  );
+}
+
+/** Firm and portfolio-scoped risk limits (the ones the Risk monitor and Today dashboard use), judged on the same snapshot. */
+function RiskLimitsCard({ portfolioId, snap }: { portfolioId: string; snap: PortfolioSnapshot }) {
+  const res = useResource<{ data: RiskLimit[] } | RiskLimit[]>(() => api.get(v1(`/risk/limits?status=ACTIVE&portfolioId=${encodeURIComponent(portfolioId)}`)), [portfolioId]);
+  if (res.state !== 'ok') return null;
+  const limits = Array.isArray(res.data) ? res.data : res.data.data;
+  if (!limits?.length) return null;
+  const topSector = snap.concentration.bySector[0];
+  const current = (metric: string): { value: number | null; floor: boolean } => {
+    if (metric === 'SINGLE_NAME_PCT') return { value: Number(snap.concentration.largestPositionPct), floor: false };
+    if (metric === 'SECTOR_PCT') return { value: topSector ? Number(topSector.weightPct) : null, floor: false };
+    if (metric === 'CASH_FLOOR_PCT') return { value: Number(snap.totals.cashPct), floor: true };
+    if (metric === 'TOP5_PCT') return { value: Number(snap.concentration.top5Pct), floor: false };
+    return { value: null, floor: false };
+  };
+  return (
+    <Card title="Risk limits (firm and portfolio)">
+      <div className="ops-table-wrap">
+        <table className="ops-table">
+          <thead>
+            <tr>
+              <th>Limit</th>
+              <th>Metric</th>
+              <th className="r">Threshold</th>
+              <th className="r">Current</th>
+              <th>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            {limits.map((l) => {
+              const c = current(l.metric);
+              const breach = c.value !== null && (c.floor ? c.value < Number(l.threshold) : c.value > Number(l.threshold));
+              return (
+                <tr key={l.id}>
+                  <td>
+                    {l.ref}
+                    <span className="ops-sub">{l.scopeType === 'FIRM' ? 'Firm-wide' : 'This portfolio'}</span>
+                  </td>
+                  <td>{l.metric.replace(/_/g, ' ').toLowerCase()}</td>
+                  <td className="r">{pct(l.threshold)}</td>
+                  <td className="r">{c.value === null ? '—' : pct(String(c.value))}</td>
+                  <td>{c.value === null ? '—' : <span className={`ops-badge ${breach ? 'red' : 'green'}`}>{breach ? 'breach' : 'within'}</span>}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </Card>
   );
 }

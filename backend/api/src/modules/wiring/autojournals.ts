@@ -52,12 +52,16 @@ export interface AutoResult {
 async function accountIds(tx: Tx, portfolioId: string, codes: string[]) {
   const have = await tx.accAccount.findMany({ where: { portfolioId, code: { in: codes } } });
   const map = new Map(have.map((a) => [a.code, a.id]));
-  for (const code of codes) {
-    if (map.has(code)) continue;
-    const def = COA.find((a) => a.code === code);
-    if (!def) continue;
-    const a = await tx.accAccount.create({ data: { portfolioId, code: def.code, name: def.name, type: def.type, createdBy: SYSTEM_ACTOR_ID } });
-    map.set(code, a.id);
+  if (codes.some((c) => !map.has(c))) {
+    // First automatic posting for this entity: install the whole standard chart (cash, capital, fees, income...) rather than
+    // only the few accounts this journal needs, so manual journals can use the same entity straight away.
+    const all = new Map((await tx.accAccount.findMany({ where: { portfolioId }, select: { code: true, id: true } })).map((a) => [a.code, a.id]));
+    for (const def of COA) {
+      if (all.has(def.code)) continue;
+      const a = await tx.accAccount.create({ data: { portfolioId, code: def.code, name: def.name, type: def.type, createdBy: SYSTEM_ACTOR_ID } });
+      all.set(def.code, a.id);
+    }
+    for (const code of codes) if (!map.has(code) && all.has(code)) map.set(code, all.get(code)!);
   }
   return map;
 }
