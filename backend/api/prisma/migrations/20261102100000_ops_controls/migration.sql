@@ -1,4 +1,4 @@
-﻿-- CreateTable
+-- CreateTable
 CREATE TABLE `pay_recon_runs` (
     `id` CHAR(36) NOT NULL,
     `ref` VARCHAR(16) NOT NULL,
