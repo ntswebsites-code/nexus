@@ -50,7 +50,18 @@ const NAV: { section: string; items: NavItem[] }[] = [
   },
   {
     section: 'Risk & compliance',
-    items: [{ href: '/ops/risk', label: 'Risk & compliance', perms: ['risk.view', 'risk.manage'] }],
+    items: [
+      { href: '/ops/risk', label: 'Risk & compliance', perms: ['risk.view', 'risk.manage'] },
+      { href: '/ops/model-governance', label: 'Model governance', perms: ['risk.view'] },
+    ],
+  },
+  {
+    section: 'Reporting & data',
+    items: [
+      { href: '/ops/reports', label: 'Reports & BI', perms: ['reports.view'] },
+      { href: '/ops/regulatory', label: 'Regulatory reporting', perms: ['reports.view'] },
+      { href: '/ops/data', label: 'Data Fabric & Studio', perms: ['operations.view'] },
+    ],
   },
   {
     section: 'Operations',

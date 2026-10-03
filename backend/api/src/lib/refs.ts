@@ -23,6 +23,11 @@ const FORMATS = {
   cashReservation: { prefix: 'RSV-', pad: 4, start: 1001 },
   cashExpectation: { prefix: 'EXP-', pad: 4, start: 1001 },
   cashImport: { prefix: 'IMP-', pad: 4, start: 1001 },
+  reportRun: { prefix: 'RPT-', pad: 5, start: 1 },
+  regFiling: { prefix: 'REG-', pad: 5, start: 1 },
+  dataJob: { prefix: 'JOB-', pad: 5, start: 1 },
+  dqRun: { prefix: 'DQR-', pad: 5, start: 1 },
+  govModel: { prefix: 'MDL-', pad: 4, start: 1001 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;

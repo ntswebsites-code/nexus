@@ -24,6 +24,10 @@ import { accountingRoutes } from '../modules/accounting';
 import { corporateActionsRoutes } from '../modules/corporate-actions';
 import { cashRoutes } from '../modules/cash';
 import { reconRoutes } from '../modules/recon/recon.routes';
+import { reportsRoutes } from '../modules/reports';
+import { regulatoryRoutes } from '../modules/regulatory';
+import { dataRoutes } from '../modules/data-fabric';
+import { modelRoutes } from '../modules/model-governance';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -49,6 +53,11 @@ v1Router.use('/corporate-actions', corporateActionsRoutes);
 v1Router.use('/cash', cashRoutes);
 // Reconciliations: /recon/* (runs, breaks, sources, signoffs, account-map).
 v1Router.use('/recon', reconRoutes);
+// Reports & BI, Regulatory Reporting, Data Fabric & Studio, Model Governance.
+v1Router.use('/reports', reportsRoutes);
+v1Router.use('/regulatory', regulatoryRoutes);
+v1Router.use('/data', dataRoutes);
+v1Router.use('/model-governance', modelRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);
