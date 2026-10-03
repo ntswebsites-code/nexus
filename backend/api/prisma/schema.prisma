@@ -2413,3 +2413,86 @@ model AccPeriod {
 }
 
 // ---- end Accounting ----
+
+// ---- CorporateActions ----
+/// A corporate action on one security. ANNOUNCED -> CONFIRMED -> PROCESSED (or CANCELLED before processing).
+/// type: CASH_DIVIDEND | STOCK_SPLIT | BONUS_ISSUE | SCRIP_DIVIDEND | RIGHTS_ISSUE | MERGER.
+/// `ratioNew : ratioOld` is new shares per old share; `rate` is cash per share (dividend, rights price or merger cash).
+model CorpActionEvent {
+  id               String    @id @default(uuid()) @db.Char(36)
+  /// CA-00001 ...
+  ref              String    @unique @db.VarChar(16)
+  securityId       String    @map("security_id") @db.Char(36)
+  ticker           String    @db.VarChar(24)
+  securityName     String    @map("security_name") @db.VarChar(200)
+  type             String    @db.VarChar(20)
+  /// ANNOUNCED | CONFIRMED | PROCESSED | CANCELLED
+  status           String    @default("ANNOUNCED") @db.VarChar(12)
+  currency         String    @db.Char(3)
+  exDate           DateTime  @map("ex_date") @db.Date
+  recordDate       DateTime  @map("record_date") @db.Date
+  payDate          DateTime  @map("pay_date") @db.Date
+  /// Required for SCRIP_DIVIDEND and RIGHTS_ISSUE; the last day an election can be recorded.
+  electionDeadline DateTime? @map("election_deadline") @db.Date
+  rate             Decimal?  @db.Decimal(20, 8)
+  ratioNew         Decimal?  @map("ratio_new") @db.Decimal(14, 6)
+  ratioOld         Decimal?  @map("ratio_old") @db.Decimal(14, 6)
+  withholdingPct   Decimal   @default(0) @map("withholding_pct") @db.Decimal(7, 4)
+  /// MERGER: the acquirer security that holders receive.
+  targetSecurityId String?   @map("target_security_id") @db.Char(36)
+  targetTicker     String?   @map("target_ticker") @db.VarChar(24)
+  /// Option applied to holders who do not elect by the deadline (CASH | SCRIP | TAKE_UP | LAPSE).
+  defaultOption    String?   @map("default_option") @db.VarChar(12)
+  description      String?   @db.VarChar(1000)
+  /// The creator; the processor must be someone else.
+  makerId          String    @map("maker_id") @db.Char(36)
+  confirmedBy      String?   @map("confirmed_by") @db.Char(36)
+  confirmedAt      DateTime? @map("confirmed_at")
+  processedBy      String?   @map("processed_by") @db.Char(36)
+  processedAt      DateTime? @map("processed_at")
+  cancelledBy      String?   @map("cancelled_by") @db.Char(36)
+  cancelledAt      DateTime? @map("cancelled_at")
+  cancelReason     String?   @map("cancel_reason") @db.VarChar(1000)
+  entitlementsAt   DateTime? @map("entitlements_at")
+  /// Processing summary (effect date, cash and share totals).
+  detail           Json?
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  entitlements CorpActionEntitlement[]
+
+  @@index([status, exDate])
+  @@index([securityId, exDate])
+  @@map("corp_action_events")
+}
+
+/// One portfolio's entitlement, from its position at the record date. `cashAmount` is the net cash effect (negative
+/// for a rights subscription); `sharesDelta` the change in the held security; `targetShares` merger shares received.
+model CorpActionEntitlement {
+  id           String    @id @default(uuid()) @db.Char(36)
+  eventId      String    @map("event_id") @db.Char(36)
+  portfolioId  String    @map("portfolio_id") @db.Char(36)
+  quantity     Decimal   @db.Decimal(24, 6)
+  option       String?   @db.VarChar(12)
+  elected      Boolean   @default(false)
+  electedBy    String?   @map("elected_by") @db.Char(36)
+  electedAt    DateTime? @map("elected_at")
+  grossAmount  Decimal   @default(0) @map("gross_amount") @db.Decimal(20, 4)
+  taxAmount    Decimal   @default(0) @map("tax_amount") @db.Decimal(20, 4)
+  cashAmount   Decimal   @default(0) @map("cash_amount") @db.Decimal(20, 4)
+  sharesDelta  Decimal   @default(0) @map("shares_delta") @db.Decimal(24, 6)
+  targetShares Decimal   @default(0) @map("target_shares") @db.Decimal(24, 6)
+  /// PENDING | APPLIED | SKIPPED
+  status       String    @default("PENDING") @db.VarChar(10)
+  appliedAt    DateTime? @map("applied_at")
+  detail       Json?
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  event CorpActionEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  @@unique([eventId, portfolioId])
+  @@index([portfolioId])
+  @@map("corp_action_entitlements")
+}
+// ---- end CorporateActions ----

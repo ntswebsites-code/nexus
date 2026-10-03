@@ -103,6 +103,8 @@ export const api = {
     unwrap<T>(await apiRequest('POST', path, body, opts)),
   patch: async <T>(path: string, body: unknown = {}, opts?: RequestOptions) =>
     unwrap<T>(await apiRequest('PATCH', path, body, opts)),
+  put: async <T>(path: string, body: unknown = {}, opts?: RequestOptions) =>
+    unwrap<T>(await apiRequest('PUT', path, body, opts)),
 };
 
 export const ops = (path: string) => `/api/v1/ops${path}`;

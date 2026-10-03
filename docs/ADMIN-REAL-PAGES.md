@@ -810,3 +810,57 @@ The script (`scripts/test-accounting.ts`) covers the engine rules, permissions, 
 - No automatic journals from NAV, fees, trades or cash (all entries are manual); no multi-currency or FX revaluation; no journal attachments.
 - Close does not cover unreconciled non-entity breaks (those with no portfolio) or per-fund tax and audit steps.
 - Chart editing needs `accounting.post`; there is no separate chart-admin right.
+
+## Corporate Actions
+
+Page 19 `corporate-actions` (SRD 5.A, permission `operations.view`). Module `backend/api/src/modules/corporate-actions` (`ca.engine.ts` pure entitlement maths, `ca.service.ts` entitlements, processing and views, `ca.routes.ts`), mounted at `/api/v1/corporate-actions`, admin portal staff only.
+
+### Tables (migration `20261005100000_corporate_actions`, additive)
+
+`corp_action_events` (ref `CA-00001`, security, type, status, ex/record/pay dates, election deadline, rate, ratio new:old, withholding %, merger acquirer, default option, maker, confirmer, processor, cancel reason, processing summary) and `corp_action_entitlements` (one per portfolio and event: record-date quantity, option and election, gross, tax, net cash, shares delta, merger target shares, PENDING/APPLIED/SKIPPED). The security and portfolio links are logical (no foreign key), like NAV; entitlements cascade with the event.
+
+### Rules
+
+- Types: CASH_DIVIDEND, STOCK_SPLIT, BONUS_ISSUE, SCRIP_DIVIDEND (election CASH or SCRIP, default CASH), RIGHTS_ISSUE (TAKE_UP or LAPSE, default LAPSE), MERGER (acquirer security, ratio, optional cash per share). Dates must satisfy ex-date <= record date <= pay date; elective types need an election deadline on or before the pay date.
+- Status: ANNOUNCED -> CONFIRMED -> PROCESSED, or CANCELLED (reason, any time before processed). Only ANNOUNCED can be edited (editing clears the entitlements).
+- Entitlements: from each portfolio's latest position row on or before the record date (Closed portfolios and zero holdings skipped), Decimal maths, cash rounded half-up to 4 dp, shares rounded **down** to whole shares (fractions are reported, no cash in lieu). Calculation needs the record date to have passed; recalculating keeps valid elections.
+- Elections: `PUT /events/:id/elections`, allowed until the end of the deadline day; the portfolio's entitlement is re-priced for the option. Holders who do not elect get the default option when processed.
+- **Processing** (`corporate_actions.process` + step-up MFA; the processor must differ from the creator, 403 `segregation_of_duties`; needs calculated entitlements) applies every entitlement in one transaction through the same append-by-date rows Orders writes: `positions` (quantity and average cost: splits and bonus keep total cost, scrip and rights add their cost, a merger closes the holding and opens the acquirer at the carried cost) and `portfolio_cash` (net dividend, rights cost, merger cash, in the event currency). Effect date is the ex-date for splits and bonus issues, else the pay date, never earlier than today (history is not rewritten). If a portfolio sold since the record date the share change is limited to what it holds (flagged on the entitlement).
+- Mutations that create records take `Idempotency-Key`; actions accept it; every state change is guarded by a state-checked update (409 `version_conflict` if it moved). Audit actions: `corp_action.created`, `.updated`, `.confirmed`, `.entitlements_calculated`, `.election_recorded`, `.processed`, `.cancelled`. Confirm notifies `corporate_actions.process` holders.
+
+### Endpoints (`/api/v1/corporate-actions`)
+
+| Endpoint | Permission |
+|---|---|
+| `GET /events` (filters security, type, status, from/to ex-date, q), `/events/:id`, `/upcoming?days` | `operations.view` |
+| `POST /events`, `PATCH /events/:id`, `POST /events/:id/confirm`, `/entitlements/calculate`, `/cancel`, `PUT /events/:id/elections` | `operations.view` |
+| `POST /events/:id/process` | `corporate_actions.process` + step-up (not the creator) |
+
+**New permission** `corporate_actions.process` in `role-catalog.json` for Operations, Fund Accountant and Investment Director; Dealer and Auditor keep `operations.view` only (Auditor read-only). Existing databases pick it up when `prisma/seed.ts` runs again.
+
+### Console
+
+`/ops/corporate-actions` (nav section "Operations"): tiles, an Upcoming list (next 90 days) and an All events list with filters, and New corporate action (fields change with the type). `/ops/corporate-actions/[id]`: terms, entitlements per portfolio with Record election, history, and Edit, Confirm, Calculate, Process, Cancel enabled from the server `allowed` flags. Typecheck only; no browser verification was done.
+
+### Demo seed
+
+`prisma/seed-corporate-actions.ts` (called by `seed-uat.ts` and `seed-demo.ts`, also standalone, idempotent): a DLTA.ZW cash dividend, a SIM.ZW scrip dividend (confirmed, with election) and a CMCL.VX 2-for-1 split, dated relative to the seed day. Nothing is processed.
+
+### Running the test
+
+```
+# disposable DB only; same steps as the other modules
+cd backend/api
+npx prisma migrate deploy --schema prisma/schema.prisma
+npx tsx --env-file-if-exists=../../.env prisma/seed.ts
+API_PORT=4181 npx tsx --env-file-if-exists=../../.env src/server.ts      # another terminal; FILE_ENCRYPTION_KEY must be set
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exists=../../.env scripts/test-corporate-actions.ts
+```
+
+The script (`scripts/test-corporate-actions.ts`) covers the engine maths, validation, permissions, the full flow, maker-checker and step-up, effects on positions and cash for each type, elections and deadline, cancel, idempotency and audit. It was typechecked but **not run** (no local database was started).
+
+### Not done
+
+- No cash in lieu of fractional shares, no tax on non-dividend actions, no partial rights take-up or oversubscription, no rights trading or sale.
+- Effects are not linked to Accounting journals or the cash ledger (`/cash`); they update the portfolio position and cash rows only. No automatic corporate-action feed; announcements are entered by hand. Entitlements use the portfolio positions, not LP or client level holdings.
+- A processed action cannot be reversed; correct it with a new action or a manual adjustment.

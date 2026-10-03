@@ -50,7 +50,10 @@ const NAV: { section: string; items: NavItem[] }[] = [
   },
   {
     section: 'Operations',
-    items: [{ href: '/ops/reconciliation', label: 'Reconciliations', perms: ['operations.view'] }],
+    items: [
+      { href: '/ops/reconciliation', label: 'Reconciliations', perms: ['operations.view'] },
+      { href: '/ops/corporate-actions', label: 'Corporate actions', perms: ['operations.view'] },
+    ],
   },
   {
     section: 'Dealing & deals',

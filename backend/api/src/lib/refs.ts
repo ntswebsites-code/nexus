@@ -17,6 +17,7 @@ const FORMATS = {
   riskCase: { prefix: 'RC-', pad: 4, start: 1001 },
   navRun: { prefix: 'NAV-', pad: 5, start: 1 },
   journal: { prefix: 'JNL-', pad: 5, start: 1 },
+  corpAction: { prefix: 'CA-', pad: 5, start: 1 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;
