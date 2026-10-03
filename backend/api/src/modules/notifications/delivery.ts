@@ -22,7 +22,8 @@ export function lpCategory(type: string): 'CapitalCalls' | 'Distributions' | 'Do
   if (type.startsWith('capital')) return 'CapitalCalls';
   if (type.startsWith('distribution')) return 'Distributions';
   if (type.startsWith('document')) return 'Documents';
-  if (type.startsWith('message')) return 'Messages';
+  if (type.startsWith('message') || type.startsWith('service_request')) return 'Messages';
+  if (type.startsWith('dealing')) return 'CapitalCalls';
   if (type.startsWith('notice') || type.startsWith('lp_notice')) return 'Notices';
   return null;
 }
@@ -79,6 +80,23 @@ export function decideRoute(args: {
   return { inApp, email };
 }
 
+/**
+ * A member of several clients has one `lp.prefs:<clientId>` row per client, and a notification does not say which
+ * client it concerns. A channel is therefore muted only when every row mutes it; the digest applies only when all
+ * rows ask for the same digest.
+ */
+export function mergeLpPrefs(rows: (Record<string, unknown> | null | undefined)[]): Record<string, unknown> | null {
+  const list = rows.filter((r): r is Record<string, unknown> => !!r);
+  if (!list.length) return null;
+  if (list.length === 1) return list[0]!;
+  const out: Record<string, unknown> = {};
+  for (const k of new Set(list.flatMap((r) => Object.keys(r)))) {
+    if (k === 'digest') out.digest = list.every((r) => r.digest === list[0]!.digest) ? list[0]!.digest : 'off';
+    else out[k] = list.some((r) => r[k] !== false);
+  }
+  return out;
+}
+
 /** Loads preferences for the recipients and returns a route per user id. */
 export async function routeNotifications(userIds: string[], type: string, wantsEmail: boolean): Promise<Map<string, Route>> {
   const [platformEmail, criticalChannel, prefs, lpRows] = await Promise.all([
@@ -89,8 +107,9 @@ export async function routeNotifications(userIds: string[], type: string, wantsE
   ]);
   const out = new Map<string, Route>();
   for (const id of userIds) {
-    const lpRow = lpRows.find((r) => r.ownerId === id);
-    const lpValue = lpRow?.value as { notifications?: Record<string, unknown> } | null | undefined;
+    const lpMerged = mergeLpPrefs(
+      lpRows.filter((r) => r.ownerId === id).map((r) => (r.value as { notifications?: Record<string, unknown> } | null)?.notifications ?? null),
+    );
     out.set(
       id,
       decideRoute({
@@ -99,7 +118,7 @@ export async function routeNotifications(userIds: string[], type: string, wantsE
         platformEmail,
         criticalChannel,
         prefs: prefs.filter((p) => p.userId === id),
-        lp: lpValue?.notifications ?? null,
+        lp: lpMerged,
       }),
     );
   }

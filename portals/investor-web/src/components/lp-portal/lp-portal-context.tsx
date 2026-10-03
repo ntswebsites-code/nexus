@@ -7,6 +7,7 @@ import { mapSessionFund } from "@/lib/lp-portal/mappers"
 import {
   joinLpPortalOrg,
   subscribeLpRealtime,
+  isLpRealtimeConnected,
 } from "@/lib/lp-portal/realtime"
 import type { FundOperatingModel, LpFund, LpPortalClient, LpPortalUnreadCounts, LpRole, ValuationStatus } from "@/lib/lp-portal/types"
 
@@ -154,6 +155,9 @@ export function LpPortalProvider({ children }: { children: React.ReactNode }) {
       subscribeLpRealtime("lp_request_updated", () => bumpRefresh("requests")),
       subscribeLpRealtime("lp_request_message", () => bumpRefresh(["requests", "messages"])),
       subscribeLpRealtime("lp_thread_message", () => bumpRefresh(["messages", "notifications"])),
+      subscribeLpRealtime("lp_capital_updated", () => bumpRefresh(["capital", "activity", "dashboard", "notifications"])),
+      subscribeLpRealtime("lp_document_published", () => bumpRefresh(["documents", "dashboard", "notifications"])),
+      subscribeLpRealtime("lp_dealing_updated", () => bumpRefresh(["dealing", "activity", "dashboard", "notifications"])),
       subscribeLpRealtime("lp_thread_read", () => bumpRefresh("messages")),
       subscribeLpRealtime("lp_thread_updated", () => bumpRefresh("messages")),
     ]
@@ -177,6 +181,7 @@ export function LpPortalProvider({ children }: { children: React.ReactNode }) {
     for (const evt of events) window.addEventListener(evt, onActivity, { passive: true })
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible") return
+      if (isLpRealtimeConnected()) return // pushed by the SSE stream
       if (Date.now() - lastActivity > LP_POLL_ACTIVE_WINDOW_MS) return
       if (!isLpDomainLive("session") && !isLpDomainLive("notices")) return
       if (isLpDomainLive("session")) void refreshSession({ quiet: true })

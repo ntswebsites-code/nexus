@@ -35,7 +35,7 @@ interface Prefs {
 
 const prefKey = (ctx: LpContext) => `lp.prefs:${ctx.client.id}`;
 
-async function loadPrefs(ctx: LpContext): Promise<Prefs> {
+export async function loadPrefs(ctx: LpContext): Promise<Prefs> {
   const row = await prisma.setting.findUnique({ where: { ownerId_key: { ownerId: ctx.userId, key: prefKey(ctx) } } });
   const v = asRecord(row?.value);
   const n = asRecord(v.notifications);

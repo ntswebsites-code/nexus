@@ -6,10 +6,11 @@ import { dec, day, lpOk } from '../lp.http';
 import { fundScopeWhere } from '../services/common';
 import { visibleNoticeWhere } from '../services/notices';
 import { applyPendingColleagueScope } from '../services/organisation';
+import { loadPrefs } from './settings.routes';
 
 export { visibleNoticeWhere };
 
-async function unreadCounts(ctx: LpContext): Promise<LpSession['unreadCounts']> {
+export async function unreadCounts(ctx: LpContext): Promise<LpSession['unreadCounts']> {
   const [requests, threads, notices, notifications] = await Promise.all([
     prisma.serviceRequest.count({
       where: { clientId: ctx.client.id, status: 'Waiting on you', ...fundScopeWhere(ctx) },
@@ -34,6 +35,17 @@ async function unreadCounts(ctx: LpContext): Promise<LpSession['unreadCounts']> 
   return { requests, messages, notices, notifications };
 }
 
+/** Last calendar quarter-end on or before an ISO date ('' when the date is empty). */
+export function quarterEndOnOrBefore(date: string): string | null {
+  const m = date.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const q = Math.floor((Number(m[2]) - 1) / 3);
+  const end = new Date(Date.UTC(y, q * 3 + 3, 0)).toISOString().slice(0, 10);
+  if (end <= date) return end;
+  return new Date(Date.UTC(y, q * 3, 0)).toISOString().slice(0, 10);
+}
+
 export async function buildSession(ctx: LpContext): Promise<LpSession> {
   const commitments = await prisma.fundCommitment.findMany({
     where: { clientId: ctx.client.id, fundId: { in: ctx.fundIds } },
@@ -53,7 +65,16 @@ export async function buildSession(ctx: LpContext): Promise<LpSession> {
     investorAccountReference: c.investorAccountRef ?? ctx.client.ref,
     commitmentAmount: dec(c.commitmentAmount),
   }));
-  const latest = funds.map((f) => f.asOfDate).filter(Boolean).sort().at(-1) ?? '';
+  const prefs = await loadPrefs(ctx);
+  const dates = funds.map((f) => f.asOfDate).filter(Boolean).sort();
+  const latestAny = dates.at(-1) ?? '';
+  // Saved display preference decides the default as-of date (FR-LP-103).
+  const latest =
+    prefs.defaultAsOfPreference === 'LATEST_FINAL'
+      ? (funds.filter((f) => f.valuationStatus === 'FINAL').map((f) => f.asOfDate).filter(Boolean).sort().at(-1) ?? latestAny)
+      : prefs.defaultAsOfPreference === 'QUARTER_END'
+        ? (quarterEndOnOrBefore(latestAny) ?? latestAny)
+        : latestAny;
   return {
     client: {
       id: ctx.client.id,
@@ -63,7 +84,7 @@ export async function buildSession(ctx: LpContext): Promise<LpSession> {
       displayName: ctx.client.name,
     },
     lpRole: ctx.lpRole,
-    presentationCurrency: ctx.client.baseCurrency,
+    presentationCurrency: prefs.presentationCurrency,
     defaultAsOfDate: latest,
     defaultValuationStatus: funds.find((f) => f.asOfDate === latest)?.valuationStatus ?? 'FINAL',
     funds,
@@ -86,7 +107,17 @@ lpSessionRoutes.get('/session', async (req, res) => {
  * The first call (no cursor) returns no changes and a starting cursor. A cursor older than a day is treated as a
  * first call (the screens reload their data on start anyway).
  */
-const REALTIME_EVENTS = ['lp_notification', 'lp_notice_updated', 'lp_request_created', 'lp_request_updated', 'lp_request_message', 'lp_thread_message'];
+export const REALTIME_EVENTS = [
+  'lp_notification',
+  'lp_notice_updated',
+  'lp_request_created',
+  'lp_request_updated',
+  'lp_request_message',
+  'lp_thread_message',
+  'lp_capital_updated',
+  'lp_document_published',
+  'lp_dealing_updated',
+];
 const REALTIME_MAX_AGE_MS = 24 * 3_600_000;
 
 export function realtimeEventsFor(type: string): string[] {
@@ -95,6 +126,9 @@ export function realtimeEventsFor(type: string): string[] {
   if (type === 'service_request.created') out.push('lp_request_created');
   else if (type.startsWith('service_request')) out.push('lp_request_updated');
   if (type.startsWith('message')) out.push('lp_thread_message', 'lp_request_message');
+  if (type.startsWith('capital') || type.startsWith('distribution')) out.push('lp_capital_updated');
+  if (type.startsWith('document')) out.push('lp_document_published');
+  if (type.startsWith('dealing')) out.push('lp_dealing_updated');
   return out;
 }
 
@@ -108,7 +142,7 @@ lpSessionRoutes.get('/realtime', async (req, res) => {
     realtimeEventsFor(n.type).map((event) => ({ id: `${n.id}:${event}`, event, at: n.createdAt.toISOString(), payload: { notificationId: n.id, type: n.type, link: n.link } })),
   );
   const cursor = (rows.length ? rows[rows.length - 1]!.createdAt : (since ?? now)).toISOString();
-  const info: LpRealtimeInfo = { enabled: true, transport: 'polling', pollingIntervalMs: 15000, events: REALTIME_EVENTS, cursor, changes };
+  const info: LpRealtimeInfo & { streamUrl: string } = { enabled: true, transport: 'polling', streamUrl: '/api/v1/lp-portal/realtime/stream', pollingIntervalMs: 15000, events: REALTIME_EVENTS, cursor, changes };
   lpOk(req, res, info);
 });
 

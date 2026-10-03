@@ -14,6 +14,8 @@ import { lpRequestsRoutes } from './routes/requests.routes';
 import { lpOrganisationRoutes } from './routes/organisation.routes';
 import { lpSettingsRoutes } from './routes/settings.routes';
 import { lpReportsRoutes } from './routes/reports.routes';
+import { lpStreamRoutes } from './routes/stream.routes';
+import { lpStatementsRoutes } from './routes/statements.routes';
 
 /**
  * `/api/v1/lp-portal` - the LP contract facade (SRD 5B). Every handler is scoped by `req.lp`
@@ -36,6 +38,8 @@ lpPortalRoutes.use(
   lpOrganisationRoutes,
   lpSettingsRoutes,
   lpReportsRoutes,
+  lpStreamRoutes,
+  lpStatementsRoutes,
 );
 lpPortalRoutes.use(() => {
   throw LpError.notFound('Endpoint');

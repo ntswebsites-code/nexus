@@ -261,6 +261,9 @@ export function LpPerformanceScreen() {
   const [benchmarkBars, setBenchmarkBars] = React.useState<Array<{ name: string; value: number; fill: string }>>([])
   const [benchmarkLoading, setBenchmarkLoading] = React.useState(false)
   const [reportLoading, setReportLoading] = React.useState(false)
+  const [statements, setStatements] = React.useState<{ period: string; periodEnd: string }[]>([])
+  const [statementPeriod, setStatementPeriod] = React.useState("")
+  const [statementLoading, setStatementLoading] = React.useState(false)
 
   const apiPeriod = PERIOD_TO_API[period] ?? "SI"
   const { data, loading, error, reload } = useLpPerformanceBundle(apiPeriod, benchmark)
@@ -374,6 +377,37 @@ export function LpPerformanceScreen() {
     }
   }, [benchMetric, benchmark, fundId])
 
+  React.useEffect(() => {
+    let cancelled = false
+    Promise.resolve()
+      .then(() => lpPortalApi.getStatements({ fundId }))
+      .then((res) => {
+        if (cancelled) return
+        setStatements(res.data.items)
+        setStatementPeriod((cur) => (res.data.items.some((i) => i.period === cur) ? cur : (res.data.items[0]?.period ?? "")))
+      })
+      .catch(() => {
+        if (!cancelled) setStatements([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [fundId])
+
+  const downloadStatement = async () => {
+    if (!statementPeriod) return
+    setStatementLoading(true)
+    try {
+      const blob = await lpPortalApi.downloadStatement(statementPeriod, { fundId })
+      downloadBlob(blob, `statement-${statementPeriod.toLowerCase()}.pdf`)
+      toast.success("Statement downloaded")
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to download statement")
+    } finally {
+      setStatementLoading(false)
+    }
+  }
+
   const downloadReport = async () => {
     setReportLoading(true)
     try {
@@ -387,6 +421,14 @@ export function LpPerformanceScreen() {
         await new Promise((resolve) => window.setTimeout(resolve, 2000))
         job = await lpPortalApi.getJob(res.data.jobId)
         attempts += 1
+      }
+      if (job.data.status.toUpperCase() === "CANCELLED") {
+        toast.error("Report generation was cancelled")
+        return
+      }
+      if (!["COMPLETED"].includes(job.data.status.toUpperCase()) && job.data.status.toUpperCase() !== "FAILED") {
+        toast.info("The report is still being prepared. Try again shortly.")
+        return
       }
       if (job.data.status.toUpperCase() === "FAILED") {
         toast.error(job.data.errorMessage ?? "Report generation failed")
@@ -1016,8 +1058,34 @@ export function LpPerformanceScreen() {
               onClick={() => void downloadReport()}
             >
               <Download className="size-3.5 text-[#2563eb]" />
-              Download Report
+              {reportLoading ? "Preparing report…" : "Download Report"}
             </Button>
+            {statements.length > 0 ? (
+              <div className="mt-3 flex items-center gap-2">
+                <Select value={statementPeriod} onValueChange={setStatementPeriod}>
+                  <SelectTrigger className="h-9 w-[130px] rounded-full text-[12px]" aria-label="Statement period">
+                    <SelectValue placeholder="Quarter" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {statements.map((s) => (
+                      <SelectItem key={s.period} value={s.period}>
+                        {s.period.replace("-", " ")}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={statementLoading || !statementPeriod}
+                  className="h-9 rounded-full border-[#d1d5db] bg-white px-4 text-[12px] font-medium text-[#2563eb] shadow-none hover:bg-[#f9fafb] hover:text-[#1d4ed8]"
+                  onClick={() => void downloadStatement()}
+                >
+                  <Download className="size-3.5 text-[#2563eb]" />
+                  {statementLoading ? "Preparing…" : "Download Statement"}
+                </Button>
+              </div>
+            ) : null}
           </div>
         </section>
       </div>

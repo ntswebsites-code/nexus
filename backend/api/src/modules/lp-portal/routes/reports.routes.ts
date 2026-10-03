@@ -86,17 +86,21 @@ lpReportsRoutes.get('/reports/:jobId/download', requireLp('lp.documents.download
   const job = await loadPerformanceJob(ctx, jobId);
   if (job) {
     const pdf = renderPerformanceReport(ctx.client.name, job);
+    const reqFundId = typeof job.request.fundId === 'string' ? job.request.fundId : null;
+    const fund = reqFundId ? await prisma.fund.findUnique({ where: { id: reqFundId }, select: { shortName: true, ref: true } }) : null;
+    const asOf = (job.result as { asOfDate?: string } | null)?.asOfDate ?? new Date().toISOString().slice(0, 10);
+    const slug = (fund ? (fund.shortName ?? fund.ref) : 'all-funds').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'fund';
     await prisma.$transaction((tx) =>
       writeAudit(tx, lpAudit(req), {
         action: 'lp_report.downloaded',
         objectType: 'lp_job',
         objectId: jobId,
-        after: { period: typeof job.request.period === 'string' ? job.request.period : null },
+        after: { period: typeof job.request.period === 'string' ? job.request.period : null, fundId: reqFundId, clientId: ctx.client.id, userId: ctx.userId, jobId },
       }),
     );
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', String(pdf.length));
-    res.setHeader('Content-Disposition', 'attachment; filename="lp-performance-report.pdf"');
+    res.setHeader('Content-Disposition', `attachment; filename="fund-performance-${slug}-${asOf}.pdf"`);
     res.setHeader('Cache-Control', 'private, no-store');
     res.status(200).send(pdf);
     return;

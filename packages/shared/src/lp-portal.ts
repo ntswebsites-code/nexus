@@ -685,6 +685,8 @@ export interface LpRealtimeInfo {
   pollingIntervalMs?: number
   /** `polling` when the API answers `GET /realtime?since=<cursor>` with change events (there is no push transport). */
   transport?: "polling"
+  /** Server-sent events endpoint (path under the API origin); polling is the fallback when it cannot connect. */
+  streamUrl?: string
   cursor?: string
   changes?: LpRealtimeChange[]
 }
