@@ -351,7 +351,7 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
                         {s.lpDeliver && <span className="ops-sub">To LP portal (approved by {s.lpDeliverApprovedBy ?? 'n/a'})</span>}
                       </td>
                       <td>{s.rolling ? label(s.rolling) : 'Fixed dates'}</td>
-                      <td>{dayOf(s.nextRunOn)}</td>
+                      <td title="Schedules run by calendar day. Run now does not move this date.">{s.nextRunOn ? new Date(s.nextRunOn).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '-'}</td>
                       <td>{when(s.lastRunAt)}</td>
                       <td>
                         <Tone value={s.active ? 'ACTIVE' : 'PAUSED'} />

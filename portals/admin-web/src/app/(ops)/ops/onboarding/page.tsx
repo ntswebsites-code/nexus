@@ -31,7 +31,7 @@ interface Workup {
   case: { id: string; ref: string; name: string; stage: string; risk: string; version: number; blockers: string[]; email: string };
   app: { country: string | null; pep: string | null; sourceOfFunds: string | null; expectedInvestment: number | null; owners: number };
   checks: { kind: string; outcome: string | null; provider: string | null; notes: string | null; by: string | null; at: string | null; history: number }[];
-  riskPreview: { score: number; rating: string; factors: Factor[] };
+  riskPreview: { score: number; rating: string; factors: Factor[]; provisional?: boolean; checksRun?: number; checksTotal?: number };
   assessments: { id: string; score: number; rating: string; factors: Factor[]; rationale: string | null; status: string; maker: string | null; makerId: string; checker: string | null; decisionNote: string | null; at: string }[];
   gates: { blockers: string[]; riskApproved: boolean; checksComplete: boolean; openReferrals: string[] };
   timeline: { at: string; title: string; detail: string | null }[];
@@ -202,6 +202,7 @@ function CaseModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                 </div>
                 <TriagePanel id={c.id} manage={manage} />
                 <h3>Risk rating</h3>
+                {w.riskPreview.provisional && <Alert kind="warn">Provisional: {w.riskPreview.checksRun ?? 0} of {w.riskPreview.checksTotal ?? 0} provider checks have been recorded. Checks not yet run add no risk points, so this rating is not a clearance.</Alert>}
                 <p>
                   Computed now: <Tone value={w.riskPreview.rating} /> (score {w.riskPreview.score}). Case rating: <Tone value={c.risk} />.
                   {' '}{w.gates.riskApproved ? 'Approved assessment matches.' : 'No approved assessment matches the case rating.'}

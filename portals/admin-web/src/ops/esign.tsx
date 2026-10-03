@@ -5,7 +5,7 @@ import { EsignInbox } from '@matanho/portal-kit';
 import { api, apiBase, apiRequest, describeError, qs } from './api';
 import { Badge, downloadCsv } from './admin-core';
 import { Tiles } from './suite';
-import { useCan } from './session';
+import { useCan, useSession } from './session';
 import { Alert, Card, DefinitionList, Empty, Field, FieldGrid, formatDateTime, FormModal, Loaded, Modal, PageHeader, useAction, useResource } from './ui';
 import { FieldEditor, defaultLayout, layoutSummary, type FieldBox } from './esign-fields';
 import { BatchesCard, BulkModal, CadenceFields, DocPicker, FlowModal, PersonPicker, cadenceBody, type FlowKind } from './esign-flows';
@@ -33,6 +33,7 @@ export function EsignScreen() {
   const [draftQ, setDraftQ] = useState('');
   const res = useResource<ListResponse>(() => apiRequest<ListResponse>('GET', esign(`/requests${qs({ status, q })}`)), [status, q]);
   const [openId, setOpenId] = useState<string | null>(null);
+  const mine = useResource<{ id: string; actionable: boolean }[]>(() => apiRequest<{ data: { id: string; actionable: boolean }[] }>('GET', esign('/me/requests')).then((r) => r.data), []);
   const [wizard, setWizard] = useState(false);
   const [flow, setFlow] = useState<FlowKind | null>(null);
   const [verify, setVerify] = useState(false);
@@ -98,6 +99,14 @@ export function EsignScreen() {
           </>
         }
       />
+      {mine.state === 'ok' && mine.data.filter((m) => m.actionable).length > 0 && (
+        <Alert kind="info">
+          {mine.data.filter((m) => m.actionable).length} document{mine.data.filter((m) => m.actionable).length === 1 ? ' is' : 's are'} waiting for your own signature.{' '}
+          <button className="ops-btn small primary" type="button" onClick={() => setTab('mine')}>
+            Review and sign
+          </button>
+        </Alert>
+      )}
       <Tiles
         items={(['PENDING', 'COMPLETED', 'DECLINED', 'EXPIRED', 'VOIDED', 'DRAFT'] as const).map((k) => ({
           label: k.charAt(0) + k.slice(1).toLowerCase(),
@@ -179,7 +188,7 @@ export function EsignScreen() {
       </Card>
       <BatchesCard refreshKey={batchKey} onOpenRequest={setOpenId} openBatch={batchId} onOpenBatch={setBatchId} onCloseBatch={() => setBatchId(null)} />
       {bulk && <BulkModal onClose={() => setBulk(false)} onDone={(id) => { res.reload(); setBatchKey((n) => n + 1); setBatchId(id); }} />}
-      {openId && <DetailModal id={openId} onClose={() => setOpenId(null)} onChanged={res.reload} />}
+      {openId && <DetailModal id={openId} onClose={() => setOpenId(null)} onChanged={res.reload} onSignMine={() => { setOpenId(null); setTab('mine'); }} />}
       {wizard && <Wizard onClose={() => setWizard(false)} onCreated={(id) => { res.reload(); setOpenId(id); }} />}
       {flow && <FlowModal flow={flow} onClose={() => setFlow(null)} onCreated={(id) => { res.reload(); setOpenId(id); }} />}
       {verify && <VerifyModal onClose={() => setVerify(false)} />}
@@ -189,7 +198,8 @@ export function EsignScreen() {
 
 // ------------------------------------------------------------------ detail
 
-function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
+function DetailModal({ id, onClose, onChanged, onSignMine }: { id: string; onClose: () => void; onChanged: () => void; onSignMine: () => void }) {
+  const { user } = useSession();
   const canManage = useCan('esign.manage');
   const canVoid = useCan('esign.void');
   const res = useResource<{ request: EsignRequest }>(() => api.get<{ request: EsignRequest }>(esign(`/requests/${id}`)), [id]);
@@ -266,6 +276,11 @@ function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
                           {s.ip && <div className="ops-muted">{s.ip}</div>}
                         </td>
                         <td>
+                          {s.userId === user.id && r.status === 'PENDING' && s.status === 'PENDING' && (
+                            <button className="ops-btn small primary" type="button" onClick={onSignMine}>
+                              Sign
+                            </button>
+                          )}{' '}
                           {canManage && r.status === 'PENDING' && s.status === 'PENDING' && (
                             <button className="ops-btn small" type="button" disabled={act.busy} onClick={async () => { if ((await act.run(() => api.post(esign(`/requests/${id}/resend`), { signerId: s.id }))) !== undefined) after(); }}>
                               Resend

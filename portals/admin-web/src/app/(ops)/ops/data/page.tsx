@@ -556,7 +556,7 @@ function RulesTab({ ds }: { ds: DatasetsResp }) {
                       </td>
                       <td>
                         {label(r.checkType)} on {r.dataset}.{r.col}
-                        <span className="ops-sub">{r.params ? JSON.stringify(r.params) : ''}</span>
+                        <span className="ops-sub">{describeParams(r.params)}</span>
                       </td>
                       <td>
                         <Tone value={r.severity} />
@@ -738,6 +738,24 @@ function RulesTab({ ds }: { ds: DatasetsResp }) {
 }
 
 /** The foreign-key column an ORPHAN relation checks is `<relation>_id` in every registry dataset. */
+const OPS: Record<string, string> = { lt: 'less than', lte: 'at most', gt: 'greater than', gte: 'at least', eq: 'equal to', ne: 'different from' };
+
+/** Plain-language form of a rule's stored parameters (never the raw JSON). */
+function describeParams(params: unknown): string {
+  if (!params || typeof params !== 'object') return '';
+  const p = params as Record<string, unknown>;
+  const parts: string[] = [];
+  if (p.op !== undefined || p.other !== undefined) parts.push(`must be ${OPS[String(p.op)] ?? String(p.op)} ${String(p.other ?? '')}`.trim());
+  if (p.min !== undefined && p.min !== null && p.min !== '') parts.push(`min ${String(p.min)}`);
+  if (p.max !== undefined && p.max !== null && p.max !== '') parts.push(`max ${String(p.max)}`);
+  if (p.maxAgeDays !== undefined) parts.push(`no older than ${String(p.maxAgeDays)} days`);
+  if (p.relation !== undefined) parts.push(`relation ${String(p.relation)}`);
+  if (p.refDataset !== undefined) parts.push(`must exist in ${String(p.refDataset)}.${String(p.refCol ?? '')}`);
+  const known = new Set(['op', 'other', 'min', 'max', 'maxAgeDays', 'relation', 'refDataset', 'refCol']);
+  for (const [k, v] of Object.entries(p)) if (!known.has(k)) parts.push(`${k}: ${typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
+  return parts.join(', ');
+}
+
 const colForRelation = (_d: Dataset | undefined, relation: string) => `${relation}_id`;
 
 function ExceptionsTab() {

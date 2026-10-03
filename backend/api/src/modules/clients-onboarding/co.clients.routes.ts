@@ -62,7 +62,7 @@ coClientsRoutes.get('/clients/:id/360', requirePermission('clients.view'), async
   const openRequests = requests.filter((r) => r.status !== 'Closed');
   res.json({
     pendingChanges: await prisma.clientChangeRequest.count({ where: { clientId: client.id, status: 'PENDING' } }),
-    client: { ...clientView(row), dealingHold: client.dealingHold, holdReason: client.holdReason, country: client.country, relationshipOwnerId: client.relationshipOwnerId },
+    client: { ...clientView(row), accounts: accounts.length, mandate: row.mandates.find((m) => m.status !== 'Closed')?.name ?? row.mandateLabel ?? '—', dealingHold: client.dealingHold, holdReason: client.holdReason, country: client.country, relationshipOwnerId: client.relationshipOwnerId },
     mandates: row.mandates.map((m) => ({ id: m.ref, name: m.name, type: m.type, status: m.status })),
     cashAccounts: accounts.map((a) => ({ ...cashAccountView(a), status: a.status })),
     portfolios: portfolios.map((p) => ({ id: p.ref, name: p.name, type: p.type, currency: p.baseCurrency, status: p.status })),

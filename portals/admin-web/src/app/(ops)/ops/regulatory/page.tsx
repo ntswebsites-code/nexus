@@ -275,7 +275,16 @@ function FilingModal({ id, onClose }: { id: string; onClose: () => void }) {
               {f.returnReason && <Alert kind="warn">{f.status === 'WAIVED' ? 'Waived' : 'Returned'}: {f.returnReason}</Alert>}
               <div className="ops-actions" style={{ margin: '10px 0' }}>
                 {f.actions.populate && <ActionButton label="Rebuild from live data" confirm="Rebuild the figures from live data? You become the preparer." onRun={post('/populate')} onDone={res.reload} />}
-                {f.actions.submitForReview && <ActionButton primary label="Send for review" onRun={post('/submit-review')} onDone={res.reload} />}
+                {f.actions.submitForReview && (() => {
+                  // Derived from the current filing, and keyed on it, so a failure message from an earlier click cannot outlive the fix.
+                  const missing = [!f.payload && 'populate the figures', f.evidence.length === 0 && 'attach at least one piece of evidence'].filter(Boolean) as string[];
+                  return (
+                    <>
+                      <ActionButton key={`${f.payload ? 'p' : 'n'}-${f.evidence.length}`} primary label="Send for review" disabled={missing.length > 0} title={missing.length ? `First ${missing.join(' and ')}` : undefined} onRun={post('/submit-review')} onDone={res.reload} />
+                      {missing.length > 0 && <span className="ops-sub">First {missing.join(' and ')}.</span>}
+                    </>
+                  );
+                })()}
                 {f.actions.approve && <ActionButton primary label="Approve" onRun={post('/approve')} onDone={res.reload} />}
                 {f.actions.return && <button className="ops-btn" type="button" onClick={() => setForm('return')}>Return</button>}
                 {f.actions.submit && <button className="ops-btn primary" type="button" onClick={() => setForm('submit')}>Record submission</button>}

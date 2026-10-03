@@ -14,8 +14,9 @@
 import { fileURLToPath } from 'node:url';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
+import { nextRef } from '../src/lib/refs';
 import { scoreRisk } from '../src/modules/clients-onboarding/co.engine';
-import { ensureRiskFactors } from '../src/modules/clients-onboarding/co.service';
+import { ensureRiskFactors, SLA_TYPE_ALIASES } from '../src/modules/clients-onboarding/co.service';
 
 const log = (m: string) => console.log(`[seed:clients-onboarding] ${m}`);
 
@@ -32,6 +33,8 @@ const SLA: [string, string, number][] = [
   ['Tax document', 'Normal', 120],
   ['Complaint', 'Normal', 24],
   ['Complaint', 'Time sensitive', 4],
+  ['Capital Activity', 'Normal', 72],
+  ['Capital Activity', 'Time sensitive', 24],
 ];
 
 export async function seedClientsOnboarding() {
@@ -56,7 +59,8 @@ export async function seedClientsOnboarding() {
   let i = 0;
   for (const r of reqs) {
     const owner = staff.length ? staff[i++ % staff.length]! : null;
-    const hours = SLA.find((s) => s[0] === r.type && s[1] === r.priority)?.[2] ?? (r.priority === 'Normal' ? 48 : 8);
+    const policyType = SLA_TYPE_ALIASES[r.type] ?? r.type;
+    const hours = SLA.find((s) => s[0] === policyType && s[1] === r.priority)?.[2] ?? (r.priority === 'Normal' ? 48 : 8);
     await prisma.serviceRequest.update({
       where: { id: r.id },
       data: {
@@ -77,6 +81,27 @@ export async function seedClientsOnboarding() {
   }
   if (clients.length) log(`${clients.length} client review date(s) set`);
 
+  // Make the denormalised list fields (accounts counter, mandate label) agree with the real rows the 360 view shows (ADB-013).
+  const labelled = await prisma.client.findMany({
+    where: { archivedAt: null },
+    select: { id: true, ref: true, mandateLabel: true, accountsCount: true, _count: { select: { mandates: true, cashAccounts: true } } },
+  });
+  let reconciled = 0;
+  for (const c of labelled) {
+    if (c.mandateLabel && c.mandateLabel !== 'Mandate shell' && c._count.mandates === 0) {
+      await prisma.$transaction(async (tx) => {
+        const ref = await nextRef(tx, 'mandate');
+        await tx.mandate.create({ data: { ref, clientId: c.id, name: c.mandateLabel!, type: 'discretionary', status: 'Active', createdBy: actor } });
+      });
+      reconciled++;
+    }
+    if (c.accountsCount !== c._count.cashAccounts) {
+      await prisma.client.update({ where: { id: c.id }, data: { accountsCount: c._count.cashAccounts } });
+      reconciled++;
+    }
+  }
+  if (reconciled) log(`${reconciled} client list field(s) reconciled with mandate/account rows`);
+
   // KYC checks and a proposed risk assessment on open cases that have none.
   const cases = await prisma.kycCase.findMany({
     where: { stage: { in: ['Screening', 'ComplianceReview', 'ClientAction', 'EnhancedReview'] } },
@@ -92,7 +117,7 @@ export async function seedClientsOnboarding() {
       ['ID_VERIFICATION', 'PASS', null],
     ];
     for (const [kind, outcome] of kinds) {
-      await prisma.kycCheck.create({ data: { caseId: c.id, kind, outcome, provider: 'Demo screening', notes: outcome === 'PASS' ? null : 'Referred for compliance disposition (demo)', performedBy: maker } });
+      await prisma.kycCheck.create({ data: { caseId: c.id, kind, outcome, provider: 'Demo screening', notes: outcome === 'PASS' ? null : 'Referred for compliance disposition', performedBy: maker } });
     }
     if (!(await prisma.kycRiskAssessment.count({ where: { caseId: c.id } }))) {
       const latest = c.screening[0];
@@ -108,7 +133,7 @@ export async function seedClientsOnboarding() {
         checks: kinds.map(([kind, outcome]) => ({ kind, outcome })),
         missingSourceOfFunds: !c.application.sourceOfFunds?.trim(),
       });
-      await prisma.kycRiskAssessment.create({ data: { caseId: c.id, score: sc.score, factors: sc.factors as unknown as Prisma.InputJsonValue, proposedRating: sc.rating, rationale: 'Computed from application, screening and checks (demo)', makerId: maker } });
+      await prisma.kycRiskAssessment.create({ data: { caseId: c.id, score: sc.score, factors: sc.factors as unknown as Prisma.InputJsonValue, proposedRating: sc.rating, rationale: 'Computed from application, screening and checks', makerId: maker } });
     }
   }
   if (cases.length) log(`${cases.length} open case(s) checked`);
@@ -118,12 +143,20 @@ export async function seedClientsOnboarding() {
   const [d1, d2] = docs;
   if (d1 && !(await prisma.documentChange.count())) {
     const to = d1.classification === 'Restricted' ? 'Internal' : 'Restricted';
-    await prisma.documentChange.create({ data: { documentId: d1.id, kind: 'CLASSIFICATION', fromValue: d1.classification, toValue: to, reason: 'Contains personal data; reclassify per data-handling policy (demo)', makerId: maker } });
+    await prisma.documentChange.create({ data: { documentId: d1.id, kind: 'CLASSIFICATION', fromValue: d1.classification, toValue: to, reason: 'Contains personal data; reclassify per data-handling policy', makerId: maker } });
     log(`pending classification change on ${d1.ref}`);
   }
   if (d2 && !(await prisma.documentHold.count())) {
-    await prisma.documentHold.create({ data: { documentId: d2.id, reason: 'Retained pending regulator query (demo)', placedBy: maker } });
+    await prisma.documentHold.create({ data: { documentId: d2.id, reason: 'Retained pending regulator query', placedBy: maker } });
     log(`legal hold on ${d2.ref}`);
+  }
+  // Wording clean-up on rows an earlier seed run created with a "(demo)" suffix (ADB-016d).
+  for (const [model, field] of [['documentChange', 'reason'], ['documentHold', 'reason'], ['kycCheck', 'notes'], ['kycRiskAssessment', 'rationale']] as const) {
+    const rows = await (prisma[model] as unknown as { findMany: (a: object) => Promise<{ id: string }[]> }).findMany({ where: { [field]: { endsWith: ' (demo)' } }, select: { id: true, [field]: true } });
+    for (const r of rows) {
+      const v = (r as unknown as Record<string, string>)[field]!;
+      await (prisma[model] as unknown as { update: (a: object) => Promise<unknown> }).update({ where: { id: r.id }, data: { [field]: v.slice(0, -' (demo)'.length) } });
+    }
   }
   log('done');
 }

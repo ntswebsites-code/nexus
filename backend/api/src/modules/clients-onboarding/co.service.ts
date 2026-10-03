@@ -40,8 +40,12 @@ export async function notifyClientMembers(tx: Prisma.TransactionClient, clientId
   if (members.length) await enqueue(tx, 'notify.users', { userIds: members.map((m) => m.userId), ...n });
 }
 
+/** Investor-portal request types and the SLA policy row they follow. */
+export const SLA_TYPE_ALIASES: Record<string, string> = { 'Account / Statement': 'Statement request', 'Tax / Reporting': 'Tax document' };
+
 /** Target hours for a request type and priority: policy row, else the type-agnostic default. */
 export async function slaHours(type: string, priority: string): Promise<number> {
+  type = SLA_TYPE_ALIASES[type] ?? type;
   const row = await prisma.serviceSlaPolicy.findUnique({ where: { requestType_priority: { requestType: type, priority } } });
   if (row) return row.targetHours;
   const any = await prisma.serviceSlaPolicy.findUnique({ where: { requestType_priority: { requestType: '*', priority } } });

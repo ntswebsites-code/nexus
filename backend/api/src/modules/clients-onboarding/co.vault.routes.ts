@@ -7,6 +7,9 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { fmtSize } from '../../lib/format';
+
+/** Exact bytes below 1 KB (the shared formatter rounds 22 bytes up to "1 KB"). */
+const sizeLabel = (n: number | null | undefined) => (n && n < 1000 ? `${n} B` : fmtSize(n));
 import { param, query } from '../../lib/http';
 import { signedDownloadUrl, storeFile } from '../../lib/storage';
 import { nextRef } from '../../lib/refs';
@@ -139,8 +142,8 @@ coVaultRoutes.get('/vault/documents/:id', requirePermission('documents.view'), a
   const pubClients = await prisma.client.findMany({ where: { id: { in: pubs.map((p) => p.clientId) } }, select: { id: true, ref: true, name: true } });
   const pc = new Map(pubClients.map((c) => [c.id, c]));
   res.json({
-    document: { ...row, label: d.label, relatedLabel: d.relatedLabel, period: d.period, year: d.year, requiresSignature: d.requiresSignature, sourceType: d.sourceType, createdAt: d.createdAt },
-    versions: versions.map((v) => ({ version: v.version, sha256: v.sha256, file: fm.get(v.fileId)?.name ?? null, size: fmtSize(fm.get(v.fileId)?.size), mime: fm.get(v.fileId)?.mime ?? null, scan: fm.get(v.fileId)?.scanStatus ?? null, by: v.uploadedById ? (names.get(v.uploadedById) ?? null) : null, at: v.createdAt })),
+    document: { ...row, makerId: d.makerId, label: d.label, relatedLabel: d.relatedLabel, period: d.period, year: d.year, requiresSignature: d.requiresSignature, sourceType: d.sourceType, createdAt: d.createdAt },
+    versions: versions.map((v) => ({ version: v.version, sha256: v.sha256, file: fm.get(v.fileId)?.name ?? null, size: sizeLabel(fm.get(v.fileId)?.size), mime: fm.get(v.fileId)?.mime ?? null, scan: fm.get(v.fileId)?.scanStatus ?? null, by: v.uploadedById ? (names.get(v.uploadedById) ?? null) : null, at: v.createdAt })),
     holds: holds.map((h) => ({ id: h.id, reason: h.reason, placedBy: names.get(h.placedBy) ?? null, placedById: h.placedBy, placedAt: h.placedAt, releasedBy: h.releasedBy ? (names.get(h.releasedBy) ?? null) : null, releasedAt: h.releasedAt, releaseNote: h.releaseNote })),
     changes: changes.map((c) => ({ id: c.id, kind: c.kind, from: c.fromValue, to: c.toValue, reason: c.reason, status: c.status, maker: names.get(c.makerId) ?? null, makerId: c.makerId, checker: c.checkerId ? (names.get(c.checkerId) ?? null) : null, decisionNote: c.decisionNote, at: c.createdAt, decidedAt: c.decidedAt })),
     published: pubs.map((p) => ({ client: pc.get(p.clientId)?.name ?? null, clientRef: pc.get(p.clientId)?.ref ?? null, at: p.publishedAt })),

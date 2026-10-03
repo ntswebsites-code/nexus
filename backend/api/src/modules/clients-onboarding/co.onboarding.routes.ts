@@ -111,15 +111,18 @@ async function workup(idOrRef: string) {
   for (const x of checks) if (!latestByKind.has(x.kind)) latestByKind.set(x.kind, x);
   const preview = scoreRisk(riskInput(c, [...latestByKind.values()].map((x) => ({ kind: x.kind, outcome: x.outcome }))), await loadRiskConfig());
   const approved = assessments.find((a) => a.status === 'APPROVED');
+  // A score computed with no provider checks recorded is only provisional: absent checks add no risk points, so "Clear / Low" must not read as a result.
+  const checksRun = latestByKind.size;
+  const summary = caseSummary(c);
   return {
-    case: caseSummary(c),
+    case: checksRun === 0 ? { ...summary, screening: `${summary.screening} (automated pre-screen only: ${CHECK_KINDS.length} provider checks not run)` } : summary,
     app: { country: c.application.country, pep: c.application.pep, sourceOfFunds: c.application.sourceOfFunds, expectedInvestment: num(c.application.expectedInvestment), owners: c.application.owners.length },
     checks: CHECK_KINDS.map((kind) => {
       const x = latestByKind.get(kind);
       return { kind, outcome: x?.outcome ?? null, provider: x?.provider ?? null, notes: x?.notes ?? null, by: x ? (names.get(x.performedBy) ?? null) : null, at: x?.performedAt ?? null, history: checks.filter((h) => h.kind === kind).length };
     }),
     history: checks.map((x) => ({ id: x.id, kind: x.kind, outcome: x.outcome, provider: x.provider, notes: x.notes, by: names.get(x.performedBy) ?? null, at: x.performedAt })),
-    riskPreview: preview,
+    riskPreview: { ...preview, provisional: checksRun < CHECK_KINDS.length, checksRun, checksTotal: CHECK_KINDS.length },
     assessments: assessments.map((a) => ({ id: a.id, score: a.score, rating: a.proposedRating, factors: a.factors, rationale: a.rationale, status: a.status, maker: names.get(a.makerId) ?? null, makerId: a.makerId, checker: a.checkerId ? (names.get(a.checkerId) ?? null) : null, decisionNote: a.decisionNote, at: a.createdAt, decidedAt: a.decidedAt })),
     gates: {
       blockers: blockers(c),

@@ -96,7 +96,7 @@ export default function InvestorServicesPage() {
             <Field label="SLA">
               <select className="ops-input" value={sla} onChange={(e) => setSla(e.target.value)}>
                 <option value="">All</option>
-                {['Breached', 'At risk', 'On track', 'Closed'].map((t) => <option key={t}>{t}</option>)}
+                {['Breached', 'At risk', 'On track', 'Waiting on client', 'Closed'].map((t) => <option key={t}>{t}</option>)}
               </select>
             </Field>
             <Field label="Assignee">
@@ -249,7 +249,7 @@ function SlaPolicy({ canEdit }: { canEdit: boolean }) {
   const [edit, setEdit] = useState<Partial<Policy> | null>(null);
   return (
     <Card title="Service-level targets" actions={canEdit ? <button className="ops-btn" type="button" onClick={() => setEdit({})}>Add / change target</button> : undefined}>
-      <Alert kind="info">Targets apply to requests logged from now on. A row for type &quot;*&quot; is the fallback for types without their own target.</Alert>
+      <Alert kind="info">Targets apply to requests logged from now on. A row for type &quot;*&quot; is the fallback for types without their own target. Investor-portal types follow the policy of the matching staff type (Account / Statement: Statement request; Tax / Reporting: Tax document). The clock is paused while a request is waiting on the client.</Alert>
       <Loaded res={res} what="SLA policy">
         {(r) => (
           <div className="ops-table-wrap">
