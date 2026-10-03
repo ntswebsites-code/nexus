@@ -150,7 +150,9 @@
         "dealing.approve",
         "term_sheets.view",
         "term_sheets.approve",
-        "custodian.view"
+        "custodian.view",
+        "onboarding.approve",
+        "documents.approve"
       ]
     },
     {

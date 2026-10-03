@@ -914,3 +914,26 @@ E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exi
 
 - Orders do not yet call the reservation service on submit, cancel or fill (FR-CASH-015); `releaseOrderReservations` is exported for that and the order ticket still reads its own availability.
 - Reversing a settlement journal does not restore a consumed reservation; no CAMT.053 parser; no client/mandate context bar; no holds, pending-withdrawal or reusable-proceeds components in availability; no sub-ledger-to-GL tie-out to the accounting module; cash-account lifecycle stays on the Clients page.
+
+## Clients & Accounts, Investor Services, Onboarding & KYC, Document Vault (`clients`, `investor-services`, `onboarding`, `vault`)
+
+Reuses the existing client, cash-account, mandate, service-request, KYC and document tables and routes; adds `/api/v1/client-ops/*` (module `backend/api/src/modules/clients-onboarding`) and four ops screens under `/ops/clients`, `/ops/investor-services`, `/ops/onboarding`, `/ops/vault`. Migration `20261009100000_clients_onboarding` (additive: `kyc_checks`, `kyc_risk_assessments`, `service_sla_policies`, `document_changes`, `document_holds`; logical references only, no FKs).
+
+| Page | Endpoints (under `/client-ops`) | Permissions |
+|---|---|---|
+| Clients & Accounts | `GET /clients/summary`, `GET /clients/:id/360` (adds portfolios and fund commitments), `POST /clients/:id/dealing-hold` (release needs step-up), `/relationship-owner`, `/review-date`, `/mandates/:ref/status` (activation gated on current KYC, no hold, an active cash account), `GET /staff`. Existing `/clients` and `/cash-accounts/:id/:action` are used for create and the account lifecycle. | `clients.view`, `clients.edit` |
+| Investor Services | `GET /services/summary`, `/services/requests[/:ref]`, `POST /services/requests` (due date from policy), `/assign`, `/status` (notifies investor users), `/note`, `/sla`; `GET/PUT /services/sla-policies` | `clients.view`, `clients.edit` |
+| Onboarding & KYC | `GET /onboarding/queue`, `/cases/:id/workup`, `POST /cases/:id/checks`, `/risk` (maker proposes a computed rating; an override needs a rationale), `/risk/:id/approve` (checker, a different person, step-up) and `/reject`, `/cases/:id/assign`. Request-more-info, stage moves, decision and activation reuse `/kyc/cases/*`. | `onboarding.view`, `onboarding.manage`, new `onboarding.approve` |
+| Document Vault | `GET /vault/summary`, `/vault/documents[/:id]`, `/documents/:id/download-url` (writes the access log), `POST /documents/:id/changes` (classification or retention, maker-checker), `/changes/:id/approve` (step-up) and `/reject`, `/documents/:id/hold`, `/holds/:id/release` (a different person, step-up), `/documents/:id/link` (client, fund), `GET /vault/changes`, `/vault/access-log` | `documents.view`, `documents.edit`, new `documents.approve` (access log: `audit.view` or `documents.approve`) |
+
+New permissions `onboarding.approve` and `documents.approve` are granted to the Compliance role in `prisma/seed/role-catalog.json`. New policy `kyc_risk_assessment_required` (default off): when on, a KYC approval also needs an approved risk assessment matching the case rating. Every mutation is audited; creating endpoints accept an `Idempotency-Key`.
+
+Seed: `prisma/seed-clients-onboarding.ts` (called by `seed-uat.ts` and `seed-demo.ts`, idempotent) adds SLA policies, assigns and dates service requests, sets client review dates, adds checks and a proposed risk rating on open cases, one pending classification change and one legal hold.
+
+Tests: `npx tsx scripts/test-clients-onboarding.ts` runs the pure rules (risk score, SLA state, retention, change validation) with no database. The endpoints were typechecked but **not run** (no database started).
+
+### Not done
+
+- No document upload or deletion in the vault screen (upload and lifecycle stay on the existing `/documents` API); retention only flags disposal eligibility, nothing is destroyed.
+- Screening is still the existing stub provider; checks are recorded manually. Risk factors are fixed rules, not configurable.
+- Client dealing-hold and mandate changes are audited but single-step (no checker).
