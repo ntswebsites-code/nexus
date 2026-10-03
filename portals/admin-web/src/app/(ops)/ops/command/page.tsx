@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, v1 } from '@/ops/api';
+import { CommandPanels } from '@/ops/commandpanels';
 import { Tile, moneyFmt } from '@/ops/operations';
 import { Card, Empty, formatDateTime, Loaded, PageHeader, useResource } from '@/ops/ui';
 
@@ -101,6 +102,7 @@ export default function CommandCentrePage() {
                 </table>
               </Card>
             )}
+            <CommandPanels />
             <p className="ops-muted">Figures as of {formatDateTime(t.asOf)}. Each tile opens the workspace that owns it.</p>
           </>
         )}

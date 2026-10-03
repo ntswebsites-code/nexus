@@ -11,6 +11,8 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess } from '../../middleware/requireAuth';
 import { assertUpdated, audit } from '../ops/ops.common';
 import { dashboardToday, generateRunbook, operationsStatus } from './control.service';
+import { dashboardPanels, operationsCalendar, operationsWorkload } from './insights.service';
+import { reconGate } from '../recon/recon.service';
 import { endOfDay, taskViews, TASK_AREAS, TASK_STATUSES, type TaskRow } from './tasks';
 
 /**
@@ -72,6 +74,46 @@ async function checkRefs(b: { ownerId?: string | null; dependsOnId?: string | nu
   }
 }
 const one = async (t: TaskRow) => (await taskViews([t]))[0]!;
+
+/** Valuation and close tasks cannot be completed while material reconciliation breaks are open. */
+const GATED_SOURCES = ['NAV:RELEASE', 'CASH:CLOSE', 'ACC:JOURNALS', 'RECON:MATERIAL'];
+const isGated = (t: TaskRow) => ['VALUATION', 'CLOSE'].includes(t.area) && (!t.sourceRef || GATED_SOURCES.some((p) => t.sourceRef!.startsWith(p)));
+
+const commentBody = z.object({ body: z.string().trim().min(1, 'Write a comment').max(1000) }).strict();
+const rangeQuery = z.object({ from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(), to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+
+operationsRoutes.get('/calendar', ...canOps, validateQuery(rangeQuery), async (req, res) => {
+  const q = query<z.infer<typeof rangeQuery>>(req);
+  const today = new Date().toISOString().slice(0, 10);
+  const from = q.from ?? `${today.slice(0, 8)}01`;
+  const to = q.to ?? new Date(Date.UTC(Number(from.slice(0, 4)), Number(from.slice(5, 7)), 0)).toISOString().slice(0, 10);
+  const span = (Date.parse(to) - Date.parse(from)) / 86_400_000;
+  if (span < 0 || span > 92) throw HttpError.badRequest('Validation failed', [{ path: 'to', message: 'Choose a range of 1 to 93 days' }]);
+  res.json({ data: await operationsCalendar(from, to) });
+});
+
+operationsRoutes.get('/workload', ...canOps, async (_req, res) => {
+  res.json({ data: await operationsWorkload() });
+});
+
+operationsRoutes.get('/tasks/:id/comments', ...canOps, async (req, res) => {
+  const t = await loadTask(param(req, 'id'));
+  const rows = await prisma.opsTaskComment.findMany({ where: { taskId: t.id }, orderBy: { createdAt: 'asc' }, take: 200 });
+  const users = await prisma.user.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.authorId))] } }, select: { id: true, name: true, email: true } });
+  const name = new Map(users.map((u) => [u.id, u.name || u.email]));
+  res.json({ data: rows.map((r) => ({ id: r.id, body: r.body, authorId: r.authorId, authorName: name.get(r.authorId) ?? null, createdAt: r.createdAt.toISOString() })), total: rows.length });
+});
+
+operationsRoutes.post('/tasks/:id/comments', ...canOps, validateBody(commentBody), idempotent('operations.task_comment', { required: false }), async (req, res) => {
+  const t = await loadTask(param(req, 'id'));
+  const { body } = req.body as z.infer<typeof commentBody>;
+  const row = await prisma.$transaction(async (tx) => {
+    const c = await tx.opsTaskComment.create({ data: { taskId: t.id, body, authorId: req.user!.id } });
+    await writeAudit(tx, audit(req), { action: 'operations.task_commented', objectType: 'ops_task', objectId: t.id, after: { ref: t.ref, commentId: c.id, length: body.length } });
+    return c;
+  });
+  res.status(201).json({ data: { id: row.id, body: row.body, authorId: row.authorId, authorName: req.user!.email, createdAt: row.createdAt.toISOString() } });
+});
 
 operationsRoutes.get('/status', ...canOps, async (_req, res) => {
   res.json({ data: await operationsStatus() });
@@ -162,6 +204,10 @@ operationsRoutes.post('/tasks/:id/complete', ...canOps, validateBody(noteSchema)
     const dep = await prisma.opsTask.findUnique({ where: { id: t.dependsOnId } });
     if (dep && !['DONE', 'CANCELLED'].includes(dep.status)) throw HttpError.conflict(`${t.ref} depends on ${dep.ref}, which is ${dep.status}`, 'dependency_open');
   }
+  if (isGated(t)) {
+    const gate = await reconGate();
+    if (gate.blocked) throw new HttpError(409, 'recon_gate', `${t.ref} is a valuation or close task; ${gate.breaks.length} Critical or High reconciliation break${gate.breaks.length === 1 ? ' is' : 's are'} still open`, { breaks: gate.breaks.map((x) => ({ ref: x.ref, family: x.family, severity: x.severity, status: x.status })) });
+  }
   res.json({ data: await one(await transition(req, t, ['OPEN', 'IN_PROGRESS', 'BLOCKED'], 'DONE', { completedBy: req.user!.id, completedAt: new Date() }, 'operations.task_completed', (req.body as z.infer<typeof noteSchema>).note)) });
 });
 operationsRoutes.post('/tasks/:id/block', ...canOps, validateBody(reasonSchema), async (req, res) => {
@@ -178,6 +224,10 @@ operationsRoutes.post('/tasks/:id/cancel', ...canOps, validateBody(reasonSchema)
   const t = await loadTask(param(req, 'id'));
   const { reason } = req.body as z.infer<typeof reasonSchema>;
   res.json({ data: await one(await transition(req, t, ['OPEN', 'IN_PROGRESS', 'BLOCKED'], 'CANCELLED', {}, 'operations.task_cancelled', reason)) });
+});
+
+dashboardRoutes.get('/panels', ...canDash, async (req, res) => {
+  res.json({ data: await dashboardPanels(req.user!.permissions) });
 });
 
 dashboardRoutes.get('/today', ...canDash, async (req, res) => {

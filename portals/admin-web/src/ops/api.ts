@@ -149,3 +149,52 @@ export function describeError(e: unknown): string {
   }
   return e instanceof Error ? e.message : 'Something went wrong.';
 }
+
+/** Multipart upload (evidence files, custodian feeds). Not retried after a step-up; those routes do not need one. */
+export async function apiUpload<T = unknown>(method: string, path: string, form: FormData, opts: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase}${path}`, { method, headers, body: form, credentials: 'include', cache: 'no-store' });
+  } catch {
+    throw new OpsError(0, 'network_error', 'The API could not be reached. Check your connection and try again.');
+  }
+  const text = await res.text();
+  let json: unknown;
+  try {
+    json = text ? JSON.parse(text) : undefined;
+  } catch {
+    json = undefined;
+  }
+  if (res.ok) return json as T;
+  const err = (json as { error?: { code?: string; message?: string; details?: unknown } } | undefined)?.error;
+  throw new OpsError(res.status, err?.code ?? 'http_error', err?.message ?? `Upload failed with status ${res.status}`, err?.details);
+}
+
+/** Fetches a file with the session cookie and saves it through the browser. */
+export async function apiDownload(path: string, filename: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase}${path}`, { credentials: 'include', cache: 'no-store' });
+  } catch {
+    throw new OpsError(0, 'network_error', 'The API could not be reached. Check your connection and try again.');
+  }
+  if (!res.ok) {
+    let msg = `Download failed with status ${res.status}`;
+    try {
+      msg = ((await res.json()) as { error?: { message?: string } }).error?.message ?? msg;
+    } catch {
+      /* not JSON */
+    }
+    throw new OpsError(res.status, 'download_failed', msg);
+  }
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}

@@ -9,8 +9,9 @@ import { TabBar } from '@/ops/recon/common';
 import { OverviewTab } from '@/ops/recon/OverviewTab';
 import { RunTab } from '@/ops/recon/RunTab';
 import { SignoffTab } from '@/ops/recon/SignoffTab';
+import { SourcesTab } from '@/ops/recon/SourcesTab';
 
-type Tab = 'overview' | 'breaks' | 'run' | 'signoff';
+type Tab = 'overview' | 'breaks' | 'run' | 'sources' | 'signoff';
 
 export default function ReconciliationPage() {
   const canView = useCan('operations.view');
@@ -47,7 +48,7 @@ export default function ReconciliationPage() {
       <PageHeader
         kicker="Operations"
         title="Reconciliations"
-        subtitle="Match custodian trades, cash, holdings and day-end counts against the internal book, work the breaks with a maker and an independent checker, then sign the day off."
+        subtitle="Match custodian trades, cash, holdings, day-end counts, position quantities, settlement fails and corporate-action entitlements against the internal book, work the breaks with a maker and an independent checker, then sign the day off. Open Critical and High breaks block NAV release and the close tasks."
       />
       <TabBar<Tab>
         value={tab}
@@ -56,6 +57,7 @@ export default function ReconciliationPage() {
           { key: 'overview', label: 'Overview' },
           { key: 'breaks', label: 'Breaks' },
           { key: 'run', label: 'Run matching' },
+          { key: 'sources', label: 'Sources and tolerances' },
           { key: 'signoff', label: 'Daily sign-off' },
         ]}
       />
@@ -70,6 +72,7 @@ export default function ReconciliationPage() {
       )}
       {tab === 'breaks' && <BreaksTab key={`${filter.family ?? ''}${filter.severity ?? ''}`} initial={filter} stamp={stamp} onOpen={setOpenId} />}
       {tab === 'run' && <RunTab canManage={canManage} onOpenBreak={setOpenId} onChanged={bump} />}
+      {tab === 'sources' && <SourcesTab canManage={canManage} canSign={canSign} />}
       {tab === 'signoff' && <SignoffTab stamp={stamp} canSign={canSign} onOpenBreak={setOpenId} onChanged={bump} />}
       {openId && <BreakDetail id={openId} onClose={() => setOpenId(null)} onChanged={bump} />}
     </>

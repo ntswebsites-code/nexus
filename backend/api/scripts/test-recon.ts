@@ -580,7 +580,7 @@ async function main() {
     console.log('\nOverview and run queries');
     const ov = await ops.get(`${R}/overview?asOf=${D0}`);
     const ovT = ov.body?.data?.families?.find((f: any) => f.family === 'TRADES');
-    check('overview: per-family match rate, open breaks and sign-off state', ov.status === 200 && ovT?.matched >= 2 && typeof ovT.matchRate === 'number' && ovT.signedOff === true && ov.body.data.families.length === 4, ov.body?.data);
+    check('overview: per-family match rate, open breaks and sign-off state', ov.status === 200 && ovT?.matched >= 2 && typeof ovT.matchRate === 'number' && ovT.signedOff === true && ov.body.data.families.length === 7, ov.body?.data);
     check('overview: open breaks by severity and overdue', ov.body.data.openBySeverity && typeof ov.body.data.openTotal === 'number' && typeof ov.body.data.overdue === 'number');
     const runs = await ops.get(`${R}/runs?family=TRADES&asOf=${D0}`);
     check('run list filters by family and date', runs.status === 200 && runs.body.data.every((r: any) => r.family === 'TRADES' && r.asOfDate === D0) && runs.body.total >= 2);

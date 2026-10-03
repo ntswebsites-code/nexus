@@ -12,6 +12,7 @@ import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
 import { loadPortfolio } from '../portfolio/portfolio.service';
 import { postNavJournals } from '../wiring/autojournals';
 import { ensureTask } from '../wiring/tasks';
+import { reconGate } from '../recon/recon.service';
 import { stageFor } from './nav.engine';
 import {
   EDITABLE,
@@ -301,6 +302,11 @@ navRoutes.post('/runs/:id/release', ...canRelease, requireStepUp, idempotent('na
   if (r.fundId && !r.navPerUnit) throw HttpError.conflict('The fund NAV needs units; enter them and review again', 'units_required');
   const counts = await openCounts(r.id);
   if (counts.material > 0) throw HttpError.conflict('A material exception is open', 'material_exceptions_open');
+  // Reconciliation gate (GAP-006): open Critical or High breaks on this portfolio up to the NAV date block the release.
+  const gate = await reconGate({ portfolioId: r.portfolioId, asOfDate: isoDay(r.navDate) });
+  if (gate.blocked) {
+    throw new HttpError(409, 'recon_breaks_open', `${gate.breaks.length} Critical or High reconciliation break${gate.breaks.length === 1 ? ' is' : 's are'} open for this portfolio; clear them before releasing the NAV`, { breaks: gate.breaks.map((x) => ({ ref: x.ref, family: x.family, severity: x.severity, status: x.status })) });
+  }
 
   const out = await prisma.$transaction(async (tx) => {
     assertUpdated(

@@ -48,6 +48,18 @@ export function effectiveState(t: TaskRow, depDone: Map<string, boolean>, now = 
   return t.dueAt.getTime() <= endOfDay(now).getTime() ? 'DUE' : 'SCHEDULED';
 }
 
+/**
+ * Makes a generated task wait for another one: the child cannot be completed while the parent is unfinished. Applied once
+ * (a child that already depends on something keeps it) and only while the parent is still live.
+ */
+export async function linkDependency(tx: Tx, childSourceRef: string, parentSourceRef: string) {
+  const [child, parent] = await Promise.all([tx.opsTask.findUnique({ where: { sourceRef: childSourceRef } }), tx.opsTask.findUnique({ where: { sourceRef: parentSourceRef } })]);
+  if (!child || !parent || child.dependsOnId || ['DONE', 'CANCELLED'].includes(child.status) || ['DONE', 'CANCELLED'].includes(parent.status)) return false;
+  await tx.opsTask.update({ where: { id: child.id }, data: { dependsOnId: parent.id, version: { increment: 1 } } });
+  await writeAudit(tx, systemCtx(), { action: 'operations.task_dependency_linked', objectType: 'ops_task', objectId: child.id, after: { child: child.ref, dependsOn: parent.ref } });
+  return true;
+}
+
 export async function taskViews(rows: TaskRow[]) {
   const ids = [...new Set(rows.flatMap((r) => [r.ownerId, r.completedBy, r.createdBy]).filter((x): x is string => !!x && x !== SYSTEM_ACTOR_ID))];
   const users = ids.length ? await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, email: true } }) : [];
@@ -56,6 +68,8 @@ export async function taskViews(rows: TaskRow[]) {
   const depIds = [...new Set(rows.map((r) => r.dependsOnId).filter((x): x is string => !!x))];
   const deps = depIds.length ? await prisma.opsTask.findMany({ where: { id: { in: depIds } }, select: { id: true, ref: true, title: true, status: true } }) : [];
   const dep = new Map(deps.map((d) => [d.id, d]));
+  const counts = rows.length ? await prisma.opsTaskComment.groupBy({ by: ['taskId'], where: { taskId: { in: rows.map((r) => r.id) } }, _count: { _all: true } }) : [];
+  const commentsBy = new Map(counts.map((c) => [c.taskId, c._count._all]));
   const depDone = new Map(deps.map((d) => [d.id, ['DONE', 'CANCELLED'].includes(d.status)]));
   return rows.map((r) => ({
     id: r.id,
@@ -74,6 +88,7 @@ export async function taskViews(rows: TaskRow[]) {
     link: r.link,
     system: r.createdBy === SYSTEM_ACTOR_ID,
     sourceRef: r.sourceRef,
+    commentCount: commentsBy.get(r.id) ?? 0,
     completedByName: r.completedBy ? (name.get(r.completedBy) ?? null) : null,
     completedAt: r.completedAt?.toISOString() ?? null,
     createdByName: name.get(r.createdBy) ?? null,

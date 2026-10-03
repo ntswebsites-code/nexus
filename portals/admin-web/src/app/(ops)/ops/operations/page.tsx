@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { api, apiRequest, v1 } from '@/ops/api';
+import { api, apiDownload, apiRequest, v1 } from '@/ops/api';
+import { CalendarCard, TaskComments, WorkloadCard } from '@/ops/opsinsights';
 import { AREAS, areaLabel, Bar, STATE_TONE, Tile, moneyFmt, type OpsStatus, type Task, type TaskList } from '@/ops/operations';
 import { useCan } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDateTime, Loaded, optStr, PageHeader, str, useResource } from '@/ops/ui';
@@ -31,6 +32,7 @@ export default function OperationsPage() {
           canWork && (
             <>
               <ActionButton label="Refresh runbook" onRun={() => api.post(v1('/operations/tasks/generate'))} onDone={reload} />{' '}
+              <ActionButton label="Export CSV" onRun={() => apiDownload(`/api/v1/operations/tasks?filter=${filter}&format=csv`, 'runbook.csv')} />{' '}
               <button className="ops-btn primary" type="button" onClick={() => setCreating(true)}>
                 + Operations task
               </button>
@@ -85,7 +87,7 @@ export default function OperationsPage() {
                               <td>
                                 <strong>{areaLabel(x.area)}</strong> · {x.title}
                                 <br />
-                                <span className="ops-muted">{x.dependsOn ? `after ${x.dependsOn.ref} · ` : ''}{x.system ? 'generated' : 'manual'} · {x.ref}</span>
+                                <span className="ops-muted">{x.dependsOn ? `after ${x.dependsOn.ref} · ` : ''}{x.system ? 'generated' : 'manual'} · {x.ref}{x.commentCount ? ` · ${x.commentCount} comment${x.commentCount === 1 ? '' : 's'}` : ''}</span>
                               </td>
                               <td>{x.ownerName ?? '—'}</td>
                             </tr>
@@ -153,6 +155,9 @@ export default function OperationsPage() {
                 </table>
               )}
             </Card>
+
+            <WorkloadCard />
+            <CalendarCard />
 
             <Card title="NAV runs not yet released">
               {s.nav.unreleased.length === 0 ? (
@@ -249,6 +254,7 @@ function TaskModal({ task, canWork, onClose, onChanged }: { task: Task; canWork:
       </p>
       {task.blockedReason && <Alert kind="warn">Blocked: {task.blockedReason}</Alert>}
       {task.completedAt && <p className="ops-muted">Completed {formatDateTime(task.completedAt)} by {task.completedByName ?? 'System'}</p>}
+      <TaskComments taskId={task.id} canWork={canWork} />
       <div className="ops-actions">
         {task.link && (
           <Link className="ops-btn" href={task.link}>

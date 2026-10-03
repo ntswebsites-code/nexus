@@ -1182,3 +1182,63 @@ Migration `20261021100000_orders_pm_wiring`. Typechecked only (backend, admin-we
 - Private markets (GAP-005): paying a call or distribution and approving a mark create PENDING_APPROVAL system journals (`PMX:<ref>`, `PMM:<ref>`) and a `pm_postings` row (carrying value, FX rate used, journal refs). Accounts 1150, 4300, 4400 were added to the auto-journal chart. Non-USD funds need an FX rate (409 `no_fx_rate` otherwise); pooled summary totals are in USD with `fxMissing`. Distributions can carry `returnOfCapital`. `GET /private-markets/jcurve` and `/clients` (exposure per client). Evidence files: `POST /marks/:id/evidence/upload` (multipart) files a restricted vault document; `documentId` links an existing one.
 - Corporate actions (GAP-007): per-event `cashInLieu` + `cilPrice` pay fractions in cash (the fraction's cost leaves the position, gain to 4300); `POST /events/:id/reverse` (process permission, step-up, not the processor) reverses by adjustment (new rows dated today, pending journals discarded, posted ones get an inverse `:REV` journal); status REVERSED. Client level: `GET /events/:id/clients` and `GET /corporate-actions/clients/:clientId/entitlements`.
 - Seed: `prisma/seed-orders-pm.ts` (called last by seed-demo and seed-uat). Remaining: realised gain uses the position average cost, not IBOR lots; a CA reversal limits itself to what is held if the position moved since.
+=======
+
+## Reconciliation depth and Operations control (WP-3, GAP-006, GAP-010 operations part)
+
+Migration `20261022100000_recon_ops`. Test: `backend/api/scripts/test-recon-ops.ts` (needs a disposable MySQL and a running
+API; typechecked here, not run). Seed: `prisma/seed-recon-ops.ts` (called by `seed-uat.ts`).
+
+### What was added to `/ops/reconciliation`
+
+- **Three new families.** `POSITIONS_VS_CUSTODY` (internal quantity per security against the custodian's position file;
+  custodian-only holding CRITICAL, internal-only HIGH, quantity difference at least HIGH), `SETTLEMENT_FAILS` (filled
+  trades past their expected settlement date plus grace and still unsettled; expected date is the custodian execution's
+  settlement date, else trade date + 2 days; 1-2 days late MEDIUM, 3-5 HIGH, more CRITICAL; a trade settled after the
+  as-of date is still a fail as of that date) and `CORP_ACTIONS` (our entitlements for events paying on the date against
+  the custodian's notices per security and ex date: not reported HIGH, unknown notice CRITICAL, quantity or cash
+  difference at least HIGH). The `family` columns were widened to 32 characters.
+- **Custodian feeds.** `POST /recon/custody-positions` and `/custody-ca-notices` (CSV file upload, pasted CSV or JSON rows;
+  the file replaces the earlier one for the same account and date, refused once the family/date is signed off). Each
+  upload writes a source receipt (`recon_source_receipts`: SHA-256, row count, version, stored original) which drives
+  "source missing" for these families (BR-065). `GET /recon/feeds`, `/custody-positions`, `/custody-ca-notices`.
+- **Effective-dated tolerances (BR-067, Q-13).** `recon_tolerances`: per family, optionally per counterparty, with an
+  effective date. Per field the newest row in force wins (counterparty rows first, then global, then the built-in
+  default). `GET /recon/tolerances`, `/tolerances/effective`, `POST /recon/tolerances` (recon.signoff, step-up, today or
+  later), `DELETE` for a change not yet in force. A run records the values and where each came from in `params`; a run
+  override is still allowed.
+- **Evidence files.** `POST /breaks/:id/evidence` (multipart, SHA-256, stored encrypted), list and byte-checked download;
+  a maker can resolve with attached files instead of a reference string.
+- **Query source and escalate.** `POST /breaks/:id/query` (QRY ref, flags the custodian execution `Queried`, moves the
+  break into investigation), `/actions/:id/respond`, `/actions/:id/close`, `POST /breaks/:id/escalate` (ESC ref, level
+  1-3, ownership moves to the target and they are notified), `GET /recon/actions` queue.
+- **Reopen.** `POST /breaks/:id/reopen` (recon.signoff, step-up, reason of 10+ characters). If a sign-off covers the break
+  it is refused with `signed_off` until `revokeSignoff` is sent, which moves the sign-off to `recon_signoff_voids`.
+- **Trade matching.** Partial fills of one order are aggregated (volume-weighted price) and matched against one custodian
+  trade; custodian prices in another currency are converted with the FX rate for the date (plus 0.1% of the price for
+  rate rounding) and compared in the internal currency; no rate is an attribute break.
+- **CSV export of breaks.** `GET /recon/breaks?format=csv` with the same filters (formula-safe cells, audited).
+- **Close gate.** `reconGate()` (open Critical or High breaks, scoped to a portfolio and up to the as-of date) blocks
+  `POST /nav/runs/:id/release` with `recon_breaks_open`, and blocks completing runbook tasks in the VALUATION or CLOSE
+  areas (manual ones, and the generated NAV release, cash close and accounting journal tasks) with `recon_gate`.
+  Policy `recon_nav_gate` set to `false` turns it off. `GET /recon/gate` shows the current state.
+
+### What was added to Operations Control and the Command Centre
+
+- Task comments (`ops_task_comments`, `GET/POST /operations/tasks/:id/comments`, count on the task view).
+- `GET /operations/calendar` (tasks, corporate-action dates, expected cash, custodian settlements, NAV runs, month ends)
+  and `GET /operations/workload` (by owner and area, tasks due and cash deadlines for the next 7 days), shown as a month
+  calendar with agenda and bar charts. CSV export button for the runbook.
+- The runbook generator adds `RECON:MATERIAL` (clear Critical and High breaks) and one sign-off task per family run today
+  and not signed off; NAV release, cash close and accounting journal tasks depend on `RECON:MATERIAL`.
+- `GET /dashboard/panels` and the Command Centre panels: performance (net TWR and benchmark curve for the five largest
+  portfolios), allocation (asset class, sector and market, per base currency) and scenarios (the three risk presets on the
+  eight largest portfolios).
+
+### Not done (this package)
+
+Scheduled-source registry with expected-by times (a missing source is still derived from receipts and day-end
+packages); automatic ingestion from a custodian feed (needs the WP-8 `CustodianFeedAdapter`); per-account tolerances;
+positions reconciled per lot or per currency of listing; settlement fails do not read an MT548 status; notifications to
+the custodian for queries are recorded and audited but not sent (no custodian-side inbox); the NAV gate is not applied to
+the cash period close or accounting period close endpoints (only their runbook tasks).
