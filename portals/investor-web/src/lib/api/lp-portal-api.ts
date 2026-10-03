@@ -1224,6 +1224,16 @@ class LpPortalApiService {
     return apiClient.get(`${this.BASE}/reports${buildQuery(params)}`)
   }
 
+  getStatements(params: { fundId?: string } = {}): Promise<
+    LpPortalResponse<{ asOfDate: string; items: { period: string; periodStart: string; periodEnd: string; downloadUrl: string; format: string }[] }>
+  > {
+    return apiClient.get(`${this.BASE}/statements${buildQuery(params)}`)
+  }
+
+  downloadStatement(period: string, params: { fundId?: string } = {}): Promise<Blob> {
+    return apiClient.get<Blob>(`${this.BASE}/statements/${encodeURIComponent(period)}/download${buildQuery(params)}`, { responseType: "blob" })
+  }
+
   downloadReport(jobId: string): Promise<Blob> {
     return apiClient.get<Blob>(`${this.BASE}/reports/${jobId}/download`, { responseType: "blob" })
   }
@@ -1279,6 +1289,8 @@ const LP_METHOD_DOMAIN: Record<string, LpDataDomain> = {
   downloadPerformanceReport: "performance",
   requestPerformanceReport: "performance",
   getJob: "performance",
+  getStatements: "documents",
+  downloadStatement: "documents",
 
   getDocumentsSummary: "documents",
   getDocuments: "documents",
