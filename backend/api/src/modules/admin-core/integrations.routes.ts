@@ -41,6 +41,7 @@ import { refreshMarketData } from '../../integrations/market-data/service';
 export const integrationsRoutes = Router();
 const SETTINGS = requirePermission('admin.settings');
 const DAY_MS = 86_400_000;
+const isRealMarketMode = () => marketDataMode() !== 'fake';
 
 async function stepUp(req: Request, res: Response) {
   await requireStepUp(req, res, (err?: unknown) => {
