@@ -957,7 +957,7 @@ export function LpPerformanceScreen() {
               <h2 className="text-[14px] font-semibold text-[#111827]">Performance by Fund</h2>
               <InfoHint label="Performance by Fund" description="Fund-level metrics for your entitled investments." />
             </div>
-            <SectionLink href="/lp-portal/investments">View All Funds</SectionLink>
+            <SectionLink href="/lp-portal/performance">View All Funds</SectionLink>
           </div>
           <div className="min-w-0 flex-1 overflow-x-auto">
             <table className="w-full min-w-[720px] text-left text-[12px]">
@@ -1058,7 +1058,7 @@ export function LpPerformanceScreen() {
               onClick={() => void downloadReport()}
             >
               <Download className="size-3.5 text-[#2563eb]" />
-              {reportLoading ? "Preparing report…" : "Download Report"}
+              {reportLoading ? "Preparing reportâ€¦" : "Download Report"}
             </Button>
             {statements.length > 0 ? (
               <div className="mt-3 flex items-center gap-2">
@@ -1082,7 +1082,7 @@ export function LpPerformanceScreen() {
                   onClick={() => void downloadStatement()}
                 >
                   <Download className="size-3.5 text-[#2563eb]" />
-                  {statementLoading ? "Preparing…" : "Download Statement"}
+                  {statementLoading ? "Preparingâ€¦" : "Download Statement"}
                 </Button>
               </div>
             ) : null}

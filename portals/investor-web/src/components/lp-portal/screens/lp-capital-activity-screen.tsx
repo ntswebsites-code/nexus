@@ -42,7 +42,7 @@ import { useLpCapitalCallDetail, useLpCapitalCalls, useLpDistributions } from "@
 import { cn } from "@/lib/utils"
 
 type CallStatus = "Issued" | "Paid" | "Overdue"
-type DistType = "Return of Capital" | "Income"
+type DistType = string
 type ActivityTab = "calls" | "distributions"
 
 interface CapitalCallRow {
@@ -256,6 +256,10 @@ export function LpCapitalActivityScreen({
   const [wiringDialogOpen, setWiringDialogOpen] = React.useState(false)
   const [actionLoading, setActionLoading] = React.useState<string | null>(null)
   const paymentInputRef = React.useRef<HTMLInputElement>(null)
+  const [paymentFile, setPaymentFile] = React.useState<File | null>(null)
+  const [paymentAmount, setPaymentAmount] = React.useState("")
+  const [paymentNotes, setPaymentNotes] = React.useState("")
+  const [paymentError, setPaymentError] = React.useState<string | null>(null)
   const canWrite = lpRole !== "VIEWER"
 
   React.useEffect(() => {
@@ -294,6 +298,8 @@ export function LpCapitalActivityScreen({
   const wiringReference = callDetail?.wiring.reference ?? ""
 
   const paidCallCount = summary?.paidCallCount ?? 0
+  // Total settled on the calls listed as Paid (matches the table), not the year-to-date payments figure.
+  const paidCallsTotal = calls.filter((c) => c.status === "Paid").reduce((sum, c) => sum + c.paid, 0)
   const dueSoonCount = summary?.dueSoonCount ?? 0
   const dueSoonAmount = parseDecimal(summary?.dueSoonAmount)
   const totalDistributions = parseDecimal(summary?.totalDistributions)
@@ -408,23 +414,44 @@ export function LpCapitalActivityScreen({
     }
   }
 
-  const onPaymentConfirmation = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const onPaymentFilePicked = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
+    event.target.value = ""
     if (!file || !selectedCall || !canWrite) return
+    setPaymentFile(file)
+    setPaymentAmount(selectedCall.outstanding > 0 ? String(selectedCall.outstanding) : "")
+    setPaymentNotes("")
+    setPaymentError(null)
+  }
+
+  const submitPaymentConfirmation = async () => {
+    if (!paymentFile || !selectedCall || !canWrite) return
+    const amount = paymentAmount.trim()
+    if (!/^\d+(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0) {
+      setPaymentError("Enter the amount paid as a positive number")
+      return
+    }
+    if (Number(amount) > selectedCall.outstanding + 0.005) {
+      setPaymentError("The amount cannot exceed the outstanding balance")
+      return
+    }
+    setPaymentError(null)
     setActionLoading(`payment-${selectedCall.id}`)
     try {
       const formData = new FormData()
-      formData.append("file", file)
-      await lpPortalApi.uploadPaymentConfirmation(selectedCall.id, formData, attemptKey(`pay:${selectedCall.id}`))
-      delete attemptKeys.current[`pay:${selectedCall.id}`]
-      toast.success(`Payment confirmation uploaded for Call No. ${selectedCall.callNo}: ${file.name}`)
+      formData.append("file", paymentFile)
+      formData.append("amountClaimed", amount)
+      if (paymentNotes.trim()) formData.append("notes", paymentNotes.trim())
+      await lpPortalApi.uploadPaymentConfirmation(selectedCall.id, formData, attemptKey(`pay:${selectedCall.id}:${amount}:${paymentFile.name}`))
+      attemptKeys.current = {}
+      toast.success(`Payment confirmation uploaded for Call No. ${selectedCall.callNo}: ${paymentFile.name}`)
+      setPaymentFile(null)
       void reloadCalls()
       void reloadCallDetail()
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to upload payment confirmation")
+      setPaymentError(err instanceof Error ? err.message : "Failed to upload payment confirmation")
     } finally {
       setActionLoading(null)
-      event.target.value = ""
     }
   }
 
@@ -479,7 +506,7 @@ export function LpCapitalActivityScreen({
         type="file"
         accept=".pdf,.png,.jpg,.jpeg,.txt"
         className="hidden"
-        onChange={onPaymentConfirmation}
+        onChange={onPaymentFilePicked}
       />
 
       <div>
@@ -534,7 +561,7 @@ export function LpCapitalActivityScreen({
               iconBg="bg-[#e7f8ef]"
               iconColor="text-[#16a34a]"
               label="Paid Calls"
-              value={formatMoneyCompact(summary?.paidYtd ?? 0, summary?.currencyCode)}
+              value={formatMoneyCompact(paidCallsTotal, summary?.currencyCode)}
               footer={`${paidCallCount} Calls`}
               onFooterClick={() => setActiveTab("calls")}
             />
@@ -1010,6 +1037,48 @@ export function LpCapitalActivityScreen({
           </aside>
         )}
       </div>
+
+      <Dialog open={Boolean(paymentFile)} onOpenChange={(open) => { if (!open) setPaymentFile(null) }}>
+        <DialogContent className="max-w-md rounded-xl">
+          <DialogHeader>
+            <DialogTitle>Payment confirmation</DialogTitle>
+            <DialogDescription>
+              Call No. {selectedCall?.callNo} · {selectedCall?.fund} · outstanding {selectedCall ? selectedCall.outstanding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ""} {selectedCall?.currencyCode}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 text-[13px]">
+            <p className="text-slate-600">File: <span className="font-medium text-slate-900">{paymentFile?.name}</span></p>
+            <label className="block space-y-1">
+              <span className="font-medium text-slate-700">Amount paid</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={paymentAmount}
+                onChange={(e) => setPaymentAmount(e.target.value)}
+                className="w-full rounded-md border border-slate-300 px-3 py-2"
+                aria-invalid={Boolean(paymentError)}
+              />
+            </label>
+            <label className="block space-y-1">
+              <span className="font-medium text-slate-700">Notes (optional)</span>
+              <textarea
+                value={paymentNotes}
+                onChange={(e) => setPaymentNotes(e.target.value)}
+                maxLength={1000}
+                rows={3}
+                className="w-full rounded-md border border-slate-300 px-3 py-2"
+              />
+            </label>
+            {paymentError ? <p role="alert" className="text-red-700">{paymentError}</p> : null}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" className="rounded-full" onClick={() => setPaymentFile(null)}>Cancel</Button>
+              <Button type="button" className="rounded-full" disabled={actionLoading === `payment-${selectedCall?.id}`} onClick={() => void submitPaymentConfirmation()}>
+                Submit confirmation
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={wiringDialogOpen} onOpenChange={setWiringDialogOpen}>
         <DialogContent className="max-w-lg rounded-xl">
