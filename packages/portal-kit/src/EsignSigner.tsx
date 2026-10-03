@@ -1,5 +1,6 @@
 'use client';
 
+import { describeApiError } from '@matanho/shared';
 import { useCallback, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 
 /**
@@ -36,9 +37,12 @@ async function call<T>(path: string, o: { method?: string; body?: unknown; form?
     throw new EsignApiError(0, 'network_error', 'The server could not be reached. Check your connection and try again.');
   }
   if (res.ok) return (o.blob ? await res.blob() : await res.json()) as T;
-  const j = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string } };
-  throw new EsignApiError(res.status, j.error?.code ?? 'http_error', j.error?.message ?? `Request failed (${res.status})`);
+  const j = (await res.json().catch(() => ({}))) as { error?: { code?: string; message?: string; fieldErrors?: Record<string, string> } };
+  throw new EsignApiError(res.status, j.error?.code ?? 'http_error', describeApiError(j.error?.message ?? `Request failed (${res.status})`, j.error?.fieldErrors));
 }
+
+/** Case, accent and spacing insensitive name comparison (the API applies the same rule to typed signatures). */
+const normName = (v: string) => v.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/\s+/g, ' ').trim().toLowerCase();
 
 const msg = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
 const when = (iso?: string | null) => (iso ? new Date(iso).toLocaleString() : '-');
@@ -170,7 +174,8 @@ function SignPanel(p: SignPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const ready = consent && (mode === 'TYPED' ? typed.trim().length >= 2 : !!png);
+  const nameMatches = normName(typed) === normName(p.signerName);
+  const ready = consent && (mode === 'TYPED' ? typed.trim().length >= 2 && nameMatches : !!png);
   const run = async (fn: () => Promise<void>, outcome: 'signed' | 'declined') => {
     setBusy(true);
     setError('');
@@ -210,6 +215,9 @@ function SignPanel(p: SignPanelProps) {
         {mode === 'TYPED' ? (
           <>
             <input style={S.input} value={typed} onChange={(e) => setTyped(e.target.value)} maxLength={160} aria-label="Type your full name" />
+            <div style={{ ...S.muted, marginTop: 6 }} role={typed.trim() && !nameMatches ? 'alert' : undefined}>
+              {typed.trim() && !nameMatches ? `The typed name must match your registered name: ${p.signerName}.` : `Type your registered name exactly: ${p.signerName}.`}
+            </div>
             <div style={{ fontFamily: '"Snell Roundhand", "Brush Script MT", "Segoe Script", cursive', fontSize: 34, margin: '10px 0', color: '#0b1f5c' }}>{typed || ' '}</div>
           </>
         ) : (

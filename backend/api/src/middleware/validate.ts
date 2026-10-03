@@ -41,10 +41,11 @@ function defaultPhrase(m: string): string | null {
   const opt = /^Invalid option: expected one of (.+)$/.exec(m);
   if (opt) return `must be one of ${opt[1].replace(/"/g, '').split('|').join(', ')}`;
   if (/^Invalid input$/i.test(m)) return 'is not valid';
-  const fmt = /^Invalid (email|url|uuid|cuid|date|datetime)/i.exec(m);
-  if (fmt) return `must be a valid ${fmt[1].toLowerCase()}`;
-  if (/^Invalid string/i.test(m)) return 'is not in the expected format';
-  if (/^(Invalid|Too small|Too big)/.test(m)) return 'is not valid';
+  // Only zod's exact default wording is rewritten; anything else ("Invalid IBAN checksum") is the schema
+  // author's message and is kept as written.
+  const fmt = /^Invalid (email address|URL|UUID|CUID2?|ISO date|ISO datetime|ISO time)$/i.exec(m);
+  if (fmt) return `must be a valid ${fmt[1].toLowerCase().replace(/^iso /, '').replace(/ address$/, '')}`;
+  if (/^Invalid string: /i.test(m)) return 'is not in the expected format';
   return null;
 }
 

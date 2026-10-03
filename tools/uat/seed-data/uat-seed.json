@@ -1299,15 +1299,15 @@
           "key": "annual_recurring_revenue",
           "label": "Annual recurring revenue",
           "unit": "USD",
-          "prev": 28,
+          "prev": 28000000,
           "budget": 30000000,
           "series": [
-            18,
-            20,
-            22,
-            24,
-            28,
-            32.1
+            18000000,
+            20000000,
+            22000000,
+            24000000,
+            28000000,
+            32100000
           ],
           "sort": 0
         },
@@ -1443,7 +1443,7 @@
         {
           "period": "2025-09",
           "periodType": "QUARTERLY",
-          "label": "Q3 2025",
+          "label": "Jul – Sep 2025",
           "due": "2025-11-15",
           "status": "accepted",
           "reviewNote": "Accepted."
@@ -1451,7 +1451,7 @@
         {
           "period": "2025-12",
           "periodType": "QUARTERLY",
-          "label": "Jan – Mar 2026",
+          "label": "Oct – Dec 2025",
           "due": "2026-03-31",
           "status": "accepted",
           "reviewNote": "Accepted."

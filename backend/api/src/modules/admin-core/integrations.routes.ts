@@ -28,7 +28,8 @@ import {
 import { clearStateCache } from '../../integrations/core/calls';
 import { fakeSsoCode } from '../../integrations/sso/fake';
 import { fakeStatement } from '../../integrations/custodian-feed/fake';
-import { marketDataMode } from '../../integrations/market-data';
+import { IntegrationNotConfiguredError } from '../../integrations/common';
+import { refreshMarketData } from '../../integrations/market-data/service';
 
 /**
  * Integrations ops API (WP-8), mounted under `/api/v1/admin-core/integrations` (admin portal session required by the
@@ -39,8 +40,6 @@ import { marketDataMode } from '../../integrations/market-data';
 export const integrationsRoutes = Router();
 const SETTINGS = requirePermission('admin.settings');
 const DAY_MS = 86_400_000;
-/** The fake generator returns the latest weekday whatever the requested date; real providers must match the date. */
-const isRealMarketMode = () => marketDataMode() !== 'fake';
 
 async function stepUp(req: Request, res: Response) {
   await requireStepUp(req, res, (err?: unknown) => {
@@ -189,38 +188,21 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 const marketBody = z.object({ date: day.optional(), tickers: z.array(z.string().trim().min(1).max(24)).max(500).optional() }).strict();
 
 /**
- * Pulls end-of-day prices and FX through the market-data adapter and stores them with source VENDOR. Securities that
- * already have a price for that date (any source) and FX pairs that already have a rate are left untouched.
+ * Legacy entry points kept for old clients. They no longer write prices themselves: they delegate to the same
+ * refresh the scheduler and the market-data API use, so every value goes through the sanity bounds, produces
+ * a run record with provenance and exceptions, and can be undone (ISS-ADA-019).
  */
 async function marketDataSync(req: Request, res: Response) {
   const b = req.body as z.infer<typeof marketBody>;
-  const date = b.date ?? todayStr();
-  if (toDate(date).getTime() - DAY_MS > Date.now()) throw HttpError.badRequest('Validation failed', [{ path: 'date', message: 'A feed date cannot be in the future' }]);
-  const securities = await prisma.security.findMany({ where: { status: 'Active', ...(b.tickers ? { ticker: { in: b.tickers } } : {}) }, select: { id: true, ticker: true, currency: true } });
-  const have = new Set((await prisma.securityPrice.findMany({ where: { priceDate: toDate(date), securityId: { in: securities.map((s) => s.id) } }, select: { securityId: true } })).map((p) => p.securityId));
-  const todo = securities.filter((s) => !have.has(s.id));
-  const adapter = getAdapter('market-data');
-  const quoteBatch = todo.length ? await adapter.fetchQuotes(todo.map((s) => s.ticker)) : { items: [] };
-  const quotes = quoteBatch.items.filter((q) => q.priceDate === date || !isRealMarketMode());
-  const currencies = [...new Set(securities.map((s) => s.currency).filter((c) => c !== 'USD'))];
-  const fxExisting = await prisma.fxRate.findMany({ where: { rateDate: toDate(date) } });
-  const fxTodo = currencies.filter((c) => !fxExisting.some((r) => (r.fromCurrency === c && r.toCurrency === 'USD') || (r.fromCurrency === 'USD' && r.toCurrency === c)));
-  const fx = (fxTodo.length ? await adapter.fetchFx(fxTodo.map((c) => ({ from: c, to: 'USD' }))) : { items: [] }).items;
-  const byTicker = new Map(todo.map((s) => [s.ticker, s.id]));
-  const result = await prisma.$transaction(async (tx) => {
-    const created = await tx.securityPrice.createMany({
-      data: quotes.filter((q) => byTicker.has(q.ticker)).map((q) => ({ securityId: byTicker.get(q.ticker)!, priceDate: toDate(date), price: new Prisma.Decimal(q.price), source: 'VENDOR', createdBy: req.user!.id })),
-      skipDuplicates: true,
-    });
-    const fxCreated = await tx.fxRate.createMany({
-      data: fx.map((r) => ({ fromCurrency: r.from, toCurrency: r.to, rateDate: toDate(date), rate: new Prisma.Decimal(r.rate), source: 'VENDOR' })),
-      skipDuplicates: true,
-    });
-    const out = { date, pricesCreated: created.count, pricesSkipped: securities.length - todo.length, fxCreated: fxCreated.count };
-    await writeAudit(tx, audit(req), { action: 'integration.market_data_synced', objectType: 'integration', objectId: 'market-data', after: out });
-    return out;
-  });
-  res.status(201).json({ data: result });
+  const now = b.date ? new Date(`${b.date}T12:00:00.000Z`) : new Date();
+  if (now.getTime() - DAY_MS > Date.now()) throw HttpError.badRequest('Validation failed', [{ path: 'date', message: 'A feed date cannot be in the future' }]);
+  try {
+    const summary = await refreshMarketData({ trigger: 'MANUAL', scope: 'ALL', tickers: b.tickers, force: true, now, userId: req.user!.id, audit: audit(req) });
+    res.status(201).json({ data: summary });
+  } catch (e) {
+    if (e instanceof IntegrationNotConfiguredError) throw new HttpError(503, e.code, e.message, { requiredEnv: e.requiredEnv });
+    throw e;
+  }
 }
 integrationsRoutes.post(['/market-data/sync', '/market-data/simulate'], SETTINGS, validateBody(marketBody), idempotent('integration.market_data', { required: false }), marketDataSync);
 

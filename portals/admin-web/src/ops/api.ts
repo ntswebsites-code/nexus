@@ -11,6 +11,13 @@
 
 export const apiBase = (process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100').replace(/\/+$/, '');
 
+/** The API keeps `message` stable ("Validation failed"); show the field reasons after it. */
+function describeReasons(message: string, fieldErrors?: Record<string, string>): string {
+  const reasons = Object.values(fieldErrors ?? {}).filter((r) => r && !message.includes(r));
+  if (!reasons.length) return message;
+  return `${message}. ${reasons.slice(0, 3).join('. ')}${reasons.length > 3 ? ` (and ${reasons.length - 3} more)` : ''}`;
+}
+
 export class OpsError extends Error {
   readonly status: number;
   readonly code: string;
@@ -77,11 +84,11 @@ export async function apiRequest<T = unknown>(
 
   if (res.ok) return json as T;
 
-  const err = (json as { error?: { code?: string; message?: string; details?: unknown } } | undefined)?.error;
+  const err = (json as { error?: { code?: string; message?: string; details?: unknown; fieldErrors?: Record<string, string> } } | undefined)?.error;
   const error = new OpsError(
     res.status,
     err?.code ?? 'http_error',
-    err?.message ?? `Request failed with status ${res.status}`,
+    describeReasons(err?.message ?? `Request failed with status ${res.status}`, err?.fieldErrors),
     err?.details,
   );
 
@@ -168,7 +175,7 @@ export async function apiUpload<T = unknown>(method: string, path: string, form:
     json = undefined;
   }
   if (res.ok) return json as T;
-  const err = (json as { error?: { code?: string; message?: string; details?: unknown } } | undefined)?.error;
+  const err = (json as { error?: { code?: string; message?: string; details?: unknown; fieldErrors?: Record<string, string> } } | undefined)?.error;
   throw new OpsError(res.status, err?.code ?? 'http_error', err?.message ?? `Upload failed with status ${res.status}`, err?.details);
 }
 

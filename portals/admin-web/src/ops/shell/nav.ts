@@ -94,7 +94,7 @@ export const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/ops/investee-requests', label: 'Investee requests', perms: ['research.edit'] },
       { href: '/ops/investee-review', label: 'Investee data review', perms: ['research.view'] },
       { href: '/ops/reporting', label: 'Reporting packs', perms: ['portfolio.view', 'research.edit'] },
-      { href: '/ops/esign', label: 'E-signatures', perms: ['esign.view'] },
+      { href: '/ops/esign', label: 'E-signatures', perms: [] }, // every signed-in staff member can be a signer; the page shows the inbox and gates the rest
     ],
   },
   {

@@ -42,6 +42,8 @@ Personas (email is `<persona>@uat.matanho.test` unless noted):
   - `test_settings_admin` (Platform Settings Administrator) is the only role that changes Settings (kept apart from the System Administrator).
   - Orders already seeded before this change keep their original maker; create a new order as `test_portfolio_manager` to walk create > approve > route > fill with three different people.
 - Step-up: no persona has an authenticator enrolled and `mfa_required` is off, so step-up prompts are skipped by design. To exercise them, enrol an authenticator from Profile, or run seed-uat with `SEED_UAT_MFA_REQUIRED=1`.
+- Production: set `mfa_required` on (Settings, or `SEED_UAT_MFA_REQUIRED=1` for UAT); without it step-up passes for accounts with no authenticator.
+- Role changes are additive: seeding (`prisma/seed.ts`, `seed-admin-shell.ts`) never revokes a permission from an existing database, so System Administrator keeps `admin.settings` there. Roles shipped SoD-clean in the catalogue only on fresh databases. To retire the legacy grants on an existing database, assign `admin:settings_admin` to someone first, then run `SEED_APPLY_ROLE_RETIREMENTS=1 npx tsx prisma/seed-admin-shell.ts` (it logs each role it trims and keeps `admin.settings` if nobody holds the settings role).
 - Investor / LP: `lp_a_manager` (Jane Smith, all funds), `lp_a_signatory` (one fund), `lp_a_viewer`, `lp_b_signatory` (a second client)
 - Company / Investee: `investee_101_approver`, `investee_101_contributor`, `investee_101_viewer` (company PC-101), `investee_102_admin` (PC-102)
 - Custodian: `custodian_submitter`, `custodian_approver`, `test_custodian_approver` (a second approver, so a day-end package submitted by another custodian user can be approved)

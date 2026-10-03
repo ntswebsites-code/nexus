@@ -104,6 +104,17 @@ export interface ApiErrorBody {
   fieldErrors?: Record<string, string>;
 }
 
+/**
+ * Message to show for an API error: the envelope `message` (kept stable on the wire, e.g. "Validation failed")
+ * followed by the first few field reasons from `fieldErrors`. Shared by every client so forms read the same.
+ */
+export function describeApiError(message: string, fieldErrors?: Record<string, string>): string {
+  const reasons = Object.values(fieldErrors ?? {}).filter((r) => r && !message.includes(r));
+  if (!reasons.length) return message;
+  const shown = reasons.slice(0, 3).join('. ');
+  return `${message}. ${shown}${reasons.length > 3 ? ` (and ${reasons.length - 3} more)` : ''}`;
+}
+
 export interface HealthResponse {
   status: 'ok' | 'degraded';
   service: string;

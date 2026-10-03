@@ -12,3 +12,13 @@ Workflow run: wf_2828facf-e30 (qa-fixes)
 - 2026-10-03 19:32 | F8 | committed (35053a5); F9 started (19:30) | waiting on F7, F9
 - 2026-10-03 19:45 | F5,F6,F7,F8,F9 | all committed (e5f05d9, 43ee5da, d199589, 35053a5, 92a5af3), journal results 5/5 | (d) none real: tsc clean everywhere; Turbopack builds cannot run inside worktrees (node_modules junction) for F6/F9 (F7/F8 passed with next build --webpack); F8 fixed the invalid-UTF-8 file that broke investor-web build (F3 had flagged it)
 - 2026-10-03 19:45 | FINAL | F1-F4 relaunched manually (workflow's initial launch failed 4 entries, empty agentId; stale worktrees wf_2828facf-e30-1..4 at 0adef6f unused); relaunch branches: F1 worktree-agent-ad33a66928fe78c10, F2 ...abf58ce25eca8acc4, F3 ...a609b996d70417d52, F4 ...af4c1dbf3ba087949. All nine done. Re-run npm run build for portals in merged checkout.
+
+## Rework round
+
+- 2026-10-03 19:46 | watchdog | started for wf_d54a6a52-6a6; journal has F1,F2 started; worktrees 1,2 present | polling
+- 2026-10-03 19:56 | all | journal still F1,F2 started only (F3-F5 not yet started; no failures); background poll armed | waiting
+- 2026-10-03 20:00 | F1 | result recorded, committed 184c74c; F3 started (workflow runs ~2 at a time); F2 in progress | no action
+- 2026-10-03 20:06 | F2 | result recorded, committed 6837f0a; F4 started | F3,F4 in progress, no action
+- 2026-10-03 20:11 | F4 | result recorded, committed 967de92; F5 started | F3,F5 in progress, no failures, no action
+- 2026-10-03 20:23 | F3,F5 | F5 committed 86f10d6, F3 c0ed442; wave 1 complete 5/5; F6,F7 started | (d) note: F2/F3 report backend tsc errors only in seed-research-privates.ts (nextRef missing, F5 file) and company-web type-check against older portal-kit (worktree layout); verify after merge. No relaunch.
+- 2026-10-03 20:32 | F6,F7 | committed a4f85c1, eb13203; F8,F9 started (base 37668ec) | no failures, no action

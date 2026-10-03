@@ -9,11 +9,13 @@ const apiUrl = () => process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4100';
 export function LoginPage({
   portal,
   enforcePortalAccess = true,
+  turnAwayPortals,
 }: {
   portal: PortalId;
   enforcePortalAccess?: boolean;
+  turnAwayPortals?: PortalId[];
 }) {
-  return <LoginForm portal={portal} apiUrl={apiUrl()} enforcePortalAccess={enforcePortalAccess} />;
+  return <LoginForm portal={portal} apiUrl={apiUrl()} enforcePortalAccess={enforcePortalAccess} turnAwayPortals={turnAwayPortals} />;
 }
 
 /** Server component for `/invite`. */
