@@ -2738,3 +2738,157 @@ model CashPeriodClose {
 }
 
 // ---- end Cash ----
+
+// ---- IborPerformance ----
+// IBOR & Positions (SRD 5.A.14) and Performance & Attribution (SRD 5.A.8). Positions, prices, orders and cash stay in
+// their own modules; these tables hold the tax-lot book, its sequenced event lineage, refresh runs, the benchmark
+// composition, and locked performance periods. portfolio_id / security_id / user ids are logical references (no FKs).
+
+/// A tax lot: a quantity acquired at one unit cost. Sells consume open lots first-in first-out.
+model IborLot {
+  id           String    @id @default(uuid()) @db.Char(36)
+  portfolioId  String    @map("portfolio_id") @db.Char(36)
+  securityId   String    @map("security_id") @db.Char(36)
+  openedOn     DateTime  @map("opened_on") @db.Date
+  originalQty  Decimal   @map("original_qty") @db.Decimal(24, 6)
+  remainingQty Decimal   @map("remaining_qty") @db.Decimal(24, 6)
+  unitCost     Decimal   @map("unit_cost") @db.Decimal(20, 6)
+  currency     String    @db.Char(3)
+  /// OPENING (baseline from the position record) | FILL (an order fill) | ADJUSTMENT (drift booked by a refresh)
+  sourceType   String    @map("source_type") @db.VarChar(12)
+  sourceId     String    @map("source_id") @db.VarChar(64)
+  /// OPEN | CLOSED
+  status       String    @default("OPEN") @db.VarChar(8)
+  closedOn     DateTime? @map("closed_on") @db.Date
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  @@unique([portfolioId, sourceType, sourceId])
+  @@index([portfolioId, securityId, status])
+  @@map("ibor_lots")
+}
+
+/// Sequenced book events (lineage). `ref` is allocated from the shared sequence table, so ordering by ref is event order.
+model IborEvent {
+  id            String   @id @default(uuid()) @db.Char(36)
+  /// IBE-000001 ...
+  ref           String   @unique @db.VarChar(16)
+  portfolioId   String   @map("portfolio_id") @db.Char(36)
+  securityId    String?  @map("security_id") @db.Char(36)
+  /// OPENING | FILL | ADJUSTMENT | REFRESH | RECON
+  eventType     String   @map("event_type") @db.VarChar(12)
+  quantityDelta Decimal? @map("quantity_delta") @db.Decimal(24, 6)
+  price         Decimal? @db.Decimal(20, 6)
+  effectiveDate DateTime @map("effective_date") @db.Date
+  /// FILL events carry the order fill id here, which makes ingestion idempotent.
+  sourceType    String?  @map("source_type") @db.VarChar(16)
+  sourceId      String?  @map("source_id") @db.VarChar(64)
+  summary       String   @db.VarChar(300)
+  detail        Json?
+  createdBy     String?  @map("created_by") @db.Char(36)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([sourceType, sourceId])
+  @@index([portfolioId, createdAt])
+  @@index([securityId])
+  @@map("ibor_events")
+}
+
+/// One IBOR refresh: lots rebuilt from fills, drift booked, counts and exceptions recorded.
+model IborSnapshot {
+  id              String   @id @default(uuid()) @db.Char(36)
+  /// IBR-0001 ...
+  ref             String   @unique @db.VarChar(16)
+  portfolioId     String?  @map("portfolio_id") @db.Char(36)
+  asOf            DateTime @map("as_of") @db.Date
+  /// CURRENT | EXCEPTIONS
+  status          String   @db.VarChar(12)
+  positionCount   Int      @map("position_count")
+  marketValueBase Decimal  @map("market_value_base") @db.Decimal(20, 4)
+  eventsIngested  Int      @map("events_ingested")
+  lotsOpened      Int      @map("lots_opened")
+  adjustments     Int
+  exceptionCount  Int      @map("exception_count")
+  summary         Json?
+  durationMs      Int      @map("duration_ms")
+  createdBy       String   @map("created_by") @db.Char(36)
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  @@index([portfolioId, createdAt])
+  @@map("ibor_snapshots")
+}
+
+model PerfBenchmark {
+  id        String   @id @default(uuid()) @db.Char(36)
+  code      String   @unique @db.VarChar(24)
+  name      String   @db.VarChar(160)
+  /// ACTIVE | RETIRED
+  status    String   @default("ACTIVE") @db.VarChar(8)
+  createdBy String?  @map("created_by") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  constituents PerfBenchmarkConstituent[]
+
+  @@map("perf_benchmarks")
+}
+
+/// Benchmark composition: target weights (percent, summing to 100) by security; a row without a security is the cash sleeve.
+model PerfBenchmarkConstituent {
+  id          String   @id @default(uuid()) @db.Char(36)
+  benchmarkId String   @map("benchmark_id") @db.Char(36)
+  securityId  String?  @map("security_id") @db.Char(36)
+  sector      String   @db.VarChar(80)
+  weightPct   Decimal  @map("weight_pct") @db.Decimal(9, 4)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  benchmark PerfBenchmark @relation(fields: [benchmarkId], references: [id], onDelete: Cascade)
+
+  @@index([benchmarkId])
+  @@map("perf_benchmark_constituents")
+}
+
+/// A performance period for one portfolio: daily time-weighted return, benchmark comparison, Brinson attribution and
+/// contribution tables, stored as evidence. DRAFT -> LOCKED (Official) by a second person once all five controls pass;
+/// a locked period is immutable and a correction is a new version (the old one becomes SUPERSEDED).
+model PerfPeriod {
+  id               String    @id @default(uuid()) @db.Char(36)
+  /// PRF-0001 ...
+  ref              String    @unique @db.VarChar(16)
+  portfolioId      String    @map("portfolio_id") @db.Char(36)
+  benchmarkId      String?   @map("benchmark_id") @db.Char(36)
+  periodStart      DateTime  @map("period_start") @db.Date
+  periodEnd        DateTime  @map("period_end") @db.Date
+  version          Int       @default(1)
+  /// DRAFT | LOCKED | SUPERSEDED
+  status           String    @default("DRAFT") @db.VarChar(12)
+  baseCurrency     String    @map("base_currency") @db.Char(3)
+  startValue       Decimal   @map("start_value") @db.Decimal(20, 4)
+  endValue         Decimal   @map("end_value") @db.Decimal(20, 4)
+  netFlows         Decimal   @default(0) @map("net_flows") @db.Decimal(20, 4)
+  /// Percent, e.g. 3.482100 = 3.48%.
+  twrPct           Decimal   @map("twr_pct") @db.Decimal(14, 6)
+  benchmarkPct     Decimal?  @map("benchmark_pct") @db.Decimal(14, 6)
+  activePct        Decimal?  @map("active_pct") @db.Decimal(14, 6)
+  dayCount         Int       @map("day_count")
+  series           Json
+  attribution      Json?
+  contributions    Json?
+  controls         Json?
+  navCheck         Json?
+  dataHash         String    @map("data_hash") @db.VarChar(64)
+  makerId          String    @map("maker_id") @db.Char(36)
+  checkerId        String?   @map("checker_id") @db.Char(36)
+  lockedAt         DateTime? @map("locked_at")
+  lockNote         String?   @map("lock_note") @db.VarChar(500)
+  supersedesId     String?   @map("supersedes_id") @db.Char(36)
+  correctionReason String?   @map("correction_reason") @db.VarChar(500)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([portfolioId, periodStart, periodEnd, version])
+  @@index([portfolioId, status])
+  @@index([benchmarkId])
+  @@map("perf_periods")
+}
+// ---- end IborPerformance ----

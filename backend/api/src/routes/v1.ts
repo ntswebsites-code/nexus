@@ -24,6 +24,8 @@ import { accountingRoutes } from '../modules/accounting';
 import { corporateActionsRoutes } from '../modules/corporate-actions';
 import { cashRoutes } from '../modules/cash';
 import { reconRoutes } from '../modules/recon/recon.routes';
+import { iborRoutes } from '../modules/ibor';
+import { performanceRoutes } from '../modules/performance';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -49,6 +51,10 @@ v1Router.use('/corporate-actions', corporateActionsRoutes);
 v1Router.use('/cash', cashRoutes);
 // Reconciliations: /recon/* (runs, breaks, sources, signoffs, account-map).
 v1Router.use('/recon', reconRoutes);
+// IBOR & Positions: /ibor/* (overview, ledger, lots, settlement ladder, events, refresh, reconcile); after the portfolio foundation.
+v1Router.use('/ibor', iborRoutes);
+// Performance & Attribution: /performance/* (returns, attribution, benchmarks, periods and maker-checker lock).
+v1Router.use('/performance', performanceRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

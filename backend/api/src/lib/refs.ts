@@ -23,6 +23,9 @@ const FORMATS = {
   cashReservation: { prefix: 'RSV-', pad: 4, start: 1001 },
   cashExpectation: { prefix: 'EXP-', pad: 4, start: 1001 },
   cashImport: { prefix: 'IMP-', pad: 4, start: 1001 },
+  iborEvent: { prefix: 'IBE-', pad: 6, start: 1 },
+  iborSnapshot: { prefix: 'IBR-', pad: 4, start: 1001 },
+  perfPeriod: { prefix: 'PRF-', pad: 4, start: 1001 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;

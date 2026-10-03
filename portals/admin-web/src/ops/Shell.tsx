@@ -30,6 +30,8 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: '/ops/portfolios', label: 'Portfolios', perms: ['portfolio.view'] },
       { href: '/ops/securities', label: 'Securities & prices', perms: ['portfolio.view', 'research.view', 'orders.view'] },
+      { href: '/ops/ibor', label: 'IBOR & Positions', perms: ['portfolio.view'] },
+      { href: '/ops/performance', label: 'Performance & Attribution', perms: ['reports.view'] },
     ],
   },
   {

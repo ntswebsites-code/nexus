@@ -22,7 +22,7 @@ const AUDIT = requirePermission('audit.view');
 
 const SYSTEM_ADMIN = 'system_admin';
 /** Monetary permissions a platform administrator must never hold (SoD). */
-const MONETARY = ['orders.create', 'orders.approve', 'orders.route', 'cash.approve', 'cash.journal.create', 'cash.journal.approve', 'cash.close'];
+const MONETARY = ['orders.create', 'orders.approve', 'orders.route', 'cash.approve', 'cash.journal.create', 'cash.journal.approve', 'cash.close', 'performance.lock'];
 
 const staffRoleInclude = {
   roles: { where: { role: { portal: 'admin' } }, include: { role: { include: { permissions: true } } } },
