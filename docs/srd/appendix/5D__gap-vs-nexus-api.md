@@ -1,3 +1,5 @@
+> Status note (3 Oct 2026): this appendix describes the pre-build state. The methods listed as Missing are now built (see the matching module under `backend/api/src/modules`); see docs/GAP-ANALYSIS.md for the current status.
+
 # GAP VS NEXUS API (from the 5D draft)
 
 Nexus equivalent = `/api/v1/company/*` and `/api/v1/private-markets/*` as audited (admin audit sections on the company portal, private markets, reporting model and state machines). Status: **Covered** (works for the V8 need), **Partial** (exists but cannot serve the V8 page without change), **Missing** (nothing exists).

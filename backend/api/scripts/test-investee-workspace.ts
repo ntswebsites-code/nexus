@@ -106,7 +106,7 @@ async function main() {
 
   const flags = await company.get('/api/v1/platform/flags');
   const live = flags.body?.investee?.liveActions as string[] | undefined;
-  check('forecast and vault are allowlisted', Array.isArray(live) && live.includes('forecast') && live.includes('vault') && live.includes('requests.create'), live);
+  check('forecast and vault are allowlisted', Array.isArray(live) && (live.includes('all') || (live.includes('forecast') && live.includes('vault') && live.includes('requests.create'))), live);
 
   const application = await company.get('/api/v1/investee-portal/application');
   check('application summary names the company', application.status === 200 && typeof dataOf(application).businessName === 'string' && dataOf(application).businessName.length > 1, application.body);

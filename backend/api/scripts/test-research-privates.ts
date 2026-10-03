@@ -265,6 +265,7 @@ async function main() {
     check('maker adds evidence', (await cOps.post(`${P}/marks/${MARK.id}/evidence`, { kind: 'GP_STATEMENT', title: 'Q3 capital account statement', reference: 'VAULT-1' })).body?.data?.evidence.length === 1);
     check('submit -> PENDING_APPROVAL', (await cOps.post(`${P}/marks/${MARK.id}/submit`)).body?.data?.status === 'PENDING_APPROVAL');
     check('a portfolio manager without mark.approve cannot approve -> 403', (await cPm.post(`${P}/marks/${MARK.id}/approve`)).status === 403);
+    await prisma.session.updateMany({ where: { userId: fa.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment/earlier step-up counts as fresh; age it
     check('approve without step-up -> 401 step_up_required', (await cFa.post(`${P}/marks/${MARK.id}/approve`)).body?.error?.code === 'step_up_required');
     await cStepUp(cFa);
     const ap = await cFa.post(`${P}/marks/${MARK.id}/approve`);

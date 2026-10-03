@@ -106,6 +106,16 @@ async function stepUp(c: Awaited<ReturnType<typeof signIn>>, email: string) {
   check(`${email} step-up`, res.status === 200, res.body);
 }
 
+/** Bank-instruction changes need an enrolled factor; a freshly seeded persona may have none, so enrol one over the API. */
+async function ensureMfa(c: Awaited<ReturnType<typeof signIn>>, email: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { email }, include: { mfaFactors: { where: { verifiedAt: { not: null } } } } });
+  if (user?.mfaFactors.length) return false;
+  const e = await c.call('POST', '/api/auth/mfa/enroll', {});
+  const v = await c.call('POST', '/api/auth/mfa/verify', { code: totpNow(e.body?.secret ?? '') });
+  check(`${email} enrols MFA`, e.status === 200 && v.status === 200, v.body);
+  return true;
+}
+
 const key = (s: string) => ({ 'Idempotency-Key': `gap-${run}-${s}` });
 
 function tokenFrom(text: string) {
@@ -137,7 +147,7 @@ async function main() {
   const ops = 'operations@uat.matanho.test';
 
   const lp = await signIn('investor', signatory);
-  await stepUp(lp, signatory);
+  if (!(await ensureMfa(lp, signatory))) await stepUp(lp, signatory);
   const bank = await lp.call(
     'POST',
     '/api/v1/lp-portal/bank-instructions/changes',

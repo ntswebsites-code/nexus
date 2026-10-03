@@ -174,6 +174,7 @@ async function main() {
     check('submit -> PENDING_APPROVAL', (await cOps.post(`${C}/journals/${J1.id}/submit`)).body?.data?.status === 'PENDING_APPROVAL');
     check('editing a pending journal -> 409 journal_immutable', (await cOps.patch(`${C}/journals/${J1.id}`, { ...j1b, portfolioId: undefined })).body?.error?.code === 'journal_immutable');
     check('auditor cannot post -> 403', (await cAud.post(`${C}/journals/${J1.id}/post`)).status === 403);
+    await prisma.session.updateMany({ where: { userId: fa.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment counts as a fresh step-up; age it
     check('post without step-up -> 401 step_up_required', (await cFa.post(`${C}/journals/${J1.id}/post`)).body?.error?.code === 'step_up_required');
     await cFa.stepUp();
     const self = await cOps.post(`${C}/journals/${J1.id}/post`);
