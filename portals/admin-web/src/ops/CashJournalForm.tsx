@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { api, qs, v1 } from '@/ops/api';
+import { api, apiRequest, qs, v1 } from '@/ops/api';
 import { label, PURPOSES, type CashJournalDetail, type LedgerRow } from '@/ops/cash';
 import type { PortfolioSummary } from '@/ops/types';
 import { Alert, Field, FieldGrid, Modal, useAction, useResource } from '@/ops/ui';
@@ -44,7 +44,7 @@ export function CashJournalForm({
   const [lines, setLines] = useState<JLine[]>(
     existing ? existing.lines.map((l) => ({ ledgerId: l.ledgerId, debit: isZero(l.debit) ? '' : l.debit, credit: isZero(l.credit) ? '' : l.credit, memo: l.memo ?? '' })) : [blank(), blank()],
   );
-  const ledgers = useResource<{ data: LedgerRow[] }>(() => (portfolioId ? api.get<{ data: LedgerRow[] }>(v1(`/cash/ledgers${qs({ portfolioId, status: 'ACTIVE' })}`)) : Promise.resolve({ data: [] })), [portfolioId]);
+  const ledgers = useResource<{ data: LedgerRow[] }>(() => (portfolioId ? apiRequest<{ data: LedgerRow[] }>('GET', v1(`/cash/ledgers${qs({ portfolioId, status: 'ACTIVE' })}`)) : Promise.resolve({ data: [] })), [portfolioId]);
   const set = (i: number, patch: Partial<JLine>) => setLines((ls) => ls.map((l, k) => (k === i ? { ...l, ...patch } : l)));
   const dr = lines.reduce((s, l) => s + num(l.debit), 0);
   const cr = lines.reduce((s, l) => s + num(l.credit), 0);

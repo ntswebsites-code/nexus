@@ -87,7 +87,12 @@ export default function CustodianPage() {
                         <td className="r">
                           <Money value={p.holdingsMv} currency={p.currency} />
                         </td>
-                        <td className="r">{p.tradeCount}</td>
+                        <td className="r">
+                          {p.tradeCount}
+                          {typeof (p as { executionsReceived?: number }).executionsReceived === 'number' && (
+                            <span className="ops-sub">{(p as { executionsReceived?: number }).executionsReceived} executions received</span>
+                          )}
+                        </td>
                         <td>
                           {formatDateTime(p.submittedAt)}
                           {p.submittedByName && <span className="ops-sub">{p.submittedByName}</span>}

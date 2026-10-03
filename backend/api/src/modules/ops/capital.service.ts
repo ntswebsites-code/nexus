@@ -109,6 +109,17 @@ export async function planCallAllocations(
 }
 
 export async function staffCallView(c: CallRow) {
+  const userIds = [c.makerId, c.checkerId, ...c.allocations.flatMap((a) => a.payments.map((p) => p.recordedById))].filter((x): x is string => !!x);
+  const people = userIds.length ? await prisma.user.findMany({ where: { id: { in: [...new Set(userIds)] } }, select: { id: true, name: true, email: true } }) : [];
+  const nameOf = (id: string | null | undefined) => {
+    if (!id) return null;
+    const u = people.find((x) => x.id === id);
+    return u ? (u.name ?? u.email) : null;
+  };
+  // Allocation method is not stored; infer it: equal call/commitment ratios across LPs mean pro rata.
+  const liveAllocs = c.allocations.filter((a) => a.status !== 'CANCELLED' && a.totalCommitmentSnapshot.gt(0));
+  const ratios = new Set(liveAllocs.map((a) => a.callAmount.div(a.totalCommitmentSnapshot).toDecimalPlaces(4).toString()));
+  const allocationMethod = liveAllocs.length === 0 ? null : ratios.size <= 1 ? 'PRO_RATA' : 'EXPLICIT';
   const allocIds = c.allocations.map((a) => a.id);
   const evidence = allocIds.length
     ? await prisma.fundingEvidence.findMany({ where: { allocationId: { in: allocIds } }, orderBy: { confirmedAt: 'asc' } })
@@ -135,7 +146,11 @@ export async function staffCallView(c: CallRow) {
     wire: wireView(c.wireJson),
     status: c.status,
     makerId: c.makerId,
+    makerName: nameOf(c.makerId),
     checkerId: c.checkerId,
+    checkerName: nameOf(c.checkerId),
+    allocationMethod,
+    amountPaid: money(paid),
     approvedAt: c.approvedAt,
     issuedAt: c.issuedAt,
     cancelledAt: c.cancelledAt,
@@ -153,7 +168,9 @@ export async function staffCallView(c: CallRow) {
       commitmentId: a.commitmentId,
       investorAccountRef: a.commitment.investorAccountRef,
       totalCommitment: money(a.totalCommitmentSnapshot),
+      totalCommitmentSnapshot: money(a.totalCommitmentSnapshot),
       uncalledBefore: money(a.uncalledBeforeSnapshot),
+      uncalledBeforeSnapshot: money(a.uncalledBeforeSnapshot),
       callAmount: money(a.callAmount),
       amountPaid: money(a.amountPaid),
       outstanding: money(D.max(ZERO, a.callAmount.sub(a.amountPaid))),
@@ -162,10 +179,14 @@ export async function staffCallView(c: CallRow) {
       version: a.version,
       payments: a.payments.map((p) => ({
         id: p.id,
+        allocationId: a.id,
         amount: money(p.amount),
         paidAt: p.recordedAt,
+        recordedAt: p.recordedAt,
         reference: p.bankReference,
+        bankReference: p.bankReference,
         recordedById: p.recordedById,
+        recordedByName: nameOf(p.recordedById),
         evidenceId: p.confirmationId,
       })),
       evidence: evidence
@@ -219,7 +240,8 @@ export async function issueCallArtefacts(tx: Prisma.TransactionClient, c: CallRo
   for (const a of c.allocations) {
     if (a.status === 'CANCELLED') continue;
     const pdf = renderPdf('CAPITAL CALL NOTICE', callNoticeLines(c, a));
-    const label = callNoLabel(c.callNo);
+    // Use the canonical call reference (what the Capital calls list shows) so notice titles match it.
+    const label = c.ref;
     await publishClientPdf(tx, {
       name: `${label} Capital Call Notice`,
       category: 'CALL_NOTICE',

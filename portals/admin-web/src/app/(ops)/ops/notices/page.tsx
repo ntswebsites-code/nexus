@@ -121,7 +121,7 @@ function audience(n: LpNotice): string {
     case 'ORG':
       return `LP: ${n.clientName ?? n.clientId ?? '—'}`;
     case 'USER':
-      return `User: ${n.userId ?? '—'}`;
+      return `User: ${(n as { userName?: string | null }).userName ?? n.userId ?? '—'}`;
     default:
       return 'All LPs';
   }

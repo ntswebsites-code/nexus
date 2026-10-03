@@ -112,7 +112,7 @@ export default function OperationsPage() {
                 </div>
                 <ul style={{ listStyle: 'none', padding: 0, margin: '14px 0 0', display: 'grid', gap: 8 }}>
                   <li>
-                    <Link href="/ops/reconciliation">Open reconciliations</Link> <span className="ops-muted">· {s.recon.open} open, {s.recon.high} high, {s.recon.pendingChecker} awaiting checker</span>
+                    <Link href="/ops/reconciliation">Open reconciliations</Link> <span className="ops-muted">· {s.recon.open} open ({reconSeverityText(s.recon)}), {s.recon.pendingChecker} awaiting checker</span>
                   </li>
                   <li>
                     <Link href="/ops/nav">Open NAV and valuation</Link> <span className="ops-muted">· {s.nav.unreleased.length} unreleased, {s.nav.blockers} material exception{s.nav.blockers === 1 ? '' : 's'}</span>
@@ -269,4 +269,12 @@ function TaskModal({ task, canWork, onClose, onChanged }: { task: Task; canWork:
       </div>
     </FormModal>
   );
+}
+
+/** "3 critical, 5 high": `recon.high` already folds critical into high, so show the real split when the API sends it. */
+function reconSeverityText(recon: { high: number; open: number } & { bySeverity?: Record<string, number> }): string {
+  const sev = recon.bySeverity;
+  if (!sev) return `${recon.high} critical or high`;
+  const parts = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'].filter((k) => (sev[k] ?? 0) > 0).map((k) => `${sev[k]} ${k.toLowerCase()}`);
+  return parts.length ? parts.join(', ') : 'none high';
 }

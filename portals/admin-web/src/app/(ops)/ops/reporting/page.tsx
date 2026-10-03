@@ -27,6 +27,9 @@ interface ReportingPack {
 
 const STATUSES = ['submitted', 'open', 'returned', 'accepted', 'all'];
 
+/** A pack still waiting on the company (open or returned) whose due date has passed. */
+const isOverdue = (row: ReportingPack) => (row.status === 'open' || row.status === 'returned') && !!row.due && row.due < new Date().toISOString().slice(0, 10);
+
 export default function ReportingPacksPage() {
   const canReview = useCan('research.edit');
   const [status, setStatus] = useState('submitted');
@@ -95,6 +98,7 @@ export default function ReportingPacksPage() {
                         <td>{row.items?.length ?? '—'}</td>
                         <td>
                           <StatusBadge status={row.status} />
+                          {isOverdue(row) && <span className="ops-sub" style={{ color: 'var(--ops-danger, #b42318)' }}>Overdue</span>}
                         </td>
                         <td>
                           {canReview && row.status === 'submitted' && (
@@ -128,7 +132,11 @@ export default function ReportingPacksPage() {
           subtitle="The company sees the request and can submit the pack. Opening a period does not accept it."
           submitLabel="Open period"
           onClose={() => setOpening(false)}
-          onDone={() => packs.reload()}
+          onDone={() => {
+            // Show the period just opened: it is 'open', not 'submitted'.
+            if (status === 'open') packs.reload();
+            else setStatus('open');
+          }}
           onSubmit={async (fd) =>
             api.post(`/api/v1/private-markets/companies/${encodeURIComponent(str(fd, 'company'))}/periods`, {
               period: str(fd, 'period'),
