@@ -89,3 +89,5 @@ CREATE TABLE `nav_exceptions` (
 -- AddForeignKey
 ALTER TABLE `nav_run_lines` ADD CONSTRAINT `nav_run_lines_run_id_fkey` FOREIGN KEY (`run_id`) REFERENCES `nav_runs`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
 
+-- AddForeignKey
+ALTER TABLE `nav_exceptions` ADD CONSTRAINT `nav_exceptions_run_id_fkey` FOREIGN KEY (`run_id`) REFERENCES `nav_runs`(`id`) ON DELETE CASCADE ON UPDATE CASCADE;
