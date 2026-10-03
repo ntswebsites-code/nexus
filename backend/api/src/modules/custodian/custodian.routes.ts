@@ -13,6 +13,7 @@ import { validateBody } from '../../middleware/validate';
 import { CURRENCIES, decimalString, executionSchema, isoDay } from './custodian.schemas';
 import { recordExecutionEvent } from './custodian.events';
 import { custodianOpsRoutes } from './custodian.ops';
+import { custodianNativeRoutes } from './custodian.native';
 import { uploadFiles, uploadedFiles } from '../../middleware/upload';
 import {
   counterpartyContext,
@@ -413,3 +414,6 @@ custodianRoutes.get('/submissions', async (_req, res) => {
 
 // Bulk CSV upload, amend / cancel and status history (WP-7).
 custodianRoutes.use(custodianOpsRoutes);
+
+// Native portal support: dashboard, control totals, statements and holdings, users and roles (R4-7).
+custodianRoutes.use(custodianNativeRoutes);

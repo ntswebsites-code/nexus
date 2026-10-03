@@ -86,7 +86,6 @@ export const DATA_HOOKS = {
 const PORTAL_DIRS = {
   admin: 'portals/admin-web',
   onboarding: 'portals/onboarding-web',
-  custodian: 'portals/custodian-web',
 };
 
 /**
@@ -94,7 +93,7 @@ const PORTAL_DIRS = {
  * their own demo data until their bridges are rewritten for the new markup. The old bridge sources
  * stay in src/legacy/bridge for reference.
  */
-const DISABLED = new Set(['onboarding', 'custodian']);
+const DISABLED = new Set(['onboarding']);
 
 function bridgeFiles(portalDir) {
   const dir = path.join(root, portalDir, 'src', 'legacy', 'bridge');
