@@ -40,6 +40,8 @@ interface Run {
   distributedAt: string | null;
   distributedBy: string | null;
   scheduleId: string | null;
+  deliveredAt: string | null;
+  deliveryNote: string | null;
 }
 interface Schedule {
   id: string;
@@ -51,6 +53,8 @@ interface Schedule {
   nextRunOn: string | null;
   lastRunAt: string | null;
   active: boolean;
+  rolling: string | null;
+  recipients: string[];
   createdBy: string | null;
 }
 interface Lookups {
@@ -58,6 +62,7 @@ interface Lookups {
   portfolios: { id: string; ref: string; name: string }[];
   formats: string[];
   frequencies: string[];
+  rollingWindows?: string[];
 }
 
 type Tab = 'catalogue' | 'runs' | 'schedules';
@@ -76,13 +81,13 @@ export default function ReportsPage() {
       </>
     );
   }
-  const lk = lookups.state === 'ok' ? lookups.data : { funds: [], portfolios: [], formats: ['CSV', 'JSON', 'HTML'], frequencies: ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY'] };
+  const lk = lookups.state === 'ok' ? lookups.data : { funds: [], portfolios: [], formats: ['CSV', 'JSON', 'HTML', 'PDF'], frequencies: ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY'], rollingWindows: ['PREVIOUS_DAY', 'TRAILING_30D', 'MONTH_TO_DATE', 'PREVIOUS_MONTH', 'QUARTER_TO_DATE', 'PREVIOUS_QUARTER', 'YEAR_TO_DATE'] };
   return (
     <>
       <PageHeader
         kicker="Reports"
         title="Reports & BI"
-        subtitle="Reports are generated from live data, stored with a hash and downloadable as CSV, JSON or print-ready HTML. Fund reports can be sent to the LP portal by an approver."
+        subtitle="Reports are generated from live data, stored with a hash and downloadable as CSV, JSON, print-ready HTML or PDF. Fund reports can be sent to the LP portal by an approver."
       />
       <TabBar
         tabs={[
@@ -177,6 +182,8 @@ function CatalogueTab({ lk, onRan }: { lk: Lookups; onRan: () => void }) {
 
 function RunsTab() {
   const canDistribute = useCan('reports.approve');
+  const canCreate = useCan('reports.create');
+  const [emailing, setEmailing] = useState<Run | null>(null);
   const [offset, setOffset] = useState(0);
   const [report, setReport] = useState('');
   const res = useResource(() => full<{ data: Run[]; total: number }>(R(`/runs${qs({ report, limit: String(PAGE), offset: String(offset) })}`)), [report, offset]);
@@ -233,11 +240,21 @@ function RunsTab() {
                           <Tone value={x.status} />
                           {x.error && <span className="ops-sub">{x.error}</span>}
                         </td>
-                        <td>{x.distributedAt ? <>Sent {dayOf(x.distributedAt)}<span className="ops-sub">{x.distributedBy}</span></> : '-'}</td>
+                        <td>
+                          {x.distributedAt ? <>Sent {dayOf(x.distributedAt)}<span className="ops-sub">{x.distributedBy}</span></> : '-'}
+                          {x.deliveryNote && <span className="ops-sub">Email: {x.deliveryNote}</span>}
+                        </td>
                         <td style={{ whiteSpace: 'nowrap' }}>
                           <button className="ops-btn small" type="button" disabled={!x.hasFile} onClick={() => openLink(R(`/runs/${x.id}/link`))}>
                             Download
                           </button>{' '}
+                          {canCreate && x.status === 'COMPLETED' && (
+                            <>
+                              <button className="ops-btn small" type="button" onClick={() => setEmailing(x)}>
+                                Email
+                              </button>{' '}
+                            </>
+                          )}
                           {canDistribute && ['FACT_SHEET', 'NAV_PACK'].includes(x.report) && x.status === 'COMPLETED' && !x.distributedAt && (
                             <ActionButton label="Send to LP portal" confirm={`Publish ${x.ref} to every investor with an active commitment in the fund?`} onRun={(key) => api.post(R(`/runs/${x.id}/distribute`), {}, { idempotencyKey: key })} onDone={res.reload} />
                           )}
@@ -252,6 +269,22 @@ function RunsTab() {
           )
         }
       </Loaded>
+      {emailing && (
+        <FormModal
+          title={`Email ${emailing.ref}`}
+          subtitle="Recipients receive a link to this screen; they still need to sign in with reports.view to download the file."
+          submitLabel="Send"
+          onClose={() => setEmailing(null)}
+          onSubmit={(fd, k) =>
+            api.post(R(`/runs/${emailing.id}/email`), { recipients: str(fd, 'recipients').split(/[\s,;]+/).filter(Boolean) }, { idempotencyKey: k })
+          }
+          onDone={res.reload}
+        >
+          <Field label="Email addresses" hint="Separate with commas (up to 10)">
+            <input className="ops-input" name="recipients" required placeholder="name@company.com, other@company.com" />
+          </Field>
+        </FormModal>
+      )}
     </Card>
   );
 }
@@ -289,6 +322,7 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
                     <th>Schedule</th>
                     <th>Report</th>
                     <th>Frequency</th>
+                    <th>Dates</th>
                     <th>Next run</th>
                     <th>Last run</th>
                     <th>State</th>
@@ -306,7 +340,11 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
                         {s.reportName}
                         <span className="ops-sub">{s.format}</span>
                       </td>
-                      <td>{label(s.frequency)}</td>
+                      <td>
+                        {label(s.frequency)}
+                        {s.recipients.length > 0 && <span className="ops-sub">Mails {s.recipients.length}</span>}
+                      </td>
+                      <td>{s.rolling ? label(s.rolling) : 'Fixed dates'}</td>
                       <td>{dayOf(s.nextRunOn)}</td>
                       <td>{when(s.lastRunAt)}</td>
                       <td>
@@ -333,7 +371,7 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
           title="New report schedule"
           submitLabel="Create schedule"
           onClose={() => setCreating(false)}
-          onSubmit={(fd, k) => api.post(R('/schedules'), { key, name: str(fd, 'name'), format: str(fd, 'format'), frequency: str(fd, 'frequency'), firstRunOn: optStr(fd, 'firstRunOn'), params: paramsFrom(fd, spec) }, { idempotencyKey: k })}
+          onSubmit={(fd, k) => api.post(R('/schedules'), { key, name: str(fd, 'name'), format: str(fd, 'format'), frequency: str(fd, 'frequency'), firstRunOn: optStr(fd, 'firstRunOn'), rolling: optStr(fd, 'rolling') ?? null, recipients: str(fd, 'recipients').split(/[\s,;]+/).filter(Boolean), params: paramsFrom(fd, spec) }, { idempotencyKey: k })}
           onDone={res.reload}
         >
           <FieldGrid>
@@ -369,8 +407,21 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
             <Field label="First run on (optional)" hint="Defaults to tomorrow">
               <input className="ops-input" type="date" name="firstRunOn" />
             </Field>
+            <Field label="Dates for each run" hint="Rolling windows are re-dated at every run">
+              <select className="ops-input" name="rolling" defaultValue="PREVIOUS_MONTH">
+                <option value="">Fixed dates (as entered above)</option>
+                {(lk.rollingWindows ?? []).map((w) => (
+                  <option key={w} value={w}>
+                    {label(w)}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Email each run to (optional)" hint="Comma-separated addresses" span={2}>
+              <input className="ops-input" name="recipients" placeholder="name@company.com" />
+            </Field>
           </FieldGrid>
-          <p className="ops-muted">Date-range reports (transactions, NAV pack) repeat the exact dates you give here; use As-of reports for rolling schedules.</p>
+          <p className="ops-muted">With a rolling window the From / To (or As of) dates above are only used for validation; every run recalculates them, so a monthly schedule never repeats last month.</p>
         </FormModal>
       )}
     </Card>

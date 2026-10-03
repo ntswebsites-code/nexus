@@ -2,7 +2,7 @@ import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { enqueue } from '../../lib/outbox';
-import { DEFAULT_SLA_HOURS } from './co.engine';
+import { DEFAULT_RISK_FACTORS, DEFAULT_SLA_HOURS, DEFAULT_THRESHOLDS, defaultRiskConfig, type RiskConfig } from './co.engine';
 
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -46,4 +46,28 @@ export async function slaHours(type: string, priority: string): Promise<number> 
   if (row) return row.targetHours;
   const any = await prisma.serviceSlaPolicy.findUnique({ where: { requestType_priority: { requestType: '*', priority } } });
   return any?.targetHours ?? DEFAULT_SLA_HOURS[priority] ?? 48;
+}
+
+/** Inserts any missing default factor and threshold rows (idempotent, never overwrites a stored value). */
+export async function ensureRiskFactors() {
+  const have = new Set((await prisma.kycRiskFactor.findMany({ select: { key: true } })).map((r) => r.key));
+  const rows: Prisma.KycRiskFactorCreateManyInput[] = [
+    ...DEFAULT_RISK_FACTORS.filter((f) => !have.has(f.key)).map((f) => ({ key: f.key, kind: 'FACTOR', label: f.label, points: f.points, params: (f.params ?? undefined) as Prisma.InputJsonValue | undefined })),
+    ...(have.has('rating_medium') ? [] : [{ key: 'rating_medium', kind: 'THRESHOLD', label: 'Score at which the rating becomes Medium', points: DEFAULT_THRESHOLDS.rating_medium }]),
+    ...(have.has('rating_high') ? [] : [{ key: 'rating_high', kind: 'THRESHOLD', label: 'Score at which the rating becomes High', points: DEFAULT_THRESHOLDS.rating_high }]),
+  ];
+  if (rows.length) await prisma.kycRiskFactor.createMany({ data: rows, skipDuplicates: true });
+}
+
+/** The risk scoring configuration in force: stored factor points and thresholds over the defaults. */
+export async function loadRiskConfig(): Promise<RiskConfig> {
+  const cfg = defaultRiskConfig();
+  const rows = await prisma.kycRiskFactor.findMany();
+  for (const r of rows) {
+    if (r.kind === 'THRESHOLD') {
+      if (r.key === 'rating_medium') cfg.medium = r.points;
+      if (r.key === 'rating_high') cfg.high = r.points;
+    } else if (cfg.factors[r.key]) cfg.factors[r.key] = { points: r.points, enabled: r.enabled, params: (r.params as Record<string, unknown> | null) ?? cfg.factors[r.key]!.params };
+  }
+  return cfg;
 }

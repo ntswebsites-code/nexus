@@ -1272,3 +1272,17 @@ Migration `20261024100000_investee_workspace` (16 tables, no change to existing 
 - Forecast cells are rows with month locks (approver locks, administrator unlocks). Board meetings, pack (frozen and hashed on publish), board actions. Company-initiated signature requests with tokened public signer page (`/sign/<token>` on company-web, `/api/v1/investee-public/sign/*`), remind (rotates link, 1 per hour, 5 max) and void. Share links (max 7 days, hash-only storage, access count, text watermark, revoke). Global search, derived KPI history with CSV/xlsx export, MFA coverage and access review.
 - Company-web: `/workspace` page (needs `workspace` in `INVESTEE_LIVE_ACTIONS` or `all`).
 - Not done: cap-table GL journals still need approval in accounting; non-text share files are not watermarked; signature e-mail goes through the existing outbox mailer (adapter comes from WP-8); no staff-side screen for cap-table data.
+=======
+## WP-6: reports, data fabric, models, vault and clients (supersedes the matching "Not done" lines above)
+
+Migration `20261025100000_wp6_reports_data_models_vault`. Test: `npx tsx scripts/test-wp6.ts` (pure block runs anywhere; API flows need `E2E_CONFIRM=throwaway-db`; typechecked, flows not run here).
+
+- **Reports**: PDF output (`reports/pdf.ts`, paginated tables, page footer, hash stored). Schedules carry a rolling window (previous day or month or quarter, month/quarter/year to date, trailing 30 days) re-dated at every run, and optional recipients: a completed run mails a link (never the data) through `sendMail`; to move to the EmailAdapter swap that call in `emailRun`. Runs can also be emailed on demand.
+- **Data Fabric**: FILE_FEED sources have a column contract (`schemaSpec`) and a CSV upload that types and validates rows, stages accepted rows (`data_staged_records`), keeps refused rows with reasons (`data_rejected_rows`) and refuses an identical repeat file. Rules can target a feed (`feed:<source key>`); new check types cover composite uniqueness, cross-table existence and column comparison, on registry tables and feeds.
+- **Model governance**: periodic review workflow (OPEN, SUBMITTED, COMPLETED; the reviewer is not the version author or approver, approval by a third person with step-up) that moves the next review date by tier cadence or retires the model. Bindings tie NAV runs and risk scenario runs to an approved model, log each use automatically and can be enforced (refuse when there is no approved version or the review is overdue). `openDueReviews()` is exported for a scheduler.
+- **Vault**: upload, new version, submit, approve, return and publish buttons over the document lifecycle API; disposal as a maker-checker change (retention ended, no hold; withdrawn, not downloadable, audit kept); valuation evidence files for private-markets marks (`pm_evidence.document_id`).
+- **Clients**: KYC risk factors and rating thresholds are stored and editable (approver permission and step-up). Releasing a dealing hold and activating or closing a mandate go through change requests approved by a different person (`onboarding.approve`, step-up). Placing a hold stays immediate.
+
+### Not done (WP-6)
+
+- Scheduled-report email carries a link, not an attachment, until the EmailAdapter exists. Feed upload is CSV only (no MT535 or CAMT, no API pull). Cross-table rules compare one column to one reference column. The review sweep is a button and an exported function, not yet called by the worker (worker.ts belongs to WP-4).

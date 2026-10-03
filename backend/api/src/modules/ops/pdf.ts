@@ -2,7 +2,7 @@
  * Minimal one-page text PDF (Helvetica, A4) for call and distribution notices. No dependency:
  * the day-one slice needs a real PDF artefact with a stable hash, not typography.
  */
-function ascii(text: string): string {
+export function ascii(text: string): string {
   return text
     .replace(/[•·]/g, '*')
     .replace(/[–—]/g, '-')
@@ -11,7 +11,7 @@ function ascii(text: string): string {
     .replace(/[^\x20-\x7e]/g, '?');
 }
 
-function esc(text: string): string {
+export function esc(text: string): string {
   return ascii(text).replace(/\\/g, '\\\\').replace(/\(/g, '\\(').replace(/\)/g, '\\)');
 }
 

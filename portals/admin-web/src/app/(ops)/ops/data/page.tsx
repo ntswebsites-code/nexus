@@ -1,11 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { api, qs, v1 } from '@/ops/api';
 import { TabBar } from '@/ops/recon/common';
 import { useCan } from '@/ops/session';
-import { full, label, Pager, Tiles, Tone, when } from '@/ops/suite';
-import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, Loaded, PageHeader, optStr, str, useResource } from '@/ops/ui';
+import { full, label, Pager, SimpleTable, Tiles, Tone, upload, when } from '@/ops/suite';
+import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, Loaded, Modal, PageHeader, optStr, str, useResource } from '@/ops/ui';
 
 interface Dataset {
   key: string;
@@ -16,7 +16,18 @@ interface Dataset {
   rows: number;
   latest: string | null;
 }
+interface FeedColumn {
+  name: string;
+  type: 'text' | 'num' | 'date';
+  required: boolean;
+  unique?: boolean;
+}
+interface FeedSchema {
+  keyColumn: string;
+  columns: FeedColumn[];
+}
 interface DatasetsResp {
+  feeds?: { dataset: string; label: string; sourceKey: string; columns: Record<string, 'text' | 'num' | 'date'> }[];
   data: Dataset[];
   checkTypes: string[];
   severities: string[];
@@ -35,6 +46,7 @@ interface Source {
   status: string;
   lastSyncAt: string | null;
   lastRowCount: number | null;
+  schemaSpec: FeedSchema | null;
   rules: number;
   lastJob: { ref: string; status: string; at: string } | null;
 }
@@ -50,6 +62,8 @@ interface Job {
   error: string | null;
   triggeredBy: string | null;
   startedAt: string;
+  fileName: string | null;
+  fileSha256: string | null;
 }
 interface Rule {
   id: string;
@@ -197,6 +211,9 @@ function SourcesTab({ ds }: { ds: DatasetsResp }) {
   const [adding, setAdding] = useState(false);
   const [kind, setKind] = useState('TABLE');
   const [ingest, setIngest] = useState<Source | null>(null);
+  const [contract, setContract] = useState<Source | null>(null);
+  const [uploading, setUploading] = useState<Source | null>(null);
+  const [staged, setStaged] = useState<Source | null>(null);
   return (
     <Card actions={canManage && <button className="ops-btn primary" type="button" onClick={() => setAdding(true)}>Register source</button>}>
       <Loaded res={res}>
@@ -241,6 +258,20 @@ function SourcesTab({ ds }: { ds: DatasetsResp }) {
                           <>
                             {s.kind === 'TABLE' ? (
                               <ActionButton label="Profile now" disabled={s.status === 'PAUSED'} onRun={(k) => api.post(D(`/sources/${s.id}/ingest`), {}, { idempotencyKey: k })} onDone={res.reload} />
+                            ) : s.kind === 'FILE_FEED' ? (
+                              <>
+                                <button className="ops-btn small" type="button" onClick={() => setContract(s)}>
+                                  Contract
+                                </button>{' '}
+                                <button className="ops-btn small" type="button" disabled={s.status === 'PAUSED' || !s.schemaSpec} title={s.schemaSpec ? undefined : 'Define the column contract first'} onClick={() => setUploading(s)}>
+                                  Upload CSV
+                                </button>{' '}
+                                {s.schemaSpec && (
+                                  <button className="ops-btn small" type="button" onClick={() => setStaged(s)}>
+                                    Staged rows
+                                  </button>
+                                )}
+                              </>
                             ) : (
                               <button className="ops-btn small" type="button" disabled={s.status === 'PAUSED'} onClick={() => setIngest(s)}>
                                 Record feed run
@@ -314,6 +345,44 @@ function SourcesTab({ ds }: { ds: DatasetsResp }) {
           </FieldGrid>
         </FormModal>
       )}
+      {contract && (
+        <FormModal
+          title={`Column contract: ${contract.name}`}
+          subtitle="One column per line: name, type (text, num or date), then required and/or unique. Uploaded CSVs are typed and validated against this."
+          submitLabel="Save contract"
+          wide
+          onClose={() => setContract(null)}
+          onSubmit={(fd) => {
+            const columns = str(fd, 'columns')
+              .split('\n')
+              .map((l) => l.trim())
+              .filter(Boolean)
+              .map((l) => {
+                const [name, type, ...flags] = l.split(',').map((x) => x.trim().toLowerCase());
+                return { name: name ?? '', type: (type || 'text') as FeedColumn['type'], required: flags.includes('required'), unique: flags.includes('unique') || undefined };
+              });
+            return api.put(D(`/sources/${contract.id}/schema`), { keyColumn: str(fd, 'keyColumn').toLowerCase(), columns });
+          }}
+          onDone={res.reload}
+        >
+          <FieldGrid>
+            <Field label="Key column" hint="Identifies a row; duplicates in a file are rejected">
+              <input className="ops-input" name="keyColumn" required defaultValue={contract.schemaSpec?.keyColumn ?? ''} />
+            </Field>
+            <Field label="Columns" span={2}>
+              <textarea
+                className="ops-input"
+                name="columns"
+                rows={8}
+                required
+                defaultValue={(contract.schemaSpec?.columns ?? [{ name: 'ticker', type: 'text', required: true }, { name: 'price_date', type: 'date', required: true }, { name: 'close_price', type: 'num', required: true }]).map((c) => [c.name, c.type, c.required ? 'required' : '', c.unique ? 'unique' : ''].filter(Boolean).join(',')).join('\n')}
+              />
+            </Field>
+          </FieldGrid>
+        </FormModal>
+      )}
+      {uploading && <UploadModal source={uploading} onClose={() => setUploading(null)} onDone={res.reload} />}
+      {staged && <StagedModal source={staged} onClose={() => setStaged(null)} />}
       {ingest && (
         <FormModal
           title={`Record feed run: ${ingest.name}`}
@@ -350,6 +419,7 @@ function SourcesTab({ ds }: { ds: DatasetsResp }) {
 
 function JobsTab() {
   const [offset, setOffset] = useState(0);
+  const [rejected, setRejected] = useState<Job | null>(null);
   const [status, setStatus] = useState('');
   const res = useResource(() => full<{ data: Job[]; total: number }>(D(`/jobs${qs({ status, limit: String(PAGE), offset: String(offset) })}`)), [status, offset]);
   return (
@@ -395,7 +465,14 @@ function JobsTab() {
                         </td>
                         <td>{when(j.startedAt)}</td>
                         <td>{j.rowsRead.toLocaleString()}</td>
-                        <td>{j.rowsRejected}</td>
+                        <td>
+                          {j.rowsRejected}
+                          {j.rowsRejected > 0 && j.fileName && (
+                            <button className="ops-btn small" type="button" style={{ marginLeft: 6 }} onClick={() => setRejected(j)}>
+                              View
+                            </button>
+                          )}
+                        </td>
                         <td>{when(j.latestRecordAt)}</td>
                         <td>
                           <Tone value={j.status} />
@@ -411,6 +488,7 @@ function JobsTab() {
           )
         }
       </Loaded>
+      {rejected && <RejectedModal job={rejected} onClose={() => setRejected(null)} />}
     </Card>
   );
 }
@@ -421,8 +499,12 @@ function RulesTab({ ds }: { ds: DatasetsResp }) {
   const [adding, setAdding] = useState(false);
   const [dataset, setDataset] = useState(ds.data[0]?.key ?? '');
   const [type, setType] = useState('NOT_NULL');
+  const [refDataset, setRefDataset] = useState(ds.data[0]?.key ?? '');
+  const feed = ds.feeds?.find((f) => f.dataset === dataset);
   const cur = ds.data.find((d) => d.key === dataset);
-  const cols = Object.entries(cur?.columns ?? {}).filter(([, t]) => (type === 'RANGE' ? t === 'num' : type === 'FRESHNESS' ? t === 'date' : true));
+  const colMap: Record<string, 'text' | 'num' | 'date'> = feed?.columns ?? cur?.columns ?? {};
+  const cols = Object.entries(colMap).filter(([, t]) => (type === 'RANGE' ? t === 'num' : type === 'FRESHNESS' ? t === 'date' : true));
+  const refCur = ds.data.find((d) => d.key === refDataset);
   const [runMsg, setRunMsg] = useState<string | null>(null);
   return (
     <Card
@@ -518,7 +600,15 @@ function RulesTab({ ds }: { ds: DatasetsResp }) {
             }
             if (type === 'FRESHNESS') params.maxAgeDays = Number(str(fd, 'maxAgeDays'));
             if (type === 'ORPHAN') params.relation = str(fd, 'relation');
-            const col = type === 'ORPHAN' ? undefined : str(fd, 'col');
+            if (type === 'CROSS_TABLE') {
+              params.refDataset = refDataset;
+              params.refCol = str(fd, 'refCol');
+            }
+            if (type === 'COL_COMPARE') {
+              params.op = str(fd, 'op');
+              params.other = str(fd, 'other');
+            }
+            const col = type === 'ORPHAN' ? undefined : type === 'COMPOSITE_UQ' ? str(fd, 'cols').replace(/\s+/g, '') : str(fd, 'col');
             return api.post(D('/rules'), { key: str(fd, 'key'), name: str(fd, 'name'), dataset, checkType: type, col: col ?? colForRelation(cur, str(fd, 'relation')), params: Object.keys(params).length ? params : undefined, severity: str(fd, 'severity') }, { idempotencyKey: k });
           }}
           onDone={res.reload}
@@ -537,6 +627,11 @@ function RulesTab({ ds }: { ds: DatasetsResp }) {
                     {d.label}
                   </option>
                 ))}
+                {(ds.feeds ?? []).map((f) => (
+                  <option key={f.dataset} value={f.dataset}>
+                    {f.label}
+                  </option>
+                ))}
               </select>
             </Field>
             <Field label="Check">
@@ -548,7 +643,11 @@ function RulesTab({ ds }: { ds: DatasetsResp }) {
                 ))}
               </select>
             </Field>
-            {type !== 'ORPHAN' ? (
+            {type === 'COMPOSITE_UQ' ? (
+              <Field label="Columns" hint={`Comma-separated, 2 to 4 of: ${Object.keys(colMap).join(', ')}`} span={2}>
+                <input className="ops-input" name="cols" required placeholder="security_id,price_date" />
+              </Field>
+            ) : type !== 'ORPHAN' ? (
               <Field label="Column">
                 <select className="ops-input" name="col" key={`${dataset}${type}`} required>
                   {cols.map(([c]) => (
@@ -564,6 +663,47 @@ function RulesTab({ ds }: { ds: DatasetsResp }) {
                   ))}
                 </select>
               </Field>
+            )}
+            {type === 'CROSS_TABLE' && (
+              <>
+                <Field label="Must exist in dataset">
+                  <select className="ops-input" value={refDataset} onChange={(e) => setRefDataset(e.target.value)}>
+                    {ds.data.map((d) => (
+                      <option key={d.key} value={d.key}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                <Field label="Reference column">
+                  <select className="ops-input" name="refCol" key={refDataset} required>
+                    {[...Object.keys(refCur?.columns ?? {}), 'id', 'ref', 'ticker'].filter((c, i, a) => a.indexOf(c) === i).map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                </Field>
+              </>
+            )}
+            {type === 'COL_COMPARE' && (
+              <>
+                <Field label="Must be" hint="column compared with the other column">
+                  <select className="ops-input" name="op" defaultValue="lte">
+                    <option value="lt">less than</option>
+                    <option value="lte">less than or equal to</option>
+                    <option value="eq">equal to</option>
+                    <option value="ne">different from</option>
+                    <option value="gte">greater than or equal to</option>
+                    <option value="gt">greater than</option>
+                  </select>
+                </Field>
+                <Field label="Other column">
+                  <select className="ops-input" name="other" key={`${dataset}o`} required>
+                    {Object.keys(colMap).map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                </Field>
+              </>
             )}
             {type === 'RANGE' && (
               <>
@@ -696,5 +836,77 @@ function ExceptionsTab() {
         </FormModal>
       )}
     </Card>
+  );
+}
+
+type UploadResult = { ref: string; status: string; accepted: number; rowsRead: number; rowsRejected: number; error: string | null };
+function UploadModal({ source, onClose, onDone }: { source: Source; onClose: () => void; onDone: () => void }) {
+  const [result, setResult] = useState<UploadResult | null>(null);
+  const done = useRef(false);
+  if (result) {
+    return (
+      <Modal title={`Upload result: ${source.name}`} onClose={() => (onDone(), onClose())}>
+        <div className="ops-modal-body">
+          <Alert kind={result.status === 'FAILED' ? 'error' : 'ok'}>
+            {result.ref} {result.status === 'FAILED' ? 'failed' : 'loaded'}: {result.accepted} accepted of {result.rowsRead} rows, {result.rowsRejected} rejected.{result.error ? ` ${result.error}` : ''}
+          </Alert>
+          {result.rowsRejected > 0 && <p className="ops-muted">Open Ingestion jobs and use View beside the rejected count to see each refused row and its reason.</p>}
+        </div>
+        <footer className="ops-modal-foot">
+          <button className="ops-btn primary" type="button" onClick={() => (onDone(), onClose())}>
+            Close
+          </button>
+        </footer>
+      </Modal>
+    );
+  }
+  return (
+    <FormModal
+      title={`Upload CSV: ${source.name}`}
+      subtitle={`Header row must contain: ${(source.schemaSpec?.columns ?? []).map((c) => c.name).join(', ')}. A successful load replaces the previously staged rows.`}
+      submitLabel="Upload and validate"
+      onClose={() => (done.current ? undefined : onClose())}
+      onSubmit={async (fd) => {
+        const f = fd.get('file');
+        if (!(f instanceof File) || !f.size) throw new Error('Choose a CSV file');
+        const r = await upload<UploadResult>(D(`/sources/${source.id}/upload`), f);
+        done.current = true;
+        setResult(r);
+        return r;
+      }}
+    >
+      <Field label="CSV file">
+        <input className="ops-input" type="file" name="file" accept=".csv,text/csv" required />
+      </Field>
+    </FormModal>
+  );
+}
+
+function StagedModal({ source, onClose }: { source: Source; onClose: () => void }) {
+  const res = useResource(() => full<{ data: { rowNo: number; key: string; values: Record<string, string | number | null> }[]; total: number; columns: FeedColumn[] }>(D(`/sources/${source.id}/staged?limit=100`)), []);
+  return (
+    <Modal title={`Staged rows: ${source.name}`} onClose={onClose} wide>
+      <div className="ops-modal-body">
+        <Loaded res={res}>
+          {(r) => (
+            <>
+              <p className="ops-muted">{r.total.toLocaleString()} accepted rows from the latest load (first 100 shown).</p>
+              <SimpleTable columns={['Row', ...r.columns.map((c) => c.name)]} rows={r.data.map((x) => [x.rowNo, ...r.columns.map((c) => x.values[c.name] ?? null)])} />
+            </>
+          )}
+        </Loaded>
+      </div>
+    </Modal>
+  );
+}
+
+function RejectedModal({ job, onClose }: { job: Job; onClose: () => void }) {
+  const res = useResource(() => full<{ data: { rowNo: number; reason: string; raw: string }[] }>(D(`/jobs/${job.ref}/rejected`)), []);
+  return (
+    <Modal title={`Rejected rows: ${job.ref}`} onClose={onClose} wide>
+      <div className="ops-modal-body">
+        <Loaded res={res}>{(r) => <SimpleTable columns={['Row', 'Reason', 'Content']} rows={r.data.map((x) => [x.rowNo, x.reason, x.raw])} />}</Loaded>
+      </div>
+    </Modal>
   );
 }

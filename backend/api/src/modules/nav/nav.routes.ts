@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { assertModelUsable, logModelUse } from '../model-governance/mg.usage';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
@@ -177,14 +178,18 @@ navRoutes.post('/runs', ...canView, validateBody(createSchema), idempotent('nav.
   const { portfolioId: _p, navDate: _d, ...inputs } = b;
   void _p;
   void _d;
+  await assertModelUsable('NAV_VALUATION');
   const run = await createVersion(req, { portfolioId, navDate, inputs, action: 'nav.run_created' });
+  await logModelUse('NAV_VALUATION', { context: 'NAV run calculation', objectRef: run.ref, userId: req.user!.id, audit: audit(req) });
   await respond(res, req, run.id, 201);
 });
 
 navRoutes.post('/runs/:id/recalculate', ...canView, idempotent('nav.recalculate', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   assertNotImmutable(r, 'recalculated');
+  await assertModelUsable('NAV_VALUATION');
   const run = await createVersion(req, { portfolioId: r.portfolioId, navDate: r.navDate, inputs: {}, from: r, action: 'nav.run_recalculated' });
+  await logModelUse('NAV_VALUATION', { context: 'NAV run recalculation', objectRef: run.ref, userId: req.user!.id, audit: audit(req) });
   await respond(res, req, run.id, 201);
 });
 

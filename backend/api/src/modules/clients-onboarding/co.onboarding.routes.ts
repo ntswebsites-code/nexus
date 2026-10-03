@@ -11,7 +11,7 @@ import { requirePermission, requireStepUp } from '../../middleware/requireAuth';
 import { assertSegregation, audit, notifyPermission } from '../ops/ops.common';
 import { addEvent, blockers, caseSummary, loadCase, missingEvidence, type FullCase } from '../kyc/kyc.service';
 import { CHECK_KINDS, CHECK_OUTCOMES, RATINGS, scoreRisk, slaState } from './co.engine';
-import { assertStaff, userNames } from './co.service';
+import { assertStaff, loadRiskConfig, userNames } from './co.service';
 
 /** Onboarding & KYC (page `onboarding`): review queue, KYC/AML checks, risk rating with maker-checker, assignment. */
 export const coOnboardingRoutes = Router();
@@ -106,7 +106,7 @@ async function workup(idOrRef: string) {
   const names = await userNames([c.ownerId, ...checks.map((x) => x.performedBy), ...assessments.flatMap((a) => [a.makerId, a.checkerId])]);
   const latestByKind = new Map<string, (typeof checks)[number]>();
   for (const x of checks) if (!latestByKind.has(x.kind)) latestByKind.set(x.kind, x);
-  const preview = scoreRisk(riskInput(c, [...latestByKind.values()].map((x) => ({ kind: x.kind, outcome: x.outcome }))));
+  const preview = scoreRisk(riskInput(c, [...latestByKind.values()].map((x) => ({ kind: x.kind, outcome: x.outcome }))), await loadRiskConfig());
   const approved = assessments.find((a) => a.status === 'APPROVED');
   return {
     case: caseSummary(c),
@@ -158,7 +158,7 @@ coOnboardingRoutes.post('/onboarding/cases/:id/risk', requirePermission('onboard
   if (['Rejected', 'Active'].includes(c.stage)) throw HttpError.conflict(`Risk cannot be assessed on a ${c.stage} case`, 'invalid_state');
   const b = req.body as z.infer<typeof riskSchema>;
   const checks = await prisma.kycCheck.findMany({ where: { caseId: c.id }, orderBy: { performedAt: 'asc' } });
-  const computed = scoreRisk(riskInput(c, checks));
+  const computed = scoreRisk(riskInput(c, checks), await loadRiskConfig());
   const rating = b.rating ?? computed.rating;
   if (rating !== computed.rating && (b.rationale ?? '').length < 10) {
     throw HttpError.badRequest('Validation failed', [{ path: 'rationale', message: `The computed rating is ${computed.rating}; explain the override (10+ characters)` }]);

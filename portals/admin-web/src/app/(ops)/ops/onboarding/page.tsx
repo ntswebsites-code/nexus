@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { asList, coGet, coPost, NoAccess, rawPost, StaffSelect, Tile, Tone, type StaffUser } from '@/ops/clientops';
+import { asList, coGet, coPost, coPut, NoAccess, rawPost, StaffSelect, Tile, Tone, type StaffUser } from '@/ops/clientops';
 import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
 
@@ -101,6 +101,7 @@ export default function OnboardingPage() {
           </>
         )}
       </Loaded>
+      <RiskFactorsCard />
       {open && <CaseModal id={open} onClose={() => setOpen(null)} onChanged={queue.reload} />}
     </>
   );
@@ -263,5 +264,99 @@ function CaseModal({ id, onClose, onChanged }: { id: string; onClose: () => void
         </Loaded>
       </div>
     </Modal>
+  );
+}
+
+interface RiskFactorRow {
+  key: string;
+  label: string;
+  points: number;
+  defaultPoints: number | null;
+  enabled: boolean;
+  params: Record<string, unknown> | null;
+  updatedBy: string | null;
+}
+interface RiskFactorsResp {
+  factors: RiskFactorRow[];
+  thresholds: { medium: number; high: number };
+}
+
+/** The scoring configuration that drives every proposed risk rating. Changing it needs the approver permission and step-up. */
+function RiskFactorsCard() {
+  const canEdit = useCan('onboarding.approve');
+  const res = useResource<RiskFactorsResp>(() => coGet<RiskFactorsResp>('/onboarding/risk-factors'), []);
+  const [edit, setEdit] = useState<{ key: string; label: string; points: number; enabled: boolean; threshold: number | null; isThreshold: boolean } | null>(null);
+  return (
+    <Card title="Risk scoring configuration">
+      <p className="ops-muted">Points added to a case score for each factor that applies. A score at or above the High threshold rates the case High, at or above Medium rates it Medium. Changes apply to ratings proposed from now on.</p>
+      <Loaded res={res} what="risk factors">
+        {(r) => (
+          <>
+            <div className="ops-tiles">
+              <Tile label="Medium from score" value={r.thresholds.medium} />
+              <Tile label="High from score" value={r.thresholds.high} />
+            </div>
+            <div className="ops-table-wrap">
+              <table className="ops-table">
+                <thead><tr><th>Factor</th><th className="r">Points</th><th>Default</th><th>Enabled</th><th>Last changed by</th><th /></tr></thead>
+                <tbody>
+                  {canEdit && (
+                    <>
+                      {(['rating_medium', 'rating_high'] as const).map((k) => (
+                        <tr key={k}>
+                          <td>{k === 'rating_medium' ? 'Threshold: Medium rating' : 'Threshold: High rating'}</td>
+                          <td className="r">{k === 'rating_medium' ? r.thresholds.medium : r.thresholds.high}</td>
+                          <td>{k === 'rating_medium' ? 30 : 60}</td>
+                          <td>-</td>
+                          <td>-</td>
+                          <td><button className="ops-btn small" type="button" onClick={() => setEdit({ key: k, label: k === 'rating_medium' ? 'Medium rating threshold' : 'High rating threshold', points: k === 'rating_medium' ? r.thresholds.medium : r.thresholds.high, enabled: true, threshold: null, isThreshold: true })}>Edit</button></td>
+                        </tr>
+                      ))}
+                    </>
+                  )}
+                  {r.factors.map((f) => {
+                    const t = (f.params as { threshold?: number } | null)?.threshold ?? null;
+                    return (
+                      <tr key={f.key} style={f.enabled ? undefined : { opacity: 0.55 }}>
+                        <td>{f.label}{t !== null && <span className="ops-sub">Threshold {Number(t).toLocaleString('en-US')}</span>}</td>
+                        <td className="r">{f.points}</td>
+                        <td>{f.defaultPoints ?? '-'}</td>
+                        <td>{f.enabled ? 'Yes' : 'No'}</td>
+                        <td>{f.updatedBy ?? '-'}</td>
+                        <td>{canEdit && <button className="ops-btn small" type="button" onClick={() => setEdit({ key: f.key, label: f.label, points: f.points, enabled: f.enabled, threshold: t === null ? null : Number(t), isThreshold: false })}>Edit</button>}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+      </Loaded>
+      {edit && (
+        <FormModal
+          title={`Edit: ${edit.label}`}
+          subtitle="Needs a fresh authentication code and is recorded in the audit trail."
+          submitLabel="Save"
+          onClose={() => setEdit(null)}
+          onDone={res.reload}
+          onSubmit={(fd) =>
+            coPut(`/onboarding/risk-factors/${edit.key}`, {
+              points: Number(str(fd, 'points')),
+              ...(edit.isThreshold ? {} : { enabled: fd.get('enabled') === 'on' }),
+              ...(edit.threshold !== null && str(fd, 'threshold') ? { params: { threshold: Number(str(fd, 'threshold')) } } : {}),
+              reason: str(fd, 'reason'),
+            })
+          }
+        >
+          <FieldGrid>
+            <Field label="Points"><input className="ops-input" name="points" type="number" min={0} max={100} required defaultValue={edit.points} /></Field>
+            {!edit.isThreshold && <Field label="Enabled"><input type="checkbox" name="enabled" defaultChecked={edit.enabled} /></Field>}
+            {edit.threshold !== null && <Field label="Amount threshold"><input className="ops-input" name="threshold" type="number" min={0} step="any" defaultValue={edit.threshold} /></Field>}
+            <Field label="Reason" span={2}><textarea className="ops-input" name="reason" required minLength={5} maxLength={500} /></Field>
+          </FieldGrid>
+        </FormModal>
+      )}
+    </Card>
   );
 }

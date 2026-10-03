@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { scoreRisk } from '../src/modules/clients-onboarding/co.engine';
+import { ensureRiskFactors } from '../src/modules/clients-onboarding/co.service';
 
 const log = (m: string) => console.log(`[seed:clients-onboarding] ${m}`);
 
@@ -41,6 +42,7 @@ export async function seedClientsOnboarding() {
     return;
   }
 
+  await ensureRiskFactors();
   for (const [requestType, priority, targetHours] of SLA) {
     await prisma.serviceSlaPolicy.upsert({
       where: { requestType_priority: { requestType, priority } },

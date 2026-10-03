@@ -8,7 +8,9 @@ import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { fmtSize } from '../../lib/format';
 import { param, query } from '../../lib/http';
-import { signedDownloadUrl } from '../../lib/storage';
+import { signedDownloadUrl, storeFile } from '../../lib/storage';
+import { nextRef } from '../../lib/refs';
+import { uploadFiles } from '../../middleware/upload';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAnyPermission, requirePermission, requireStepUp } from '../../middleware/requireAuth';
 import { assertSegregation, audit, notifyPermission } from '../ops/ops.common';
@@ -153,6 +155,7 @@ coVaultRoutes.get('/vault/documents/:id/download-url', requirePermission('docume
   const wanted = Number(req.query.version) || versions[0]?.version;
   const v = versions.find((x) => x.version === wanted);
   if (!v) throw HttpError.notFound('No file for that version');
+  if (d.status === 'Disposed') throw new HttpError(410, 'disposed', 'This document was disposed at the end of its retention period');
   if (d.classification === 'Restricted' && !req.user!.permissions.includes('audit.view') && d.makerId !== req.user!.id) {
     throw HttpError.forbidden('Restricted document', 'permission_denied');
   }
@@ -203,15 +206,16 @@ coVaultRoutes.post('/vault/documents/:id/link', requirePermission('documents.edi
 
 // ------------------------------------------------------------ maker-checker changes
 
-const changeSchema = z.object({ kind: z.enum(['CLASSIFICATION', 'RETENTION']), to: z.union([z.string().trim().min(1).max(32), z.number().int()]).transform(String), reason: z.string().trim().min(5).max(500) }).strict();
+const changeSchema = z.object({ kind: z.enum(['CLASSIFICATION', 'RETENTION', 'DISPOSAL']), to: z.union([z.string().trim().min(1).max(32), z.number().int()]).transform(String), reason: z.string().trim().min(5).max(500) }).strict();
 
 coVaultRoutes.post('/vault/documents/:id/changes', requirePermission('documents.edit'), validateBody(changeSchema), idempotent('co.doc_change', { required: false }), async (req, res) => {
   const d = await findDoc(param(req, 'id'));
   const b = req.body as z.infer<typeof changeSchema>;
-  const from = b.kind === 'CLASSIFICATION' ? d.classification : String(d.retentionYears);
+  const from = b.kind === 'CLASSIFICATION' ? d.classification : b.kind === 'DISPOSAL' ? d.status : String(d.retentionYears);
   const held = !!(await prisma.documentHold.findFirst({ where: { documentId: d.id, releasedAt: null }, select: { id: true } }));
   const problem = documentChangeProblem(b.kind, from, b.to, held);
   if (problem) throw HttpError.badRequest('Validation failed', [{ path: 'to', message: problem }]);
+  if (b.kind === 'DISPOSAL' && retentionState(d.documentDate ?? d.createdAt, d.retentionYears, false).state !== 'Disposal eligible') throw HttpError.badRequest('Validation failed', [{ path: 'to', message: 'The retention period has not ended; only a disposal-eligible document can be disposed' }]);
   if (await prisma.documentChange.findFirst({ where: { documentId: d.id, kind: b.kind, status: 'PENDING' }, select: { id: true } })) {
     throw HttpError.conflict(`A ${b.kind.toLowerCase()} change is already awaiting approval for this document`, 'change_pending');
   }
@@ -245,15 +249,21 @@ async function decideChange(req: Request, approve: boolean) {
   const d = await findDoc(c.documentId);
   if (approve) {
     const held = !!(await prisma.documentHold.findFirst({ where: { documentId: d.id, releasedAt: null }, select: { id: true } }));
-    const current = c.kind === 'CLASSIFICATION' ? d.classification : String(d.retentionYears);
+    const current = c.kind === 'CLASSIFICATION' ? d.classification : c.kind === 'DISPOSAL' ? d.status : String(d.retentionYears);
     const problem = documentChangeProblem(c.kind, current, c.toValue, held);
     if (problem) throw HttpError.conflict(problem, 'invalid_state');
+    if (c.kind === 'DISPOSAL' && retentionState(d.documentDate ?? d.createdAt, d.retentionYears, false).state !== 'Disposal eligible') throw HttpError.conflict('The document is no longer disposal eligible', 'invalid_state');
   }
   await prisma.$transaction(async (tx) => {
     const n = await tx.documentChange.updateMany({ where: { id: c.id, status: 'PENDING' }, data: { status: approve ? 'APPROVED' : 'REJECTED', checkerId: req.user!.id, decisionNote: req.body.note, decidedAt: new Date() } });
     if (n.count !== 1) throw HttpError.conflict('This record was changed by someone else. Reload and try again.', 'version_conflict');
     if (approve) {
-      await tx.document.update({ where: { id: d.id }, data: { ...(c.kind === 'CLASSIFICATION' ? { classification: c.toValue } : { retentionYears: Number(c.toValue) }), updatedBy: req.user!.id, version: { increment: 1 } } });
+      if (c.kind === 'DISPOSAL') {
+        // Disposal retires the record: it is withdrawn from every investor and can no longer be downloaded. The audit trail and version hashes remain.
+        await tx.document.update({ where: { id: d.id }, data: { status: 'Disposed', updatedBy: req.user!.id, version: { increment: 1 } } });
+        await tx.publication.updateMany({ where: { documentId: d.id, withdrawnAt: null }, data: { withdrawnAt: new Date() } });
+        await tx.documentAccessLog.create({ data: { documentId: d.id, userId: req.user!.id, action: 'dispose', ip: req.ip ?? null, userAgent: (req.get('user-agent') ?? '').slice(0, 255) || null } });
+      } else await tx.document.update({ where: { id: d.id }, data: { ...(c.kind === 'CLASSIFICATION' ? { classification: c.toValue } : { retentionYears: Number(c.toValue) }), updatedBy: req.user!.id, version: { increment: 1 } } });
     }
     await writeAudit(tx, audit(req), { action: approve ? 'document.change_approved' : 'document.change_rejected', objectType: 'document', objectId: d.id, before: { [c.kind.toLowerCase()]: c.fromValue }, after: { [c.kind.toLowerCase()]: approve ? c.toValue : c.fromValue, changeId: c.id }, reason: req.body.note });
   });
@@ -292,4 +302,73 @@ coVaultRoutes.post('/vault/holds/:id/release', requirePermission('documents.appr
     await writeAudit(tx, audit(req), { action: 'document.hold_released', objectType: 'document', objectId: h.documentId, after: { holdId: h.id }, reason: req.body.note });
   });
   res.json({ ok: true });
+});
+
+// ------------------------------------------------------------ private-markets valuation evidence files
+
+/** Valuation evidence rows (private-markets marks) with the vault document that holds the file, if any. */
+coVaultRoutes.get('/vault/pm-evidence', requirePermission('documents.view'), async (_req, res) => {
+  const rows = await prisma.pmEvidence.findMany({ orderBy: { createdAt: 'desc' }, take: 300, include: { mark: { include: { commitment: { include: { fund: { select: { ref: true, name: true } } } } } } } });
+  const docs = await prisma.document.findMany({ where: { id: { in: rows.map((r) => r.documentId).filter(Boolean) as string[] } }, select: { id: true, ref: true, name: true, status: true } });
+  const dm = new Map(docs.map((d) => [d.id, d]));
+  res.json({
+    data: rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      title: r.title,
+      note: r.note,
+      reference: r.reference,
+      mark: r.mark.ref,
+      markStatus: r.mark.status,
+      asOf: r.mark.asOf,
+      commitment: r.mark.commitment.ref,
+      fund: r.mark.commitment.fund.name,
+      document: r.documentId ? { id: dm.get(r.documentId)?.ref ?? null, name: dm.get(r.documentId)?.name ?? null, status: dm.get(r.documentId)?.status ?? null } : null,
+      createdAt: r.createdAt,
+    })),
+  });
+});
+
+/** Attaches the evidence file: a vault document (new, or a new version when one is already linked) so the file is classified, retained and access-logged. */
+coVaultRoutes.post('/vault/pm-evidence/:id/file', requirePermission('documents.edit'), uploadFiles('file', 1), async (req, res) => {
+  const ev = await prisma.pmEvidence.findUnique({ where: { id: param(req, 'id') }, include: { mark: { include: { commitment: { include: { fund: { select: { ref: true, name: true } } } } } } } });
+  if (!ev) throw HttpError.notFound('Evidence not found');
+  const file = req.file;
+  if (!file) throw HttpError.badRequest('Attach the evidence file');
+  const ref = await prisma.$transaction(async (tx) => {
+    const stored = await storeFile({ name: file.originalname, mime: file.mimetype, data: file.buffer, uploadedById: req.user!.id }, tx);
+    let doc = ev.documentId ? await tx.document.findUnique({ where: { id: ev.documentId } }) : null;
+    if (doc) {
+      const last = await tx.documentVersion.findFirst({ where: { documentId: doc.id }, orderBy: { version: 'desc' } });
+      await tx.documentVersion.create({ data: { documentId: doc.id, version: (last?.version ?? 0) + 1, fileId: stored.id, sha256: stored.sha256, uploadedById: req.user!.id } });
+      await tx.document.update({ where: { id: doc.id }, data: { updatedBy: req.user!.id, version: { increment: 1 } } });
+    } else {
+      const dref = await nextRef(tx, 'document');
+      doc = await tx.document.create({
+        data: {
+          ref: dref,
+          name: `${ev.title}`.slice(0, 255),
+          type: 'valuations',
+          label: `Valuation evidence ${ev.mark.ref}`,
+          classification: 'Internal',
+          // Controlled by the mark's own maker-checker, and never shown to investors (Internal), so it is filed as approved.
+          status: 'Approved',
+          ownerName: req.user!.name ?? null,
+          relatedType: 'pm_evidence',
+          relatedId: ev.id,
+          relatedLabel: `${ev.mark.commitment.fund.name} ${ev.mark.ref}`.slice(0, 160),
+          documentDate: ev.mark.asOf,
+          year: ev.mark.asOf.getUTCFullYear(),
+          makerId: req.user!.id,
+          approvedAt: new Date(),
+          createdBy: req.user!.id,
+          versions: { create: { version: 1, fileId: stored.id, sha256: stored.sha256, uploadedById: req.user!.id } },
+        },
+      });
+    }
+    await tx.pmEvidence.update({ where: { id: ev.id }, data: { documentId: doc.id, reference: doc.ref } });
+    await writeAudit(tx, audit(req), { action: 'private.evidence_file_attached', objectType: 'pm_evidence', objectId: ev.id, after: { document: doc.ref, mark: ev.mark.ref, sha256: stored.sha256 } });
+    return doc.ref;
+  });
+  res.status(201).json({ evidence: { id: ev.id, document: ref } });
 });

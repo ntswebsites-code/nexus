@@ -10,6 +10,7 @@ import { param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAnyPermission, requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
+import { BINDING_PURPOSES, REVIEW_MONTHS, addMonths, openDueReviews } from './mg.usage';
 
 /**
  * Model Governance (SRD 5.A page `model-governance`, permission `risk.view`). Admin-portal staff only, mounted at
@@ -326,4 +327,173 @@ modelRoutes.get('/summary', ...canView, async (_req, res) => {
     prisma.govModelUsage.count({ where: { usedAt: { gte: new Date(Date.now() - 30 * 86_400_000) } } }),
   ]);
   res.json({ data: { byStatus: Object.fromEntries(byStatus.map((s) => [s.status, s._count._all])), byTier: Object.fromEntries(byTier.map((s) => [`tier${s.tier}`, s._count._all])), reviewsOverdue: overdue, awaitingValidation: awaiting.find((a) => a.status === 'SUBMITTED')?._count._all ?? 0, awaitingApproval: awaiting.find((a) => a.status === 'VALIDATED')?._count._all ?? 0, usesLast30Days: uses30 } });
+});
+
+// ================================================================ periodic reviews (OPEN -> SUBMITTED -> COMPLETED)
+
+const REVIEW_OUTCOMES = ['CONFIRMED', 'CHANGES_REQUIRED', 'RETIRE'] as const;
+type ReviewRow = Prisma.GovModelReviewGetPayload<object>;
+async function reviewViews(rows: ReviewRow[]) {
+  const [models, n] = await Promise.all([
+    prisma.govModel.findMany({ where: { id: { in: rows.map((r) => r.modelId) } }, select: { id: true, ref: true, name: true, tier: true, status: true } }),
+    names(rows.flatMap((r) => [r.openedBy, r.reviewerId, r.approverId])),
+  ]);
+  const m = new Map(models.map((x) => [x.id, x]));
+  const today = startOfDay(new Date());
+  return rows.map((r) => ({
+    id: r.id,
+    modelId: r.modelId,
+    modelRef: m.get(r.modelId)?.ref ?? null,
+    modelName: m.get(r.modelId)?.name ?? null,
+    tier: m.get(r.modelId)?.tier ?? null,
+    status: r.status,
+    dueOn: day(r.dueOn),
+    overdue: ['OPEN', 'SUBMITTED'].includes(r.status) && r.dueOn.getTime() < today.getTime(),
+    openedBy: n.get(r.openedBy) ?? null,
+    openedAt: r.openedAt.toISOString(),
+    reviewer: r.reviewerId ? n.get(r.reviewerId) ?? null : null,
+    outcome: r.outcome,
+    findings: r.findings,
+    submittedAt: r.submittedAt?.toISOString() ?? null,
+    approver: r.approverId ? n.get(r.approverId) ?? null : null,
+    decisionNote: r.decisionNote,
+    nextReviewOn: day(r.nextReviewOn),
+    completedAt: r.completedAt?.toISOString() ?? null,
+  }));
+}
+async function loadReview(id: string) {
+  const r = await prisma.govModelReview.findUnique({ where: { id } });
+  if (!r) throw HttpError.notFound('Review not found');
+  return r;
+}
+
+const reviewsQuery = z.object({ status: z.string().trim().max(60).optional(), modelId: z.string().trim().max(36).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) });
+modelRoutes.get('/reviews', ...canView, validateQuery(reviewsQuery), async (req, res) => {
+  const f = query<z.infer<typeof reviewsQuery>>(req);
+  const statuses = f.status?.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
+  const rows = await prisma.govModelReview.findMany({ where: { ...(statuses?.length ? { status: { in: statuses } } : {}), ...(f.modelId ? { modelId: f.modelId } : {}) }, orderBy: [{ status: 'asc' }, { dueOn: 'asc' }], take: f.limit });
+  res.json({ data: await reviewViews(rows) });
+});
+
+/** Opens reviews for every approved model due within 30 days that has none open. */
+modelRoutes.post('/reviews/sweep', ...canAuthor, async (req, res) => {
+  const opened = await openDueReviews(req.user!.id);
+  if (opened) await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'model.reviews_opened', objectType: 'gov_model', objectId: 'register', after: { opened } }));
+  res.json({ data: { opened } });
+});
+
+const reviewStart = z.object({ dueOn: dateStr.optional() }).strict();
+modelRoutes.post('/models/:id/reviews', ...canAuthor, validateBody(reviewStart), async (req, res) => {
+  const m = await loadModel(param(req, 'id'));
+  if (m.status !== 'APPROVED') throw HttpError.conflict(`${m.ref} is ${m.status}; only an approved model has a periodic review`, 'invalid_state');
+  if (await prisma.govModelReview.findFirst({ where: { modelId: m.id, status: { in: ['OPEN', 'SUBMITTED'] } }, select: { id: true } })) throw HttpError.conflict('A review is already open for this model', 'review_open');
+  const b = req.body as z.infer<typeof reviewStart>;
+  const row = await prisma.$transaction(async (tx) => {
+    const r = await tx.govModelReview.create({ data: { modelId: m.id, dueOn: b.dueOn ? toDate(b.dueOn) : m.nextReviewOn ?? startOfDay(new Date()), openedBy: req.user!.id } });
+    await writeAudit(tx, audit(req), { action: 'model.review_opened', objectType: 'gov_model', objectId: m.id, after: { reviewId: r.id, dueOn: day(r.dueOn) } });
+    await notifyPermission(tx, 'model.approve', { type: 'model.review', title: `${m.ref} periodic review opened`, body: m.name, link: `/ops/model-governance?model=${m.id}` });
+    return r;
+  });
+  res.status(201).json({ data: (await reviewViews([row]))[0] });
+});
+
+const reviewSubmit = z
+  .object({ outcome: z.enum(REVIEW_OUTCOMES), findings: z.string().trim().max(2000).optional(), nextReviewOn: dateStr.optional() })
+  .strict()
+  .refine((b) => b.outcome === 'CONFIRMED' || (b.findings && b.findings.length >= 5), { path: ['findings'], message: 'Record the findings (5+ characters) unless the outcome is CONFIRMED' });
+/** The reviewer records the outcome. The author or approver of the current version cannot review their own model. */
+modelRoutes.post('/reviews/:id/submit', ...canValidate, validateBody(reviewSubmit), async (req, res) => {
+  const r = await loadReview(param(req, 'id'));
+  if (r.status !== 'OPEN') throw HttpError.conflict(`The review is ${r.status}; only an OPEN review can be submitted`, 'invalid_state');
+  const m = await loadModel(r.modelId);
+  const cur = m.versions.find((v) => v.id === m.currentVersionId);
+  if (cur && (cur.authorId === req.user!.id || cur.approvedBy === req.user!.id)) throw sod('The author or approver of the current version cannot review it');
+  const b = req.body as z.infer<typeof reviewSubmit>;
+  await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.govModelReview.updateMany({ where: { id: r.id, status: 'OPEN' }, data: { status: 'SUBMITTED', reviewerId: req.user!.id, outcome: b.outcome, findings: b.findings ?? null, nextReviewOn: b.nextReviewOn ? toDate(b.nextReviewOn) : null, submittedAt: new Date() } })).count);
+    await writeAudit(tx, audit(req), { action: 'model.review_submitted', objectType: 'gov_model', objectId: m.id, after: { reviewId: r.id, outcome: b.outcome } });
+    await notifyPermission(tx, 'model.approve', { type: 'model.review', title: `${m.ref} review awaits approval (${b.outcome.toLowerCase().replace(/_/g, ' ')})`, link: `/ops/model-governance?model=${m.id}` });
+  });
+  res.json({ data: (await reviewViews([await loadReview(r.id)]))[0] });
+});
+
+const decideBody = z.object({ note: z.string().trim().min(5, 'Give a note (5+ characters)').max(500) }).strict();
+/** A different person approves the review (step-up). The outcome is applied: confirm moves the next review date out, retire retires the model. */
+modelRoutes.post('/reviews/:id/approve', ...canValidate, requireStepUp, validateBody(decideBody), async (req, res) => {
+  const r = await loadReview(param(req, 'id'));
+  if (r.status !== 'SUBMITTED' || !r.outcome) throw HttpError.conflict(`The review is ${r.status}; it must be SUBMITTED to approve`, 'invalid_state');
+  if (r.reviewerId === req.user!.id) throw sod('The reviewer cannot approve their own review');
+  const m = await loadModel(r.modelId);
+  const now = new Date();
+  const months = REVIEW_MONTHS[m.tier] ?? 12;
+  const next = r.nextReviewOn ?? (r.outcome === 'CHANGES_REQUIRED' ? addMonths(now, 1) : addMonths(now, months));
+  const note = (req.body as z.infer<typeof decideBody>).note;
+  await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.govModelReview.updateMany({ where: { id: r.id, status: 'SUBMITTED' }, data: { status: 'COMPLETED', approverId: req.user!.id, decisionNote: note, completedAt: now, nextReviewOn: r.outcome === 'RETIRE' ? null : next } })).count);
+    if (r.outcome === 'RETIRE') {
+      await tx.govModel.update({ where: { id: m.id }, data: { status: 'RETIRED', currentVersionId: null } });
+      await tx.govModelVersion.updateMany({ where: { modelId: m.id, status: { in: ['DRAFT', 'SUBMITTED', 'VALIDATED', 'APPROVED'] } }, data: { status: 'RETIRED' } });
+      await tx.govModelBinding.deleteMany({ where: { modelId: m.id } });
+    } else await tx.govModel.update({ where: { id: m.id }, data: { nextReviewOn: next } });
+    await writeAudit(tx, audit(req), { action: 'model.review_approved', objectType: 'gov_model', objectId: m.id, before: { nextReviewOn: day(m.nextReviewOn), status: m.status }, after: { reviewId: r.id, outcome: r.outcome, nextReviewOn: r.outcome === 'RETIRE' ? null : day(next), status: r.outcome === 'RETIRE' ? 'RETIRED' : m.status }, reason: note });
+  });
+  res.json({ data: (await reviewViews([await loadReview(r.id)]))[0] });
+});
+
+/** Sends a submitted review back to be redone. */
+modelRoutes.post('/reviews/:id/return', ...canValidate, validateBody(decideBody), async (req, res) => {
+  const r = await loadReview(param(req, 'id'));
+  if (r.status !== 'SUBMITTED') throw HttpError.conflict(`The review is ${r.status}; only a SUBMITTED review can be returned`, 'invalid_state');
+  if (r.reviewerId === req.user!.id) throw sod('The reviewer cannot return their own review');
+  const note = (req.body as z.infer<typeof decideBody>).note;
+  await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.govModelReview.updateMany({ where: { id: r.id, status: 'SUBMITTED' }, data: { status: 'OPEN', reviewerId: null, outcome: null, findings: null, submittedAt: null, decisionNote: note } })).count);
+    await writeAudit(tx, audit(req), { action: 'model.review_returned', objectType: 'gov_model', objectId: r.modelId, after: { reviewId: r.id }, reason: note });
+  });
+  res.json({ data: (await reviewViews([await loadReview(r.id)]))[0] });
+});
+
+// ================================================================ bindings: which approved model a calculation uses
+
+modelRoutes.get('/bindings', ...canView, async (_req, res) => {
+  const rows = await prisma.govModelBinding.findMany();
+  const models = await prisma.govModel.findMany({ where: { id: { in: rows.map((r) => r.modelId) } }, select: { id: true, ref: true, name: true, status: true, nextReviewOn: true } });
+  const m = new Map(models.map((x) => [x.id, x]));
+  const since = new Date(Date.now() - 30 * 86_400_000);
+  const uses = await prisma.govModelUsage.groupBy({ by: ['modelId'], where: { usedAt: { gte: since }, note: { startsWith: 'Automatic' } }, _count: { _all: true } });
+  const u = new Map(uses.map((x) => [x.modelId, x._count._all]));
+  res.json({
+    data: BINDING_PURPOSES.map((purpose) => {
+      const b = rows.find((r) => r.purpose === purpose);
+      const model = b ? m.get(b.modelId) : null;
+      return { purpose, modelId: b?.modelId ?? null, modelRef: model?.ref ?? null, modelName: model?.name ?? null, modelStatus: model?.status ?? null, nextReviewOn: day(model?.nextReviewOn), enforce: b?.enforce ?? false, automaticUses30d: b ? u.get(b.modelId) ?? 0 : 0 };
+    }),
+    purposes: BINDING_PURPOSES,
+  });
+});
+
+const bindingBody = z.object({ modelId: z.string().trim().min(1).max(36), enforce: z.boolean().default(false) }).strict();
+modelRoutes.put('/bindings/:purpose', ...canValidate, requireStepUp, validateBody(bindingBody), async (req, res) => {
+  const purpose = param(req, 'purpose');
+  if (!(BINDING_PURPOSES as readonly string[]).includes(purpose)) throw HttpError.badRequest('Unknown purpose');
+  const b = req.body as z.infer<typeof bindingBody>;
+  const m = await loadModel(b.modelId);
+  if (m.status !== 'APPROVED') throw HttpError.conflict(`${m.ref} is ${m.status}; only an approved model can be bound`, 'model_not_approved');
+  const prev = await prisma.govModelBinding.findUnique({ where: { purpose } });
+  await prisma.$transaction(async (tx) => {
+    await tx.govModelBinding.upsert({ where: { purpose }, create: { purpose, modelId: m.id, enforce: b.enforce, updatedBy: req.user!.id }, update: { modelId: m.id, enforce: b.enforce, updatedBy: req.user!.id } });
+    await writeAudit(tx, audit(req), { action: 'model.binding_set', objectType: 'gov_model', objectId: m.id, before: prev ? { modelId: prev.modelId, enforce: prev.enforce } : null, after: { purpose, modelId: m.id, enforce: b.enforce } });
+  });
+  res.json({ data: { purpose, modelId: m.id, modelRef: m.ref, enforce: b.enforce } });
+});
+
+modelRoutes.delete('/bindings/:purpose', ...canValidate, requireStepUp, async (req, res) => {
+  const purpose = param(req, 'purpose');
+  const prev = await prisma.govModelBinding.findUnique({ where: { purpose } });
+  if (!prev) throw HttpError.notFound('No binding for that purpose');
+  await prisma.$transaction(async (tx) => {
+    await tx.govModelBinding.delete({ where: { purpose } });
+    await writeAudit(tx, audit(req), { action: 'model.binding_removed', objectType: 'gov_model', objectId: prev.modelId, before: { purpose, modelId: prev.modelId, enforce: prev.enforce } });
+  });
+  res.json({ data: { removed: true } });
 });
