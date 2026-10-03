@@ -55,6 +55,9 @@ interface Schedule {
   active: boolean;
   rolling: string | null;
   recipients: string[];
+  emailAttach?: boolean;
+  lpDeliver?: boolean;
+  lpDeliverApprovedBy?: string | null;
   createdBy: string | null;
 }
 interface Lookups {
@@ -276,13 +279,14 @@ function RunsTab() {
           submitLabel="Send"
           onClose={() => setEmailing(null)}
           onSubmit={(fd, k) =>
-            api.post(R(`/runs/${emailing.id}/email`), { recipients: str(fd, 'recipients').split(/[\s,;]+/).filter(Boolean) }, { idempotencyKey: k })
+            api.post(R(`/runs/${emailing.id}/email`), { recipients: str(fd, 'recipients').split(/[\s,;]+/).filter(Boolean), attach: fd.get('attach') === 'on' }, { idempotencyKey: k })
           }
           onDone={res.reload}
         >
           <Field label="Email addresses" hint="Separate with commas (up to 10)">
             <input className="ops-input" name="recipients" required placeholder="name@company.com, other@company.com" />
           </Field>
+          <label><input type="checkbox" name="attach" /> Attach the report file (up to 8 MB; otherwise a link only)</label>
         </FormModal>
       )}
     </Card>
@@ -291,6 +295,7 @@ function RunsTab() {
 
 function SchedulesTab({ lk }: { lk: Lookups }) {
   const canCreate = useCan('reports.create');
+  const canDistribute = useCan('reports.approve');
   const defs = useResource<Def[]>(() => api.get<Def[]>(R('/catalogue')), []);
   const res = useResource<Schedule[]>(() => api.get<Schedule[]>(R('/schedules')), []);
   const [creating, setCreating] = useState(false);
@@ -342,7 +347,8 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
                       </td>
                       <td>
                         {label(s.frequency)}
-                        {s.recipients.length > 0 && <span className="ops-sub">Mails {s.recipients.length}</span>}
+                        {s.recipients.length > 0 && <span className="ops-sub">Mails {s.recipients.length}{s.emailAttach ? ' with file' : ''}</span>}
+                        {s.lpDeliver && <span className="ops-sub">To LP portal (approved by {s.lpDeliverApprovedBy ?? 'n/a'})</span>}
                       </td>
                       <td>{s.rolling ? label(s.rolling) : 'Fixed dates'}</td>
                       <td>{dayOf(s.nextRunOn)}</td>
@@ -355,6 +361,17 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
                           <>
                             <ActionButton label="Run now" onRun={(k) => api.post(R(`/schedules/${s.id}/run-now`), {}, { idempotencyKey: k })} onDone={res.reload} />{' '}
                             <ActionButton label={s.active ? 'Pause' : 'Resume'} onRun={() => api.patch(R(`/schedules/${s.id}`), { active: !s.active })} onDone={res.reload} />
+                          </>
+                        )}
+                        {canDistribute && ['FACT_SHEET', 'NAV_PACK'].includes(s.report) && (
+                          <>
+                            {' '}
+                            <ActionButton
+                              label={s.lpDeliver ? 'Stop LP delivery' : 'Deliver to LP portal'}
+                              confirm={s.lpDeliver ? undefined : `Publish every run of "${s.name}" to the investors of the fund automatically? You cannot approve a schedule you created.`}
+                              onRun={(k) => api.post(R(`/schedules/${s.id}/lp-delivery`), { enabled: !s.lpDeliver }, { idempotencyKey: k })}
+                              onDone={res.reload}
+                            />
                           </>
                         )}
                       </td>
@@ -371,7 +388,7 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
           title="New report schedule"
           submitLabel="Create schedule"
           onClose={() => setCreating(false)}
-          onSubmit={(fd, k) => api.post(R('/schedules'), { key, name: str(fd, 'name'), format: str(fd, 'format'), frequency: str(fd, 'frequency'), firstRunOn: optStr(fd, 'firstRunOn'), rolling: optStr(fd, 'rolling') ?? null, recipients: str(fd, 'recipients').split(/[\s,;]+/).filter(Boolean), params: paramsFrom(fd, spec) }, { idempotencyKey: k })}
+          onSubmit={(fd, k) => api.post(R('/schedules'), { key, name: str(fd, 'name'), format: str(fd, 'format'), frequency: str(fd, 'frequency'), firstRunOn: optStr(fd, 'firstRunOn'), rolling: optStr(fd, 'rolling') ?? null, recipients: str(fd, 'recipients').split(/[\s,;]+/).filter(Boolean), emailAttach: fd.get('emailAttach') === 'on', params: paramsFrom(fd, spec) }, { idempotencyKey: k })}
           onDone={res.reload}
         >
           <FieldGrid>
@@ -419,6 +436,9 @@ function SchedulesTab({ lk }: { lk: Lookups }) {
             </Field>
             <Field label="Email each run to (optional)" hint="Comma-separated addresses" span={2}>
               <input className="ops-input" name="recipients" placeholder="name@company.com" />
+            </Field>
+            <Field label="Attachment" hint="Send the generated file with each email" span={2}>
+              <label><input type="checkbox" name="emailAttach" /> Attach the file</label>
             </Field>
           </FieldGrid>
           <p className="ops-muted">With a rolling window the From / To (or As of) dates above are only used for validation; every run recalculates them, so a monthly schedule never repeats last month.</p>

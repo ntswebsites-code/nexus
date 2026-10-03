@@ -53,6 +53,7 @@ interface Detail extends FilingRow {
   payloadSha256: string | null;
   evidence: { id: string; name: string; description: string | null; sha256: string; uploadedBy: string | null; createdAt: string }[];
   timeline: { at: string; action: string; actor: string | null; reason: string | null }[];
+  submissions?: { id: string; regulator: string; formCode: string; status: string; receiptRef: string; receivedAt: string; payloadSha256: string; submittedBy: string | null }[];
   actions: { populate: boolean; attachEvidence: boolean; submitForReview: boolean; approve: boolean; return: boolean; submit: boolean; waive: boolean };
 }
 
@@ -371,6 +372,18 @@ function FilingModal({ id, onClose }: { id: string; onClose: () => void }) {
                 </div>
               )}
 
+              {f.submissions && f.submissions.length > 0 && (
+                <>
+                  <h3 style={{ marginTop: 18 }}>Electronic submissions</h3>
+                  <ul className="ops-muted" style={{ paddingLeft: 18 }}>
+                    {f.submissions.map((s) => (
+                      <li key={s.id}>
+                        {when(s.receivedAt)}: {s.regulator} {s.formCode} {s.status.toLowerCase()}, receipt {s.receiptRef} (sent by {s.submittedBy ?? 'unknown'})
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
               <h3 style={{ marginTop: 18 }}>History</h3>
               <ul className="ops-muted" style={{ paddingLeft: 18 }}>
                 {f.timeline.map((t, i) => (

@@ -113,6 +113,32 @@ export default function CopilotPage() {
                       </table>
                     </div>
                   )}
+                  {r.extraTables?.map((t) => (
+                    <div className="ops-table-wrap" key={t.title}>
+                      <p className="ops-muted" style={{ margin: '10px 0 4px' }}>{t.title}</p>
+                      <table className="ops-table">
+                        <thead>
+                          <tr>{t.columns.map((c) => <th key={c}>{c}</th>)}</tr>
+                        </thead>
+                        <tbody>
+                          {t.rows.map((row, i) => (
+                            <tr key={i}>{row.map((cell, j) => <td key={j}>{cell}</td>)}</tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ))}
+                  {r.toolCalls && r.toolCalls.length > 0 && (
+                    <p className="ops-muted" style={{ marginTop: 10 }}>
+                      Tool calls ({r.engine === 'LLM' ? `model ${r.model ?? ''}` : 'keyword router'}):{' '}
+                      {r.toolCalls.map((c, i) => (
+                        <span key={i}>
+                          {i > 0 && ' · '}
+                          {c.tool} {c.status === 'OK' ? `(${c.rows} rows)` : `(denied, needs ${c.permission})`}
+                        </span>
+                      ))}
+                    </p>
+                  )}
                   {r.sources.length > 0 && (
                     <p className="ops-muted" style={{ marginTop: 10 }}>
                       Sources:{' '}

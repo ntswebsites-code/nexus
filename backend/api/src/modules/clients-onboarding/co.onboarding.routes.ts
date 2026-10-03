@@ -1,4 +1,7 @@
+import { createHash } from 'node:crypto';
 import { Router } from 'express';
+import { getLlmAdapter } from '../../integrations/llm';
+import type { TriageInput } from '../../integrations/llm/types';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
@@ -215,4 +218,57 @@ coOnboardingRoutes.post('/onboarding/cases/:id/assign', requirePermission('onboa
     await writeAudit(tx, audit(req), { action: 'kyc.case_assigned', objectType: 'kyc_case', objectId: c.id, before: { ownerId: c.ownerId }, after: { ownerId: staff?.id ?? null } });
   });
   res.json({ ok: true, owner: staff?.name ?? 'Client Services intake' });
+});
+
+// ---------------------------------------------------------------- R4-8: advisory AI triage
+
+const triageView = (t: { id: string; riskBand: string; summary: string; flags: unknown; nextSteps: unknown; model: string; createdBy: string; createdAt: Date }, by: Map<string, string>) => ({
+  id: t.id,
+  riskBand: t.riskBand,
+  summary: t.summary,
+  flags: t.flags,
+  nextSteps: t.nextSteps,
+  model: t.model,
+  by: by.get(t.createdBy) ?? null,
+  at: t.createdAt.toISOString(),
+  advisory: true,
+});
+
+coOnboardingRoutes.get('/onboarding/cases/:id/triage', requirePermission('onboarding.view'), async (req, res) => {
+  const c = await loadCase(param(req, 'id'));
+  const rows = await prisma.onboardingTriage.findMany({ where: { caseId: c.id }, orderBy: { createdAt: 'desc' }, take: 5 });
+  const by = await userNames(rows.map((r) => r.createdBy));
+  res.json({ data: rows.map((r) => triageView(r, by)) });
+});
+
+/**
+ * Runs the LLM adapter over the case facts (checks, computed risk, declared PEP / source of funds, missing evidence) and stores the
+ * result as advisory only: it never changes the case, the rating or any check. Re-running on unchanged facts returns the stored triage.
+ */
+coOnboardingRoutes.post('/onboarding/cases/:id/triage', requirePermission('onboarding.manage'), idempotent('co.kyc_triage', { required: false }), async (req, res) => {
+  const c = await loadCase(param(req, 'id'));
+  const w = await workup(c.id);
+  const input: TriageInput = {
+    caseRef: c.ref,
+    applicant: { name: w.case.name, type: c.application.applicantType, country: w.app.country, pep: w.app.pep, sourceOfFunds: w.app.sourceOfFunds, expectedInvestment: w.app.expectedInvestment, owners: w.app.owners },
+    checks: w.checks.map((x) => ({ kind: x.kind, outcome: x.outcome })),
+    riskPreview: { score: w.riskPreview.score, rating: w.riskPreview.rating, factors: w.riskPreview.factors.map((f) => f.label) },
+    openReferrals: w.gates.openReferrals,
+    missingEvidence: w.gates.missingEvidence,
+    blockers: w.gates.blockers,
+  };
+  const inputSha256 = createHash('sha256').update(JSON.stringify(input)).digest('hex');
+  const latest = await prisma.onboardingTriage.findFirst({ where: { caseId: c.id }, orderBy: { createdAt: 'desc' } });
+  let row = latest && latest.inputSha256 === inputSha256 ? latest : null;
+  if (!row) {
+    const result = await getLlmAdapter().triage(input);
+    row = await prisma.$transaction(async (tx) => {
+      const t = await tx.onboardingTriage.create({
+        data: { caseId: c.id, riskBand: result.riskBand, summary: result.summary.slice(0, 4000), flags: result.flags as unknown as Prisma.InputJsonValue, nextSteps: result.nextSteps as unknown as Prisma.InputJsonValue, model: result.model.slice(0, 60), inputSha256, createdBy: req.user!.id },
+      });
+      await writeAudit(tx, audit(req), { action: 'kyc.triage_generated', objectType: 'kyc_case', objectId: c.id, after: { triageId: t.id, riskBand: result.riskBand, flags: result.flags.length, model: result.model } });
+      return t;
+    });
+  }
+  res.status(201).json({ data: triageView(row, await userNames([row.createdBy])) });
 });

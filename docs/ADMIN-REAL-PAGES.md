@@ -1455,3 +1455,10 @@ API additions in `custodian.native.ts` (all under `/api/v1/custodian`, scoped to
 
 - The statement upload runs the ingest and the follow-up audit, package fingerprint and notification writes in separate transactions (the ingest has its own); a crash between them leaves a package with the ingest fingerprint, which only blocks its approval until re-uploaded or superseded.
 - Pending invitations are not listed or revocable from the portal; notification preferences stay staff-only; no live SWIFT or API statement pull.
+## R4-8 AI and reporting depth
+
+- Copilot: LlmAdapter plan/compose run cited, permission-gated tool calls (positions, orders, NAV, breaks, risk, cash, approvals, audit, accounting); keyword router remains the fallback (engine ROUTER). Tool calls and engine are stored per query.
+- Onboarding: advisory AI triage panel in the case review (POST/GET /client-ops/onboarding/cases/:id/triage, onboarding.manage to run); idempotent on unchanged facts, audited, never changes the case.
+- Reports: email can attach the stored file (8 MB cap); schedules can mail attachments and publish each run to LP portal Documents (switched on by a different reports.approve holder with step-up, never the creator).
+- Regulatory: submit goes through the regulator-filing adapter; each acknowledgement receipt is stored (reg_filing_submissions) and shown on the filing.
+- Gaps: live LLM and live regulator adapters are NotConfigured stubs; the fake regulator can only reject an empty payload hash (blocked earlier by the integrity gate).

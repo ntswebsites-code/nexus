@@ -96,7 +96,8 @@ async function summaries(rows: Filing[]) {
 async function detail(f: Filing, user: { id: string; permissions: string[] }) {
   const [base] = await summaries([f]);
   const events = await prisma.auditEvent.findMany({ where: { objectType: 'reg_filing', objectId: f.id }, orderBy: { id: 'asc' }, take: 100 });
-  const n = await names([...f.evidence.map((e) => e.uploadedBy), ...events.map((e) => e.actorId), f.reviewedBy]);
+  const submissions = await prisma.regFilingSubmission.findMany({ where: { filingId: f.id }, orderBy: { createdAt: 'asc' }, take: 20 });
+  const n = await names([...f.evidence.map((e) => e.uploadedBy), ...events.map((e) => e.actorId), f.reviewedBy, ...submissions.map((s) => s.submittedBy)]);
   const has = (p: string) => user.permissions.includes(p);
   const editable = canMove('edit', f.status);
   return {
@@ -106,6 +107,8 @@ async function detail(f: Filing, user: { id: string; permissions: string[] }) {
     payload: f.payload,
     payloadSha256: f.payloadSha256,
     evidence: f.evidence.map((e) => ({ id: e.id, name: e.name, description: e.description, sha256: e.sha256, uploadedBy: n.get(e.uploadedBy) ?? null, createdAt: e.createdAt.toISOString() })),
+    /** R4-8: electronic submissions through the regulator-filing adapter with the regulator's acknowledgement receipt. */
+    submissions: submissions.map((s) => ({ id: s.id, regulator: s.regulator, formCode: s.formCode, status: s.status, receiptRef: s.receiptRef, receivedAt: s.receivedAt.toISOString(), payloadSha256: s.payloadSha256, submittedBy: n.get(s.submittedBy) ?? null })),
     timeline: events.map((e) => ({ at: e.occurredAt.toISOString(), action: e.action, actor: e.actorId ? n.get(e.actorId) ?? null : null, reason: e.reason })),
     actions: {
       populate: editable && has('reports.create'),
@@ -352,7 +355,17 @@ regulatoryRoutes.post('/filings/:id/submit', ...canSubmit, requireStepUp, valida
   const { submissionRef } = req.body as z.infer<typeof submitBody>;
   // Electronic submission through the regulator-filing adapter (fake: acknowledges and keeps the receipt; live: not configured -> 503, filing stays APPROVED).
   const receipt = await getRegulatorFilingAdapter().submit({ regulator: f.template.regulator, formCode: f.template.formCode, filingRef: f.ref, payloadSha256: f.payloadSha256 ?? '' });
+  const submissionRow = { filingId: f.id, regulator: f.template.regulator.slice(0, 16), formCode: f.template.formCode.slice(0, 32), payloadSha256: f.payloadSha256 ?? '0'.repeat(64), status: receipt.status, receiptRef: receipt.receiptRef.slice(0, 80), receivedAt: new Date(receipt.receivedAt), submittedBy: req.user!.id };
+  if (receipt.status !== 'ACKNOWLEDGED') {
+    // The regulator refused it: keep the receipt for the record, leave the filing APPROVED so it can be corrected (return) or re-sent.
+    await prisma.$transaction(async (tx) => {
+      await tx.regFilingSubmission.upsert({ where: { filingId_receiptRef: { filingId: f.id, receiptRef: submissionRow.receiptRef } }, create: submissionRow, update: {} });
+      await writeAudit(tx, audit(req), { action: 'regulatory.filing_rejected_by_regulator', objectType: 'reg_filing', objectId: f.id, after: { receiptRef: receipt.receiptRef, status: receipt.status } });
+    });
+    throw HttpError.conflict(`The regulator rejected ${f.ref} (receipt ${receipt.receiptRef}); the filing stays APPROVED`, 'regulator_rejected');
+  }
   await prisma.$transaction(async (tx) => {
+    await tx.regFilingSubmission.upsert({ where: { filingId_receiptRef: { filingId: f.id, receiptRef: submissionRow.receiptRef } }, create: submissionRow, update: {} });
     assertUpdated((await tx.regFiling.updateMany({ where: { id: f.id, status: 'APPROVED', version: f.version }, data: { status: 'SUBMITTED', submittedBy: req.user!.id, submittedAt: new Date(), submissionRef, version: { increment: 1 } } })).count);
     await writeAudit(tx, audit(req), { action: 'regulatory.filing_submitted', objectType: 'reg_filing', objectId: f.id, before: { status: 'APPROVED' }, after: { status: 'SUBMITTED', submissionRef, payloadSha256: f.payloadSha256, adapterReceipt: receipt.receiptRef } });
   });

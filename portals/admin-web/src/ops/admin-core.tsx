@@ -269,6 +269,10 @@ export interface CopilotReply {
   intent: string;
   answer: string;
   table: { columns: string[]; rows: string[][] } | null;
+  extraTables?: { title: string; columns: string[]; rows: string[][] }[];
   sources: CopilotSource[];
+  engine?: 'LLM' | 'ROUTER';
+  model?: string;
+  toolCalls?: { tool: string; permission: string | null; status: 'OK' | 'DENIED'; rows: number }[];
   at: string;
 }

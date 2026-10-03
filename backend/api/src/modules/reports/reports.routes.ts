@@ -12,7 +12,7 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { audit } from '../ops/ops.common';
 import { FORMAT_META, FREQUENCIES, REPORT_FORMATS, REPORT_KEYS, ROLLING_WINDOWS, applyRolling, nextRunAfter, type Frequency, type ReportFormat, type ReportKey, type RollingWindow } from './reports.engine';
-import { CATALOGUE, cleanRecipients, emailRun, ensureCatalogue, generateRun, normaliseParams, runDueSchedules, scheduleParams } from './reports.service';
+import { CATALOGUE, cleanRecipients, deliverScheduledRun, distributeRun, distributionFundId, emailRun, ensureCatalogue, generateRun, normaliseParams, runDueSchedules, scheduleParams } from './reports.service';
 
 /**
  * Reports & BI (SRD 5.A page `reports`, permission `reports.view`). Admin-portal staff only, mounted at `/api/v1/reports`.
@@ -135,68 +135,23 @@ reportsRoutes.get('/runs/:id/link', ...canView, async (req, res) => {
   res.json({ data: { url: signedDownloadUrl(r.fileId, 120), expiresInSeconds: 120 } });
 });
 
-const emailBody = z.object({ recipients: z.array(z.string().trim().email()).min(1).max(10) }).strict();
+const emailBody = z.object({ recipients: z.array(z.string().trim().email()).min(1).max(10), attach: z.boolean().optional() }).strict();
 /** Mails a link to a completed run (the recipients still sign in to download). */
 reportsRoutes.post('/runs/:id/email', ...canCreate, validateBody(emailBody), idempotent('reports.run_email', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   const rec = cleanRecipients((req.body as z.infer<typeof emailBody>).recipients);
   if (!rec.length) throw HttpError.badRequest('Validation failed', [{ path: 'recipients', message: 'Give at least one valid email address' }]);
-  const note = await emailRun(r, rec);
-  await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'reports.run_emailed', objectType: 'report_run', objectId: r.id, after: { ref: r.ref, recipients: rec, note } }));
+  const attach = !!(req.body as z.infer<typeof emailBody>).attach;
+  const note = await emailRun(r, rec, { attach });
+  await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'reports.run_emailed', objectType: 'report_run', objectId: r.id, after: { ref: r.ref, recipients: rec, attach, note } }));
   res.json({ data: { ...(await runViews([await loadRun(r.id)]))[0], note } });
 });
 
 /** Publishes a generated FACT_SHEET or NAV_PACK to the LP portal: a Documents row visible to every investor with an active commitment in the fund. */
 reportsRoutes.post('/runs/:id/distribute', ...canDistribute, requireStepUp, idempotent('reports.run_distribute', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
-  if (r.status !== 'COMPLETED' || !r.fileId || !r.sha256) throw HttpError.conflict(`${r.ref} has no output to distribute`, 'no_output');
-  if (r.distributedAt) throw HttpError.conflict(`${r.ref} was already distributed`, 'already_distributed');
-  const p = r.params as Record<string, string | undefined>;
-  let fundId: string | null = null;
-  if (r.definition.key === 'FACT_SHEET') fundId = p.fundId ?? null;
-  else if (r.definition.key === 'NAV_PACK' && p.portfolioId) fundId = (await prisma.fund.findFirst({ where: { portfolioId: p.portfolioId }, select: { id: true } }))?.id ?? null;
-  if (!fundId) throw HttpError.badRequest('Only fund fact sheets and NAV packs for a portfolio linked to a fund can be sent to the LP portal');
-  const fund = await prisma.fund.findUnique({ where: { id: fundId } });
-  if (!fund) throw HttpError.badRequest('The fund no longer exists');
-  const commitments = await prisma.fundCommitment.findMany({ where: { fundId, status: 'ACTIVE' }, select: { clientId: true }, distinct: ['clientId'] });
-  if (!commitments.length) throw HttpError.conflict('This fund has no investors with an active commitment', 'no_audience');
-  const meta = FORMAT_META[r.format as ReportFormat];
-  const now = new Date();
-  const doc = await prisma.$transaction(async (tx) => {
-    const claimed = await tx.reportRun.updateMany({ where: { id: r.id, distributedAt: null }, data: { distributedAt: now, distributedBy: req.user!.id } });
-    if (claimed.count !== 1) throw HttpError.conflict(`${r.ref} was already distributed`, 'already_distributed');
-    const ref = await nextRef(tx, 'document');
-    const d = await tx.document.create({
-      data: {
-        ref,
-        name: `${r.title}.${meta.ext}`.slice(0, 255),
-        type: 'report',
-        label: r.definition.name,
-        classification: 'Client',
-        status: 'Published',
-        relatedType: 'report_run',
-        relatedId: r.id,
-        relatedLabel: r.ref,
-        year: now.getUTCFullYear(),
-        documentDate: now,
-        category: 'PERFORMANCE_REPORT',
-        fundId,
-        period: `${now.getUTCFullYear()}-Q${Math.floor(now.getUTCMonth() / 3) + 1}`,
-        sourceType: 'FUND_REPORT_SYNC',
-        sourceRefId: r.id,
-        makerId: r.requestedBy,
-        checkerId: req.user!.id,
-        approvedAt: now,
-        createdBy: r.requestedBy,
-      },
-    });
-    await tx.documentVersion.create({ data: { documentId: d.id, version: 1, fileId: r.fileId!, sha256: r.sha256!, uploadedById: r.requestedBy } });
-    await tx.publication.createMany({ data: commitments.map((c) => ({ documentId: d.id, clientId: c.clientId, publishedById: req.user!.id })) });
-    await tx.reportRun.update({ where: { id: r.id }, data: { documentId: d.id } });
-    await writeAudit(tx, audit(req), { action: 'reports.run_distributed', objectType: 'report_run', objectId: r.id, after: { ref: r.ref, documentRef: d.ref, fund: fund.ref, investors: commitments.length } });
-    return d;
-  });
-  res.json({ data: { ...(await runViews([await loadRun(r.id)]))[0], documentRef: doc.ref, investors: commitments.length } });
+  const out = await distributeRun(r.id, { actorId: req.user!.id, checkerId: req.user!.id, audit: audit(req) });
+  res.json({ data: { ...(await runViews([await loadRun(r.id)]))[0], documentRef: out.documentRef, investors: out.investors } });
 });
 
 // ================================================================ schedules
@@ -211,13 +166,14 @@ const scheduleBody = z
     firstRunOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
     rolling: z.enum(ROLLING_WINDOWS).nullable().optional(),
     recipients: z.array(z.string().trim().email()).max(10).optional(),
+    emailAttach: z.boolean().optional(),
   })
   .strict();
-const schedulePatch = z.object({ name: z.string().trim().min(3).max(160), frequency: z.enum(FREQUENCIES), format: z.enum(REPORT_FORMATS), active: z.boolean(), nextRunOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), rolling: z.enum(ROLLING_WINDOWS).nullable(), recipients: z.array(z.string().trim().email()).max(10) }).partial().strict().refine((b) => Object.keys(b).length > 0, 'Nothing to change');
+const schedulePatch = z.object({ name: z.string().trim().min(3).max(160), frequency: z.enum(FREQUENCIES), format: z.enum(REPORT_FORMATS), active: z.boolean(), nextRunOn: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), rolling: z.enum(ROLLING_WINDOWS).nullable(), recipients: z.array(z.string().trim().email()).max(10), emailAttach: z.boolean() }).partial().strict().refine((b) => Object.keys(b).length > 0, 'Nothing to change');
 
 type SchedRow = Prisma.ReportScheduleGetPayload<{ include: { definition: true } }>;
 async function scheduleViews(rows: SchedRow[]) {
-  const n = await names(rows.map((r) => r.createdBy));
+  const n = await names(rows.flatMap((r) => [r.createdBy, r.lpDeliverApprovedBy]));
   return rows.map((s) => ({
     id: s.id,
     name: s.name,
@@ -232,6 +188,9 @@ async function scheduleViews(rows: SchedRow[]) {
     active: s.active,
     rolling: s.rolling,
     recipients: cleanRecipients(s.recipients),
+    emailAttach: s.emailAttach,
+    lpDeliver: s.lpDeliver,
+    lpDeliverApprovedBy: s.lpDeliverApprovedBy ? (n.get(s.lpDeliverApprovedBy) ?? null) : null,
     createdBy: n.get(s.createdBy) ?? null,
     createdAt: s.createdAt.toISOString(),
   }));
@@ -250,7 +209,7 @@ reportsRoutes.post('/schedules', ...canCreate, validateBody(scheduleBody), idemp
   const first = b.firstRunOn ? new Date(`${b.firstRunOn}T00:00:00.000Z`) : nextRunAfter(startOfDay(new Date()), 'DAILY');
   if (first < startOfDay(new Date())) throw HttpError.badRequest('Validation failed', [{ path: 'firstRunOn', message: 'The first run cannot be in the past' }]);
   const row = await prisma.$transaction(async (tx) => {
-    const s = await tx.reportSchedule.create({ data: { definitionId: def.id, name: b.name, params: params as Prisma.InputJsonValue, format: b.format, frequency: b.frequency, nextRunOn: first, rolling: b.rolling ?? null, recipients: b.recipients?.length ? cleanRecipients(b.recipients) : Prisma.JsonNull, createdBy: req.user!.id }, include: { definition: true } });
+    const s = await tx.reportSchedule.create({ data: { definitionId: def.id, name: b.name, params: params as Prisma.InputJsonValue, format: b.format, frequency: b.frequency, nextRunOn: first, rolling: b.rolling ?? null, recipients: b.recipients?.length ? cleanRecipients(b.recipients) : Prisma.JsonNull, emailAttach: !!b.emailAttach, createdBy: req.user!.id }, include: { definition: true } });
     await writeAudit(tx, audit(req), { action: 'reports.schedule_created', objectType: 'report_schedule', objectId: s.id, after: { name: b.name, report: b.key, frequency: b.frequency, format: b.format, nextRunOn: day(first), rolling: b.rolling ?? null, recipients: b.recipients ?? [], params } });
     return s;
   });
@@ -262,11 +221,35 @@ reportsRoutes.patch('/schedules/:id', ...canCreate, validateBody(schedulePatch),
   const cur = await prisma.reportSchedule.findUnique({ where: { id }, include: { definition: true } });
   if (!cur) throw HttpError.notFound('Schedule not found');
   const b = req.body as z.infer<typeof schedulePatch>;
-  const data: Prisma.ReportScheduleUpdateInput = { ...(b.name ? { name: b.name } : {}), ...(b.frequency ? { frequency: b.frequency } : {}), ...(b.format ? { format: b.format } : {}), ...(b.active !== undefined ? { active: b.active } : {}), ...(b.nextRunOn ? { nextRunOn: new Date(`${b.nextRunOn}T00:00:00.000Z`) } : {}), ...(b.rolling !== undefined ? { rolling: b.rolling } : {}), ...(b.recipients ? { recipients: cleanRecipients(b.recipients) } : {}) };
+  const data: Prisma.ReportScheduleUpdateInput = { ...(b.name ? { name: b.name } : {}), ...(b.frequency ? { frequency: b.frequency } : {}), ...(b.format ? { format: b.format } : {}), ...(b.active !== undefined ? { active: b.active } : {}), ...(b.nextRunOn ? { nextRunOn: new Date(`${b.nextRunOn}T00:00:00.000Z`) } : {}), ...(b.rolling !== undefined ? { rolling: b.rolling } : {}), ...(b.recipients ? { recipients: cleanRecipients(b.recipients) } : {}), ...(b.emailAttach !== undefined ? { emailAttach: b.emailAttach } : {}) };
   const row = await prisma.$transaction(async (tx) => {
     const s = await tx.reportSchedule.update({ where: { id }, data, include: { definition: true } });
     await writeAudit(tx, audit(req), { action: 'reports.schedule_updated', objectType: 'report_schedule', objectId: id, before: { name: cur.name, frequency: cur.frequency, format: cur.format, active: cur.active, nextRunOn: day(cur.nextRunOn), rolling: cur.rolling }, after: { name: s.name, frequency: s.frequency, format: s.format, active: s.active, nextRunOn: day(s.nextRunOn), rolling: s.rolling } });
     return s;
+  });
+  res.json({ data: (await scheduleViews([row]))[0] });
+});
+
+const lpBody = z.object({ enabled: z.boolean() }).strict();
+/**
+ * R4-8: switch automatic LP-portal publication of a schedule's runs on or off. Maker-checker: the person who enables it needs
+ * reports.approve and fresh step-up MFA, and cannot be the schedule's creator (the maker); only fund fact sheets and
+ * NAV packs of a fund-linked portfolio qualify. A schedule's report and parameters cannot be edited afterwards, so the approval stays valid.
+ */
+reportsRoutes.post('/schedules/:id/lp-delivery', ...canDistribute, requireStepUp, validateBody(lpBody), idempotent('reports.schedule_lp_delivery', { required: false }), async (req, res) => {
+  const id = param(req, 'id');
+  const s = await prisma.reportSchedule.findUnique({ where: { id }, include: { definition: true } });
+  if (!s) throw HttpError.notFound('Schedule not found');
+  const { enabled } = req.body as z.infer<typeof lpBody>;
+  if (enabled) {
+    if (s.createdBy === req.user!.id) throw HttpError.forbidden('Segregation of duties: someone other than the schedule creator must approve publishing to investors', 'segregation_of_duties');
+    const fundId = await distributionFundId(s.definition.key, (s.params ?? {}) as Record<string, string | undefined>);
+    if (!fundId) throw HttpError.badRequest('Only fund fact sheets and NAV packs for a portfolio linked to a fund can be sent to the LP portal');
+  }
+  const row = await prisma.$transaction(async (tx) => {
+    const u = await tx.reportSchedule.update({ where: { id }, data: { lpDeliver: enabled, lpDeliverApprovedBy: enabled ? req.user!.id : null }, include: { definition: true } });
+    await writeAudit(tx, audit(req), { action: enabled ? 'reports.schedule_lp_delivery_enabled' : 'reports.schedule_lp_delivery_disabled', objectType: 'report_schedule', objectId: id, before: { lpDeliver: s.lpDeliver }, after: { lpDeliver: enabled, approvedBy: enabled ? req.user!.id : null } });
+    return u;
   });
   res.json({ data: (await scheduleViews([row]))[0] });
 });
@@ -277,8 +260,7 @@ reportsRoutes.post('/schedules/:id/run-now', ...canCreate, idempotent('reports.s
   if (!s) throw HttpError.notFound('Schedule not found');
   const run = await generateRun({ key: s.definition.key as ReportKey, params: await scheduleParams(s, new Date()), format: s.format as ReportFormat, actorId: req.user!.id, audit: audit(req), scheduleId: s.id });
   await prisma.reportSchedule.update({ where: { id: s.id }, data: { lastRunAt: new Date(), lastRunId: run.id } });
-  const rec = cleanRecipients(s.recipients);
-  if (rec.length) await emailRun(run, rec).catch((e) => console.error('[reports] mail failed', e));
+  await deliverScheduledRun(s, run);
   res.status(201).json({ data: (await runViews([await loadRun(run.id)]))[0] });
 });
 

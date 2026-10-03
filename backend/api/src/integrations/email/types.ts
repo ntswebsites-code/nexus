@@ -4,6 +4,14 @@ export interface EmailMessage {
   to: string;
   subject: string;
   text: string;
+  /** R4-8: files sent with the message (reports). Never written to logs: `integration_calls` redacts bytes. */
+  attachments?: EmailAttachment[];
+}
+
+export interface EmailAttachment {
+  filename: string;
+  contentType: string;
+  content: Buffer;
 }
 
 export interface EmailReceipt {

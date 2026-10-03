@@ -3629,6 +3629,11 @@ model ReportSchedule {
   recipients   Json?
   /// WP-6: rolling date window applied at every run (PREVIOUS_DAY, MONTH_TO_DATE, PREVIOUS_MONTH, ...); null keeps the stored dates.
   rolling      String?   @db.VarChar(24)
+  /// R4-8: attach the generated file to the recipient emails (instead of a link only).
+  emailAttach  Boolean   @default(false) @map("email_attach")
+  /// R4-8: publish every completed run to the LP portal Documents (maker-checker: enabled by a user holding reports.approve).
+  lpDeliver    Boolean   @default(false) @map("lp_deliver")
+  lpDeliverApprovedBy String? @map("lp_deliver_approved_by") @db.Char(36)
   createdBy    String    @map("created_by") @db.Char(36)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -4041,6 +4046,9 @@ model CopilotQuery {
   intent    String   @db.VarChar(40)
   answer    String   @db.Text
   sources   Json
+  /// R4-8: the tool calls the answer was built from, and which engine answered (LLM | ROUTER).
+  copilotToolCalls Json?   @map("copilot_tool_calls")
+  copilotEngine    String? @map("copilot_engine") @db.VarChar(12)
   createdAt DateTime @default(now()) @map("created_at")
 
   @@index([userId, createdAt])
@@ -5426,3 +5434,42 @@ model OnboardingResumeLink {
   @@map("onboarding_resume_links")
 }
 // ---- end Onboarding ----
+
+// ---- AiReporting ----
+/// R4-8: each electronic submission of a filing through the regulator-filing adapter, with the regulator's acknowledgement receipt.
+model RegFilingSubmission {
+  id            String   @id @default(uuid()) @db.Char(36)
+  filingId      String   @map("filing_id") @db.Char(36)
+  regulator     String   @db.VarChar(16)
+  formCode      String   @map("form_code") @db.VarChar(32)
+  payloadSha256 String   @map("payload_sha256") @db.Char(64)
+  /// ACKNOWLEDGED | REJECTED
+  status        String   @db.VarChar(16)
+  receiptRef    String   @map("receipt_ref") @db.VarChar(80)
+  receivedAt    DateTime @map("received_at")
+  submittedBy   String   @map("submitted_by") @db.Char(36)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@unique([filingId, receiptRef])
+  @@index([filingId])
+  @@map("reg_filing_submissions")
+}
+
+/// R4-8: advisory AI triage of an onboarding case (never decides; the analyst and approver still do).
+model OnboardingTriage {
+  id          String   @id @default(uuid()) @db.Char(36)
+  caseId      String   @map("case_id") @db.Char(36)
+  /// LOW | MEDIUM | HIGH
+  riskBand    String   @map("risk_band") @db.VarChar(8)
+  summary     String   @db.Text
+  flags       Json
+  nextSteps   Json     @map("next_steps")
+  model       String   @db.VarChar(60)
+  inputSha256 String   @map("input_sha256") @db.Char(64)
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([caseId, createdAt])
+  @@map("onboarding_triages")
+}
+// ---- end AiReporting ----

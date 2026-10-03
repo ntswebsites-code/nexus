@@ -4,7 +4,8 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit, type AuditContext } from '../../lib/audit';
 import { nextRef } from '../../lib/refs';
-import { storeFile } from '../../lib/storage';
+import { readFileObject, storeFile } from '../../lib/storage';
+import type { EmailAttachment } from '../../integrations/email/types';
 import { sha256Hex } from '../../lib/crypto';
 import { sendMail } from '../../lib/mailer';
 import { config } from '../../config';
@@ -27,6 +28,7 @@ import {
   type RollingWindow,
 } from './reports.engine';
 
+const MAX_ATTACH_BYTES = 8 * 1024 * 1024;
 const D = Prisma.Decimal;
 const day = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : null);
 const startOfDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
@@ -407,23 +409,112 @@ export async function scheduleParams(s: { definition: { key: string }; params: u
 }
 
 /** Mails a completed run to the recipients (a link to the signed-in Reports screen, never the data itself). Returns the outcome note. */
-export async function emailRun(run: { id: string; ref: string; title: string; sha256: string | null; status: string }, recipients: string[]): Promise<string> {
+export async function emailRun(run: { id: string; ref: string; title: string; sha256: string | null; status: string; fileId?: string | null }, recipients: string[], opts: { attach?: boolean } = {}): Promise<string> {
   if (!recipients.length) return 'No recipients';
   if (run.status !== 'COMPLETED') return 'Run failed; nothing was mailed';
+  // R4-8: optionally send the stored file itself (capped so a huge export is never mailed); the hash in the body lets the recipient verify it.
+  let attachments: EmailAttachment[] | undefined;
+  let attachNote = '';
+  if (opts.attach && run.fileId) {
+    const { file, data } = await readFileObject(run.fileId);
+    if (data.length <= MAX_ATTACH_BYTES) attachments = [{ filename: file.name, contentType: file.mime, content: data }];
+    else attachNote = ' (file too large to attach; link only)';
+  }
   const link = `${config.portalUrls.admin.replace(/\/+$/, '')}/ops/reports?run=${encodeURIComponent(run.ref)}`;
   let sent = 0;
   const failed: string[] = [];
   for (const to of recipients) {
     try {
-      await sendMail(to, `Report ${run.ref}: ${run.title}`, `The scheduled report ${run.ref} (${run.title}) is ready.\nSHA-256: ${run.sha256 ?? 'n/a'}\nOpen it in Matanho Nexus: ${link}\nYou need to be signed in with the reports.view permission to download it.`);
+      await sendMail(to, `Report ${run.ref}: ${run.title}`, `The scheduled report ${run.ref} (${run.title}) is ready.\nSHA-256: ${run.sha256 ?? 'n/a'}\n${attachments ? 'The report is attached.\n' : ''}Open it in Matanho Nexus: ${link}\nYou need to be signed in with the reports.view permission to download it.`, attachments);
       sent++;
     } catch (e) {
       failed.push(`${to}: ${(e instanceof Error ? e.message : String(e)).slice(0, 60)}`);
     }
   }
-  const note = `Mailed ${sent} of ${recipients.length}${failed.length ? `; failed ${failed.join(', ')}` : ''}`.slice(0, 300);
+  const note = `Mailed ${sent} of ${recipients.length}${attachments ? ' with attachment' : ''}${attachNote}${failed.length ? `; failed ${failed.join(', ')}` : ''}`.slice(0, 300);
   await prisma.reportRun.update({ where: { id: run.id }, data: { deliveredAt: sent ? new Date() : null, deliveryNote: note } });
   return note;
+}
+
+type GeneratedRun = Awaited<ReturnType<typeof generateRun>>;
+
+/**
+ * Delivery after a scheduled run: email (optionally with the file attached) and, when a reports.approve holder enabled it, publication to the
+ * LP portal Documents. The steps are independent: a mail failure never blocks the LP publication and vice versa.
+ */
+export async function deliverScheduledRun(s: { id: string; recipients: unknown; emailAttach: boolean; lpDeliver: boolean; lpDeliverApprovedBy: string | null; createdBy: string }, run: GeneratedRun) {
+  const rec = cleanRecipients(s.recipients);
+  if (rec.length) await emailRun(run, rec, { attach: s.emailAttach }).catch((e) => console.error(`[reports] mail for ${run.ref} failed`, e));
+  if (s.lpDeliver && s.lpDeliverApprovedBy && run.status === 'COMPLETED') {
+    try {
+      await distributeRun(run.id, { actorId: s.createdBy, checkerId: s.lpDeliverApprovedBy, audit: { actorId: s.createdBy, portal: 'admin' } as AuditContext, via: `schedule ${s.id.slice(0, 8)}` });
+    } catch (e) {
+      const note = `LP delivery failed: ${e instanceof Error ? e.message : String(e)}`.slice(0, 300);
+      await prisma.reportRun.update({ where: { id: run.id }, data: { deliveryNote: note } }).catch(() => undefined);
+      console.error(`[reports] LP delivery for ${run.ref} failed`, e);
+    }
+  }
+}
+
+/** The fund a report run can be published for (fund fact sheets, and NAV packs of a portfolio linked to a fund), or null. */
+export async function distributionFundId(key: string, params: Record<string, string | undefined>): Promise<string | null> {
+  if (key === 'FACT_SHEET') return params.fundId ?? null;
+  if (key === 'NAV_PACK' && params.portfolioId) return (await prisma.fund.findFirst({ where: { portfolioId: params.portfolioId }, select: { id: true } }))?.id ?? null;
+  return null;
+}
+
+/**
+ * Publishes a completed report run to the LP portal: a Documents row visible to every investor with an active commitment in the fund.
+ * Claims the run first (distributed_at IS NULL), so a double call or two workers publish it once.
+ */
+export async function distributeRun(runId: string, o: { actorId: string; checkerId: string; audit: AuditContext; via?: string }) {
+  const r = await prisma.reportRun.findUnique({ where: { id: runId }, include: { definition: true } });
+  if (!r) throw HttpError.notFound('Report run not found');
+  if (r.status !== 'COMPLETED' || !r.fileId || !r.sha256) throw HttpError.conflict(`${r.ref} has no output to distribute`, 'no_output');
+  if (r.distributedAt) throw HttpError.conflict(`${r.ref} was already distributed`, 'already_distributed');
+  const fundId = await distributionFundId(r.definition.key, r.params as Record<string, string | undefined>);
+  if (!fundId) throw HttpError.badRequest('Only fund fact sheets and NAV packs for a portfolio linked to a fund can be sent to the LP portal');
+  const fund = await prisma.fund.findUnique({ where: { id: fundId } });
+  if (!fund) throw HttpError.badRequest('The fund no longer exists');
+  const commitments = await prisma.fundCommitment.findMany({ where: { fundId, status: 'ACTIVE' }, select: { clientId: true }, distinct: ['clientId'] });
+  if (!commitments.length) throw HttpError.conflict('This fund has no investors with an active commitment', 'no_audience');
+  const meta = FORMAT_META[r.format as ReportFormat];
+  const now = new Date();
+  const doc = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.reportRun.updateMany({ where: { id: r.id, distributedAt: null }, data: { distributedAt: now, distributedBy: o.checkerId } });
+    if (claimed.count !== 1) throw HttpError.conflict(`${r.ref} was already distributed`, 'already_distributed');
+    const ref = await nextRef(tx, 'document');
+    const d = await tx.document.create({
+      data: {
+        ref,
+        name: `${r.title}.${meta.ext}`.slice(0, 255),
+        type: 'report',
+        label: r.definition.name,
+        classification: 'Client',
+        status: 'Published',
+        relatedType: 'report_run',
+        relatedId: r.id,
+        relatedLabel: r.ref,
+        year: now.getUTCFullYear(),
+        documentDate: now,
+        category: 'PERFORMANCE_REPORT',
+        fundId,
+        period: `${now.getUTCFullYear()}-Q${Math.floor(now.getUTCMonth() / 3) + 1}`,
+        sourceType: 'FUND_REPORT_SYNC',
+        sourceRefId: r.id,
+        makerId: r.requestedBy,
+        checkerId: o.checkerId,
+        approvedAt: now,
+        createdBy: r.requestedBy,
+      },
+    });
+    await tx.documentVersion.create({ data: { documentId: d.id, version: 1, fileId: r.fileId!, sha256: r.sha256!, uploadedById: r.requestedBy } });
+    await tx.publication.createMany({ data: commitments.map((c) => ({ documentId: d.id, clientId: c.clientId, publishedById: o.checkerId })) });
+    await tx.reportRun.update({ where: { id: r.id }, data: { documentId: d.id, ...(o.via ? { deliveryNote: `Published to the LP portal (${o.via})` } : {}) } });
+    await writeAudit(tx, o.audit, { action: 'reports.run_distributed', objectType: 'report_run', objectId: r.id, after: { ref: r.ref, documentRef: d.ref, fund: fund.ref, investors: commitments.length, via: o.via ?? 'manual', approvedBy: o.checkerId } });
+    return d;
+  });
+  return { documentRef: doc.ref, investors: commitments.length };
 }
 
 /** Runs every active schedule that is due, as the schedule's creator. Safe to call repeatedly (each run advances the date). */
@@ -439,8 +530,7 @@ export async function runDueSchedules(now = new Date()): Promise<number> {
     try {
       const run = await generateRun({ key: s.definition.key as ReportKey, params: await scheduleParams(s, now), format: s.format as ReportFormat, actorId: s.createdBy, audit: { actorId: s.createdBy, portal: 'admin' } as AuditContext, scheduleId: s.id });
       await prisma.reportSchedule.update({ where: { id: s.id }, data: { lastRunId: run.id } });
-      const rec = cleanRecipients(s.recipients);
-      if (rec.length) await emailRun(run, rec).catch((e) => console.error(`[reports] mail for ${run.ref} failed`, e));
+      await deliverScheduledRun(s, run);
       n++;
     } catch (e) {
       console.error(`[reports] schedule ${s.id} failed`, e);

@@ -207,7 +207,7 @@ export function validateSetting(def: SettingDef, value: unknown): { ok: true; va
 
 // ---------------------------------------------------------------- copilot router
 
-export type CopilotIntent = 'positions' | 'orders' | 'nav' | 'breaks' | 'risk' | 'cash' | 'approvals' | 'audit' | 'help';
+export type CopilotIntent = 'positions' | 'orders' | 'nav' | 'breaks' | 'risk' | 'cash' | 'approvals' | 'audit' | 'accounting' | 'help';
 
 const INTENT_WORDS: Record<Exclude<CopilotIntent, 'help'>, string[]> = {
   positions: ['position', 'positions', 'holding', 'holdings', 'exposure', 'hold', 'aum', 'invested'],
@@ -218,6 +218,7 @@ const INTENT_WORDS: Record<Exclude<CopilotIntent, 'help'>, string[]> = {
   cash: ['cash', 'balance', 'balances', 'liquidity', 'reservation', 'reservations'],
   approvals: ['approval', 'approvals', 'access', 'rbac', 'role', 'roles', 'privileged', 'request', 'requests', 'review'],
   audit: ['audit', 'activity', 'who', 'changed', 'log', 'recent'],
+  accounting: ['accounting', 'journal', 'journals', 'ledger', 'posted', 'trial balance', 'gl', 'period', 'periods', 'close', 'books'],
 };
 
 /** Scores each domain by keyword hits; ties resolve by declaration order. Returns 'help' when nothing matches. */
