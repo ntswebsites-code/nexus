@@ -44,6 +44,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders() }];
+  },
   // GAP-021: the native console is the landing page; the V56 prototype workspace now lives at /classic
   // and keeps only its live-bridged pages (see src/legacy/bridge/admin-01-retired.js).
   async redirects() {
