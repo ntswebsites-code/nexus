@@ -23,7 +23,12 @@ const FORMATS = {
   cashReservation: { prefix: 'RSV-', pad: 4, start: 1001 },
   cashExpectation: { prefix: 'EXP-', pad: 4, start: 1001 },
   cashImport: { prefix: 'IMP-', pad: 4, start: 1001 },
+  accessRequest: { prefix: 'ACR-', pad: 4, start: 1001 },
+  accessReview: { prefix: 'REV-', pad: 4, start: 1001 },
 } as const;
+
+/** Reference formats for the Settings numbering view. */
+export const refFormats = () => Object.entries(FORMATS).map(([kind, f]) => ({ kind, prefix: f.prefix, pad: f.pad, start: f.start }));
 
 export type RefKind = keyof typeof FORMATS;
 

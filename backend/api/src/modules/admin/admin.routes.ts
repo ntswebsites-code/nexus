@@ -10,6 +10,7 @@ import { ctx, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { createInvitation } from '../identity/invitations';
+import { privilegedPermissionAdds, privilegedRoleAdds } from '../admin-core/admin-core.engine';
 
 /** `/api/v1/admin` - staff access control, platform settings and audit evidence (SRD 7.2, 7.13, 11). */
 export const adminRoutes = Router();
@@ -141,6 +142,13 @@ adminRoutes.put('/users/:id/roles', RBAC, requireStepUp, validateBody(rolesSchem
     const admins = await prisma.userRole.count({ where: { role: { portal: 'admin', key: SYSTEM_ADMIN }, user: { isActive: true } } });
     if (admins <= 1) throw HttpError.conflict('At least one active System Administrator must remain', 'last_admin');
   }
+  const privileged = privilegedRoleAdds(
+    user.roles.map((r) => ({ key: r.role.key, permissions: r.role.permissions.map((p) => p.permission) })),
+    roles.map((r) => ({ key: r.key, permissions: r.permissions.map((p) => p.permission) })),
+  );
+  if (privileged.length) {
+    throw HttpError.conflict(`Granting ${privileged.join(', ')} needs an independent checker. Raise an access change request instead.`, 'approval_required');
+  }
   await prisma.$transaction(async (tx) => {
     await tx.userRole.deleteMany({ where: { userId: user.id, role: { portal: 'admin' } } });
     await tx.userRole.createMany({ data: roles.map((r) => ({ userId: user.id, roleId: r.id })) });
@@ -220,6 +228,10 @@ adminRoutes.put('/roles/:key/permissions', RBAC, requireStepUp, validateBody(per
   const mine = req.user!.roles.some((r) => r.portal === 'admin' && r.key === role.key);
   if (mine && before.includes('admin.rbac') && !next.includes('admin.rbac')) {
     throw HttpError.conflict('You cannot remove access control from a role you hold', 'self_lockout');
+  }
+  const privileged = privilegedPermissionAdds(before, next);
+  if (privileged.length) {
+    throw HttpError.conflict(`Granting ${privileged.join(', ')} needs an independent checker. Raise an access change request instead.`, 'approval_required');
   }
   await prisma.$transaction(async (tx) => {
     await tx.rolePermission.deleteMany({ where: { roleId: role.id } });

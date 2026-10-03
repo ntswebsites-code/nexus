@@ -24,6 +24,7 @@ import { accountingRoutes } from '../modules/accounting';
 import { corporateActionsRoutes } from '../modules/corporate-actions';
 import { cashRoutes } from '../modules/cash';
 import { reconRoutes } from '../modules/recon/recon.routes';
+import { adminCoreRoutes } from '../modules/admin-core';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -49,6 +50,8 @@ v1Router.use('/corporate-actions', corporateActionsRoutes);
 v1Router.use('/cash', cashRoutes);
 // Reconciliations: /recon/* (runs, breaks, sources, signoffs, account-map).
 v1Router.use('/recon', reconRoutes);
+// Admin Core: /admin-core/* (RBAC change requests, access reviews, SoD, platform settings, audit facets, Copilot).
+v1Router.use('/admin-core', adminCoreRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

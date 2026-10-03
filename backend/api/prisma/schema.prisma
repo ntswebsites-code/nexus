@@ -2738,3 +2738,120 @@ model CashPeriodClose {
 }
 
 // ---- end Cash ----
+
+// ---- Admin Core ----
+
+/// Maker-checker request for a privileged access change. PENDING -> APPLIED | REJECTED | WITHDRAWN | FAILED.
+model AccessChangeRequest {
+  id           String    @id @default(uuid()) @db.Char(36)
+  ref          String    @unique @db.VarChar(16)
+  /// USER_ROLES | ROLE_PERMISSIONS | USER_DISABLE
+  kind         String    @db.VarChar(20)
+  /// user | role
+  targetType   String    @map("target_type") @db.VarChar(8)
+  targetId     String    @map("target_id") @db.VarChar(64)
+  targetLabel  String    @map("target_label") @db.VarChar(200)
+  before       Json?
+  proposal     Json
+  /// Why the change is privileged (empty when it is not).
+  privilegedBy Json?     @map("privileged_by")
+  privileged   Boolean   @default(false)
+  reason       String    @db.VarChar(500)
+  /// PENDING | APPLIED | REJECTED | WITHDRAWN | FAILED
+  status       String    @default("PENDING") @db.VarChar(12)
+  reviewItemId String?   @map("review_item_id") @db.Char(36)
+  requestedBy  String    @map("requested_by") @db.Char(36)
+  requestedAt  DateTime  @default(now()) @map("requested_at")
+  decidedBy    String?   @map("decided_by") @db.Char(36)
+  decidedAt    DateTime? @map("decided_at")
+  decisionNote String?   @map("decision_note") @db.VarChar(500)
+  version      Int       @default(1)
+
+  @@index([status, requestedAt])
+  @@index([targetType, targetId])
+  @@map("access_change_requests")
+}
+
+/// Periodic access recertification campaign. OPEN -> COMPLETED.
+model AccessReview {
+  id          String    @id @default(uuid()) @db.Char(36)
+  ref         String    @unique @db.VarChar(16)
+  title       String    @db.VarChar(160)
+  dueDate     DateTime  @map("due_date") @db.Date
+  /// OPEN | COMPLETED
+  status      String    @default("OPEN") @db.VarChar(12)
+  openedBy    String    @map("opened_by") @db.Char(36)
+  openedAt    DateTime  @default(now()) @map("opened_at")
+  completedBy String?   @map("completed_by") @db.Char(36)
+  completedAt DateTime? @map("completed_at")
+
+  items AccessReviewItem[]
+
+  @@index([status])
+  @@map("access_reviews")
+}
+
+model AccessReviewItem {
+  id              String    @id @default(uuid()) @db.Char(36)
+  reviewId        String    @map("review_id") @db.Char(36)
+  userId          String    @map("user_id") @db.Char(36)
+  userName        String    @map("user_name") @db.VarChar(200)
+  email           String    @db.VarChar(254)
+  roles           Json
+  permissionCount Int       @map("permission_count")
+  mfaEnrolled     Boolean   @map("mfa_enrolled")
+  lastLoginAt     DateTime? @map("last_login_at")
+  /// PENDING | CERTIFIED | REVOKE
+  decision        String    @default("PENDING") @db.VarChar(10)
+  decidedBy       String?   @map("decided_by") @db.Char(36)
+  decidedAt       DateTime? @map("decided_at")
+  note            String?   @db.VarChar(500)
+  requestId       String?   @map("request_id") @db.Char(36)
+
+  review AccessReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@unique([reviewId, userId])
+  @@map("access_review_items")
+}
+
+/// Platform setting with an optimistic version. Current value only; every change is in platform_setting_changes.
+model PlatformSetting {
+  key       String   @id @db.VarChar(80)
+  value     Json
+  version   Int      @default(1)
+  updatedBy String?  @map("updated_by") @db.Char(36)
+  updatedAt DateTime @default(now()) @map("updated_at")
+
+  @@map("platform_settings")
+}
+
+model PlatformSettingChange {
+  id        String   @id @default(uuid()) @db.Char(36)
+  key       String   @db.VarChar(80)
+  version   Int
+  before    Json?
+  after     Json
+  reason    String   @db.VarChar(500)
+  changedBy String   @map("changed_by") @db.Char(36)
+  changedAt DateTime @default(now()) @map("changed_at")
+
+  @@index([key, changedAt])
+  @@index([changedAt])
+  @@map("platform_setting_changes")
+}
+
+/// Copilot question log: what was asked, the intent routed to, the grounded answer and its sources.
+model CopilotQuery {
+  id        String   @id @default(uuid()) @db.Char(36)
+  userId    String   @map("user_id") @db.Char(36)
+  question  String   @db.VarChar(500)
+  intent    String   @db.VarChar(40)
+  answer    String   @db.Text
+  sources   Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@map("copilot_queries")
+}
+
+// ---- end Admin Core ----

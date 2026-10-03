@@ -72,6 +72,15 @@ const NAV: { section: string; items: NavItem[] }[] = [
     section: 'Counterparties',
     items: [{ href: '/ops/custodian', label: 'Custodian submissions', perms: ['custodian.view'] }],
   },
+  {
+    section: 'Administration',
+    items: [
+      { href: '/ops/rbac', label: 'RBAC & Controls', perms: ['admin.rbac'] },
+      { href: '/ops/settings', label: 'Settings', perms: ['admin.settings'] },
+      { href: '/ops/audit', label: 'Audit Trail', perms: ['audit.view'] },
+      { href: '/ops/copilot', label: 'Investment Copilot', perms: ['dashboard.view'] },
+    ],
+  },
 ];
 
 export function OpsShell({ children }: { children: ReactNode }) {

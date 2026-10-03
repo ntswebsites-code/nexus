@@ -914,3 +914,20 @@ E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exi
 
 - Orders do not yet call the reservation service on submit, cancel or fill (FR-CASH-015); `releaseOrderReservations` is exported for that and the order ticket still reads its own availability.
 - Reversing a settlement journal does not restore a consumed reservation; no CAMT.053 parser; no client/mandate context bar; no holds, pending-withdrawal or reusable-proceeds components in availability; no sub-ledger-to-GL tie-out to the accounting module; cash-account lifecycle stays on the Clients page.
+
+## Admin Core: RBAC & Controls, Settings, Audit Trail, Investment Copilot
+
+Migration `20261011100000_admin_core`; API `/api/v1/admin-core/*` (module `backend/api/src/modules/admin-core`) on top of the existing `/api/v1/admin/*` routes (users, roles, policy, SoD scan, audit evidence, verify). Screens: `/ops/rbac`, `/ops/settings`, `/ops/audit`, `/ops/copilot`. Demo data: `prisma/seed-admin-core.ts` (settings history, one open access review), called from `seed-demo.ts` and `seed-uat.ts`.
+
+- **RBAC (`admin.rbac`)**: role/permission matrix from the live role catalogue; role and user changes go through access change requests (`access_change_requests`). A privileged change (a monetary or `admin.*` permission, `accounting.close/reopen`, `valuation.release`, `risk.manage`, or the System Administrator role) waits for a different `admin.rbac` holder to approve under step-up; the target user cannot approve their own change. Non-privileged changes apply at once and are recorded the same way. The older direct `PUT /admin/users/:id/roles` and `PUT /admin/roles/:key/permissions` now refuse privileged grants (`approval_required`). Access reviews snapshot active staff; reviewers cannot certify themselves; revocations become disable requests for an independent approver. The SoD report lists conflicting permission pairs per role and per user; the step-up view lists the guarded actions and MFA enrolment.
+- **Settings (`admin.settings`)**: registry of feature flags, retention, notification and security settings with validation, optimistic version, mandatory reason, step-up for security keys, change history (`platform_setting_changes`) and an audit event. Security settings write through to the `policies` table that enforcement reads. The Copilot flag is enforced; other flags and retention values are recorded for modules to adopt. Numbering shows the live reference counters.
+- **Audit Trail (`audit.view`)**: filterable log over the hash chain, entity drill-down (object type and id), event detail with chain links, the existing verify endpoint, CSV export (itself audited).
+- **Copilot (`dashboard.view`)**: deterministic keyword router, no external model or key. Answers positions, orders, NAV, breaks, risk, cash, approvals and audit questions from live rows, only for domains the caller's permissions allow, with cited sources; questions are logged per user.
+
+Test: `npx tsx scripts/test-admin-core.ts` (engine rules, no database needed). Typechecked; the API flows were **not run** (no database started).
+
+### Not done
+
+- No LLM; unrecognised questions get a help message. Copilot does not add values across currencies.
+- Retention, notification and most feature-flag settings are recorded but not yet read by other modules. No scheduled purge.
+- Custom permission codes cannot be created; role creation and staff invitation still use the direct `/admin` endpoints.
