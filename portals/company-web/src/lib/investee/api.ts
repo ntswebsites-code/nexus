@@ -77,6 +77,7 @@ import type {
  * | forecast.save       | PUT    | /forecast                                     | cells -> ForecastView                       |
  * | vault               | GET    | /vault                                        | - -> { documents }                          |
  * | vault.upload        | POST   | /vault                                        | multipart file -> WorkspaceDocument         |
+ * | workspace           | any    | /cap-table/{transactions,certificates,waterfall,classes}, /forecast/{lock,unlock}, /governance/{meetings,actions}, /signature-requests, /share-links, /search, /kpis/{history,export}, /access | the /workspace tools page (one key for the whole family) |
  *
  * POSTs carry an `Idempotency-Key`. Errors are the Nexus `{ error: { code, message } }` body
  * (NVCCZ-style `{ success:false, message }` is also understood). `401 step_up_required` opens
@@ -116,6 +117,7 @@ export const INVESTEE_ACTION_KEYS = [
   'forecast.save',
   'vault',
   'vault.upload',
+  'workspace',
 ] as const;
 
 export type InvesteeActionKey = (typeof INVESTEE_ACTION_KEYS)[number];
@@ -386,6 +388,13 @@ export function createInvesteeApi(liveActions: readonly string[]) {
     getForecast: () => call<ForecastView>('forecast', 'GET', '/forecast'),
     saveForecast: (body: { scenario?: string; revenue?: Record<string, number> }) =>
       call<ForecastView>('forecast.save', 'PUT', '/forecast', { body }),
+    /** Workspace tools (cap-table transactions, board, signature requests, share links, search, access). */
+    workspace: <T>(method: Method, path: string, body?: unknown) => call<T>('workspace', method, path, body === undefined ? {} : { body }),
+    /** Authenticated file download for the workspace tools (KPI export). */
+    workspaceFile: async (path: string): Promise<Blob> => {
+      const res = await call<Response>('workspace', 'GET', path, { raw: true });
+      return res.blob();
+    },
     getVault: () => call<{ documents: WorkspaceDocument[] }>('vault', 'GET', '/vault'),
     uploadVaultFile: (file: File, name?: string) => {
       const form = new FormData();

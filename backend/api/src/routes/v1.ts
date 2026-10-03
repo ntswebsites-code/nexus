@@ -14,6 +14,7 @@ import { companyStaffRoutes } from '../modules/company/company.staff.routes';
 import { platformRoutes } from '../modules/platform/platform.routes';
 import { lpPortalRoutes } from '../modules/lp-portal/lp.routes';
 import { investeePortalRoutes } from '../modules/investee-portal/investee.routes';
+import { investeePublicRoutes } from '../modules/investee-portal/workspace/workspace.routes';
 import { opsRoutes } from '../modules/ops/ops.routes';
 import { custodianRoutes } from '../modules/custodian/custodian.routes';
 import { portfolioRoutes } from '../modules/portfolio/portfolio.routes';
@@ -44,6 +45,8 @@ export const v1Router = Router();
 v1Router.use('/platform', platformRoutes);
 v1Router.use('/lp-portal', lpPortalRoutes);
 v1Router.use('/investee-portal', investeePortalRoutes);
+// Investee workspace public links (signer pages and 7-day share links; token-gated, no session).
+v1Router.use('/investee-public', investeePublicRoutes);
 v1Router.use('/ops', opsRoutes);
 v1Router.use('/custodian', custodianRoutes);
 // Staff portfolio foundation: /portfolios, /securities, /ibor/positions, /brokers (auth applied per route).
