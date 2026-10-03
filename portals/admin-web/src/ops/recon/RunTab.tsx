@@ -4,7 +4,8 @@ import { useState, type FormEvent } from 'react';
 import { api, apiRequest } from '../api';
 import { Alert, Card, DateText, Empty, Field, FieldGrid, Loaded, optStr, str, useAction, useResource } from '../ui';
 import { recon, reconFull, Tone, useCounterparties, usePortfolioOptions } from './common';
-import { FAMILIES, yesterday, type AccountMapRow, type ReconRun, type RunResult } from './types';
+import { EffectiveTolerancePreview } from './SourcesTab';
+import { FAMILIES, TOLERANCE_FIELDS, yesterday, type AccountMapRow, type ReconRun, type RunResult } from './types';
 
 export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boolean; onOpenBreak: (id: string) => void; onChanged: () => void }) {
   const cps = useCounterparties();
@@ -13,6 +14,8 @@ export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boole
   const maps = useResource<AccountMapRow[]>(() => api.get<AccountMapRow[]>(recon('/account-map')), []);
   const [result, setResult] = useState<RunResult | null>(null);
   const [family, setFamily] = useState('TRADES');
+  const [asOf, setAsOf] = useState(yesterday());
+  const [cpSel, setCpSel] = useState('');
   const action = useAction();
   const mapAction = useAction();
   const [mapCp, setMapCp] = useState('');
@@ -21,7 +24,7 @@ export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boole
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const tolerances: Record<string, string> = {};
-    for (const k of ['price', 'cash', 'holdingsPct']) {
+    for (const k of TOLERANCE_FIELDS.map((f) => f.key)) {
       const v = optStr(fd, `tol_${k}`);
       if (v) tolerances[k] = v;
     }
@@ -76,10 +79,10 @@ export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boole
                 </select>
               </Field>
               <Field label="Date">
-                <input className="ops-input" type="date" name="asOfDate" required defaultValue={yesterday()} max={new Date().toISOString().slice(0, 10)} />
+                <input className="ops-input" type="date" name="asOfDate" required value={asOf} onChange={(e) => setAsOf(e.target.value)} max={new Date().toISOString().slice(0, 10)} />
               </Field>
               <Field label="Counterparty" hint="Blank: every mapped counterparty.">
-                <select className="ops-input" name="counterpartyId" defaultValue="">
+                <select className="ops-input" name="counterpartyId" value={cpSel} onChange={(e) => setCpSel(e.target.value)}>
                   <option value="">All counterparties</option>
                   {(cps.state === 'ok' ? cps.data : []).map((c) => (
                     <option key={c.id} value={c.id}>{c.name}</option>
@@ -94,22 +97,13 @@ export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boole
                   ))}
                 </select>
               </Field>
-              {family === 'TRADES' && (
-                <Field label="Price tolerance (±)" hint="Default 0.01. Quantity is always exact.">
-                  <input className="ops-input" name="tol_price" inputMode="decimal" placeholder="0.01" />
+              {TOLERANCE_FIELDS.filter((f) => f.families.includes(family as never)).map((f) => (
+                <Field key={f.key} label={`${f.label}: override for this run`} hint={`${f.hint} Blank uses the effective-dated configuration shown below.`}>
+                  <input className="ops-input" name={`tol_${f.key}`} inputMode="decimal" placeholder="configured" />
                 </Field>
-              )}
-              {family === 'CASH' && (
-                <Field label="Cash tolerance (±)" hint="Default 0.01, in the statement currency.">
-                  <input className="ops-input" name="tol_cash" inputMode="decimal" placeholder="0.01" />
-                </Field>
-              )}
-              {family === 'HOLDINGS' && (
-                <Field label="Holdings tolerance (%)" hint="Default 0.5% of the custodian value.">
-                  <input className="ops-input" name="tol_holdingsPct" inputMode="decimal" placeholder="0.5" />
-                </Field>
-              )}
+              ))}
             </FieldGrid>
+            <EffectiveTolerancePreview family={family} asOf={asOf} counterpartyId={cpSel} />
             <p className="ops-muted">
               Safe to repeat: one run exists per family, date, counterparty and portfolio. Re-running keeps each break's workflow, clears items that now agree and reopens a closed item whose difference changed.
             </p>
@@ -124,7 +118,7 @@ export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boole
             <Alert kind={result.data.status === 'CLEAN' ? 'ok' : 'warn'}>
               {result.data.ref} ({result.rerun ? `re-run #${result.data.runCount}` : 'new run'}): {result.data.matchedCount} matched, {result.data.breakCount} break{result.data.breakCount === 1 ? '' : 's'}
               {result.data.matchRate !== null ? `, match rate ${result.data.matchRate.toFixed(1)}%` : ''}.
-              {(result.data.summary?.missingSources?.length ?? 0) > 0 && ` Source gap: ${result.data.summary!.missingSources!.map((m) => `${m.counterpartyRef}/${m.accountRef}`).join(', ')} has no day-end package for this date.`}
+              {(result.data.summary?.missingSources?.length ?? 0) > 0 && ` Source gap: ${result.data.summary!.missingSources!.map((m) => `${m.counterpartyRef}/${m.accountRef}`).join(', ')} has no source file for this date (day-end package, custody positions or corporate-action file).`}
               {(result.data.summary?.unmappedAccounts?.length ?? 0) > 0 && ` ${result.data.summary!.unmappedAccounts!.length} counterparty account(s) are not mapped to a portfolio and were skipped.`}
             </Alert>
             {result.breaks.length > 0 && (

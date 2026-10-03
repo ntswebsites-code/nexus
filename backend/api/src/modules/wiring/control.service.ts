@@ -4,7 +4,8 @@ import { writeAudit } from '../../lib/audit';
 import { SYSTEM_ACTOR_ID, systemCtx } from '../../lib/system';
 import { closePrecheck } from '../cash/cash.service';
 import { getPortfolioSummaries } from '../portfolio/portfolio.service';
-import { endOfDay, ensureTask, resolveTaskBySource } from './tasks';
+import { endOfDay, ensureTask, linkDependency, resolveTaskBySource } from './tasks';
+import { FAMILY_LABEL, FAMILIES, type Family } from '../recon/recon.engine';
 
 /**
  * Live aggregation behind Operations Control (`/operations/status`) and the Command Centre (`/dashboard/today`).
@@ -196,6 +197,12 @@ export async function operationsStatus(now = new Date()) {
 export async function generateRunbook(now = new Date()) {
   const s = await operationsStatus(now);
   const due = endOfDay(now);
+  const today = new Date(`${iso(now)}T00:00:00.000Z`);
+  const [runs, signoffs, material] = await Promise.all([
+    prisma.reconRun.findMany({ where: { asOfDate: today }, select: { family: true } }),
+    prisma.reconSignoff.findMany({ where: { asOfDate: today }, select: { family: true } }),
+    prisma.reconBreak.count({ where: { status: { in: OPEN_BREAK }, severity: { in: ['HIGH', 'CRITICAL'] } } }),
+  ]);
   const result = { created: 0, resolved: 0 };
   await prisma.$transaction(async (tx) => {
     const sync = async (cond: boolean, key: string, t: { area: 'SETTLEMENT' | 'CASH' | 'CORPORATE_ACTIONS' | 'VALUATION' | 'CLOSE' | 'REPORTING' | 'RISK' | 'OTHER'; title: string; detail: string; link: string; dueAt?: Date }) => {
@@ -205,6 +212,12 @@ export async function generateRunbook(now = new Date()) {
         if (r.created) result.created++;
       } else if (await resolveTaskBySource(tx, sourceRef, 'Condition cleared')) result.resolved++;
     };
+    // Gate: valuation and close tasks wait for this one (see linkDependency below and the completion check).
+    await sync(material > 0, 'RECON:MATERIAL', { area: 'CLOSE', title: `Clear ${material} Critical or High reconciliation break${material === 1 ? '' : 's'} before close`, detail: 'NAV release and the close tasks are blocked while these are open.', link: '/ops/reconciliation' });
+    for (const f of FAMILIES) {
+      const family: Family = f;
+      await sync(runs.some((r) => r.family === family) && !signoffs.some((x) => x.family === family), `RECON:SIGNOFF:${family}`, { area: 'SETTLEMENT', title: `Sign off ${FAMILY_LABEL[family].toLowerCase()} reconciliation for ${iso(now)}`, detail: 'A run exists for today and has not been signed off by an independent checker.', link: '/ops/reconciliation' });
+    }
     await sync(s.recon.open > 0, 'RECON:BREAKS', { area: 'SETTLEMENT', title: `Work ${s.recon.open} open reconciliation break${s.recon.open === 1 ? '' : 's'}`, detail: `${s.recon.high} high severity, ${s.recon.pendingChecker} awaiting a checker, oldest ${s.recon.oldestDays} day(s).`, link: '/ops/reconciliation' });
     await sync(s.settlement.unsettled > 0, 'ORDERS:SETTLE', { area: 'SETTLEMENT', title: `Settle ${s.settlement.unsettled} filled order${s.settlement.unsettled === 1 ? '' : 's'}`, detail: 'Filled orders generate their trade journals when settled.', link: '/ops/orders' });
     await sync(s.cash.blockers > 0, 'CASH:CLOSE', { area: 'CASH', title: `Clear ${s.cash.blockers} cash close blocker${s.cash.blockers === 1 ? '' : 's'} for ${s.cash.periodEnd}`, detail: s.cash.portfolios.filter((p) => p.blockers).slice(0, 5).map((p) => `${p.portfolioRef}: ${p.blockers}`).join('; '), link: '/ops/cash' });
@@ -213,6 +226,7 @@ export async function generateRunbook(now = new Date()) {
     await sync(s.accounting.pendingJournals > 0, 'ACC:JOURNALS', { area: 'CLOSE', title: `Approve ${s.accounting.pendingJournals} pending accounting journal${s.accounting.pendingJournals === 1 ? '' : 's'}`, detail: `${s.accounting.systemJournals} created by the system.`, link: '/ops/accounting' });
     await sync(s.corporateActions.awaitingProcessing > 0 || s.corporateActions.electionsDue > 0, 'CA:DUE', { area: 'CORPORATE_ACTIONS', title: `${s.corporateActions.count} corporate action${s.corporateActions.count === 1 ? '' : 's'} due`, detail: `${s.corporateActions.electionsDue} election(s) due, ${s.corporateActions.awaitingProcessing} ready to process.`, link: '/ops/corporate-actions' });
     await sync(s.risk.openBreaches > 0, 'RISK:BREACHES', { area: 'RISK', title: `Review ${s.risk.openBreaches} open risk breach${s.risk.openBreaches === 1 ? '' : 'es'}`, detail: 'Each open breach has a risk case with an owner.', link: '/ops/risk' });
+    for (const child of ['NAV:RELEASE', 'CASH:CLOSE', 'ACC:JOURNALS']) await linkDependency(tx, `${child}:${iso(now)}`, `RECON:MATERIAL:${iso(now)}`);
     if (result.created || result.resolved) await writeAudit(tx, systemCtx(), { action: 'operations.runbook_generated', objectType: 'ops_runbook', objectId: iso(now)!, after: { ...result } });
   });
   return result;

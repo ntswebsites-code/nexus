@@ -17,10 +17,12 @@ import {
   signature,
   type Detected,
   type ExtTrade,
+  type FxLookup,
   type Family,
   type IntFill,
   type Tolerances,
 } from './recon.engine';
+import { detectCorpActions, detectPositions, detectSettlement, receiptMissing } from './recon.families';
 
 const D = Prisma.Decimal;
 type Dec = Prisma.Decimal;
@@ -78,6 +80,8 @@ export interface RunInput {
   counterpartyId: string | null;
   portfolioId: string | null;
   tolerances: Tolerances;
+  /** Where each tolerance value came from (effective-dated config or run override). */
+  toleranceSources?: Record<string, string>;
 }
 
 interface Detection {
@@ -153,7 +157,18 @@ async function detectTrades(input: RunInput, accounts: ScopeAccount[]): Promise<
         portfolioId,
       };
     });
-    const res = matchTrades(exts, ints, tol);
+    // FX for custodian trades reported in a currency other than the internal order's (same ticker only).
+    const rates = new Map<string, Dec>();
+    for (const e of exts)
+      for (const i of ints) {
+        if (e.currency === i.currency || i.ticker.toUpperCase() !== e.ticker.toUpperCase()) continue;
+        const k = e.currency + '>' + i.currency;
+        if (rates.has(k)) continue;
+        const r = await resolveFxRate(e.currency, i.currency, dayStart(input.asOfDate));
+        if (r) rates.set(k, r);
+      }
+    const fx: FxLookup = (from, to) => rates.get(from + '>' + to) ?? null;
+    const res = matchTrades(exts, ints, tol, fx);
     matchedCount += res.matched.length;
     detected.push(...res.detected);
     for (const m of res.matched) matchedExecIds.push(m.id);
@@ -266,8 +281,15 @@ export async function detect(input: RunInput): Promise<Detection> {
     const r = await detectTrades(input, accounts);
     return { ...r, missingSources: [], unmapped };
   }
-  const r = await detectAmounts(input, accounts);
-  return { ...r, unmapped, exceptionExecIds: [], matchedExecIds: [] };
+  const fam =
+    input.family === 'POSITIONS_VS_CUSTODY'
+      ? await detectPositions(input, accounts)
+      : input.family === 'SETTLEMENT_FAILS'
+        ? await detectSettlement(input, accounts)
+        : input.family === 'CORP_ACTIONS'
+          ? await detectCorpActions(input, accounts)
+          : await detectAmounts(input, accounts);
+  return { ...fam, unmapped, exceptionExecIds: [], matchedExecIds: [] };
 }
 
 // ---------------------------------------------------------------- persistence
@@ -302,7 +324,7 @@ export async function executeRun(req: Request, input: RunInput): Promise<RunResu
   const actorId = req.user!.id;
   const key = scopeKey(input.family, input.asOfDate, input.counterpartyId, input.portfolioId);
   const status = det.detected.length ? 'BREAKS' : det.missingSources.length ? 'SOURCE_MISSING' : 'CLEAN';
-  const params = { tolerances: input.tolerances } as unknown as Prisma.InputJsonValue;
+  const params = { tolerances: input.tolerances, ...(input.toleranceSources ? { toleranceSources: input.toleranceSources } : {}) } as unknown as Prisma.InputJsonValue;
   const summary = { missingSources: det.missingSources, unmappedAccounts: det.unmapped } as unknown as Prisma.InputJsonValue;
 
   return prisma.$transaction(async (tx) => {
@@ -483,7 +505,18 @@ export async function signoffReadiness(family: Family, date: string, counterpart
   const openMaterial = breaks.filter((b) => (MATERIAL as string[]).includes(b.severity));
   const allBreaks = runs.length ? await prisma.reconBreak.findMany({ where: { runId: { in: runs.map((r) => r.id) } }, select: { makerId: true } }) : [];
   const missing: Readiness['missingSources'] = [];
-  if (family !== 'TRADES') {
+  if (family === 'POSITIONS_VS_CUSTODY') {
+    const { accounts } = await resolveScope({ counterpartyId });
+    for (const a of accounts) if (await receiptMissing(a, date, 'POSITIONS')) missing.push({ counterpartyRef: a.counterpartyRef, accountRef: a.accountRef });
+  } else if (family === 'CORP_ACTIONS') {
+    // Only an account with an entitlement due on the date needs a file (see detectCorpActions).
+    const { accounts } = await resolveScope({ counterpartyId });
+    const events = await prisma.corpActionEvent.findMany({ where: { payDate: dayStart(date), status: { in: ['CONFIRMED', 'PROCESSED'] } }, select: { id: true } });
+    for (const a of accounts) {
+      const due = events.length ? await prisma.corpActionEntitlement.count({ where: { portfolioId: a.portfolioId, eventId: { in: events.map((e) => e.id) }, status: { not: 'SKIPPED' } } }) : 0;
+      if (due && (await receiptMissing(a, date, 'CORP_ACTIONS'))) missing.push({ counterpartyRef: a.counterpartyRef, accountRef: a.accountRef });
+    }
+  } else if (family === 'CASH' || family === 'HOLDINGS' || family === 'DAYEND_COUNT') {
     const { accounts } = await resolveScope({ counterpartyId });
     for (const a of accounts) {
       if (!(await latestDayEnd(a.counterpartyId, a.accountRef, date))) missing.push({ counterpartyRef: a.counterpartyRef, accountRef: a.accountRef });
@@ -511,3 +544,66 @@ export async function signoffReadiness(family: Family, date: string, counterpart
 }
 
 export { DEFAULT_TOLERANCES };
+
+// ---------------------------------------------------------------- effective-dated tolerances (BR-067)
+
+export interface ResolvedTolerances {
+  tolerances: Tolerances;
+  /** Where each value came from: 'default', 'global from YYYY-MM-DD' or 'counterparty from YYYY-MM-DD'. */
+  sources: Record<keyof Tolerances, string>;
+}
+
+/**
+ * Tolerances in force for a family on a date. Per field the first non-null value wins: counterparty-specific rows
+ * (newest effective date first), then global rows (newest first), then the built-in default.
+ */
+export async function resolveTolerances(family: Family, counterpartyId: string | null, date: string): Promise<ResolvedTolerances> {
+  const rows = await prisma.reconTolerance.findMany({
+    where: { family, effectiveFrom: { lte: dayStart(date) }, scope: counterpartyId ? { in: [counterpartyId, '*'] } : '*' },
+    orderBy: [{ effectiveFrom: 'desc' }],
+  });
+  const ordered = [...rows.filter((r) => r.scope !== '*'), ...rows.filter((r) => r.scope === '*')];
+  const out: Tolerances = { ...DEFAULT_TOLERANCES };
+  const sources = Object.fromEntries(Object.keys(DEFAULT_TOLERANCES).map((k) => [k, 'default'])) as ResolvedTolerances['sources'];
+  const fields: { key: keyof Tolerances; get: (r: (typeof rows)[number]) => unknown }[] = [
+    { key: 'price', get: (r) => r.price },
+    { key: 'cash', get: (r) => r.cash },
+    { key: 'holdingsPct', get: (r) => r.holdingsPct },
+    { key: 'positionQty', get: (r) => r.positionQty },
+    { key: 'settleDays', get: (r) => r.settleDays },
+    { key: 'caCash', get: (r) => r.caCash },
+  ];
+  for (const f of fields) {
+    const hit = ordered.find((r) => f.get(r) !== null && f.get(r) !== undefined);
+    if (!hit) continue;
+    const v = f.get(hit);
+    (out as unknown as Record<string, unknown>)[f.key] = f.key === 'settleDays' ? Number(v) : String(v);
+    sources[f.key] = (hit.scope === '*' ? 'global' : 'counterparty') + ' from ' + isoDay(hit.effectiveFrom);
+  }
+  return { tolerances: out, sources };
+}
+
+// ---------------------------------------------------------------- close gating
+
+/**
+ * Open Critical or High breaks that must be cleared before a NAV is released or a close task is completed. Scoped to one
+ * portfolio when given; only breaks from runs up to the as-of date count. The gate is on unless the policy
+ * `recon_nav_gate` is set to false.
+ */
+export async function reconGate(opts: { portfolioId?: string | null; asOfDate?: string | null } = {}) {
+  const policy = await prisma.policy.findUnique({ where: { key: 'recon_nav_gate' } });
+  const enabled = policy?.value !== false;
+  if (!enabled) return { enabled, blocked: false, breaks: [] as { id: string; ref: string; family: string; severity: string; status: string; label: string }[] };
+  const rows = await prisma.reconBreak.findMany({
+    where: {
+      status: { in: OPEN_STATUSES },
+      severity: { in: MATERIAL },
+      ...(opts.portfolioId ? { portfolioId: opts.portfolioId } : {}),
+      ...(opts.asOfDate ? { run: { asOfDate: { lte: dayStart(opts.asOfDate) } } } : {}),
+    },
+    orderBy: { createdAt: 'asc' },
+    take: 50,
+    select: { id: true, ref: true, family: true, severity: true, status: true, label: true },
+  });
+  return { enabled, blocked: rows.length > 0, breaks: rows };
+}

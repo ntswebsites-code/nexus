@@ -2205,8 +2205,8 @@ model ReconRun {
   ref            String   @unique @db.VarChar(16)
   /// family|date|counterparty or *|portfolio or *
   scopeKey       String   @unique @map("scope_key") @db.VarChar(190)
-  /// TRADES | CASH | HOLDINGS | DAYEND_COUNT
-  family         String   @db.VarChar(16)
+  /// TRADES | CASH | HOLDINGS | DAYEND_COUNT | POSITIONS_VS_CUSTODY | SETTLEMENT_FAILS | CORP_ACTIONS
+  family         String   @db.VarChar(32)
   asOfDate       DateTime @map("as_of_date") @db.Date
   counterpartyId String?  @map("counterparty_id") @db.Char(36)
   portfolioId    String?  @map("portfolio_id") @db.Char(36)
@@ -2235,7 +2235,7 @@ model ReconBreak {
   /// REC-00001 ...
   ref            String    @unique @db.VarChar(16)
   runId          String    @map("run_id") @db.Char(36)
-  family         String    @db.VarChar(16)
+  family         String    @db.VarChar(32)
   itemKey        String    @map("item_key") @db.VarChar(190)
   /// Detected type, e.g. MISSING_INTERNAL, MISSING_EXTERNAL, PRICE_OUT_OF_TOLERANCE, QUANTITY_DIFF, ATTRIBUTE_DIFF, AMOUNT_DIFF
   kind           String    @db.VarChar(32)
@@ -2298,7 +2298,7 @@ model ReconSignoff {
   id             String   @id @default(uuid()) @db.Char(36)
   /// family|date|counterparty or *
   scopeKey       String   @unique @map("scope_key") @db.VarChar(190)
-  family         String   @db.VarChar(16)
+  family         String   @db.VarChar(32)
   asOfDate       DateTime @map("as_of_date") @db.Date
   counterpartyId String?  @map("counterparty_id") @db.Char(36)
   signedBy       String   @map("signed_by") @db.Char(36)
@@ -4004,3 +4004,165 @@ model CopilotQuery {
 }
 
 // ---- end Admin Core ----
+
+// ---- ReconOps ----
+/// Effective-dated reconciliation tolerances (BR-067). One row per family + scope (`*` = all counterparties, or a
+/// counterparty id) + effective date. A null field inherits from the next older row, then the global row, then the default.
+model ReconTolerance {
+  id             String   @id @default(uuid()) @db.Char(36)
+  family         String   @db.VarChar(32)
+  scope          String   @default("*") @db.VarChar(36)
+  counterpartyId String?  @map("counterparty_id") @db.Char(36)
+  effectiveFrom  DateTime @map("effective_from") @db.Date
+  price          Decimal? @db.Decimal(20, 6)
+  cash           Decimal? @db.Decimal(20, 2)
+  holdingsPct    Decimal? @map("holdings_pct") @db.Decimal(9, 4)
+  positionQty    Decimal? @map("position_qty") @db.Decimal(24, 8)
+  settleDays     Int?     @map("settle_days")
+  caCash         Decimal? @map("ca_cash") @db.Decimal(20, 2)
+  note           String?  @db.VarChar(500)
+  createdBy      String   @map("created_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([family, scope, effectiveFrom], map: "recon_tol_family_scope_from_key")
+  @@index([family, effectiveFrom])
+  @@map("recon_tolerances")
+}
+
+/// Custodian-reported quantity per account, security and date (positions-vs-custody family).
+model ReconCustodyPosition {
+  id             String   @id @default(uuid()) @db.Char(36)
+  counterpartyId String   @map("counterparty_id") @db.Char(36)
+  accountRef     String   @map("account_ref") @db.VarChar(64)
+  asOfDate       DateTime @map("as_of_date") @db.Date
+  ticker         String   @db.VarChar(32)
+  isin           String?  @db.VarChar(12)
+  quantity       Decimal  @db.Decimal(24, 8)
+  batchRef       String?  @map("batch_ref") @db.VarChar(20)
+  createdBy      String   @map("created_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([counterpartyId, accountRef, asOfDate, ticker], map: "recon_cust_pos_key")
+  @@index([asOfDate])
+  @@map("recon_custody_positions")
+}
+
+/// Corporate-action entitlements as reported by the custodian (corporate-actions family).
+model ReconCustodyCaNotice {
+  id             String   @id @default(uuid()) @db.Char(36)
+  counterpartyId String   @map("counterparty_id") @db.Char(36)
+  accountRef     String   @map("account_ref") @db.VarChar(64)
+  ticker         String   @db.VarChar(32)
+  caType         String?  @map("ca_type") @db.VarChar(20)
+  exDate         DateTime @map("ex_date") @db.Date
+  payDate        DateTime @map("pay_date") @db.Date
+  quantity       Decimal  @db.Decimal(24, 6)
+  cashAmount     Decimal  @default(0) @map("cash_amount") @db.Decimal(20, 4)
+  currency       String   @db.Char(3)
+  externalRef    String?  @map("external_ref") @db.VarChar(64)
+  batchRef       String?  @map("batch_ref") @db.VarChar(20)
+  createdBy      String   @map("created_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([counterpartyId, accountRef, payDate], map: "recon_cust_ca_idx")
+  @@map("recon_custody_ca_notices")
+}
+
+/// Registry of custodian source files received per account, feed and date (hash, row count, stored original).
+/// Drives "source missing" for the positions and corporate-action families.
+model ReconSourceReceipt {
+  id             String   @id @default(uuid()) @db.Char(36)
+  counterpartyId String   @map("counterparty_id") @db.Char(36)
+  accountRef     String   @map("account_ref") @db.VarChar(64)
+  asOfDate       DateTime @map("as_of_date") @db.Date
+  /// POSITIONS | CORP_ACTIONS
+  feed           String   @db.VarChar(16)
+  rowCount       Int      @map("row_count")
+  sha256         String   @db.Char(64)
+  fileId         String?  @map("file_id") @db.Char(36)
+  version        Int      @default(1)
+  note           String?  @db.VarChar(500)
+  receivedBy     String   @map("received_by") @db.Char(36)
+  receivedAt     DateTime @default(now()) @map("received_at") @db.DateTime(3)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@unique([counterpartyId, accountRef, asOfDate, feed], map: "recon_src_receipt_key")
+  @@map("recon_source_receipts")
+}
+
+/// A file attached to a break as evidence (stored encrypted via the file store; `sha256` is of the bytes).
+model ReconBreakEvidence {
+  id         String   @id @default(uuid()) @db.Char(36)
+  breakId    String   @map("break_id") @db.Char(36)
+  fileId     String   @map("file_id") @db.Char(36)
+  name       String   @db.VarChar(255)
+  mime       String   @db.VarChar(120)
+  size       Int
+  sha256     String   @db.Char(64)
+  note       String?  @db.VarChar(500)
+  uploadedBy String   @map("uploaded_by") @db.Char(36)
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  @@index([breakId])
+  @@map("recon_break_evidence")
+}
+
+/// A query to the source (counterparty) or an escalation to a senior user, raised against a break.
+model ReconBreakAction {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// QRY-00001 / ESC-00001
+  ref            String    @unique @db.VarChar(16)
+  breakId        String    @map("break_id") @db.Char(36)
+  /// QUERY | ESCALATION
+  kind           String    @db.VarChar(12)
+  /// OPEN | ANSWERED | CLOSED
+  status         String    @default("OPEN") @db.VarChar(12)
+  counterpartyId String?   @map("counterparty_id") @db.Char(36)
+  subject        String    @db.VarChar(200)
+  body           String    @db.VarChar(2000)
+  level          Int?
+  toUserId       String?   @map("to_user_id") @db.Char(36)
+  raisedBy       String    @map("raised_by") @db.Char(36)
+  raisedAt       DateTime  @default(now()) @map("raised_at") @db.DateTime(3)
+  respondedBy    String?   @map("responded_by") @db.Char(36)
+  respondedAt    DateTime? @map("responded_at") @db.DateTime(3)
+  response       String?   @db.VarChar(2000)
+
+  @@index([breakId])
+  @@index([kind, status])
+  @@map("recon_break_actions")
+}
+
+/// A sign-off that was withdrawn because a break behind it was reopened.
+model ReconSignoffVoid {
+  id             String   @id @default(uuid()) @db.Char(36)
+  originalId     String   @map("original_id") @db.Char(36)
+  scopeKey       String   @map("scope_key") @db.VarChar(190)
+  family         String   @db.VarChar(32)
+  asOfDate       DateTime @map("as_of_date") @db.Date
+  counterpartyId String?  @map("counterparty_id") @db.Char(36)
+  signedBy       String   @map("signed_by") @db.Char(36)
+  signedAt       DateTime @map("signed_at")
+  note           String?  @db.VarChar(1000)
+  summary        Json?
+  voidedBy       String   @map("voided_by") @db.Char(36)
+  voidedAt       DateTime @default(now()) @map("voided_at") @db.DateTime(3)
+  reason         String   @db.VarChar(500)
+  breakId        String?  @map("break_id") @db.Char(36)
+
+  @@index([family, asOfDate])
+  @@map("recon_signoff_voids")
+}
+
+/// A comment on an Operations Control runbook task.
+model OpsTaskComment {
+  id        String   @id @default(uuid()) @db.Char(36)
+  taskId    String   @map("task_id") @db.Char(36)
+  body      String   @db.VarChar(1000)
+  authorId  String   @map("author_id") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  @@index([taskId, createdAt])
+  @@map("ops_task_comments")
+}
+// ---- end ReconOps ----

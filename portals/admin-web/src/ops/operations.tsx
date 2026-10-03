@@ -51,6 +51,7 @@ export interface Task {
   system: boolean;
   completedByName: string | null;
   completedAt: string | null;
+  commentCount?: number;
   version: number;
 }
 export interface TaskList {

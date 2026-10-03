@@ -1,9 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { qs } from '../api';
+import { apiDownload, qs } from '../api';
 import { formatDecimal } from '../money';
-import { Card, Empty, Loaded, useResource } from '../ui';
+import { Alert, Card, Empty, Loaded, useResource } from '../ui';
 import { ageText, reconFull, Tone, useCounterparties } from './common';
 import { FAMILIES, SEVERITIES, STATUSES, type BreaksPage } from './types';
 
@@ -20,6 +20,7 @@ export function BreaksTab({ initial, onOpen, stamp }: { initial: BreakFilter; on
   const [ageDays, setAgeDays] = useState('');
   const [mine, setMine] = useState(false);
   const [q, setQ] = useState('');
+  const [exportError, setExportError] = useState<string | null>(null);
   const cps = useCounterparties();
   const res = useResource<BreaksPage>(
     () => reconFull<BreaksPage>('GET', `/breaks${qs({ family, severity, status, counterpartyId, ageDays, mine: mine ? '1' : undefined, q: q.trim(), limit: '200' })}`),
@@ -64,12 +65,25 @@ export function BreaksTab({ initial, onOpen, stamp }: { initial: BreakFilter; on
             <option value="3">3+ days</option>
             <option value="7">7+ days</option>
           </select>
+          <button
+            className="ops-btn small"
+            type="button"
+            onClick={() =>
+              apiDownload(`/api/v1/recon/breaks${qs({ family, severity, status, counterpartyId, ageDays, mine: mine ? '1' : undefined, q: q.trim(), format: 'csv' })}`, 'recon-breaks.csv').then(
+                () => setExportError(null),
+                (e: unknown) => setExportError(e instanceof Error ? e.message : 'Export failed'),
+              )
+            }
+          >
+            Export CSV
+          </button>
           <label style={{ display: 'flex', gap: 4, alignItems: 'center', fontSize: 12 }}>
             <input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> Mine
           </label>
         </div>
       }
     >
+      {exportError && <Alert>{exportError}</Alert>}
       <Loaded res={res} what="breaks">
         {(page) =>
           page.data.length === 0 ? (

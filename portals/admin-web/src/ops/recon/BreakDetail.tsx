@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { formatDecimal } from '../money';
 import { Alert, DateText, DefinitionList, Field, FormModal, Loaded, Modal, optStr, str, useResource } from '../ui';
+import { BreakExtras } from './BreakExtras';
 import { ageText, reconFull, Tone, useStaffUsers, ValueBox } from './common';
 import { CAUSES, type BreakDetail as Detail } from './types';
 
@@ -16,6 +17,12 @@ const ACTION_LABEL: Record<string, string> = {
   auto_cleared: 'Cleared: items agree on re-run',
   reopened: 'Reopened by a later run',
   updated: 'Values changed in a later run',
+  reopened_by_user: 'Reopened by a checker',
+  evidence_attached: 'Evidence file attached',
+  queried: 'Query raised with the source',
+  query_answered: 'Query answered',
+  escalated: 'Escalated',
+  action_closed: 'Query or escalation closed',
 };
 
 type Dialog = null | 'assign' | 'investigate' | 'resolve' | 'approve' | 'reject';
@@ -89,6 +96,8 @@ export function BreakDetail({ id, onClose, onChanged }: { id: string; onClose: (
                   <button className="ops-btn danger" type="button" disabled={!allowed.reject} onClick={act('reject')}>Return to maker</button>
                 </div>
 
+                <BreakExtras b={b} allowed={allowed} onChanged={done} />
+
                 <h3 style={{ fontSize: 13, margin: '14px 0 6px' }}>Timeline</h3>
                 <ol style={{ margin: 0, paddingLeft: 18 }}>
                   {events.map((e) => (
@@ -133,7 +142,7 @@ export function BreakDetail({ id, onClose, onChanged }: { id: string; onClose: (
                     submitLabel="Send to checker"
                     onClose={() => setDialog(null)}
                     onDone={done}
-                    onSubmit={(fd) => post('resolve', { cause: str(fd, 'cause'), rationale: str(fd, 'rationale'), evidenceRef: str(fd, 'evidenceRef') })}
+                    onSubmit={(fd) => post('resolve', { cause: str(fd, 'cause'), rationale: str(fd, 'rationale'), evidenceRef: optStr(fd, 'evidenceRef') })}
                   >
                     <Field label="Cause">
                       <select className="ops-input" name="cause" required defaultValue="">
@@ -146,8 +155,8 @@ export function BreakDetail({ id, onClose, onChanged }: { id: string; onClose: (
                     <Field label="Rationale" hint="At least 10 characters.">
                       <textarea className="ops-input" name="rationale" required minLength={10} maxLength={2000} rows={3} />
                     </Field>
-                    <Field label="Evidence reference" hint="Contract note, email, statement page or document reference.">
-                      <input className="ops-input" name="evidenceRef" required minLength={3} maxLength={255} />
+                    <Field label="Evidence reference" hint="Contract note, email, statement page or document reference. Leave blank if you attached evidence files to the break.">
+                      <input className="ops-input" name="evidenceRef" minLength={3} maxLength={255} />
                     </Field>
                   </FormModal>
                 )}

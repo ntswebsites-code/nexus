@@ -25,7 +25,8 @@ import {
   type BreakStatus,
   type Family,
 } from './recon.engine';
-import { dayStart, executeRun, isoDay, signoffReadiness, signoffScopeKey, todayIso } from './recon.service';
+import { dayStart, executeRun, isoDay, resolveTolerances, signoffReadiness, signoffScopeKey, todayIso } from './recon.service';
+import { reconExtRoutes } from './recon.ext.routes';
 
 /**
  * Reconciliations (SRD 5.A.17, 6.10 FR-OPS-002..005, 7.7, 11.3 `/recon/*`). Admin-portal staff only.
@@ -39,6 +40,9 @@ const staff = [requireAuth, requirePortalAccess('admin')];
 const canView = [...staff, requirePermission('operations.view')];
 const canManage = [...staff, requirePermission('operations.view', 'recon.manage')];
 const canSignoff = [...staff, requirePermission('operations.view', 'recon.signoff')];
+
+// Tolerance config, custodian feeds, evidence, queries, escalations and reopen. Mounted first so literal paths win over `/breaks/:id`.
+reconRoutes.use(reconExtRoutes);
 
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 const dateStr = z
@@ -117,6 +121,10 @@ function allowedFor(b: BreakRow, req: Request) {
     resolve: manage && open,
     approve: signoff && pending && !isMaker,
     reject: signoff && pending && !isMaker,
+    reopen: signoff && (b.status === 'MATCHED' || b.status === 'CLOSED'),
+    query: manage && (open || pending),
+    escalate: manage && (open || pending),
+    attachEvidence: manage && (open || pending),
     approveBlockedReason: signoff && pending && isMaker ? 'You resolved this break, so a different person must approve it (maker-checker).' : null,
   };
 }
@@ -295,7 +303,10 @@ const runSchema = z
     asOfDate: dateStr,
     counterpartyId: id36.nullish(),
     portfolioId: id36.nullish(),
-    tolerances: z.object({ price: tolNum(1000).optional(), cash: tolNum(1_000_000).optional(), holdingsPct: tolNum(100).optional() }).strict().optional(),
+    tolerances: z
+      .object({ price: tolNum(1000).optional(), cash: tolNum(1_000_000).optional(), holdingsPct: tolNum(100).optional(), positionQty: tolNum(1_000_000_000).optional(), settleDays: z.coerce.number().int().min(0).max(30).optional(), caCash: tolNum(1_000_000).optional() })
+      .strict()
+      .optional(),
   })
   .strict();
 
@@ -304,12 +315,18 @@ reconRoutes.post('/runs', ...canManage, validateBody(runSchema), idempotent('rec
   if (b.asOfDate > todayIso()) throw HttpError.badRequest('Validation failed', [{ path: 'asOfDate', message: 'The date cannot be in the future' }]);
   const cp = await resolveCounterparty(b.counterpartyId);
   const pf = await resolvePortfolio(b.portfolioId);
+  // Effective-dated configuration (BR-067) unless the caller overrides a value for this run.
+  const eff = await resolveTolerances(b.family, cp?.id ?? null, b.asOfDate);
+  const overrides = (b.tolerances ?? {}) as Record<string, unknown>;
+  const sources: Record<string, string> = { ...eff.sources };
+  for (const k of Object.keys(overrides)) sources[k] = 'run override';
   const result = await executeRun(req, {
     family: b.family,
     asOfDate: b.asOfDate,
     counterpartyId: cp?.id ?? null,
     portfolioId: pf?.id ?? null,
-    tolerances: { ...DEFAULT_TOLERANCES, ...(b.tolerances ?? {}) },
+    tolerances: { ...eff.tolerances, ...(b.tolerances ?? {}) } as typeof DEFAULT_TOLERANCES,
+    toleranceSources: sources,
   });
   const run = await prisma.reconRun.findUniqueOrThrow({ where: { id: result.runId } });
   const breaks = await prisma.reconBreak.findMany({ where: { runId: run.id }, orderBy: { createdAt: 'asc' }, take: 500 });
@@ -368,6 +385,7 @@ const breaksQuery = z.object({
   q: z.string().trim().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),
+  format: z.enum(['json', 'csv']).default('json'),
 });
 
 reconRoutes.get('/breaks', ...canView, validateQuery(breaksQuery), async (req, res) => {
@@ -401,7 +419,7 @@ reconRoutes.get('/breaks', ...canView, validateQuery(breaksQuery), async (req, r
     AND: [base, statuses.length ? { status: { in: statuses } } : {}, q.overdue ? overdueWhere : {}],
   };
   const [rows, total, byStatus, bySeverity, byFamily, overdue] = await Promise.all([
-    prisma.reconBreak.findMany({ where, orderBy: [{ createdAt: 'asc' }], take: q.limit, skip: q.offset }),
+    prisma.reconBreak.findMany({ where, orderBy: [{ createdAt: 'asc' }], take: q.format === 'csv' ? 5000 : q.limit, skip: q.format === 'csv' ? 0 : q.offset }),
     prisma.reconBreak.count({ where }),
     prisma.reconBreak.groupBy({ by: ['status'], where: base, _count: { _all: true } }),
     prisma.reconBreak.groupBy({ by: ['severity'], where: { AND: [base, { status: { in: OPEN_STATUSES } }] }, _count: { _all: true } }),
@@ -409,6 +427,21 @@ reconRoutes.get('/breaks', ...canView, validateQuery(breaksQuery), async (req, r
     prisma.reconBreak.count({ where: { AND: [base, overdueWhere] } }),
   ]);
   const count = <K extends string>(rowsIn: ({ _count: { _all: number } } & Record<K, string>)[], key: K) => Object.fromEntries(rowsIn.map((r) => [r[key], r._count._all]));
+  if (q.format === 'csv') {
+    const views = await breakViews(rows, req);
+    // Cells that start with a formula character are prefixed so a spreadsheet never evaluates them.
+    const esc = (v: unknown) => {
+      const t = String(v ?? '');
+      return '"' + (/^[=+\-@\t\r]/.test(t) ? "'" + t : t).replace(/"/g, '""') + '"';
+    };
+    const head = ['ref', 'run', 'as_of', 'family', 'kind', 'severity', 'status', 'counterparty', 'portfolio', 'currency', 'difference', 'difference_pct', 'owner', 'cause', 'age_days', 'overdue', 'evidence_ref', 'label'];
+    const lines = views.map((v) => [v.ref, v.runRef, v.asOfDate, v.familyLabel, v.kind, v.severity, v.status, v.counterparty?.name, v.portfolio?.ref, v.currency, v.difference, v.differencePct, v.ownerName, v.cause, v.ageDays, v.overdue ? 'yes' : 'no', v.evidenceRef, v.label].map(esc).join(','));
+    await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'recon.breaks_exported', objectType: 'recon_break', objectId: 'export', after: { rows: views.length, filters: { family: q.family ?? null, status: q.status ?? null, severity: q.severity ?? null, asOf: q.asOf ?? null } } }));
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', 'attachment; filename="recon-breaks.csv"');
+    res.send([head.join(','), ...lines].join('\n'));
+    return;
+  }
   const sevCounts = count(bySeverity, 'severity') as Record<string, number>;
   const stCounts = count(byStatus, 'status') as Record<string, number>;
   res.json({
@@ -488,7 +521,8 @@ const resolveSchema = z
   .object({
     cause: z.enum(CAUSES),
     rationale: z.string().trim().min(10, 'Explain the resolution in at least 10 characters').max(2000),
-    evidenceRef: z.string().trim().min(3, 'An evidence reference is required').max(255),
+    /** A reference, or attach at least one evidence file to the break first. */
+    evidenceRef: z.string().trim().min(3, 'An evidence reference is required').max(255).optional(),
     version: z.number().int().optional(),
   })
   .strict();
@@ -535,11 +569,14 @@ reconRoutes.post('/breaks/:id/resolve', ...canManage, validateBody(resolveSchema
   assertOpen(b, 'resolved');
   expectVersion(req, b.version);
   const body = req.body as z.infer<typeof resolveSchema>;
+  const files = await prisma.reconBreakEvidence.findMany({ where: { breakId: b.id }, select: { name: true } });
+  if (!body.evidenceRef && !files.length) throw HttpError.badRequest('Validation failed', [{ path: 'evidenceRef', message: 'Give an evidence reference or attach an evidence file first' }]);
+  const evidenceRef = body.evidenceRef ?? `${files.length} attached file${files.length === 1 ? '' : 's'}: ${files.map((f) => f.name).join(', ')}`.slice(0, 255);
   await transition(req, b, 'PENDING_CHECKER', {
     action: 'resolved',
     note: body.rationale,
-    data: { cause: body.cause, resolutionNote: body.rationale, evidenceRef: body.evidenceRef, makerId: req.user!.id, resolvedAt: new Date(), checkerId: null },
-    after: { cause: body.cause, evidenceRef: body.evidenceRef },
+    data: { cause: body.cause, resolutionNote: body.rationale, evidenceRef, makerId: req.user!.id, resolvedAt: new Date(), checkerId: null },
+    after: { cause: body.cause, evidenceRef, evidenceFiles: files.length },
     notify: async (tx) => {
       await enqueue(tx, 'notify.permission', { permission: 'recon.signoff', type: 'recon.break_pending_checker', title: `Break ${b.ref} is ready for your approval`, body: b.label, link: `/ops/reconciliation?break=${b.id}` });
     },
