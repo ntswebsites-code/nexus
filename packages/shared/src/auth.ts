@@ -94,7 +94,14 @@ export interface ApiErrorBody {
     code: string;
     message: string;
     details?: unknown;
+    /** Field path -> reason, present on validation failures. */
+    fieldErrors?: Record<string, string>;
   };
+  /** Top-level mirrors of `error` so the envelope also satisfies the LP contract. */
+  success?: false;
+  code?: string;
+  message?: string;
+  fieldErrors?: Record<string, string>;
 }
 
 export interface HealthResponse {

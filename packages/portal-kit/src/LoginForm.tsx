@@ -31,6 +31,11 @@ export function LoginForm({ portal, apiUrl, enforcePortalAccess = true }: LoginF
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<Step>('password');
 
+  // `/login?forgot=1` (linked from the reset page) opens the request-a-reset-link step directly.
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('forgot')) setStep('forgot');
+  }, []);
+
   useEffect(() => {
     let alive = true;
     api
@@ -102,6 +107,7 @@ export function LoginForm({ portal, apiUrl, enforcePortalAccess = true }: LoginF
   }
 
   if (step === 'forgot' || step === 'forgot-sent') {
+    // The reset form needs no session; show it even while an account is signed in elsewhere.
     return (
       <AuthCard portal={portal} title="Reset password">
         {step === 'forgot-sent' ? (

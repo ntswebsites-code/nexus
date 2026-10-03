@@ -557,6 +557,16 @@
         "custodian.dayend.submit",
         "custodian.dayend.approve"
       ]
+    },
+    {
+      "portal": "admin",
+      "key": "settings_admin",
+      "label": "Platform Settings Administrator",
+      "permissions": [
+        "dashboard.view",
+        "audit.view",
+        "admin.settings"
+      ]
     }
   ]
 }

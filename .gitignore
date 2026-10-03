@@ -46,3 +46,5 @@ backend/api/storage/
 .idea/
 .vscode/
 *.swp
+
+tools/dashboard/status.json

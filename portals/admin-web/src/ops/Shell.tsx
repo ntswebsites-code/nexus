@@ -22,10 +22,14 @@ export function OpsShell({ children }: { children: ReactNode }) {
     api.get<RoleFocus>(v1('/shell/me/role-focus')).then(setFocus).catch(() => setFocus(null));
   }, [user.id]);
   const focusPerms = focus?.permissions ?? null;
+  // Mobile: the sidebar is an off-canvas drawer opened from the top bar (ISS-ADB-026).
+  const [navOpen, setNavOpen] = useState(false);
+  useEffect(() => setNavOpen(false), [pathname]);
 
   return (
     <>
-      <aside className="ops-sidebar">
+      {navOpen && <div className="ops-nav-scrim" role="presentation" onClick={() => setNavOpen(false)} />}
+      <aside className={`ops-sidebar${navOpen ? ' open' : ''}`} id="ops-sidebar">
         <div className="ops-brand">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/assets/matanho-logo.png" alt="Matanho" />
@@ -55,13 +59,19 @@ export function OpsShell({ children }: { children: ReactNode }) {
             </div>
           ))}
         </nav>
-        <div className="ops-sidebar-foot">
-          {/* Plain anchor: the legacy workspace is a different root layout. */}
-          <a href="/">← Back to the investment workspace</a>
-        </div>
       </aside>
       <div className="ops-main">
         <header className="ops-topbar">
+          <button
+            className="ops-nav-toggle"
+            type="button"
+            aria-label="Open navigation menu"
+            aria-expanded={navOpen}
+            aria-controls="ops-sidebar"
+            onClick={() => setNavOpen((o) => !o)}
+          >
+            <span aria-hidden="true">☰</span>
+          </button>
           <Breadcrumbs />
           <div className="ops-topbar-tools">
             <button className="ops-search-btn" type="button" onClick={() => window.dispatchEvent(new Event('ops:open-palette'))} aria-label="Search and commands (Ctrl+K)">

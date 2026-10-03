@@ -54,6 +54,22 @@ const seed = JSON.parse(readFileSync(DATA, 'utf8')) as UatSeed;
     if (call.status === 'ISSUED' && call.dueDate < todayIso) call.dueDate = soonIso;
   }
 }
+/**
+ * Test-only personas (ISS-ADA-001/002/024): one neutral user per maker-checker step so every UAT flow can be
+ * completed end to end. Credentials come from the users file by persona key (never committed); personas
+ * missing from the file are skipped.
+ */
+const TEST_PERSONAS: SeedPersona[] = [
+  { key: 'test_portfolio_manager', kind: 'staff', name: 'Test Portfolio Manager (orders, term sheets: maker)', roles: ['admin:portfolio_manager'] },
+  { key: 'test_dealer', kind: 'staff', name: 'Test Dealer (route and fill orders)', roles: ['admin:dealer'] },
+  { key: 'test_approver', kind: 'staff', name: 'Test Approver (orders, NAV release, period close, corporate actions)', roles: ['admin:investment_director'] },
+  { key: 'test_fund_accountant', kind: 'staff', name: 'Test Fund Accountant (post accounting, cash approvals, corporate actions)', roles: ['admin:fund_accountant'] },
+  { key: 'test_compliance', kind: 'staff', name: 'Test Compliance (approve term sheets and cash)', roles: ['admin:compliance'] },
+  { key: 'test_settings_admin', kind: 'staff', name: 'Test Settings Administrator', roles: ['admin:settings_admin'] },
+  { key: 'test_custodian_approver', kind: 'custodian', name: 'Test Custodian Approver (day-end approve)', roles: ['custodian:approver'], counterparty: 'CP-001', counterpartyRole: 'approver' },
+];
+for (const t of TEST_PERSONAS) if (!seed.personas.some((p) => p.key === t.key)) seed.personas.push(t);
+
 const D = (s: string | number) => new Prisma.Decimal(s);
 const date = (s: string) => new Date(s.length === 10 ? `${s}T00:00:00Z` : s);
 const num = (s: string | number | null | undefined) => Number(s ?? 0);
@@ -734,9 +750,23 @@ async function seedCompanies() {
       keyTerms: t.keyTerms as Prisma.InputJsonValue,
       conditions: t.conditions,
       timeline: t.timeline,
-      createdById: staff('investment_director', 'sysadmin'),
+      createdById: staff('test_portfolio_manager', 'analyst', 'investment_director', 'sysadmin'),
     };
     await prisma.termSheet.upsert({ where: { ref: t.ref }, update: wf(data), create: { ref: t.ref, ...data } });
+  }
+
+  // ISS-ADA-024: a seeded draft authored by the approver can be neither submitted (no create right) nor approved
+  // (segregation of duties). Hand such drafts to the neutral author persona; touches only untouched drafts.
+  {
+    const author = staff('test_portfolio_manager', 'analyst');
+    const director = users.get('investment_director');
+    if (author && director) {
+      const res = await prisma.termSheet.updateMany({
+        where: { ref: { in: seed.termSheets.map((t) => t.ref) }, createdById: director, status: { in: ['DRAFT', 'Draft'] } },
+        data: { createdById: author },
+      });
+      if (res.count) log(`term sheets reassigned to a neutral author: ${res.count}`);
+    }
   }
 
   // Staff-created companies take PC-<n> from the `company` sequence; keep it past the seeded refs.

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { describeError, newIdempotencyKey, OpsError } from './api';
 import { formatMoney, type DecimalLike } from './money';
+import { useSession } from './session';
 
 // ------------------------------------------------------------------ data loading
 
@@ -372,6 +373,7 @@ export function ActionButton({
   disabled,
   title,
   confirm,
+  requires,
 }: {
   label: string;
   onRun: (idempotencyKey: string) => Promise<unknown>;
@@ -381,29 +383,85 @@ export function ActionButton({
   disabled?: boolean;
   title?: string;
   confirm?: string;
+  /** Permission code(s) the action needs. Without one the button stays visible but disabled, with the reason (ISS-ADB-012). */
+  requires?: string | string[];
 }) {
   const action = useAction();
+  const { can } = useSession();
+  const needs = requires === undefined ? [] : Array.isArray(requires) ? requires : [requires];
+  const missing = needs.length > 0 && !can(...needs);
+  const [asking, setAsking] = useState(false);
+  async function run() {
+    let ok = false;
+    await action.run(async (key) => {
+      await onRun(key);
+      ok = true;
+    });
+    if (ok) onDone?.();
+  }
   return (
     <span className="ops-action-wrap">
       <button
         className={`ops-btn${primary ? ' primary' : ''}${danger ? ' danger' : ''}`}
         type="button"
-        title={title}
-        disabled={disabled || action.busy}
-        onClick={async () => {
-          if (confirm && !window.confirm(confirm)) return;
-          let ok = false;
-          await action.run(async (key) => {
-            await onRun(key);
-            ok = true;
-          });
-          if (ok) onDone?.();
+        title={missing ? `Your role does not include this action (needs ${needs.join(' or ')}).` : title}
+        disabled={disabled || action.busy || missing}
+        onClick={() => {
+          if (confirm) setAsking(true);
+          else void run();
         }}
       >
         {action.busy ? 'Working…' : label}
       </button>
+      {missing && <span className="ops-muted ops-gate-note"> Needs {needs.join(' or ')}</span>}
       {action.error && <span className="ops-error-text">{action.error}</span>}
+      {asking && (
+        <ConfirmDialog
+          title={label}
+          message={confirm ?? ''}
+          confirmLabel={label}
+          danger={danger}
+          onCancel={() => setAsking(false)}
+          onConfirm={() => {
+            setAsking(false);
+            void run();
+          }}
+        />
+      )}
     </span>
+  );
+}
+
+/** In-app replacement for `window.confirm`: a small modal with Cancel and a confirm button. */
+export function ConfirmDialog({
+  title,
+  message,
+  confirmLabel = 'Confirm',
+  danger,
+  onCancel,
+  onConfirm,
+}: {
+  title: ReactNode;
+  message: ReactNode;
+  confirmLabel?: string;
+  danger?: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal title={title} kicker="Please confirm" onClose={onCancel}>
+      <div className="ops-modal-body">
+        <p>{message}</p>
+      </div>
+      <footer className="ops-modal-foot">
+        <button className="ops-btn" type="button" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className={`ops-btn ${danger ? 'danger' : 'primary'}`} type="button" autoFocus onClick={onConfirm}>
+          {confirmLabel}
+        </button>
+      </footer>
+    </Modal>
   );
 }
 

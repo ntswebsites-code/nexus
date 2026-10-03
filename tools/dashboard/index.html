@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Matanho Nexus progress</title>
+<meta name="color-scheme" content="light dark">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%232563eb'/%3E%3Crect x='3' y='9' width='3' height='4' fill='white'/%3E%3Crect x='7' y='6' width='3' height='7' fill='white'/%3E%3Crect x='11' y='3' width='2' height='10' fill='white'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="top" role="banner">
+  <div class="top-inner">
+    <a class="brand" href="#/" aria-label="Matanho Nexus progress, back to overview">Matanho Nexus <span>progress</span></a>
+    <nav aria-label="Primary" id="nav" class="nav"></nav>
+    <div class="refresh" aria-live="off">
+      <div class="refresh-text">
+        <div id="updated">Loading data...</div>
+        <div id="countdown" class="muted"></div>
+      </div>
+      <button id="refreshBtn" type="button" class="btn">Refresh now</button>
+    </div>
+  </div>
+  <div id="staleBanner" class="banner banner-stale" role="alert" hidden></div>
+  <div id="errorBanner" class="banner banner-error" role="alert" hidden></div>
+</header>
+<main id="main" tabindex="-1"><div id="app" aria-live="polite"><p class="muted pad">Loading status.json...</p></div></main>
+<footer class="foot muted">Source of truth: <code>tools/dashboard/status.json</code>. Real data only; anything that cannot be derived from a source is shown as unknown.</footer>
+<script src="app.js"></script>
+</body>
+</html>

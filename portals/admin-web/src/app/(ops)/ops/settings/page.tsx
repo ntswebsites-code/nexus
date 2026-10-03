@@ -10,7 +10,11 @@ import { Alert, Card, Empty, Field, FormModal, formatDateTime, Loaded, PageHeade
 type Tab = 'settings' | 'numbering' | 'history';
 const AC = (p: string) => v1(`/admin-core${p}`);
 const CATEGORIES = ['Feature flags', 'Security', 'Retention', 'Notifications'];
-const show = (v: unknown) => (typeof v === 'boolean' ? (v ? 'On' : 'Off') : String(v));
+const humanise = (v: string) => {
+  const t = v.replace(/_/g, ' ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+};
+const show = (v: unknown) => (typeof v === 'boolean' ? (v ? 'On' : 'Off') : typeof v === 'string' && /^[a-z]+(_[a-z]+)+$|^[a-z]+$/.test(v) && v.includes('_') ? humanise(v) : String(v));
 
 export default function SettingsPage() {
   const can = useCan('admin.settings');
@@ -28,7 +32,7 @@ export default function SettingsPage() {
       <PageHeader
         kicker="Administration"
         title="Settings"
-        subtitle="Platform controls with a full change history. Every change needs a reason and is written to the audit trail; security settings need a fresh authenticator code."
+        subtitle="Platform controls with a full change history. Every change needs a reason and is written to the audit trail; security settings need a fresh authenticator code once your account has one enrolled."
       />
       <TabBar
         tabs={[
@@ -96,7 +100,9 @@ function SettingsTab() {
                 </Card>
               );
             })}
-            <p className="ops-muted">Settings marked recorded are stored with history and shown to other services; enforcement for them is wired up as each module adopts them.</p>
+            {rows.some((r) => !r.enforced) && (
+              <p className="ops-muted">Settings marked recorded are stored with history and shown to other services; enforcement for them is wired up as each module adopts them.</p>
+            )}
             {edit && (
               <FormModal
                 title={edit.label}
