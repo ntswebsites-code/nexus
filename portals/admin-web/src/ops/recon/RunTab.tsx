@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { api, apiRequest } from '../api';
-import { Alert, Card, DateText, Empty, Field, FieldGrid, Loaded, optStr, str, useAction, useResource } from '../ui';
+import { Alert, Card, DateText, Empty, Field, FieldGrid, Loaded, optStr, str, useAction, useResource, ConfirmDialog } from '../ui';
 import { recon, reconFull, Tone, useCounterparties, usePortfolioOptions } from './common';
 import { EffectiveTolerancePreview } from './SourcesTab';
 import { FAMILIES, TOLERANCE_FIELDS, yesterday, type AccountMapRow, type ReconRun, type RunResult } from './types';
@@ -18,6 +18,7 @@ export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boole
   const [cpSel, setCpSel] = useState('');
   const action = useAction();
   const mapAction = useAction();
+  const [removeMap, setRemoveMap] = useState<AccountMapRow | null>(null);
   const [mapCp, setMapCp] = useState('');
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -65,6 +66,21 @@ export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boole
 
   return (
     <>
+      {removeMap && (
+        <ConfirmDialog
+          title="Remove account mapping"
+          message={`Stop reconciling ${removeMap.accountRef}?`}
+          confirmLabel="Remove"
+          danger
+          onCancel={() => setRemoveMap(null)}
+          onConfirm={async () => {
+            const m = removeMap;
+            setRemoveMap(null);
+            await mapAction.run(() => apiRequest('DELETE', recon(`/account-map/${m.id}`)));
+            maps.reload();
+          }}
+        />
+      )}
       <Card title="Run matching">
         {!canManage ? (
           <Alert kind="info">Your role can view reconciliations but not run matching (recon.manage).</Alert>
@@ -210,9 +226,7 @@ export function RunTab({ canManage, onOpenBreak, onChanged }: { canManage: boole
                               className="ops-btn small danger"
                               type="button"
                               onClick={async () => {
-                                if (!window.confirm(`Stop reconciling ${m.accountRef}?`)) return;
-                                await mapAction.run(() => apiRequest('DELETE', recon(`/account-map/${m.id}`)));
-                                maps.reload();
+                                setRemoveMap(m);
                               }}
                             >
                               Remove

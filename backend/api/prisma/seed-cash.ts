@@ -28,10 +28,17 @@ export async function seedCash() {
     log('no users yet: skipped');
     return;
   }
-  // Maker-checker: the opening-balance journals are prepared by one user and posted by a different one.
-  const poster = (await prisma.user.findFirst({ where: { id: { not: actor }, isActive: true }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id ?? actor;
-  if (poster === actor) log('only one user exists: opening journals keep the same maker and poster');
+  // Maker-checker: the opening-balance journals are prepared by one user and posted by a different one. The poster must be an
+  // active admin-portal user whose role carries the posting permission (cash.journal.approve), never a portal user.
+  const poster =
+    (await prisma.user.findFirst({
+      where: { id: { not: actor }, isActive: true, roles: { some: { role: { portal: 'admin', permissions: { some: { permission: 'cash.journal.approve' } } } } } },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    }))?.id ?? actor;
+  if (poster === actor) log('no other admin user with cash.journal.approve: opening journals keep the same maker and poster');
   else {
+    // Only opening journals the seed itself posted with the same user as maker are re-assigned.
     const fixed = await prisma.cashJournal.updateMany({ where: { sourceRef: 'OPENING-BALANCE', status: 'POSTED', makerId: actor, postedBy: actor }, data: { postedBy: poster } });
     if (fixed.count) log(`${fixed.count} opening journal(s): poster changed to a different user than the maker`);
   }
