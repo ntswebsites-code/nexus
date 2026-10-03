@@ -174,7 +174,51 @@ services:
     ports:
       - "127.0.0.1:${MAILPIT_UI_PORT:-8625}:8025"
 
+  # S3-compatible object storage (MinIO). The S3 API (9000) is reachable only on the compose
+  # network as http://minio:9000; the console is bound to 127.0.0.1 and reached through an
+  # SSH tunnel. Root credentials (MINIO_ROOT_USER / MINIO_ROOT_PASSWORD) and the app's
+  # STORAGE_S3_* keys live in ../.env.production on the server, never in git.
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e  # RELEASE.2025-09-07T16-13-09Z (Docker Hub no longer serves release tags; pinned by digest)
+    restart: unless-stopped
+    env_file: ../.env.production
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio-data:/data
+    ports:
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-19101}:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # One-shot, idempotent: private buckets, versioning on nexus-documents, and a least-privilege
+  # app user (STORAGE_S3_ACCESS_KEY / STORAGE_S3_SECRET_KEY) limited to those buckets.
+  minio-init:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727  # RELEASE.2025-08-13T08-35-41Z
+    env_file: ../.env.production
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null
+        for b in nexus-documents nexus-esign nexus-exports; do mc mb --ignore-existing local/$$b; mc anonymous set none local/$$b >/dev/null; done
+        mc version enable local/nexus-documents
+        cat > /tmp/nexus-app.json <<'POLICY'
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::nexus-documents","arn:aws:s3:::nexus-documents/*","arn:aws:s3:::nexus-esign","arn:aws:s3:::nexus-esign/*","arn:aws:s3:::nexus-exports","arn:aws:s3:::nexus-exports/*"]}]}
+        POLICY
+        mc admin policy create local nexus-app /tmp/nexus-app.json || true
+        mc admin user add local "$$STORAGE_S3_ACCESS_KEY" "$$STORAGE_S3_SECRET_KEY" || true
+        mc admin policy attach local nexus-app --user "$$STORAGE_S3_ACCESS_KEY" || true
+        mc ls local
+
 volumes:
+  minio-data:
   mysql-data:
   # AES-256-GCM encrypted objects (documents, KYC evidence, submissions).
   file-storage:

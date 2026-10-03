@@ -596,10 +596,10 @@ export async function sign(ts: WithCompany, input: SignInput) {
   ]);
   return prisma.$transaction(async (tx) => {
     const signatureFile = input.signatureImage
-      ? await storeFile({ ...input.signatureImage, uploadedById: input.userId }, tx)
+      ? await storeFile({ ...input.signatureImage, uploadedById: input.userId, bucket: 'esign' }, tx)
       : null;
     const certFile = await storeFile(
-      { name: `${ts.ref}-signature-certificate.pdf`, mime: 'application/pdf', data: certificate, uploadedById: input.userId },
+      { name: `${ts.ref}-signature-certificate.pdf`, mime: 'application/pdf', data: certificate, uploadedById: input.userId, bucket: 'esign' },
       tx,
     );
     const certDoc = await tx.document.create({

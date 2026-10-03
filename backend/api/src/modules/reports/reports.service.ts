@@ -363,7 +363,7 @@ export async function generateRun(opts: { key: ReportKey; params: P; format: Rep
     if (data) {
       const body = Buffer.from(render(data, opts.format, generatedAt), 'utf8');
       const meta = FORMAT_META[opts.format];
-      const file = await storeFile({ name: `${safeName(ref)}-${safeName(opts.key.toLowerCase())}.${meta.ext}`, mime: meta.mime, data: body, uploadedById: opts.actorId }, tx);
+      const file = await storeFile({ name: `${safeName(ref)}-${safeName(opts.key.toLowerCase())}.${meta.ext}`, mime: meta.mime, data: body, uploadedById: opts.actorId, bucket: 'exports' }, tx);
       fileId = file.id;
       sha = file.sha256 ?? sha256Hex(body);
       rows = rowCount(data);

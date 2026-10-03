@@ -114,6 +114,9 @@ async function main() {
   record('S1', 'API health (deep)', h.status === 200 ? 'PASS' : 'FAIL', `${brief(h)}${h.body?.status ? ` status=${h.body.status}` : ''}`);
   const fl = await anon.get('/api/v1/platform/flags');
   lpFlags = fl.body?.lp ?? {};
+  const st = h.body?.storage;
+  if (st) record('S1', 'object storage', st.ok ? 'PASS' : 'FAIL', `backend=${st.backend}${st.detail ? ` ${st.detail}` : ''}`);
+  else record('S1', 'object storage', 'SKIP', 'health response has no storage block (older API build)');
   record('S1', 'platform flags', fl.status === 200 && fl.body?.lp ? 'PASS' : 'FAIL', fl.status === 200 ? `LP live: ${Object.entries(fl.body?.lp ?? {}).filter(([, v]) => v).map(([k]) => k).join(',') || 'none'}` : brief(fl));
   record('S1', 'migration version', 'SKIP', 'not exposed by /api/health; deploy.sh records prisma migrate status in migrations-after.txt');
   for (const [name, url] of Object.entries(PORTALS)) {
