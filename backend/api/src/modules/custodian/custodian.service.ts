@@ -1,8 +1,10 @@
-import type { Prisma, CounterpartyDayEndPackage, CounterpartyExecution } from '@prisma/client';
+import { Prisma, type CounterpartyDayEndPackage, type CounterpartyExecution } from '@prisma/client';
 import type { RequestHandler, Response } from 'express';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { sha256Hex } from '../../lib/crypto';
+
+const Decimal = Prisma.Decimal;
 
 /**
  * Custodian / counterparty domain (SRD 5E, FR-REC-012..016, Q-165).
@@ -74,6 +76,7 @@ export function cp(res: Response): CounterpartyContext {
 const REF_FORMATS = {
   custodianExecution: { prefix: 'CEX-', pad: 6, start: 100001 },
   custodianDayEnd: { prefix: 'CDE-', pad: 5, start: 10001 },
+  custodianBatch: { prefix: 'CBT-', pad: 5, start: 10001 },
 } as const;
 
 /** Same sequence mechanism as `lib/refs` for the two custodian reference kinds. */
@@ -121,13 +124,60 @@ export async function packageHash(pkg: CounterpartyDayEndPackage, counterpartyRe
 }
 
 /** BR-194: executions received for the account and statement date, compared with the package count. */
-export async function tradeControl(counterpartyId: string, accountRef: string, statementDate: Date, tradeCount: number) {
+export async function tradeControl(
+  counterpartyId: string,
+  accountRef: string,
+  statementDate: Date,
+  tradeCount: number,
+  declared?: { currency: string; tradeQuantity?: Prisma.Decimal | null; tradeNotional?: Prisma.Decimal | null },
+) {
   const start = new Date(`${isoDate(statementDate)}T00:00:00.000Z`);
   const end = new Date(start.getTime() + 86_400_000);
-  const received = await prisma.counterpartyExecution.count({
+  const rows = await prisma.counterpartyExecution.findMany({
     where: { counterpartyId, accountRef, executionAt: { gte: start, lt: end }, status: { not: 'Superseded' } },
+    select: { quantity: true, price: true, currency: true },
   });
-  return { executionsReceived: received, tradeCount, matches: received === tradeCount };
+  const received = rows.length;
+  const out: {
+    executionsReceived: number;
+    tradeCount: number;
+    matches: boolean;
+    quantity?: { declared: string; received: string; matches: boolean };
+    notional?: { declared: string; received: string; matches: boolean };
+  } = { executionsReceived: received, tradeCount, matches: received === tradeCount };
+  if (declared) {
+    const inCcy = rows.filter((r) => r.currency === declared.currency);
+    if (declared.tradeQuantity != null) {
+      const sum = inCcy.reduce((a, r) => a.plus(r.quantity), new Decimal(0));
+      out.quantity = { declared: declared.tradeQuantity.toFixed(8), received: sum.toFixed(8), matches: sum.equals(declared.tradeQuantity) };
+    }
+    if (declared.tradeNotional != null) {
+      const sum = inCcy.reduce((a, r) => a.plus(r.quantity.times(r.price)), new Decimal(0)).toDecimalPlaces(2);
+      // Notional is compared to the cent: the custodian's book rounds per trade, the sum of exact products may differ by a cent per line.
+      const tolerance = new Decimal(inCcy.length).times('0.01');
+      out.notional = {
+        declared: declared.tradeNotional.toFixed(2),
+        received: sum.toFixed(2),
+        matches: sum.minus(declared.tradeNotional).abs().lessThanOrEqualTo(tolerance),
+      };
+    }
+  }
+  return out;
+}
+
+/** Day-end controls for a stored package, including any declared quantity / notional control totals. */
+export function tradeControlFor(p: Pick<CounterpartyDayEndPackage, 'counterpartyId' | 'accountRef' | 'statementDate' | 'tradeCount' | 'currency' | 'tradeQuantity' | 'tradeNotional'>) {
+  return tradeControl(p.counterpartyId, p.accountRef, p.statementDate, p.tradeCount, {
+    currency: p.currency,
+    tradeQuantity: p.tradeQuantity,
+    tradeNotional: p.tradeNotional,
+  });
+}
+
+/** Declared control totals that disagree with the executions received (count mismatch alone is reported, not blocking). */
+export function totalsMismatch(c: Awaited<ReturnType<typeof tradeControl>>): string | null {
+  const bad = [c.quantity && !c.quantity.matches ? `quantity declared ${c.quantity.declared}, received ${c.quantity.received}` : null, c.notional && !c.notional.matches ? `notional declared ${c.notional.declared}, received ${c.notional.received}` : null].filter(Boolean);
+  return bad.length ? bad.join('; ') : null;
 }
 
 export function executionView(e: CounterpartyExecution) {
@@ -146,7 +196,13 @@ export function executionView(e: CounterpartyExecution) {
     settlementDate: e.settlementDate ? isoDate(e.settlementDate) : null,
     broker: e.broker,
     note: e.note,
-    status: e.status,
+    status: e.cancelledAt ? 'Cancelled' : e.status,
+    /** Received / Exception / Queried executions may still be amended or cancelled by the counterparty. */
+    amendable: !e.cancelledAt && ['Received', 'Exception', 'Queried'].includes(e.status),
+    batchId: e.batchId,
+    amendCount: e.amendCount,
+    amendedAt: e.amendedAt?.toISOString() ?? null,
+    cancelledAt: e.cancelledAt?.toISOString() ?? null,
     submittedById: e.submittedById,
     submittedAt: e.submittedAt.toISOString(),
   };
@@ -162,6 +218,8 @@ export function dayEndView(p: CounterpartyDayEndPackage, file?: { name: string; 
     closingCash: p.closingCash.toFixed(2),
     holdingsMv: p.holdingsMv.toFixed(2),
     tradeCount: p.tradeCount,
+    tradeQuantity: p.tradeQuantity ? p.tradeQuantity.toFixed(8) : null,
+    tradeNotional: p.tradeNotional ? p.tradeNotional.toFixed(2) : null,
     file: file ? { name: file.name, size: file.size, sha256: file.sha256 } : null,
     sha256: p.sha256,
     note: p.note,

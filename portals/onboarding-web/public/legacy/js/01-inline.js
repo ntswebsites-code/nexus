@@ -41,7 +41,7 @@ function debounce(fn,ms=180){let t;return(...a)=>{clearTimeout(t);t=setTimeout((
 
 function renderRail(){
   $('#stepRail').innerHTML=steps.map((s,i)=>`<button type="button" data-step="${i}" class="${i===step?'active':''} ${i<step?'done':''}"><span class="step-num">${i+1}</span><span class="step-copy"><strong>${s[0]}</strong><small>${s[1]}</small></span><span class="step-check">✓</span></button>`).join('')+`<div class="rail-footer"><span>Application state</span><strong id="railState">Draft saved</strong></div>`;
-  $$('#stepRail [data-step]').forEach(b=>b.addEventListener('click',()=>{const target=Number(b.dataset.step);if(target<=step||validatePane(step,false)){step=target;render()}}));
+  $$('#stepRail [data-step]').forEach(b=>b.addEventListener('click',()=>{const target=Number(b.dataset.step);if(target<=step){step=target;render();return}for(let i=step;i<target;i++){if(!validatePane(i,false)){step=i;render();validatePane(i,true);return}}step=target;render()}));
 }
 function render(){
   $$('.pane').forEach((p,i)=>p.classList.toggle('active',i===step));

@@ -2,31 +2,17 @@
  * Shapes the console reads from `/api/v1/ops/*`. Field names follow the Prisma models
  * (Fund, FundCommitment, CapitalCall, ...). Money is a decimal string; dates are ISO strings.
  * Optional display fields (names, nested relations) are read defensively.
+ *
+ * Fund, DayEndPackage, PortfolioSummary and SecurityRow derive from the zod contracts in
+ * `packages/shared/src/staff-contracts.ts` (validated against a live API by `tools/uat/contract-staff.ts`).
  */
+
+import type { DayEndPackage as SharedDayEndPackage, OpsFund, PortfolioSummary as SharedPortfolioSummary, SecurityRow as SharedSecurityRow } from '@matanho/shared';
 
 export type Decimal = string;
 
-export interface Fund {
-  id: string;
-  ref?: string;
-  name: string;
-  shortName: string;
-  publicReference?: string | null;
-  operatingModel: 'PRIVATE_CAPITAL' | 'OPEN_ENDED' | string;
-  currency: string;
-  vintage?: number | null;
-  status?: string;
-  portalVisible?: boolean;
-  defaultShareClass?: string | null;
-  navPerUnit?: Decimal | null;
-  totalNav?: Decimal | null;
-  asOfDate?: string | null;
-  valuationStatus?: string | null;
-  totalCommitted?: Decimal | null;
-  commitmentCount?: number | null;
-  version: number;
-  commitments?: FundCommitment[];
-}
+/** Contract: `OpsFundSchema` in @matanho/shared; `commitments` only appears on the detail view. */
+export type Fund = OpsFund & { commitments?: FundCommitment[] };
 
 export interface FundCommitment {
   id: string;
@@ -257,26 +243,12 @@ export interface TermSheet {
   version?: number;
 }
 
-export interface DayEndPackage {
-  id: string;
-  ref?: string;
-  counterpartyId: string;
-  counterpartyName?: string | null;
+/** Contract: `DayEndPackageSchema` in @matanho/shared plus staff-view extras. */
+export type DayEndPackage = SharedDayEndPackage & {
   counterparty?: { name?: string; ref?: string } | null;
-  accountRef: string;
-  statementDate: string;
-  currency: string;
-  closingCash: Decimal;
-  holdingsMv: Decimal;
-  tradeCount: number;
-  sha256?: string | null;
-  note?: string | null;
-  status: string;
   submittedByName?: string | null;
-  submittedAt: string;
-  approvedAt?: string | null;
   reviewNote?: string | null;
-}
+};
 
 /** Existing staff clients list (`GET /api/v1/clients`): `id` is the client ref, `uuid` the row id. */
 export interface ClientOption {
@@ -304,28 +276,8 @@ export interface PortfolioMandate {
   notes?: string;
 }
 
-export interface PortfolioSummary {
-  id: string;
-  ref: string;
-  name: string;
-  type: string;
-  baseCurrency: string;
-  clientId: string | null;
-  managerUserId: string | null;
-  benchmark: string | null;
-  status: string;
-  mandate: PortfolioMandate;
-  version: number;
-  asOf: string;
-  marketValueBase: string;
-  securitiesValueBase: string;
-  cashBase: string;
-  cashPct: string;
-  positionCount: number;
-  largestPositionTicker: string | null;
-  largestPositionPct: string;
-  warnings: number;
-}
+/** Contract: `PortfolioSummarySchema` in @matanho/shared plus the mandate JSON. */
+export type PortfolioSummary = SharedPortfolioSummary & { mandate: PortfolioMandate };
 
 export interface SnapshotLine {
   positionId: string;
@@ -376,20 +328,5 @@ export interface PriceView {
   source: string;
 }
 
-export interface SecurityRow {
-  id: string;
-  ticker: string;
-  isin: string | null;
-  name: string;
-  market: string;
-  assetClass: string;
-  currency: string;
-  boardLot: number;
-  sector: string | null;
-  status: string;
-  latestPrice: PriceView | null;
-  previousPrice: PriceView | null;
-  change: string | null;
-  changePct: string | null;
-  history?: PriceView[];
-}
+/** Contract: `SecurityRowSchema` in @matanho/shared; `history` only on the detail view. */
+export type SecurityRow = SharedSecurityRow & { history?: PriceView[] };

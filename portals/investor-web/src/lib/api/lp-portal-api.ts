@@ -682,6 +682,9 @@ export interface LpRealtimeInfo {
   namespace?: string
   events?: string[]
   pollingIntervalMs?: number
+  transport?: "polling"
+  cursor?: string
+  changes?: { id: string; event: string; at: string; payload?: { notificationId?: string; type?: string; link?: string | null } }[]
 }
 
 // ── Legacy reports (thin list) ───────────────────────────────────────────
@@ -829,8 +832,8 @@ class LpPortalApiService {
     return apiClient.get(`${this.BASE}/dashboard/activity/recent${buildQuery({ limit })}`)
   }
 
-  getRealtime(): Promise<LpPortalResponse<LpRealtimeInfo>> {
-    return apiClient.get(`${this.BASE}/realtime`)
+  getRealtime(since?: string): Promise<LpPortalResponse<LpRealtimeInfo>> {
+    return apiClient.get(`${this.BASE}/realtime${since ? `?since=${encodeURIComponent(since)}` : ""}`)
   }
 
   getNotifications(limit = 10): Promise<LpPortalResponse<{ items: LpNotificationItem[] }>> {

@@ -7,7 +7,7 @@ import { writeAudit } from '../../../lib/audit';
 import { LpError } from '../lp.http';
 import type { LpContext } from '../lp.context';
 import { VISIBLE_CALL_STATUSES, VISIBLE_DISTRIBUTION_STATUSES, asRecord, jsonDec, lpAudit } from './common';
-import { renderPdf, type PdfLine } from '../../ops/pdf';
+import { renderStatementPdf } from './statement-pdf';
 import { consolidate, fixed, latestAsOf, loadPositions, type FundPosition } from './positions';
 
 const ZERO = new Prisma.Decimal(0);
@@ -197,27 +197,55 @@ export function reportDownloadPath(jobId: string) {
   return `/api/v1/lp-portal/reports/${jobId}/download`;
 }
 
-/** One-page PDF of the figures stored on the job, so a later download matches the completed result. */
+const grouped = (v: string | null | undefined) => {
+  if (v == null || v === '') return '-';
+  const n = Number(v);
+  if (!Number.isFinite(n)) return v;
+  const [int, frac] = v.replace(/^-/, '').split('.');
+  return `${n < 0 ? '-' : ''}${int!.replace(/\B(?=(\d{3})+(?!\d))/g, ',')}${frac ? `.${frac.slice(0, 2)}` : ''}`;
+};
+const multiple = (v: string | null | undefined) => (v == null || v === '' ? '-' : `${Number(v).toFixed(2)}x`);
+
+/** Styled statement PDF of the figures stored on the job, so a later download matches the completed result. */
 export function renderPerformanceReport(clientName: string, job: StoredJob): Buffer {
   const result = (job.result ?? {}) as LpPerformanceData;
   const m = result.metrics;
-  const lines: PdfLine[] = [
-    { text: clientName, bold: true },
-    { text: `Period ${result.period ?? ''}    As of ${result.asOfDate ?? ''}    ${result.valuationStatus ?? ''}` },
-    { text: `Reporting currency ${result.reportingCurrency ?? ''}` },
-    { text: `Commitment ${m?.totalCommitment ?? '-'}    Paid in ${m?.paidIn ?? '-'}` },
-    { text: `Distributions ${m?.distributions ?? '-'}    NAV ${m?.currentNav ?? '-'}` },
-    { text: `Net IRR ${m?.netIrr ?? '-'}    TVPI ${m?.tvpi ?? '-'}    DPI ${m?.dpi ?? '-'}    RVPI ${m?.rvpi ?? '-'}` },
+  const ccy = result.reportingCurrency ?? '';
+  const summary = [
+    { label: 'Total commitment', value: `${ccy} ${grouped(m?.totalCommitment)}` },
+    { label: 'Paid in', value: `${ccy} ${grouped(m?.paidIn)}` },
+    { label: 'Distributions', value: `${ccy} ${grouped(m?.distributions)}` },
+    { label: 'Net asset value', value: `${ccy} ${grouped(m?.currentNav)}` },
   ];
   if (result.openEndedMetrics) {
     const o = result.openEndedMetrics;
-    lines.push({ text: `Units ${o.unitsHeld}    NAV per unit ${o.navPerUnit}    Account value ${o.accountValue}` });
+    summary.push({ label: 'Units held / NAV per unit', value: `${o.unitsHeld} / ${o.navPerUnit}` }, { label: 'Account value', value: `${ccy} ${grouped(o.accountValue)}` });
   }
-  for (const fund of (result.byFund ?? []).slice(0, 10)) {
-    lines.push({ text: `${fund.fundName} (${fund.structure}): NAV ${fund.nav}    Paid in ${fund.paidIn}    TVPI ${fund.tvpi ?? '-'}` });
-  }
-  lines.push({ text: 'Published fund position. This file does not create a new valuation.', size: 9 });
-  return renderPdf('PERFORMANCE REPORT', lines);
+  return renderStatementPdf({
+    clientName,
+    title: 'Performance statement',
+    subtitle: `Period ${result.period ?? '-'}  |  As of ${result.asOfDate ?? '-'}  |  ${result.valuationStatus ?? ''}`,
+    currency: ccy,
+    kpis: [
+      { label: 'Net IRR', value: m?.netIrr ? String(m.netIrr) : '-' },
+      { label: 'TVPI', value: multiple(m?.tvpi) },
+      { label: 'DPI', value: multiple(m?.dpi) },
+      { label: 'RVPI', value: multiple(m?.rvpi) },
+    ],
+    summary,
+    table: {
+      heading: 'Positions by fund',
+      columns: [
+        { label: 'Fund', width: 180 },
+        { label: 'Structure', width: 80 },
+        { label: 'NAV', align: 'right', width: 90 },
+        { label: 'Paid in', align: 'right', width: 90 },
+        { label: 'TVPI', align: 'right', width: 71 },
+      ],
+      rows: (result.byFund ?? []).slice(0, 60).map((f) => [f.fundName, String(f.operatingModel ?? '').replace('_', ' ').toLowerCase(), grouped(f.nav), grouped(f.paidIn), multiple(f.tvpi)]),
+    },
+    footnote: 'Published fund position. This file does not create a new valuation. Amounts are in the reporting currency shown.',
+  });
 }
 
 export async function getJob(ctx: LpContext, jobId: string): Promise<LpJobStatus> {

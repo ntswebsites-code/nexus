@@ -683,6 +683,17 @@ export interface LpRealtimeInfo {
   namespace?: string
   events?: string[]
   pollingIntervalMs?: number
+  /** `polling` when the API answers `GET /realtime?since=<cursor>` with change events (there is no push transport). */
+  transport?: "polling"
+  cursor?: string
+  changes?: LpRealtimeChange[]
+}
+
+export interface LpRealtimeChange {
+  id: string
+  event: string
+  at: string
+  payload?: { notificationId?: string; type?: string; link?: string | null }
 }
 
 // ── Legacy reports (thin list) ───────────────────────────────────────────

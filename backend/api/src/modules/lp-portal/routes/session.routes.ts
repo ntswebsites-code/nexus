@@ -80,9 +80,35 @@ lpSessionRoutes.use(applyPendingColleagueScope);
 lpSessionRoutes.get('/session', async (req, res) => {
   lpOk(req, res, await buildSession(lp(req)));
 });
-/** No push transport yet: the portal polls (decision noted in the WS1 report). */
-lpSessionRoutes.get('/realtime', (req, res) => {
-  const info: LpRealtimeInfo = { enabled: false, pollingIntervalMs: 30000, events: [] };
+/**
+ * Polling contract that stands in for push (GAP-017). `GET /realtime?since=<cursor>` returns the change events
+ * derived from this user's notifications created after the cursor, plus the next cursor and the interval to wait.
+ * The first call (no cursor) returns no changes and a starting cursor. A cursor older than a day is treated as a
+ * first call (the screens reload their data on start anyway).
+ */
+const REALTIME_EVENTS = ['lp_notification', 'lp_notice_updated', 'lp_request_created', 'lp_request_updated', 'lp_request_message', 'lp_thread_message'];
+const REALTIME_MAX_AGE_MS = 24 * 3_600_000;
+
+export function realtimeEventsFor(type: string): string[] {
+  const out = ['lp_notification'];
+  if (type.startsWith('notice')) out.push('lp_notice_updated');
+  if (type === 'service_request.created') out.push('lp_request_created');
+  else if (type.startsWith('service_request')) out.push('lp_request_updated');
+  if (type.startsWith('message')) out.push('lp_thread_message', 'lp_request_message');
+  return out;
+}
+
+lpSessionRoutes.get('/realtime', async (req, res) => {
+  const ctx = lp(req);
+  const now = new Date();
+  const raw = typeof req.query.since === 'string' ? new Date(req.query.since) : null;
+  const since = raw && !Number.isNaN(raw.getTime()) && raw.getTime() > now.getTime() - REALTIME_MAX_AGE_MS && raw.getTime() <= now.getTime() + 60_000 ? raw : null;
+  const rows = since ? await prisma.notification.findMany({ where: { userId: ctx.userId, createdAt: { gt: since } }, orderBy: { createdAt: 'asc' }, take: 100 }) : [];
+  const changes = rows.flatMap((n) =>
+    realtimeEventsFor(n.type).map((event) => ({ id: `${n.id}:${event}`, event, at: n.createdAt.toISOString(), payload: { notificationId: n.id, type: n.type, link: n.link } })),
+  );
+  const cursor = (rows.length ? rows[rows.length - 1]!.createdAt : (since ?? now)).toISOString();
+  const info: LpRealtimeInfo = { enabled: true, transport: 'polling', pollingIntervalMs: 15000, events: REALTIME_EVENTS, cursor, changes };
   lpOk(req, res, info);
 });
 
