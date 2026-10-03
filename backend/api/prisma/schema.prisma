@@ -2790,7 +2790,7 @@ model IborLot {
   currency     String    @db.Char(3)
   /// OPENING (baseline from the position record) | FILL (an order fill) | ADJUSTMENT (drift booked by a refresh)
   sourceType   String    @map("source_type") @db.VarChar(12)
-  sourceId     String    @map("source_id") @db.VarChar(64)
+  sourceId     String    @map("source_id") @db.VarChar(80)
   /// OPEN | CLOSED
   status       String    @default("OPEN") @db.VarChar(8)
   closedOn     DateTime? @map("closed_on") @db.Date
@@ -2816,7 +2816,7 @@ model IborEvent {
   effectiveDate DateTime @map("effective_date") @db.Date
   /// FILL events carry the order fill id here, which makes ingestion idempotent.
   sourceType    String?  @map("source_type") @db.VarChar(16)
-  sourceId      String?  @map("source_id") @db.VarChar(64)
+  sourceId      String?  @map("source_id") @db.VarChar(80)
   summary       String   @db.VarChar(300)
   detail        Json?
   createdBy     String?  @map("created_by") @db.Char(36)
