@@ -2763,34 +2763,6 @@ model OpsTask {
   createdBy     String    @map("created_by") @db.Char(36)
   completedBy   String?   @map("completed_by") @db.Char(36)
   completedAt   DateTime? @map("completed_at")
-// ---- ResearchPrivates ----
-// Research & IC, Private Markets, Portfolio Construction (lab) and Collateral & Financing (SRD 5.A.3/4/6/15).
-// portfolio_id / security_id / user ids are logical references (no foreign keys), like the other staff modules.
-
-/// A research case on one security: thesis, rating and target price. DRAFT -> IN_REVIEW -> PUBLISHED -> ARCHIVED.
-model ResearchCase {
-  id            String    @id @default(uuid()) @db.Char(36)
-  /// RSC-1001 ...
-  ref           String    @unique @db.VarChar(16)
-  securityId    String    @map("security_id") @db.Char(36)
-  title         String    @db.VarChar(200)
-  thesis        String    @db.Text
-  risks         String?   @db.Text
-  /// BUY | ACCUMULATE | HOLD | REDUCE | SELL
-  rating        String    @db.VarChar(12)
-  targetPrice   Decimal   @map("target_price") @db.Decimal(20, 6)
-  /// Security currency the target is quoted in.
-  currency      String    @db.Char(3)
-  horizonMonths Int       @default(12) @map("horizon_months")
-  /// 1 (low) .. 5 (high)
-  conviction    Int       @default(3)
-  /// DRAFT | IN_REVIEW | PUBLISHED | ARCHIVED
-  status        String    @default("DRAFT") @db.VarChar(12)
-  analystId     String    @map("analyst_id") @db.Char(36)
-  submittedAt   DateTime? @map("submitted_at")
-  reviewerId    String?   @map("reviewer_id") @db.Char(36)
-  publishedAt   DateTime? @map("published_at")
-  returnReason  String?   @map("return_reason") @db.VarChar(500)
   version       Int       @default(1)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -2800,6 +2772,7 @@ model ResearchCase {
   @@map("ops_tasks")
 }
 // ---- end Wiring ----
+
 // ---- IborPerformance ----
 // IBOR & Positions (SRD 5.A.14) and Performance & Attribution (SRD 5.A.8). Positions, prices, orders and cash stay in
 // their own modules; these tables hold the tax-lot book, its sequenced event lineage, refresh runs, the benchmark
@@ -2953,6 +2926,39 @@ model PerfPeriod {
   @@map("perf_periods")
 }
 // ---- end IborPerformance ----
+
+// ---- ResearchPrivates ----
+// Research & IC, Private Markets, Portfolio Construction (lab) and Collateral & Financing (SRD 5.A.3/4/6/15).
+// portfolio_id / security_id / user ids are logical references (no foreign keys), like the other staff modules.
+
+/// A research case on one security: thesis, rating and target price. DRAFT -> IN_REVIEW -> PUBLISHED -> ARCHIVED.
+model ResearchCase {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// RSC-1001 ...
+  ref           String    @unique @db.VarChar(16)
+  securityId    String    @map("security_id") @db.Char(36)
+  title         String    @db.VarChar(200)
+  thesis        String    @db.Text
+  risks         String?   @db.Text
+  /// BUY | ACCUMULATE | HOLD | REDUCE | SELL
+  rating        String    @db.VarChar(12)
+  targetPrice   Decimal   @map("target_price") @db.Decimal(20, 6)
+  /// Security currency the target is quoted in.
+  currency      String    @db.Char(3)
+  horizonMonths Int       @default(12) @map("horizon_months")
+  /// 1 (low) .. 5 (high)
+  conviction    Int       @default(3)
+  /// DRAFT | IN_REVIEW | PUBLISHED | ARCHIVED
+  status        String    @default("DRAFT") @db.VarChar(12)
+  analystId     String    @map("analyst_id") @db.Char(36)
+  submittedAt   DateTime? @map("submitted_at")
+  reviewerId    String?   @map("reviewer_id") @db.Char(36)
+  publishedAt   DateTime? @map("published_at")
+  returnReason  String?   @map("return_reason") @db.VarChar(500)
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
   ratings   ResearchRatingChange[]
   decisions IcDecision[]
 
@@ -3088,226 +3094,6 @@ model PmFund {
   /// ACTIVE | REALISED | CLOSED
   status    String   @default("ACTIVE") @db.VarChar(12)
   notes     String?  @db.VarChar(500)
-// ---- Reports & Regulatory ----
-
-/// Catalogue entry for a parameterised report that is generated from live data.
-model ReportDefinition {
-  id          String   @id @default(uuid()) @db.Char(36)
-  /// FACT_SHEET | HOLDINGS | TRANSACTIONS | NAV_PACK | CASH
-  key         String   @unique @db.VarChar(24)
-  name        String   @db.VarChar(160)
-  description String   @db.VarChar(500)
-  category    String   @db.VarChar(24)
-  /// Parameter descriptors rendered by the run form: [{ name, label, type, required }]
-  paramSpec   Json     @map("param_spec")
-  /// Formats this report can be produced in.
-  formats     Json
-  active      Boolean  @default(true)
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-
-  runs      ReportRun[]
-  schedules ReportSchedule[]
-
-  @@map("report_definitions")
-}
-
-/// One generated report. The output is stored as an encrypted file object; the hash proves it was not altered.
-model ReportRun {
-  id            String    @id @default(uuid()) @db.Char(36)
-  /// RPT-00001 ...
-  ref           String    @unique @db.VarChar(16)
-  definitionId  String    @map("definition_id") @db.Char(36)
-  scheduleId    String?   @map("schedule_id") @db.Char(36)
-  params        Json
-  /// CSV | JSON | HTML
-  format        String    @db.VarChar(8)
-  /// COMPLETED | FAILED
-  status        String    @default("COMPLETED") @db.VarChar(12)
-  fileId        String?   @map("file_id") @db.Char(36)
-  sha256        String?   @db.Char(64)
-  rowCount      Int       @default(0) @map("row_count")
-  title         String    @db.VarChar(200)
-  error         String?   @db.VarChar(500)
-  requestedBy   String    @map("requested_by") @db.Char(36)
-  distributedAt DateTime? @map("distributed_at")
-  distributedBy String?   @map("distributed_by") @db.Char(36)
-  /// Documents row created when the run was distributed to the LP portal.
-  documentId    String?   @map("document_id") @db.Char(36)
-  createdAt     DateTime  @default(now()) @map("created_at")
-
-  definition ReportDefinition @relation(fields: [definitionId], references: [id])
-
-  @@index([definitionId, createdAt])
-  @@index([createdAt])
-  @@map("report_runs")
-}
-
-model ReportSchedule {
-  id           String    @id @default(uuid()) @db.Char(36)
-  definitionId String    @map("definition_id") @db.Char(36)
-  name         String    @db.VarChar(160)
-  params       Json
-  format       String    @db.VarChar(8)
-  /// DAILY | WEEKLY | MONTHLY | QUARTERLY
-  frequency    String    @db.VarChar(12)
-  nextRunOn    DateTime  @map("next_run_on") @db.Date
-  lastRunAt    DateTime? @map("last_run_at")
-  lastRunId    String?   @map("last_run_id") @db.Char(36)
-  active       Boolean   @default(true)
-  createdBy    String    @map("created_by") @db.Char(36)
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-
-  definition ReportDefinition @relation(fields: [definitionId], references: [id])
-
-  @@index([active, nextRunOn])
-  @@map("report_schedules")
-}
-
-/// A regulator form template. The payload for a filing is built from live data by the template's builder (by key).
-model RegTemplate {
-  id           String   @id @default(uuid()) @db.Char(36)
-  /// SECZ_QUARTERLY | SECZ_ANNUAL_AUM | FIU_CTR | FIU_KYC_RISK
-  key          String   @unique @db.VarChar(32)
-  regulator    String   @db.VarChar(16)
-  formCode     String   @map("form_code") @db.VarChar(32)
-  name         String   @db.VarChar(200)
-  description  String   @db.VarChar(500)
-  /// MONTHLY | QUARTERLY | ANNUAL
-  frequency    String   @db.VarChar(12)
-  /// Days after the period end that the filing is due.
-  dueAfterDays Int      @default(30) @map("due_after_days")
-  active       Boolean  @default(true)
-  createdAt    DateTime @default(now()) @map("created_at")
-
-  filings RegFiling[]
-
-  @@map("reg_templates")
-}
-
-/// A filing for one period. DRAFT -> IN_REVIEW -> APPROVED -> SUBMITTED (or RETURNED to the preparer).
-model RegFiling {
-  id            String    @id @default(uuid()) @db.Char(36)
-  /// REG-00001 ...
-  ref           String    @unique @db.VarChar(16)
-  templateId    String    @map("template_id") @db.Char(36)
-  periodStart   DateTime  @map("period_start") @db.Date
-  periodEnd     DateTime  @map("period_end") @db.Date
-  dueDate       DateTime  @map("due_date") @db.Date
-  /// DRAFT | IN_REVIEW | APPROVED | SUBMITTED | RETURNED | WAIVED
-  status        String    @default("DRAFT") @db.VarChar(12)
-  /// Figures populated from live data (re-built while DRAFT or RETURNED).
-  payload       Json?
-  populatedAt   DateTime? @map("populated_at")
-  notes         String?   @db.VarChar(1000)
-  returnReason  String?   @map("return_reason") @db.VarChar(500)
-  makerId       String?   @map("maker_id") @db.Char(36)
-  reviewedBy    String?   @map("reviewed_by") @db.Char(36)
-  reviewedAt    DateTime? @map("reviewed_at")
-  approvedBy    String?   @map("approved_by") @db.Char(36)
-  approvedAt    DateTime? @map("approved_at")
-  submittedBy   String?   @map("submitted_by") @db.Char(36)
-  submittedAt   DateTime? @map("submitted_at")
-  /// Regulator acknowledgement or portal reference, entered at submission.
-  submissionRef String?   @map("submission_ref") @db.VarChar(80)
-  payloadSha256 String?   @map("payload_sha256") @db.Char(64)
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  version       Int       @default(1)
-
-  template RegTemplate   @relation(fields: [templateId], references: [id])
-  evidence RegEvidence[]
-
-  @@unique([templateId, periodEnd])
-  @@index([status, dueDate])
-  @@map("reg_filings")
-}
-
-model RegEvidence {
-  id          String   @id @default(uuid()) @db.Char(36)
-  filingId    String   @map("filing_id") @db.Char(36)
-  fileId      String   @map("file_id") @db.Char(36)
-  name        String   @db.VarChar(255)
-  description String?  @db.VarChar(300)
-  sha256      String   @db.Char(64)
-  uploadedBy  String   @map("uploaded_by") @db.Char(36)
-  createdAt   DateTime @default(now()) @map("created_at")
-
-  filing RegFiling @relation(fields: [filingId], references: [id], onDelete: Cascade)
-
-  @@index([filingId])
-  @@map("reg_evidence")
-}
-
-// ---- end Reports & Regulatory ----
-
-// ---- Data Fabric ----
-
-model DataSource {
-  id           String    @id @default(uuid()) @db.Char(36)
-  key          String    @unique @db.VarChar(40)
-  name         String    @db.VarChar(160)
-  /// TABLE | FILE_FEED | API | MANUAL
-  kind         String    @db.VarChar(12)
-  /// For TABLE sources: a dataset from the registry whitelist.
-  dataset      String?   @db.VarChar(40)
-  system       String    @db.VarChar(80)
-  owner        String    @db.VarChar(120)
-  /// MANUAL | DAILY | WEEKLY | MONTHLY | REALTIME
-  cadence      String    @default("DAILY") @db.VarChar(12)
-  description  String?   @db.VarChar(500)
-  /// ACTIVE | PAUSED | ERROR
-  status       String    @default("ACTIVE") @db.VarChar(8)
-  lastSyncAt   DateTime? @map("last_sync_at")
-  lastRowCount Int?      @map("last_row_count")
-  createdBy    String    @map("created_by") @db.Char(36)
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @updatedAt @map("updated_at")
-
-  jobs  DataIngestionJob[]
-  rules DataQualityRule[]
-
-  @@map("data_sources")
-}
-
-model DataIngestionJob {
-  id             String    @id @default(uuid()) @db.Char(36)
-  /// JOB-00001 ...
-  ref            String    @unique @db.VarChar(16)
-  sourceId       String    @map("source_id") @db.Char(36)
-  /// SUCCEEDED | FAILED
-  status         String    @db.VarChar(10)
-  rowsRead       Int       @default(0) @map("rows_read")
-  rowsRejected   Int       @default(0) @map("rows_rejected")
-  /// Newest record timestamp seen in the dataset (freshness).
-  latestRecordAt DateTime? @map("latest_record_at")
-  note           String?   @db.VarChar(500)
-  error          String?   @db.VarChar(500)
-  triggeredBy    String    @map("triggered_by") @db.Char(36)
-  startedAt      DateTime  @default(now()) @map("started_at")
-  finishedAt     DateTime? @map("finished_at")
-
-  source DataSource @relation(fields: [sourceId], references: [id])
-
-  @@index([sourceId, startedAt])
-  @@map("data_ingestion_jobs")
-}
-
-model DataQualityRule {
-  id        String   @id @default(uuid()) @db.Char(36)
-  key       String   @unique @db.VarChar(60)
-  name      String   @db.VarChar(200)
-  sourceId  String?  @map("source_id") @db.Char(36)
-  dataset   String   @db.VarChar(40)
-  /// NOT_NULL | UNIQUE | RANGE | FRESHNESS | ORPHAN
-  checkType String   @map("check_type") @db.VarChar(12)
-  col       String   @db.VarChar(60)
-  /// RANGE: { min, max }. FRESHNESS: { maxAgeDays }. ORPHAN: { relation }.
-  params    Json?
-  /// LOW | MEDIUM | HIGH
-  severity  String   @default("MEDIUM") @db.VarChar(8)
-  active    Boolean  @default(true)
   createdBy String   @map("created_by") @db.Char(36)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -3643,6 +3429,7 @@ model FinMarginCall {
   @@map("fin_margin_calls")
 }
 // ---- end ResearchPrivates ----
+
 // ---- ClientsOnboarding ----
 // Clients & Accounts, Investor Services, Onboarding & KYC and Document Vault (SRD 5.A pages `clients`, `investor-services`,
 // `onboarding`, `vault`). These tables extend the existing client, service-request, KYC-case and document tables with
@@ -3737,6 +3524,231 @@ model DocumentHold {
   @@map("document_holds")
 }
 // ---- end ClientsOnboarding ----
+
+// ---- Reports & Regulatory ----
+
+/// Catalogue entry for a parameterised report that is generated from live data.
+model ReportDefinition {
+  id          String   @id @default(uuid()) @db.Char(36)
+  /// FACT_SHEET | HOLDINGS | TRANSACTIONS | NAV_PACK | CASH
+  key         String   @unique @db.VarChar(24)
+  name        String   @db.VarChar(160)
+  description String   @db.VarChar(500)
+  category    String   @db.VarChar(24)
+  /// Parameter descriptors rendered by the run form: [{ name, label, type, required }]
+  paramSpec   Json     @map("param_spec")
+  /// Formats this report can be produced in.
+  formats     Json
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  runs      ReportRun[]
+  schedules ReportSchedule[]
+
+  @@map("report_definitions")
+}
+
+/// One generated report. The output is stored as an encrypted file object; the hash proves it was not altered.
+model ReportRun {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// RPT-00001 ...
+  ref           String    @unique @db.VarChar(16)
+  definitionId  String    @map("definition_id") @db.Char(36)
+  scheduleId    String?   @map("schedule_id") @db.Char(36)
+  params        Json
+  /// CSV | JSON | HTML
+  format        String    @db.VarChar(8)
+  /// COMPLETED | FAILED
+  status        String    @default("COMPLETED") @db.VarChar(12)
+  fileId        String?   @map("file_id") @db.Char(36)
+  sha256        String?   @db.Char(64)
+  rowCount      Int       @default(0) @map("row_count")
+  title         String    @db.VarChar(200)
+  error         String?   @db.VarChar(500)
+  requestedBy   String    @map("requested_by") @db.Char(36)
+  distributedAt DateTime? @map("distributed_at")
+  distributedBy String?   @map("distributed_by") @db.Char(36)
+  /// Documents row created when the run was distributed to the LP portal.
+  documentId    String?   @map("document_id") @db.Char(36)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  definition ReportDefinition @relation(fields: [definitionId], references: [id])
+
+  @@index([definitionId, createdAt])
+  @@index([createdAt])
+  @@map("report_runs")
+}
+
+model ReportSchedule {
+  id           String    @id @default(uuid()) @db.Char(36)
+  definitionId String    @map("definition_id") @db.Char(36)
+  name         String    @db.VarChar(160)
+  params       Json
+  format       String    @db.VarChar(8)
+  /// DAILY | WEEKLY | MONTHLY | QUARTERLY
+  frequency    String    @db.VarChar(12)
+  nextRunOn    DateTime  @map("next_run_on") @db.Date
+  lastRunAt    DateTime? @map("last_run_at")
+  lastRunId    String?   @map("last_run_id") @db.Char(36)
+  active       Boolean   @default(true)
+  createdBy    String    @map("created_by") @db.Char(36)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  definition ReportDefinition @relation(fields: [definitionId], references: [id])
+
+  @@index([active, nextRunOn])
+  @@map("report_schedules")
+}
+
+/// A regulator form template. The payload for a filing is built from live data by the template's builder (by key).
+model RegTemplate {
+  id           String   @id @default(uuid()) @db.Char(36)
+  /// SECZ_QUARTERLY | SECZ_ANNUAL_AUM | FIU_CTR | FIU_KYC_RISK
+  key          String   @unique @db.VarChar(32)
+  regulator    String   @db.VarChar(16)
+  formCode     String   @map("form_code") @db.VarChar(32)
+  name         String   @db.VarChar(200)
+  description  String   @db.VarChar(500)
+  /// MONTHLY | QUARTERLY | ANNUAL
+  frequency    String   @db.VarChar(12)
+  /// Days after the period end that the filing is due.
+  dueAfterDays Int      @default(30) @map("due_after_days")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  filings RegFiling[]
+
+  @@map("reg_templates")
+}
+
+/// A filing for one period. DRAFT -> IN_REVIEW -> APPROVED -> SUBMITTED (or RETURNED to the preparer).
+model RegFiling {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// REG-00001 ...
+  ref           String    @unique @db.VarChar(16)
+  templateId    String    @map("template_id") @db.Char(36)
+  periodStart   DateTime  @map("period_start") @db.Date
+  periodEnd     DateTime  @map("period_end") @db.Date
+  dueDate       DateTime  @map("due_date") @db.Date
+  /// DRAFT | IN_REVIEW | APPROVED | SUBMITTED | RETURNED | WAIVED
+  status        String    @default("DRAFT") @db.VarChar(12)
+  /// Figures populated from live data (re-built while DRAFT or RETURNED).
+  payload       Json?
+  populatedAt   DateTime? @map("populated_at")
+  notes         String?   @db.VarChar(1000)
+  returnReason  String?   @map("return_reason") @db.VarChar(500)
+  makerId       String?   @map("maker_id") @db.Char(36)
+  reviewedBy    String?   @map("reviewed_by") @db.Char(36)
+  reviewedAt    DateTime? @map("reviewed_at")
+  approvedBy    String?   @map("approved_by") @db.Char(36)
+  approvedAt    DateTime? @map("approved_at")
+  submittedBy   String?   @map("submitted_by") @db.Char(36)
+  submittedAt   DateTime? @map("submitted_at")
+  /// Regulator acknowledgement or portal reference, entered at submission.
+  submissionRef String?   @map("submission_ref") @db.VarChar(80)
+  payloadSha256 String?   @map("payload_sha256") @db.Char(64)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  version       Int       @default(1)
+
+  template RegTemplate   @relation(fields: [templateId], references: [id])
+  evidence RegEvidence[]
+
+  @@unique([templateId, periodEnd])
+  @@index([status, dueDate])
+  @@map("reg_filings")
+}
+
+model RegEvidence {
+  id          String   @id @default(uuid()) @db.Char(36)
+  filingId    String   @map("filing_id") @db.Char(36)
+  fileId      String   @map("file_id") @db.Char(36)
+  name        String   @db.VarChar(255)
+  description String?  @db.VarChar(300)
+  sha256      String   @db.Char(64)
+  uploadedBy  String   @map("uploaded_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  filing RegFiling @relation(fields: [filingId], references: [id], onDelete: Cascade)
+
+  @@index([filingId])
+  @@map("reg_evidence")
+}
+
+// ---- end Reports & Regulatory ----
+
+// ---- Data Fabric ----
+
+model DataSource {
+  id           String    @id @default(uuid()) @db.Char(36)
+  key          String    @unique @db.VarChar(40)
+  name         String    @db.VarChar(160)
+  /// TABLE | FILE_FEED | API | MANUAL
+  kind         String    @db.VarChar(12)
+  /// For TABLE sources: a dataset from the registry whitelist.
+  dataset      String?   @db.VarChar(40)
+  system       String    @db.VarChar(80)
+  owner        String    @db.VarChar(120)
+  /// MANUAL | DAILY | WEEKLY | MONTHLY | REALTIME
+  cadence      String    @default("DAILY") @db.VarChar(12)
+  description  String?   @db.VarChar(500)
+  /// ACTIVE | PAUSED | ERROR
+  status       String    @default("ACTIVE") @db.VarChar(8)
+  lastSyncAt   DateTime? @map("last_sync_at")
+  lastRowCount Int?      @map("last_row_count")
+  createdBy    String    @map("created_by") @db.Char(36)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  jobs  DataIngestionJob[]
+  rules DataQualityRule[]
+
+  @@map("data_sources")
+}
+
+model DataIngestionJob {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// JOB-00001 ...
+  ref            String    @unique @db.VarChar(16)
+  sourceId       String    @map("source_id") @db.Char(36)
+  /// SUCCEEDED | FAILED
+  status         String    @db.VarChar(10)
+  rowsRead       Int       @default(0) @map("rows_read")
+  rowsRejected   Int       @default(0) @map("rows_rejected")
+  /// Newest record timestamp seen in the dataset (freshness).
+  latestRecordAt DateTime? @map("latest_record_at")
+  note           String?   @db.VarChar(500)
+  error          String?   @db.VarChar(500)
+  triggeredBy    String    @map("triggered_by") @db.Char(36)
+  startedAt      DateTime  @default(now()) @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+
+  source DataSource @relation(fields: [sourceId], references: [id])
+
+  @@index([sourceId, startedAt])
+  @@map("data_ingestion_jobs")
+}
+
+model DataQualityRule {
+  id        String   @id @default(uuid()) @db.Char(36)
+  key       String   @unique @db.VarChar(60)
+  name      String   @db.VarChar(200)
+  sourceId  String?  @map("source_id") @db.Char(36)
+  dataset   String   @db.VarChar(40)
+  /// NOT_NULL | UNIQUE | RANGE | FRESHNESS | ORPHAN
+  checkType String   @map("check_type") @db.VarChar(12)
+  col       String   @db.VarChar(60)
+  /// RANGE: { min, max }. FRESHNESS: { maxAgeDays }. ORPHAN: { relation }.
+  params    Json?
+  /// LOW | MEDIUM | HIGH
+  severity  String   @default("MEDIUM") @db.VarChar(8)
+  active    Boolean  @default(true)
+  createdBy String   @map("created_by") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
   source DataSource?      @relation(fields: [sourceId], references: [id])
   runs   DataQualityRun[]
 
@@ -3875,6 +3887,7 @@ model GovModelUsage {
 }
 
 // ---- end Model Governance ----
+
 // ---- Admin Core ----
 
 /// Maker-checker request for a privileged access change. PENDING -> APPLIED | REJECTED | WITHDRAWN | FAILED.

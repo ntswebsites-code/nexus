@@ -26,7 +26,6 @@
         "corporate_actions.process",
         "valuation.view",
         "valuation.release",
-        "performance.lock",
         "accounting.post",
         "accounting.close",
         "accounting.reopen",
@@ -43,10 +42,11 @@
         "term_sheets.view",
         "term_sheets.approve",
         "custodian.view",
+        "performance.lock",
         "research.ic.decide",
         "private.mark.approve",
         "financing.manage",
-        "financing.approve"
+        "financing.approve",
         "reports.approve",
         "model.approve"
       ]
@@ -146,7 +146,6 @@
         "recon.signoff",
         "valuation.view",
         "valuation.release",
-        "performance.lock",
         "audit.view",
         "cash.view",
         "cash.approve",
@@ -161,10 +160,11 @@
         "term_sheets.view",
         "term_sheets.approve",
         "custodian.view",
+        "performance.lock",
         "financing.manage",
-        "financing.approve"
+        "financing.approve",
         "onboarding.approve",
-        "documents.approve"
+        "documents.approve",
         "reports.approve",
         "reports.submit",
         "model.approve"
@@ -208,7 +208,7 @@
         "dealing.process",
         "custodian.view",
         "custodian.review",
-        "financing.manage"
+        "financing.manage",
         "data.manage"
       ]
     },
@@ -231,7 +231,6 @@
         "recon.signoff",
         "valuation.view",
         "valuation.release",
-        "performance.lock",
         "accounting.post",
         "accounting.close",
         "audit.view",
@@ -251,7 +250,8 @@
         "dealing.process",
         "custodian.view",
         "custodian.review",
-        "private.mark.approve"
+        "performance.lock",
+        "private.mark.approve",
         "data.manage",
         "reports.submit"
       ]
