@@ -10,6 +10,7 @@
 import { fileURLToPath } from 'node:url';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
+import { nextRef } from '../src/lib/refs';
 import { seqRef } from '../src/modules/ops/ops.common';
 
 const log = (m: string) => console.log(`[seed:research-privates] ${m}`);
@@ -114,7 +115,7 @@ export async function seedResearchPrivates() {
 
   // Earlier seeds issued MDL-#### to Portfolio Construction models, clashing with Model Governance refs: re-prefix to PMD-####.
   // Idempotent: only rows still starting with MDL- are touched.
-  const renamed = await prisma.$executeRaw`UPDATE model_portfolios SET ref = CONCAT('PMD-', SUBSTRING(ref, 5)) WHERE ref LIKE 'MDL-%'`;
+  const renamed = await prisma.$executeRaw`UPDATE model_portfolios SET ref = CONCAT('PMD-', SUBSTRING(ref, 5)) WHERE ref LIKE 'MDL-%' AND NOT EXISTS (SELECT 1 FROM (SELECT ref FROM model_portfolios) x WHERE x.ref = CONCAT('PMD-', SUBSTRING(model_portfolios.ref, 5)))`;
   if (renamed) log(`model portfolio refs re-prefixed to PMD-: ${renamed}`);
 
   // ---------------------------------------------------------------- financing

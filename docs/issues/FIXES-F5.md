@@ -86,3 +86,11 @@ Branch: worktree of `feat/admin-recon-nav` (commit in worktree, not pushed). Sys
 
 ## Summary
 Fixed: ADB-001, 002, 003, 005, 006, 007, 008, 009, 010, 011, 023 (+ ADB-012 for F5 pages). Not-a-defect: none. Needs-other-group: ADB-004 (F3 breadcrumbs), refs.ts numbering label (F3).
+
+## Rework round
+- ADB-003 (REWORK): `ibor.service.ts` `overview()` no longer multiplies by `fx ?? 0`. A single `rate()` helper records every missing FX pair; they are returned as `kpis.fxMissing` and the Market value tile turns amber with "Incomplete: no FX rate for X/Y; those amounts are excluded" (`ibor/page.tsx`, type in `ops/ibor.tsx`). Reporting currency: there is no platform reporting-currency setting in the settings registry (F3-owned `admin-core.engine`), so the USD fallback for mixed-base scopes stays and is shown on every tile via `kpis.currency`; recorded as needing an F3 setting. Re-test: remove an FX rate, open /ops/ibor across mixed-base portfolios, tile shows the warning.
+- ADB-005 note: seeds never lock periods, so no seed change is needed; a lock now needs a released NAV (via the NAV workflow) and a holdings recon run. `scripts/test-ibor-performance.ts` updated to create a RELEASED NAV equal to the computed end value (and clean it up); not run here (no database in this worktree).
+- ADB-023 (b): the seed re-prefix UPDATE now skips rows whose PMD- target already exists (no duplicate-key failure). The `lib/refs.ts` FORMATS label stays with F3.
+- ADA-026 period labels (orphaned from F1): not produced by private-markets. Labels come from `company.service.ts` `periodLabel` (F7) and the demo seed JSON (`prisma/seed/demo-investor.json`, F3), not F5 files; no change made.
+- Not done: nothing else in F5 files. tsc/build results below.
+- Verification: api tsc and admin-web tsc clean; admin-web build via webpack passes (Turbopack fails only on the worktree node_modules junction). First-pass bug fixed: seed-research-privates.ts lost its nextRef import (tsc errors) -> restored.

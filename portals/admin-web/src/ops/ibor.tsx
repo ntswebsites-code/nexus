@@ -61,6 +61,7 @@ export interface IborOverview {
   asOf: string;
   kpis: {
     currency: string;
+    fxMissing?: string[];
     marketValueBase: string;
     positions: number;
     portfolios: number;
