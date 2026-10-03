@@ -20,22 +20,42 @@ export interface PurgeResult {
   auditRetentionYears: number;
   auditFloor: string;
   documentsEligibleForDisposal: number;
+  dqExceptionsDeleted: number;
+  /** Periods applied (settings read at run time). */
+  applied: { sessionDays: number; notificationDays: number; outboxDays: number; idempotencyDays: number; dqExceptionDays: number };
 }
 
 const day = 86_400_000;
 
+/** Closed (resolved or waived) data-quality exceptions past the retention window, with their work rows. */
+async function purgeDqExceptions(cut: Date, dryRun: boolean): Promise<number> {
+  const where = { status: { in: ['RESOLVED', 'WAIVED', 'SUPERSEDED'] }, createdAt: { lt: cut }, OR: [{ resolvedAt: null }, { resolvedAt: { lt: cut } }] };
+  if (dryRun) return prisma.dataQualityException.count({ where });
+  const ids = (await prisma.dataQualityException.findMany({ where, select: { id: true }, take: 5000 })).map((e) => e.id);
+  if (!ids.length) return 0;
+  await prisma.dqExceptionWork.deleteMany({ where: { exceptionId: { in: ids } } });
+  return (await prisma.dataQualityException.deleteMany({ where: { id: { in: ids } } })).count;
+}
+
 export async function runRetentionPurge(opts: { dryRun?: boolean; triggeredBy?: string } = {}): Promise<PurgeResult> {
   const dryRun = !!opts.dryRun;
-  const [sessionDays, docYears, auditYears] = await Promise.all([
+  const [sessionDays, docYears, auditYears, notificationDays, outboxDays, idempotencyDays, dqExceptionDays] = await Promise.all([
     setting<number>('retention.session_days'),
     setting<number>('retention.documents_years'),
     setting<number>('retention.audit_years'),
+    setting<number>('retention.notifications_days'),
+    setting<number>('retention.outbox_days'),
+    setting<number>('retention.idempotency_days'),
+    setting<number>('retention.dq_exceptions_days'),
   ]);
   const run = await prisma.purgeRun.create({ data: { dryRun, triggeredBy: opts.triggeredBy ?? 'worker' } });
   const now = Date.now();
   const sessionCut = new Date(now - sessionDays * day);
   const monthAgo = new Date(now - 30 * day);
-  const noticeCut = new Date(now - 180 * day);
+  const outboxCut = new Date(now - outboxDays * day);
+  const idemCut = new Date(now - idempotencyDays * day);
+  const noticeCut = new Date(now - notificationDays * day);
+  const dqCut = new Date(now - dqExceptionDays * day);
   const docCut = new Date(now - docYears * 365 * day);
 
   const count = async <T>(del: () => Promise<{ count: number }>, cnt: () => Promise<number>): Promise<number> => (dryRun ? cnt() : (await del()).count);
@@ -55,12 +75,12 @@ export async function runRetentionPurge(opts: { dryRun?: boolean; triggeredBy?: 
       () => prisma.invitation.count({ where: { expiresAt: { lt: sessionCut }, acceptedAt: null } }),
     ),
     idempotencyKeysDeleted: await count(
-      () => prisma.idempotencyKey.deleteMany({ where: { expiresAt: { lt: new Date(now - 7 * day) } } }),
-      () => prisma.idempotencyKey.count({ where: { expiresAt: { lt: new Date(now - 7 * day) } } }),
+      () => prisma.idempotencyKey.deleteMany({ where: { expiresAt: { lt: idemCut } } }),
+      () => prisma.idempotencyKey.count({ where: { expiresAt: { lt: idemCut } } }),
     ),
     outboxEventsDeleted: await count(
-      () => prisma.outboxEvent.deleteMany({ where: { publishedAt: { lt: monthAgo } } }),
-      () => prisma.outboxEvent.count({ where: { publishedAt: { lt: monthAgo } } }),
+      () => prisma.outboxEvent.deleteMany({ where: { publishedAt: { lt: outboxCut } } }),
+      () => prisma.outboxEvent.count({ where: { publishedAt: { lt: outboxCut } } }),
     ),
     notificationsDeleted: await count(
       () => prisma.notification.deleteMany({ where: { readAt: { lt: noticeCut } } }),
@@ -70,6 +90,8 @@ export async function runRetentionPurge(opts: { dryRun?: boolean; triggeredBy?: 
       () => prisma.notificationDigestLog.deleteMany({ where: { sentAt: { lt: noticeCut } } }),
       () => prisma.notificationDigestLog.count({ where: { sentAt: { lt: noticeCut } } }),
     ),
+    dqExceptionsDeleted: await purgeDqExceptions(dqCut, dryRun),
+    applied: { sessionDays, notificationDays, outboxDays, idempotencyDays, dqExceptionDays },
     auditRetentionYears: auditYears,
     auditFloor: new Date(now - auditYears * 365 * day).toISOString().slice(0, 10),
     documentsEligibleForDisposal: await prisma.document.count({ where: { status: 'Superseded', updatedAt: { lt: docCut } } }),

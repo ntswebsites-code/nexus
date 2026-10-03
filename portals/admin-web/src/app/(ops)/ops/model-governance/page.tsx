@@ -62,6 +62,9 @@ interface UsageRow {
   note: string | null;
   usedBy: string | null;
   usedAt: string;
+  purpose?: string | null;
+  inputs?: Record<string, unknown> | null;
+  outputs?: Record<string, unknown> | null;
 }
 interface Summary {
   byStatus: Record<string, number>;
@@ -261,6 +264,8 @@ function UsageTab() {
                       <th>Version</th>
                       <th>Context</th>
                       <th>Object</th>
+                      <th>Inputs</th>
+                      <th>Outputs</th>
                       <th>By</th>
                     </tr>
                   </thead>
@@ -278,6 +283,8 @@ function UsageTab() {
                           <span className="ops-sub">{u.note}</span>
                         </td>
                         <td>{u.objectRef ?? '-'}</td>
+                        <td><code className="ops-sub">{u.inputs ? JSON.stringify(u.inputs).slice(0, 160) : '-'}</code></td>
+                        <td><code className="ops-sub">{u.outputs ? JSON.stringify(u.outputs).slice(0, 160) : '-'}</code></td>
                         <td>{u.usedBy}</td>
                       </tr>
                     ))}
@@ -525,13 +532,16 @@ function ReviewsTab({ onChanged }: { onChanged: () => void }) {
     <Card
       actions={
         canAuthor && (
-          <ActionButton
-            label="Open reviews due within 30 days"
-            onRun={async () => {
-              await api.post(M('/reviews/sweep'), {});
-            }}
-            onDone={done}
-          />
+          <>
+            <ActionButton
+              label="Open reviews due within 30 days"
+              onRun={async () => {
+                await api.post(M('/reviews/sweep'), {});
+              }}
+              onDone={done}
+            />
+            <ActionButton label="Send due-date reminders" onRun={() => api.post(M('/reviews/remind'), {})} onDone={done} />
+          </>
         )
       }
     >

@@ -10,6 +10,7 @@ import { param, query } from '../../lib/http';
 import { signedDownloadUrl } from '../../lib/storage';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
+import { requireFeature } from '../../middleware/feature';
 import { audit } from '../ops/ops.common';
 import { FORMAT_META, FREQUENCIES, REPORT_FORMATS, REPORT_KEYS, ROLLING_WINDOWS, applyRolling, nextRunAfter, type Frequency, type ReportFormat, type ReportKey, type RollingWindow } from './reports.engine';
 import { CATALOGUE, cleanRecipients, emailRun, ensureCatalogue, generateRun, normaliseParams, runDueSchedules, scheduleParams } from './reports.service';
@@ -147,7 +148,7 @@ reportsRoutes.post('/runs/:id/email', ...canCreate, validateBody(emailBody), ide
 });
 
 /** Publishes a generated FACT_SHEET or NAV_PACK to the LP portal: a Documents row visible to every investor with an active commitment in the fund. */
-reportsRoutes.post('/runs/:id/distribute', ...canDistribute, requireStepUp, idempotent('reports.run_distribute', { required: false }), async (req, res) => {
+reportsRoutes.post('/runs/:id/distribute', ...canDistribute, requireFeature('feature.report_distribution'), requireStepUp, idempotent('reports.run_distribute', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   if (r.status !== 'COMPLETED' || !r.fileId || !r.sha256) throw HttpError.conflict(`${r.ref} has no output to distribute`, 'no_output');
   if (r.distributedAt) throw HttpError.conflict(`${r.ref} was already distributed`, 'already_distributed');

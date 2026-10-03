@@ -50,6 +50,8 @@ export function decideRoute(args: {
   criticalChannel: string;
   prefs: PrefRow[];
   lp: Record<string, unknown> | null;
+  /** Platform notification policy: false = only critical types are emailed (default true). */
+  emailNonCritical?: boolean;
 }): Route {
   const { type, prefs, lp } = args;
   if (CRITICAL_TYPES.has(type)) {
@@ -58,7 +60,7 @@ export function decideRoute(args: {
     return { inApp: ch !== 'email', email };
   }
   let inApp = true;
-  let email: EmailMode = args.wantsEmail && args.platformEmail ? 'now' : 'off';
+  let email: EmailMode = args.wantsEmail && args.platformEmail && args.emailNonCritical !== false ? 'now' : 'off';
   const pref = (channel: string, t: string) => prefs.find((p) => p.channel === channel && p.type === t)?.enabled;
 
   const cat = investeeCategory(type);
@@ -81,8 +83,9 @@ export function decideRoute(args: {
 
 /** Loads preferences for the recipients and returns a route per user id. */
 export async function routeNotifications(userIds: string[], type: string, wantsEmail: boolean): Promise<Map<string, Route>> {
-  const [platformEmail, criticalChannel, prefs, lpRows] = await Promise.all([
+  const [platformEmail, emailNonCritical, criticalChannel, prefs, lpRows] = await Promise.all([
     setting<boolean>('notify.email_enabled'),
+    setting<boolean>('notify.email_non_critical'),
     setting<string>('notify.critical_channel'),
     prisma.notificationPreference.findMany({ where: { userId: { in: userIds } } }),
     prisma.setting.findMany({ where: { ownerId: { in: userIds }, key: { startsWith: 'lp.prefs:' } } }),
@@ -97,6 +100,7 @@ export async function routeNotifications(userIds: string[], type: string, wantsE
         type,
         wantsEmail,
         platformEmail,
+        emailNonCritical,
         criticalChannel,
         prefs: prefs.filter((p) => p.userId === id),
         lp: lpValue?.notifications ?? null,

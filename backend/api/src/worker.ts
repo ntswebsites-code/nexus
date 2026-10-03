@@ -15,6 +15,8 @@ import { runDueSchedules } from './modules/reports';
 import { assertIntegrationsConfig, integrationTick } from './integrations';
 import { scanEsign } from './modules/esign';
 import { marketDataTick } from './integrations/market-data/scheduler';
+import { dqTick } from './modules/data-fabric';
+import { sendReviewReminders } from './modules/model-governance';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -95,6 +97,8 @@ let lastEsignScan = 0;
 async function tick() {
   await scheduled('reports.schedules', HOUR, () => runDueSchedules());
   await scheduled('company.reminders', HOUR, () => scanReportingReminders());
+  await scheduled('data.quality', 5 * 60_000, () => dqTick());
+  await scheduled('models.review_reminders', 6 * HOUR, () => sendReviewReminders());
   try {
     const purged = await runScheduledPurge(); // self-locking: once per day across workers
     if (purged) console.log(`[worker] retention purge: ${JSON.stringify(purged)}`);

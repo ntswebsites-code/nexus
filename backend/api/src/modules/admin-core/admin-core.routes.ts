@@ -6,7 +6,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { enqueue } from '../../lib/outbox';
-import { nextRef, refFormats } from '../../lib/refs';
+import { clearNumberingCache, effectiveFormats, maxPad, nextRef, refFormats, type RefKind } from '../../lib/refs';
 import { getPolicies } from '../../lib/policy';
 import { clearSettingCache, setting } from '../../lib/settings';
 import { runRetentionPurge } from './retention';
@@ -594,13 +594,31 @@ adminCoreRoutes.get('/settings', SETTINGS_PERM, async (_req, res) => {
 adminCoreRoutes.get('/settings/numbering', SETTINGS_PERM, async (_req, res) => {
   const seq = new Map((await prisma.sequence.findMany()).map((s) => [s.name, s.value]));
   res.json({
-    data: refFormats().map((f) => {
+    data: (await effectiveFormats()).map((f) => {
       const issued = seq.get(f.kind);
       const nextNo = (issued ?? f.start - 1) + 1;
-      return { kind: f.kind, prefix: f.prefix, pad: f.pad, first: `${f.prefix}${String(f.start).padStart(f.pad, '0')}`, next: `${f.prefix}${String(nextNo).padStart(f.pad, '0')}`, issued: issued === undefined ? 0 : issued - f.start + 1 };
+      return { kind: f.kind, prefix: f.prefix, pad: f.pad, first: `${f.prefix}${String(f.start).padStart(f.pad, '0')}`, next: `${f.prefix}${String(nextNo).padStart(f.pad, '0')}`, issued: issued === undefined ? 0 : issued - f.start + 1, basePad: f.basePad, maxPad: f.maxPad };
     }),
-    note: 'Numbers are issued atomically by the database and never reused. The format is fixed by the platform; only the counters advance.',
+    note: 'Numbers are issued atomically by the database and never reused. The prefix and counter are fixed by the platform; the zero padding can be widened (never narrowed) and applies to numbers issued from then on.',
   });
+});
+
+const numberingBody = z.object({ pad: z.number().int().min(1).max(12), reason: z.string().trim().min(3).max(500) }).strict();
+adminCoreRoutes.put('/settings/numbering/:kind', SETTINGS_PERM, idempotent('setting.numbering'), validateBody(numberingBody), async (req, res) => {
+  const kind = param(req, 'kind');
+  const base = refFormats().find((x) => x.kind === kind);
+  if (!base) throw HttpError.notFound('Unknown numbering kind');
+  const b = req.body as z.infer<typeof numberingBody>;
+  const max = maxPad(kind as RefKind);
+  if (b.pad < base.pad || b.pad > max) throw HttpError.badRequest('Validation failed', [{ path: 'pad', message: `Padding for ${base.prefix} must be between ${base.pad} and ${max} digits` }]);
+  const prev = await prisma.numberingOverride.findUnique({ where: { kind } });
+  if ((prev?.pad ?? base.pad) === b.pad) throw HttpError.badRequest('That is already the current padding');
+  await prisma.$transaction(async (tx) => {
+    await tx.numberingOverride.upsert({ where: { kind }, create: { kind, pad: b.pad, updatedBy: req.user!.id }, update: { pad: b.pad, updatedBy: req.user!.id } });
+    await writeAudit(tx, audit(req), { action: 'setting.numbering_changed', objectType: 'numbering', objectId: kind, before: { pad: prev?.pad ?? base.pad }, after: { pad: b.pad }, reason: b.reason });
+  });
+  clearNumberingCache();
+  res.json({ data: { kind, prefix: base.prefix, pad: b.pad, example: `${base.prefix}${String(base.start).padStart(b.pad, '0')}` } });
 });
 
 adminCoreRoutes.get(

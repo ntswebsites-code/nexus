@@ -803,6 +803,7 @@ try {
   await (await import('./seed-investee-workspace')).seedInvesteeWorkspace();
   await (await import('./seed-custodian-ops')).seedCustodianOps();
   await (await import('./seed-integrations')).seedIntegrations();
+  await (await import('./seed-enforcement')).seedEnforcement();
 
   if (process.env.SEED_UAT_MFA_REQUIRED === '1') {
     await prisma.policy.upsert({ where: { key: 'mfa_required' }, update: { value: true }, create: { key: 'mfa_required', value: true } });
