@@ -5106,3 +5106,80 @@ model CustodianFeedHolding {
   @@map("custodian_feed_holdings")
 }
 // ---- end MarketData ----
+
+
+// ---- Investee Remainders ----
+
+/// Staff review of a company's cap table, forecast or governance data. One row per reviewer and data snapshot (re-posting the same review is a no-op).
+model InvesteeStaffReview {
+  id             String   @id @default(uuid()) @db.Char(36)
+  companyId      String   @map("company_id") @db.Char(36)
+  /// CAP_TABLE | FORECAST | GOVERNANCE
+  area           String   @db.VarChar(12)
+  /// REVIEWED | QUERIED
+  outcome        String   @db.VarChar(8)
+  note           String?  @db.VarChar(1000)
+  /// SHA-256 of the canonical data the reviewer saw.
+  snapshotSha256 String   @map("snapshot_sha256") @db.Char(64)
+  /// Headline figures at review time (shareholders, outstanding shares, pending transactions, ...).
+  summary        Json
+  reviewerId     String   @map("reviewer_id") @db.Char(36)
+  reviewerName   String   @map("reviewer_name") @db.VarChar(120)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([companyId, area, snapshotSha256, reviewerId])
+  @@index([companyId, area, createdAt])
+  @@map("investee_staff_reviews")
+}
+
+/// Sign-off of a submitted reporting pack by the company's authorised signatories, run through the native e-sign module (subjectType INVESTEE_REPORT).
+model InvesteeReportSignoff {
+  id              String    @id @default(uuid()) @db.Char(36)
+  companyId       String    @map("company_id") @db.Char(36)
+  /// Logical reference to reporting_periods.id
+  periodId        String    @map("period_id") @db.Char(36)
+  /// YYYY-MM
+  period          String    @db.VarChar(7)
+  /// Logical references to esign_requests
+  esignRequestId  String    @map("esign_request_id") @db.Char(36)
+  esignRef        String    @map("esign_ref") @db.VarChar(24)
+  /// SHA-256 of the pack PDF that was sent for signature.
+  packSha256      String    @map("pack_sha256") @db.Char(64)
+  /// REQUESTED | SIGNED (declined, voided and expired are read from the e-sign request)
+  status          String    @default("REQUESTED") @db.VarChar(10)
+  requestedById   String    @map("requested_by_id") @db.Char(36)
+  requestedByName String    @map("requested_by_name") @db.VarChar(120)
+  requestedAt     DateTime  @default(now()) @map("requested_at")
+  signedAt        DateTime? @map("signed_at")
+
+  @@unique([periodId, esignRequestId])
+  @@index([companyId, period])
+  @@map("investee_report_signoffs")
+}
+
+/// Delivery record for e-mail sent to company contacts (share links, signature requests, reminders). Updated by the worker after the adapter call.
+model InvesteeMailLog {
+  id          String    @id @default(uuid()) @db.Char(36)
+  companyId   String    @map("company_id") @db.Char(36)
+  /// SHARE_LINK | SIGN_REQUEST | SIGN_REMINDER
+  kind        String    @db.VarChar(16)
+  subjectType String    @map("subject_type") @db.VarChar(24)
+  subjectId   String    @map("subject_id") @db.VarChar(64)
+  recipient   String    @db.VarChar(254)
+  subject     String    @db.VarChar(300)
+  /// One mail per business event: "<kind>:<subjectId>:<n>".
+  dedupeKey   String    @unique @map("dedupe_key") @db.VarChar(160)
+  /// QUEUED | SENT | FAILED
+  status      String    @default("QUEUED") @db.VarChar(8)
+  attempts    Int       @default(0)
+  messageId   String?   @map("message_id") @db.VarChar(160)
+  transport   String?   @db.VarChar(12)
+  lastError   String?   @map("last_error") @db.VarChar(300)
+  sentAt      DateTime? @map("sent_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([companyId, createdAt])
+  @@map("investee_mail_log")
+}
+
+// ---- end Investee Remainders ----

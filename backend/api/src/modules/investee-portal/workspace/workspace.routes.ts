@@ -58,6 +58,7 @@ import {
 } from './sharing';
 import { accessReviewSchema, accessView, kpiExport, kpiHistory, recordAccessReview, searchWorkspace } from './insights';
 import { ensureWorkspace } from './store';
+import { requestSignoff, signoffs } from '../remainders/signoff';
 
 /** Authenticated routes under /api/v1/investee-portal (mounted after the context middleware). */
 export const workspaceRoutes = Router();
@@ -155,6 +156,16 @@ workspaceRoutes.post('/share-links', edit, validateBody(shareLinkSchema), idempo
 });
 workspaceRoutes.delete('/share-links/:id', edit, async (req, res) => {
   ok(res, { links: await revokeShareLink(inv(req), param(req, 'id'), investeeAudit(req)) }, 'Share link revoked');
+});
+
+// ---- reporting sign-off through the native e-sign module (signers: members with signing authority)
+workspaceRoutes.get('/reporting/signoffs', async (req, res) => {
+  ok(res, await signoffs(inv(req).company.id));
+});
+workspaceRoutes.post('/reporting/requests/:period/signoff', requireProfile('submit_pack'), idempotent('investee.report_signoff.request'), async (req, res) => {
+  const c = inv(req);
+  const actor = { userId: c.userId, name: actorName(req), role: c.title ?? 'Company user', portal: 'company' as const, ip: req.ip ?? null, userAgent: req.get('user-agent') ?? null, requestId: req.requestId ?? null };
+  ok(res, await requestSignoff(actor, c.company.id, param(req, 'period')), 'Sign-off requested', 201);
 });
 
 // ---- search, derived KPIs, export, access

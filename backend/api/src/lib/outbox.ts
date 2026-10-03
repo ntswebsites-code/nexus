@@ -8,7 +8,8 @@ export type OutboxEventType =
   | 'notify.users'
   | 'notify.permission'
   | 'email.send'
-  | 'kyc.screening.requested';
+  | 'kyc.screening.requested'
+  | 'investee.mail';
 
 export interface NotifyUsersPayload {
   userIds: string[];

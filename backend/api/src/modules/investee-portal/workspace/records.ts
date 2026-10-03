@@ -4,6 +4,8 @@ import { HttpError } from '../../../lib/errors';
 import { writeAudit, type AuditContext } from '../../../lib/audit';
 import { nextRef } from '../../../lib/refs';
 import type { InvesteeContext } from '../investee.context';
+import { enqueue } from '../../../lib/outbox';
+import { companyUserIds } from '../remainders/mail';
 import { D, day, ensureWorkspace, isoDay, parseDay, refs, requireSigner, sha256 } from './store';
 
 const dayStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -237,6 +239,7 @@ export async function addConsent(c: InvesteeContext, body: z.infer<typeof consen
       },
     });
     await writeAudit(tx, audit, { action: 'company.governance.consent_requested', objectType: 'investee_consent', objectId: row.id, after: { ref: row.ref, title: row.title } });
+    await enqueue(tx, 'notify.permission', { permission: 'research.edit', type: 'investee.consent_requested', title: `${c.company.name} asks for investor consent (${row.ref})`, body: `${row.title} - due ${isoDay(row.dueOn)}`, link: '/ops/investee-requests' });
   });
   return governanceView(c);
 }
@@ -262,6 +265,7 @@ export async function decideConsent(companyId: string, consentRef: string, body:
     });
     if (claim.count === 0) throw HttpError.conflict('This consent was just decided', 'invalid_state');
     await writeAudit(tx, audit, { action: 'company.governance.consent_decided', objectType: 'investee_consent', objectId: row.id, before: { status: row.status }, after: { status: body.status } });
+    await enqueue(tx, 'notify.users', { userIds: await companyUserIds(companyId), type: 'investee.consent_decided', title: `Consent ${row.ref} ${body.status.toLowerCase()}`, body: `${row.title}${body.note ? ` - ${body.note}` : ''}`, link: '/workspace', email: true });
     return consentView({ ...row, status: body.status, note: body.note ?? row.note });
   });
 }
@@ -418,6 +422,9 @@ export async function createRequisition(c: InvesteeContext, body: z.infer<typeof
       },
     });
     await writeAudit(tx, audit, { action: 'company.requisition.created', objectType: 'investee_requisition', objectId: created.id, after: { ref: created.ref, status: created.status, amount: created.amount.toString() } });
+    if (created.status === 'SUBMITTED') {
+      await enqueue(tx, 'notify.permission', { permission: 'research.edit', type: 'investee.requisition_submitted', title: `${c.company.name} submitted request ${created.ref}`, body: `${created.title} - ${created.currency} ${created.amount.toString()}`, link: '/ops/investee-requests' });
+    }
     return created;
   });
   return requisitionView(row);
@@ -442,6 +449,7 @@ export async function decideRequisition(companyId: string, requestRef: string, b
     const claim = await tx.investeeRequisition.updateMany({ where: { id: row.id, status: row.status }, data: { status: body.status, note: body.note ?? row.note, decidedBy: audit.actorId, decidedAt: new Date() } });
     if (claim.count === 0) throw HttpError.conflict('This request was just decided', 'invalid_state');
     await writeAudit(tx, audit, { action: 'company.requisition.decided', objectType: 'investee_requisition', objectId: row.id, before: { status: row.status }, after: { status: body.status } });
+    await enqueue(tx, 'notify.users', { userIds: [...new Set([row.createdById, ...(await companyUserIds(companyId))])], type: 'investee.requisition_decided', title: `Request ${row.ref} ${body.status.toLowerCase()}`, body: `${row.title}${body.note ? ` - ${body.note}` : ''}`, link: '/workspace', email: true });
     return requisitionView({ ...row, status: body.status, note: body.note ?? row.note });
   });
 }

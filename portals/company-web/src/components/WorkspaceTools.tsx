@@ -401,11 +401,11 @@ function SignaturesTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
 
 function SharingTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
   const [data, load] = useLoad<{ links: ShareLink[] }>(api, run, '/share-links');
-  const [f, setF] = useState({ documentId: '', recipient: '', days: '7' });
+  const [f, setF] = useState({ documentId: '', recipient: '', email: '', days: '7' });
   const [fresh, setFresh] = useState('');
   async function create(e: FormEvent) {
     e.preventDefault();
-    const out = await run('Link created. Copy it now; it is not shown again.', () => api.workspace<{ url: string }>('POST', '/share-links', { documentId: f.documentId, recipient: f.recipient, expiresInDays: Number(f.days) }));
+    const out = await run('Link created. Copy it now; it is not shown again.', () => api.workspace<{ url: string }>('POST', '/share-links', { documentId: f.documentId, recipient: f.recipient, ...(f.email ? { recipientEmail: f.email } : {}), expiresInDays: Number(f.days) }));
     if (out) {
       setFresh(out.url);
       void load();
@@ -420,13 +420,14 @@ function SharingTab({ api, run, docs }: TabProps & { docs: Doc[] }) {
             {docs.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
           </select>
           <input style={{ ...input, flex: 1 }} placeholder="Recipient (person or firm)" value={f.recipient} onChange={(e) => setF({ ...f, recipient: e.target.value })} required />
+          <input style={{ ...input, flex: 1 }} type="email" placeholder="E-mail the link to (optional)" value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} />
           <select style={input} value={f.days} onChange={(e) => setF({ ...f, days: e.target.value })} aria-label="Expires after">
             {[1, 3, 7].map((d) => <option key={d} value={d}>{d} day{d > 1 ? 's' : ''}</option>)}
           </select>
           <button style={btn}>Create link</button>
         </form>
         {fresh && <p style={{ fontSize: 13, wordBreak: 'break-all' }}><code>{fresh}</code></p>}
-        <p style={{ fontSize: 12, color: '#6b7280' }}>Links last at most 7 days. Text files show a watermark with the recipient name. Each open is counted.</p>
+        <p style={{ fontSize: 12, color: '#6b7280' }}>Links last at most 7 days. Every copy is watermarked with the recipient name (PDF, image and text files only). Each open is counted; add an e-mail address to send the link for you.</p>
       </Section>
       <Section title="Links">
         <Table
