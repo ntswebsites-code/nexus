@@ -179,6 +179,14 @@ export async function seedReports() {
   }
   log(`file feed ${FEED_KEY} ready, ${fr} feed rule(s) added`);
 
+  // ---- First run of every active rule, so Data Fabric opens with real pass/fail results instead of "Never run" (ADB-019)
+  const unrun = await prisma.dataQualityRule.findMany({ where: { active: true, runs: { none: {} } } });
+  if (unrun.length) {
+    const { executeRuleAs } = await import('../src/modules/data-fabric/data.routes');
+    for (const r of unrun) await executeRuleAs({ userId: actor, ctx: { actorId: null, actorRole: 'System', portal: null } }, r);
+    log(`${unrun.length} quality rule(s) run once`);
+  }
+
   // ---- WP-6: month-end schedules use a rolling window; the NAV pricing model is bound (not enforced) so NAV runs log their use
   await prisma.reportSchedule.updateMany({ where: { name: { startsWith: 'Monthly cash report' }, rolling: null }, data: { rolling: 'PREVIOUS_MONTH' } });
   const navModel = await prisma.govModel.findFirst({ where: { name: 'NAV pricing and FX conversion', status: 'APPROVED' } });

@@ -34,7 +34,7 @@ interface Summary {
 }
 interface Change { id: string; document: string | null; name: string | null; kind: string; from: string; to: string; reason: string; status: string; maker: string | null; makerId: string; at: string }
 interface Detail {
-  document: Doc & { uuid: string; label: string | null; relatedLabel: string | null; period: string | null };
+  document: Doc & { uuid: string; makerId: string | null; label: string | null; relatedLabel: string | null; period: string | null };
   versions: { version: number; sha256: string; file: string | null; size: string; scan: string | null; by: string | null; at: string }[];
   holds: { id: string; reason: string; placedBy: string | null; placedById: string; placedAt: string; releasedAt: string | null; releasedBy: string | null; releaseNote: string | null }[];
   changes: Change[];
@@ -50,6 +50,8 @@ export default function VaultPage() {
   const canApprove = useCan('documents.approve');
   const canEditDocs = useCan('documents.edit');
   const [uploading, setUploading] = useState(false);
+  const [fileName, setFileName] = useState('');
+  const [autoName, setAutoName] = useState(true);
   const [tab, setTab] = useState<'register' | 'changes' | 'evidence' | 'access'>('register');
   const [q, setQ] = useState('');
   const [type, setType] = useState('');
@@ -125,7 +127,7 @@ export default function VaultPage() {
           kicker="Document Vault"
           subtitle="The file is encrypted and hashed. It starts as a Draft; submit it for review from the document, a different person approves it."
           submitLabel="Upload"
-          onClose={() => setUploading(false)}
+          onClose={() => { setUploading(false); setFileName(''); setAutoName(true); }}
           onDone={reload}
           onSubmit={async (fd) => {
             const f = fd.get('file');
@@ -134,8 +136,8 @@ export default function VaultPage() {
           }}
         >
           <FieldGrid>
-            <Field label="File" span={2}><input className="ops-input" type="file" name="file" required /></Field>
-            <Field label="Name (optional)" hint="Defaults to the file name" span={2}><input className="ops-input" name="name" maxLength={255} /></Field>
+            <Field label="File" span={2}><input className="ops-input" type="file" name="file" required onChange={(e) => { const f = e.target.files?.[0]; if (f) setFileName((cur) => (cur && !autoName ? cur : f.name)); setAutoName(true); }} /></Field>
+            <Field label="Name (optional)" hint="Defaults to the file name" span={2}><input className="ops-input" name="name" maxLength={255} value={fileName} onChange={(e) => { setFileName(e.target.value); setAutoName(false); }} /></Field>
             <Field label="Type"><select className="ops-input" name="type" defaultValue="other">{TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
             <Field label="Classification"><select className="ops-input" name="classification" defaultValue="Internal">{CLASSES.map((t) => <option key={t}>{t}</option>)}</select></Field>
             <Field label="Client (optional)"><select className="ops-input" name="clientId" defaultValue=""><option value="">None</option>{(clients.state === 'ok' ? clients.data : []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
@@ -266,7 +268,7 @@ function DocModal({ id, clients, funds, onClose, onChanged }: { id: string; clie
                   <p style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
                     <span className="ops-sub">Lifecycle: {doc.status}</span>
                     {doc.status === 'Draft' && <ActionButton label="Submit for review" primary onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/submit`, {})} onDone={done} />}
-                    {doc.status === 'In review' && <ActionButton label="Approve" primary title="Needs a fresh authentication code; a different person from the one who submitted" onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/approve`, {})} onDone={done} />}
+                    {doc.status === 'In review' && <ActionButton label="Approve" primary disabled={doc.makerId === user.id} title={doc.makerId === user.id ? 'Maker-checker: a different person must approve this document' : 'Needs a fresh authentication code; a different person from the one who submitted'} onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/approve`, {})} onDone={done} />}
                     {(doc.status === 'In review' || doc.status === 'Approved') && <ActionButton label="Return to draft" onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/return`, { reason: 'Returned from the vault for changes' })} onDone={done} />}
                     {doc.status === 'Approved' && ['Client', 'Public'].includes(doc.classification) && (
                       <ActionButton label="Publish to client" disabled={!doc.clientRef} title={doc.clientRef ? undefined : 'Link the document to a client first'} confirm="Publish this document to the linked client's portal?" onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/publish`, { clientIds: [doc.clientRef] })} onDone={done} />
@@ -396,7 +398,7 @@ function PmEvidence({ onDone }: { onDone: () => void }) {
                       <td><strong>{e.title}</strong><span className="ops-sub">{e.kind.replace(/_/g, ' ').toLowerCase()}{e.note ? ` · ${e.note}` : ''}</span></td>
                       <td>{e.mark}<span className="ops-sub">{e.markStatus.replace(/_/g, ' ').toLowerCase()} · as of {formatDate(e.asOf)}</span></td>
                       <td>{e.fund}<span className="ops-sub">{e.commitment}</span></td>
-                      <td>{e.document?.id ? <>{e.document.id}<span className="ops-sub">{e.document.status}</span></> : <span className="ops-muted">No file</span>}</td>
+                      <td>{e.document?.id ? <>{e.document.id}<span className="ops-sub">{e.document.status}</span></> : e.markStatus.toUpperCase() === 'APPROVED' ? <span style={{ color: 'var(--ops-amber)' }}>Evidence file missing: attach it</span> : <span className="ops-muted">No file</span>}</td>
                       <td>{edit && <button className="ops-btn small" type="button" onClick={() => setAtt(e)}>{e.document?.id ? 'New version' : 'Attach file'}</button>}</td>
                     </tr>
                   ))}

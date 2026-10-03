@@ -146,7 +146,12 @@ export default function ClientsPage() {
           onSubmit={(fd, key) =>
             rawPost('/api/v1/clients', { name: str(fd, 'name'), type: str(fd, 'type'), ccy: str(fd, 'ccy') || 'USD', risk: str(fd, 'risk') || 'Medium', email: optStr(fd, 'email'), owner: optStr(fd, 'owner') }, key)
           }
-          onDone={() => { list.reload(); summary.reload(); }}
+          onDone={(r) => {
+            list.reload();
+            summary.reload();
+            const created = (r as { client?: { id?: string } } | undefined)?.client?.id;
+            if (created) setSel(created);
+          }}
         >
           <FieldGrid>
             <Field label="Legal name"><input className="ops-input" name="name" required /></Field>
@@ -207,7 +212,7 @@ function Client360({ id, canEdit, onChanged }: { id: string; canEdit: boolean; o
                 { key: 'overview', label: 'Overview' },
                 { key: 'accounts', label: `Cash accounts (${d.cashAccounts.length})` },
                 { key: 'mandates', label: `Mandates (${d.mandates.length})` },
-                { key: 'holdings', label: `Portfolios & commitments (${d.portfolios.length + d.commitments.length})` },
+                { key: 'holdings', label: `Portfolios (${d.portfolios.length}) & commitments (${d.commitments.length})` },
                 { key: 'documents', label: `Documents (${d.documents.total})` },
                 { key: 'service', label: `KYC & requests (${d.requests.open} open)` },
               ]}
@@ -313,7 +318,7 @@ function Client360({ id, canEdit, onChanged }: { id: string; canEdit: boolean; o
             {tab === 'service' && (
               <>
                 <h3>KYC cases</h3>
-                {d.kycCases.length === 0 ? <Empty>No KYC cases.</Empty> : d.kycCases.map((k) => <p key={k.ref}><strong>{k.ref}</strong> · {k.stage} · <Tone value={k.risk} /></p>)}
+                {d.kycCases.length === 0 ? <Empty>{c.kyc === 'Current' ? 'No onboarding case on file: KYC status Current was set directly on the client record.' : 'No KYC cases.'}</Empty> : d.kycCases.map((k) => <p key={k.ref}><strong>{k.ref}</strong> · {k.stage} · <Tone value={k.risk} /></p>)}
                 <h3>Recent requests</h3>
                 {d.requests.recent.length === 0 ? <Empty>No requests.</Empty> : (
                   <div className="ops-table-wrap"><table className="ops-table"><thead><tr><th>Request</th><th>Type</th><th>Status</th><th>Due</th></tr></thead><tbody>

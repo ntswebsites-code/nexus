@@ -35,7 +35,8 @@ function view(r: Row, names: Map<string, string>) {
     owner: r.ownerName,
     progress: r.progress,
     slaDueAt: r.slaDueAt,
-    sla: slaState(r.slaDueAt, r.createdAt, closed),
+    // The clock is not running while the ball is in the client's court, so it is not a breach.
+    sla: r.status === 'Waiting on you' && !closed ? 'Waiting on client' : slaState(r.slaDueAt, r.createdAt, closed),
     createdAt: r.createdAt,
     updatedAt: r.updatedAt,
     ageHours: Math.round(((closed ? r.updatedAt : new Date()).getTime() - r.createdAt.getTime()) / 3_600_000),
@@ -55,7 +56,7 @@ const listQuery = z.object({
   status: z.string().trim().max(60).optional(),
   type: z.string().trim().max(64).optional(),
   assignee: z.string().trim().max(40).optional(),
-  sla: z.enum(['Breached', 'At risk', 'On track', 'Closed']).optional(),
+  sla: z.enum(['Breached', 'At risk', 'On track', 'Waiting on client', 'Closed']).optional(),
   client: z.string().trim().max(40).optional(),
   q: z.string().trim().max(120).optional(),
 });
