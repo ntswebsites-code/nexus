@@ -5,10 +5,10 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { param } from '../../lib/http';
 import { validateBody } from '../../middleware/validate';
-import { requireAnyPermission, requireAuth, requirePermission, requirePortalAccess } from '../../middleware/requireAuth';
+import { requireAnyPermission, requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { audit } from '../../modules/ops/ops.common';
 import { IntegrationNotConfiguredError } from '../common';
-import { getMarketDataAdapter } from './index';
+import { getMarketDataAdapter, marketDataMode } from './index';
 import { getMarketDataStatus, refreshMarketData, securityProvenance, undoRefreshRun } from './service';
 
 /**
@@ -77,6 +77,7 @@ const simulateSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 
  */
 marketDataRoutes.post('/simulate', ...canSimulate, validateBody(simulateSchema), async (req, res) => {
   const b = req.body as z.infer<typeof simulateSchema>;
+  if (marketDataMode() !== 'fake') throw HttpError.conflict('Simulated feeds only run while the market-data provider is the fake one. Use Refresh now for a live provider.', 'simulation_not_allowed');
   const now = b.date ? new Date(`${b.date}T12:00:00.000Z`) : new Date();
   if (now.getTime() - 86_400_000 > Date.now()) throw HttpError.badRequest('Validation failed', [{ path: 'date', message: 'A feed date cannot be in the future' }]);
   try {
@@ -88,6 +89,7 @@ marketDataRoutes.post('/simulate', ...canSimulate, validateBody(simulateSchema),
 });
 
 /** Reverse one finished refresh run (created rows are removed, changed rows restored). */
-marketDataRoutes.post('/runs/:id/undo', ...canSimulate, async (req, res) => {
-  res.json({ data: await undoRefreshRun(param(req, 'id'), audit(req)) });
+const undoSchema = z.object({ reason: z.string().trim().min(5, 'Give a reason of at least 5 characters').max(300) }).strict();
+marketDataRoutes.post('/runs/:id/undo', ...canSimulate, requireStepUp, validateBody(undoSchema), async (req, res) => {
+  res.json({ data: await undoRefreshRun(param(req, 'id'), audit(req), (req.body as z.infer<typeof undoSchema>).reason) });
 });

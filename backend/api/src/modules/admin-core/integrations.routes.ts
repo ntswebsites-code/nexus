@@ -29,6 +29,7 @@ import { clearStateCache } from '../../integrations/core/calls';
 import { fakeSsoCode } from '../../integrations/sso/fake';
 import { fakeStatement } from '../../integrations/custodian-feed/fake';
 import { IntegrationNotConfiguredError } from '../../integrations/common';
+import { marketDataMode } from '../../integrations/market-data';
 import { refreshMarketData } from '../../integrations/market-data/service';
 
 /**
@@ -203,6 +204,16 @@ async function marketDataSync(req: Request, res: Response) {
     if (e instanceof IntegrationNotConfiguredError) throw new HttpError(503, e.code, e.message, { requiredEnv: e.requiredEnv });
     throw e;
   }
+ * Legacy entry point for the simulated market-data feed. It no longer writes prices itself: it delegates to the
+ * validated refresh (sanity bounds, exception records, run record, provenance, undo) and only runs while the provider is the fake one.
+ */
+async function marketDataSync(req: Request, res: Response) {
+  const b = req.body as z.infer<typeof marketBody>;
+  if (isRealMarketMode()) throw HttpError.conflict('Simulated feeds only run while the market-data provider is the fake one', 'simulation_not_allowed');
+  const date = b.date ?? todayStr();
+  if (toDate(date).getTime() - DAY_MS > Date.now()) throw HttpError.badRequest('Validation failed', [{ path: 'date', message: 'A feed date cannot be in the future' }]);
+  const summary = await refreshMarketData({ trigger: 'MANUAL', scope: 'ALL', tickers: b.tickers, force: true, now: b.date ? new Date(`${date}T12:00:00.000Z`) : new Date(), userId: req.user!.id, audit: audit(req) });
+  res.status(201).json({ data: summary });
 }
 integrationsRoutes.post(['/market-data/sync', '/market-data/simulate'], SETTINGS, validateBody(marketBody), idempotent('integration.market_data', { required: false }), marketDataSync);
 

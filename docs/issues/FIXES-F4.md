@@ -28,3 +28,11 @@
 
 ## Verification
 tsc --noEmit clean in backend/api and portals/admin-web; `next build --webpack` for admin-web succeeds (the default Turbopack build failed only because node_modules was a junction in the worktree). No schema change.
+
+## Rework round
+- ADA-019 (old route): `modules/admin-core/integrations.routes.ts` `POST /market-data/sync|simulate` (F4-owned per rework assignment) no longer writes prices itself; it delegates to `refreshMarketData` (sanity bounds, exceptions, run record, provenance, undo) and refuses with 409 `simulation_not_allowed` unless the provider is fake. Re-test: POST the old path with the fake provider; a run appears under Recent refreshes.
+- ADA-019 (a): `POST /market-data/simulate` refuses (409) unless the provider is fake, so it cannot trigger a paid/real pull. File: `integrations/market-data/routes.ts`.
+- ADB-024: UndoLog stores the value each run wrote. `undoRefreshRun` refuses with 409 `run_superseded` if any row changed/was removed since (later run or manual correction), `prices_in_use` if a maker-reviewed/released NAV line uses a run price, `undo_not_verifiable` for runs recorded before this change. Undo needs a reason (5+ chars, kept in the audit event) and a step-up code; admin UI has an "Undo run" modal with reason. Sanity bounds (40% price, 25% FX) are applied in refreshPrices/refreshFx via validateValue (unchanged). FX rows are checked for supersession but not for NAV use. Files: `service.ts`, `routes.ts`, `ops/market-data.tsx`.
+- ADA-008: `STALE_PRICE_BUSINESS_DAYS` in portfolio.service now equals `DEFAULT_POLICY.maxAgeBusinessDays` (single constant).
+- Not done: ADB-019 missing ISINs (no verified real ISINs; fabricating identifiers rejected); F2 renders staleWarnings.
+- Verify: tsc backend/api clean except pre-existing `seed-research-privates.ts` nextRef errors (F5 file); admin-web tsc/build run after this edit.
