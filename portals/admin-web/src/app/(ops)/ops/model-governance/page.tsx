@@ -74,7 +74,7 @@ interface Summary {
 
 const TYPES = ['PRICING', 'RISK', 'CREDIT', 'SCORING', 'FORECAST', 'OTHER'];
 const M = (p: string) => v1(`/model-governance${p}`);
-type Tab = 'inventory' | 'usage';
+type Tab = 'inventory' | 'reviews' | 'bindings' | 'usage';
 const PAGE = 25;
 
 export default function ModelGovernancePage() {
@@ -122,6 +122,8 @@ export default function ModelGovernancePage() {
       <TabBar
         tabs={[
           { key: 'inventory', label: 'Model inventory' },
+          { key: 'reviews', label: 'Periodic reviews' },
+          { key: 'bindings', label: 'Where models are used' },
           { key: 'usage', label: 'Usage log' },
         ]}
         value={tab}
@@ -186,6 +188,8 @@ export default function ModelGovernancePage() {
           </Loaded>
         </Card>
       )}
+      {tab === 'reviews' && <ReviewsTab onChanged={reload} />}
+      {tab === 'bindings' && <BindingsTab models={models.state === 'ok' ? models.data.data : []} />}
       {tab === 'usage' && <UsageTab />}
       {adding && (
         <FormModal
@@ -488,3 +492,269 @@ function ModelModal({ id, onClose }: { id: string; onClose: () => void }) {
 }
 
 const apiPost = (path: string, body: unknown, key: string) => apiRequest<{ warning?: string }>('POST', path, body, { idempotencyKey: key });
+
+// ---------------------------------------------------------------- periodic reviews
+
+interface Review {
+  id: string;
+  modelId: string;
+  modelRef: string | null;
+  modelName: string | null;
+  tier: number | null;
+  status: string;
+  dueOn: string | null;
+  overdue: boolean;
+  openedBy: string | null;
+  reviewer: string | null;
+  outcome: string | null;
+  findings: string | null;
+  approver: string | null;
+  decisionNote: string | null;
+  nextReviewOn: string | null;
+  completedAt: string | null;
+}
+
+function ReviewsTab({ onChanged }: { onChanged: () => void }) {
+  const canAuthor = useCan('risk.manage');
+  const canReview = useCan('model.approve');
+  const [status, setStatus] = useState('OPEN,SUBMITTED');
+  const res = useResource(() => full<{ data: Review[] }>(M(`/reviews${qs({ status })}`)), [status]);
+  const [act, setAct] = useState<{ r: Review; kind: 'submit' | 'approve' | 'return' } | null>(null);
+  const done = () => (res.reload(), onChanged());
+  return (
+    <Card
+      actions={
+        canAuthor && (
+          <ActionButton
+            label="Open reviews due within 30 days"
+            onRun={async () => {
+              await api.post(M('/reviews/sweep'), {});
+            }}
+            onDone={done}
+          />
+        )
+      }
+    >
+      <p className="ops-muted">
+        Each approved model is reviewed on a cadence set by its tier (6, 12 or 24 months). A reviewer who did not author or approve the version records the outcome; a different person approves it with step-up MFA. Confirming moves the next review date out, retiring retires the model.
+      </p>
+      <div className="ops-filters">
+        <Field label="Status">
+          <select className="ops-input" value={status} onChange={(e) => setStatus(e.target.value)}>
+            <option value="OPEN,SUBMITTED">Open</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="">All</option>
+          </select>
+        </Field>
+      </div>
+      <Loaded res={res}>
+        {(r) =>
+          r.data.length === 0 ? (
+            <Empty>No reviews in this view.</Empty>
+          ) : (
+            <div className="ops-table-wrap">
+              <table className="ops-table">
+                <thead>
+                  <tr>
+                    <th>Model</th>
+                    <th>Due</th>
+                    <th>Status</th>
+                    <th>Outcome</th>
+                    <th>People</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {r.data.map((x) => (
+                    <tr key={x.id}>
+                      <td>
+                        {x.modelName}
+                        <span className="ops-sub">{x.modelRef}{x.tier ? `, tier ${x.tier}` : ''}</span>
+                      </td>
+                      <td>
+                        {dayOf(x.dueOn)}
+                        {x.overdue && <span className="ops-sub" style={{ color: 'var(--ops-red, #b42318)' }}>Overdue</span>}
+                      </td>
+                      <td>
+                        <Tone value={x.status} />
+                      </td>
+                      <td>
+                        {x.outcome ? label(x.outcome) : '-'}
+                        {x.findings && <span className="ops-sub">{x.findings}</span>}
+                        {x.nextReviewOn && x.status === 'COMPLETED' && <span className="ops-sub">Next review {dayOf(x.nextReviewOn)}</span>}
+                      </td>
+                      <td>
+                        <span className="ops-sub">Opened by {x.openedBy}</span>
+                        {x.reviewer && <span className="ops-sub">Reviewer {x.reviewer}</span>}
+                        {x.approver && <span className="ops-sub">Approver {x.approver}</span>}
+                      </td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {canReview && x.status === 'OPEN' && (
+                          <button className="ops-btn small" type="button" onClick={() => setAct({ r: x, kind: 'submit' })}>
+                            Record outcome
+                          </button>
+                        )}
+                        {canReview && x.status === 'SUBMITTED' && (
+                          <>
+                            <button className="ops-btn small primary" type="button" onClick={() => setAct({ r: x, kind: 'approve' })}>
+                              Approve
+                            </button>{' '}
+                            <button className="ops-btn small" type="button" onClick={() => setAct({ r: x, kind: 'return' })}>
+                              Return
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+      </Loaded>
+      {act?.kind === 'submit' && (
+        <FormModal
+          title={`Review outcome: ${act.r.modelRef}`}
+          submitLabel="Submit for approval"
+          onClose={() => setAct(null)}
+          onSubmit={(fd) => api.post(M(`/reviews/${act.r.id}/submit`), { outcome: str(fd, 'outcome'), findings: optStr(fd, 'findings'), nextReviewOn: optStr(fd, 'nextReviewOn') })}
+          onDone={done}
+        >
+          <FieldGrid>
+            <Field label="Outcome">
+              <select className="ops-input" name="outcome" defaultValue="CONFIRMED">
+                <option value="CONFIRMED">Confirmed: model remains fit for use</option>
+                <option value="CHANGES_REQUIRED">Changes required: re-review in a month</option>
+                <option value="RETIRE">Retire the model</option>
+              </select>
+            </Field>
+            <Field label="Next review date (optional)" hint="Defaults to the tier cadence">
+              <input className="ops-input" type="date" name="nextReviewOn" />
+            </Field>
+            <Field label="Findings" hint="Required unless the outcome is Confirmed" span={2}>
+              <textarea className="ops-input" name="findings" rows={4} maxLength={2000} />
+            </Field>
+          </FieldGrid>
+        </FormModal>
+      )}
+      {act && act.kind !== 'submit' && (
+        <FormModal
+          title={`${act.kind === 'approve' ? 'Approve' : 'Return'} review: ${act.r.modelRef}`}
+          subtitle={act.kind === 'approve' ? `Outcome ${act.r.outcome ? label(act.r.outcome) : ''}. Needs step-up MFA; you cannot approve a review you recorded.` : undefined}
+          submitLabel={act.kind === 'approve' ? 'Approve' : 'Return to reviewer'}
+          danger={act.r.outcome === 'RETIRE' && act.kind === 'approve'}
+          onClose={() => setAct(null)}
+          onSubmit={(fd) => api.post(M(`/reviews/${act.r.id}/${act.kind}`), { note: str(fd, 'note') })}
+          onDone={done}
+        >
+          <Field label="Note">
+            <textarea className="ops-input" name="note" rows={3} required minLength={5} maxLength={500} />
+          </Field>
+        </FormModal>
+      )}
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------- where models are used
+
+interface Binding {
+  purpose: string;
+  modelId: string | null;
+  modelRef: string | null;
+  modelName: string | null;
+  modelStatus: string | null;
+  nextReviewOn: string | null;
+  enforce: boolean;
+  automaticUses30d: number;
+}
+const PURPOSE_LABEL: Record<string, string> = { NAV_VALUATION: 'NAV valuation runs', RISK_SCENARIO: 'Risk scenario runs' };
+
+function BindingsTab({ models }: { models: ModelRow[] }) {
+  const canBind = useCan('model.approve');
+  const res = useResource(() => full<{ data: Binding[] }>(M('/bindings')), []);
+  const [edit, setEdit] = useState<Binding | null>(null);
+  const approved = models.filter((m) => m.status === 'APPROVED');
+  return (
+    <Card>
+      <p className="ops-muted">
+        A calculation bound to a model writes a usage row every time it runs, so the register shows what the model was used for. When a binding is enforced, the calculation is refused while the model has no approved version or its periodic review is overdue.
+      </p>
+      <Loaded res={res}>
+        {(r) => (
+          <div className="ops-table-wrap">
+            <table className="ops-table">
+              <thead>
+                <tr>
+                  <th>Calculation</th>
+                  <th>Bound model</th>
+                  <th>Enforced</th>
+                  <th>Automatic uses, 30 days</th>
+                  <th />
+                </tr>
+              </thead>
+              <tbody>
+                {r.data.map((b) => (
+                  <tr key={b.purpose}>
+                    <td>{PURPOSE_LABEL[b.purpose] ?? label(b.purpose)}</td>
+                    <td>
+                      {b.modelName ? (
+                        <>
+                          {b.modelName}
+                          <span className="ops-sub">{b.modelRef}, {label(b.modelStatus ?? '')}, review {dayOf(b.nextReviewOn)}</span>
+                        </>
+                      ) : (
+                        <span className="ops-muted">Not bound</span>
+                      )}
+                    </td>
+                    <td>{b.modelId ? (b.enforce ? 'Yes' : 'No') : '-'}</td>
+                    <td>{b.automaticUses30d}</td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {canBind && (
+                        <>
+                          <button className="ops-btn small" type="button" onClick={() => setEdit(b)}>
+                            {b.modelId ? 'Change' : 'Bind a model'}
+                          </button>{' '}
+                          {b.modelId && <ActionButton label="Unbind" confirm="Stop logging this calculation against a model?" onRun={() => apiRequest('DELETE', M(`/bindings/${b.purpose}`))} onDone={res.reload} />}
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Loaded>
+      {edit && (
+        <FormModal
+          title={`Bind a model: ${PURPOSE_LABEL[edit.purpose] ?? edit.purpose}`}
+          subtitle="Needs step-up MFA. Only an approved model can be bound."
+          submitLabel="Save binding"
+          onClose={() => setEdit(null)}
+          onSubmit={(fd) => api.put(M(`/bindings/${edit.purpose}`), { modelId: str(fd, 'modelId'), enforce: fd.get('enforce') === 'on' })}
+          onDone={res.reload}
+        >
+          <FieldGrid>
+            <Field label="Model" span={2}>
+              <select className="ops-input" name="modelId" required defaultValue={edit.modelId ?? ''}>
+                <option value="" disabled>
+                  Choose an approved model...
+                </option>
+                {approved.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.ref} {m.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Enforce" hint="Refuse the calculation when the model is not usable" span={2}>
+              <input type="checkbox" name="enforce" defaultChecked={edit.enforce} />
+            </Field>
+          </FieldGrid>
+        </FormModal>
+      )}
+    </Card>
+  );
+}

@@ -6,11 +6,15 @@ import { writeAudit, type AuditContext } from '../../lib/audit';
 import { nextRef } from '../../lib/refs';
 import { storeFile } from '../../lib/storage';
 import { sha256Hex } from '../../lib/crypto';
+import { sendMail } from '../../lib/mailer';
+import { config } from '../../config';
+import { renderReportPdf } from './pdf';
 import { loadPortfolio } from '../portfolio/portfolio.service';
 import { calculateValuation, loadSettings } from '../nav/nav.service';
 import { balances } from '../cash/cash.service';
 import {
   FORMAT_META,
+  applyRolling,
   nextRunAfter,
   render,
   rowCount,
@@ -20,6 +24,7 @@ import {
   type ReportData,
   type ReportFormat,
   type ReportKey,
+  type RollingWindow,
 } from './reports.engine';
 
 const D = Prisma.Decimal;
@@ -96,8 +101,8 @@ export async function ensureCatalogue() {
   for (const c of CATALOGUE) {
     await prisma.reportDefinition.upsert({
       where: { key: c.key },
-      update: { name: c.name, description: c.description, category: c.category, paramSpec: c.paramSpec as unknown as Prisma.InputJsonValue },
-      create: { key: c.key, name: c.name, description: c.description, category: c.category, paramSpec: c.paramSpec as unknown as Prisma.InputJsonValue, formats: ['CSV', 'JSON', 'HTML'] },
+      update: { name: c.name, description: c.description, category: c.category, paramSpec: c.paramSpec as unknown as Prisma.InputJsonValue, formats: ['CSV', 'JSON', 'HTML', 'PDF'] },
+      create: { key: c.key, name: c.name, description: c.description, category: c.category, paramSpec: c.paramSpec as unknown as Prisma.InputJsonValue, formats: ['CSV', 'JSON', 'HTML', 'PDF'] },
     });
   }
 }
@@ -361,7 +366,7 @@ export async function generateRun(opts: { key: ReportKey; params: P; format: Rep
     let sha: string | null = null;
     let rows = 0;
     if (data) {
-      const body = Buffer.from(render(data, opts.format, generatedAt), 'utf8');
+      const body = opts.format === 'PDF' ? renderReportPdf(data, generatedAt) : Buffer.from(render(data, opts.format, generatedAt), 'utf8');
       const meta = FORMAT_META[opts.format];
       const file = await storeFile({ name: `${safeName(ref)}-${safeName(opts.key.toLowerCase())}.${meta.ext}`, mime: meta.mime, data: body, uploadedById: opts.actorId }, tx);
       fileId = file.id;
@@ -391,6 +396,36 @@ export async function generateRun(opts: { key: ReportKey; params: P; format: Rep
 
 // ---------------------------------------------------------------- schedules
 
+const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+export const cleanRecipients = (v: unknown): string[] => (Array.isArray(v) ? [...new Set(v.map((x) => String(x).trim().toLowerCase()).filter((x) => EMAIL.test(x)))].slice(0, 10) : []);
+
+/** Parameters a schedule uses on `now`: the stored ones, re-dated when the schedule has a rolling window. */
+export async function scheduleParams(s: { definition: { key: string }; params: unknown; rolling: string | null }, now: Date): Promise<P> {
+  const stored = (s.params ?? {}) as Record<string, unknown>;
+  if (!s.rolling) return stored as P;
+  return normaliseParams(s.definition.key as ReportKey, applyRolling(s.definition.key as ReportKey, stored, s.rolling as RollingWindow, now));
+}
+
+/** Mails a completed run to the recipients (a link to the signed-in Reports screen, never the data itself). Returns the outcome note. */
+export async function emailRun(run: { id: string; ref: string; title: string; sha256: string | null; status: string }, recipients: string[]): Promise<string> {
+  if (!recipients.length) return 'No recipients';
+  if (run.status !== 'COMPLETED') return 'Run failed; nothing was mailed';
+  const link = `${config.portalUrls.admin.replace(/\/+$/, '')}/ops/reports?run=${encodeURIComponent(run.ref)}`;
+  let sent = 0;
+  const failed: string[] = [];
+  for (const to of recipients) {
+    try {
+      await sendMail(to, `Report ${run.ref}: ${run.title}`, `The scheduled report ${run.ref} (${run.title}) is ready.\nSHA-256: ${run.sha256 ?? 'n/a'}\nOpen it in Matanho Nexus: ${link}\nYou need to be signed in with the reports.view permission to download it.`);
+      sent++;
+    } catch (e) {
+      failed.push(`${to}: ${(e instanceof Error ? e.message : String(e)).slice(0, 60)}`);
+    }
+  }
+  const note = `Mailed ${sent} of ${recipients.length}${failed.length ? `; failed ${failed.join(', ')}` : ''}`.slice(0, 300);
+  await prisma.reportRun.update({ where: { id: run.id }, data: { deliveredAt: sent ? new Date() : null, deliveryNote: note } });
+  return note;
+}
+
 /** Runs every active schedule that is due, as the schedule's creator. Safe to call repeatedly (each run advances the date). */
 export async function runDueSchedules(now = new Date()): Promise<number> {
   const today = startOfDay(now);
@@ -402,8 +437,10 @@ export async function runDueSchedules(now = new Date()): Promise<number> {
     const claimed = await prisma.reportSchedule.updateMany({ where: { id: s.id, nextRunOn: s.nextRunOn }, data: { nextRunOn: next, lastRunAt: now } });
     if (claimed.count !== 1) continue;
     try {
-      const run = await generateRun({ key: s.definition.key as ReportKey, params: s.params as P, format: s.format as ReportFormat, actorId: s.createdBy, audit: { actorId: s.createdBy, portal: 'admin' } as AuditContext, scheduleId: s.id });
+      const run = await generateRun({ key: s.definition.key as ReportKey, params: await scheduleParams(s, now), format: s.format as ReportFormat, actorId: s.createdBy, audit: { actorId: s.createdBy, portal: 'admin' } as AuditContext, scheduleId: s.id });
       await prisma.reportSchedule.update({ where: { id: s.id }, data: { lastRunId: run.id } });
+      const rec = cleanRecipients(s.recipients);
+      if (rec.length) await emailRun(run, rec).catch((e) => console.error(`[reports] mail for ${run.ref} failed`, e));
       n++;
     } catch (e) {
       console.error(`[reports] schedule ${s.id} failed`, e);

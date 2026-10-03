@@ -14,6 +14,7 @@ import { ensureCatalogue } from '../src/modules/reports/reports.service';
 import { nextRunAfter } from '../src/modules/reports/reports.engine';
 import { TEMPLATES, dueDateFor, lastClosedPeriod, startOfDay } from '../src/modules/regulatory/reg.engine';
 import { DATASETS } from '../src/modules/data-fabric/data.engine';
+import { ingestCsv, type FeedSchema } from '../src/modules/data-fabric/data.feed';
 
 const log = (m: string) => console.log(`[seed:reports] ${m}`);
 
@@ -47,7 +48,26 @@ const RULES: { key: string; name: string; dataset: string; checkType: string; co
   { key: 'orders-quantity-positive', name: 'Order quantities are positive', dataset: 'orders', checkType: 'RANGE', col: 'quantity', params: { min: 0.000001 }, severity: 'HIGH', source: 'table-orders' },
   { key: 'funds-nav-fresh', name: 'Fund valuations are no older than 100 days', dataset: 'funds', checkType: 'FRESHNESS', col: 'as_of_date', params: { maxAgeDays: 100 }, severity: 'MEDIUM', source: 'table-funds' },
   { key: 'cash-journals-portfolio-exists', name: 'Every cash journal references a portfolio', dataset: 'cash_journals', checkType: 'ORPHAN', col: 'portfolio_id', params: { relation: 'portfolio' }, severity: 'HIGH', source: 'table-cash-journals' },
+  { key: 'prices-unique-per-day', name: 'One price per security per day', dataset: 'security_prices', checkType: 'COMPOSITE_UQ', col: 'security_id,price_date', severity: 'MEDIUM', source: 'table-security-prices' },
+  { key: 'cash-journals-balanced', name: 'Cash journals balance (debit equals credit)', dataset: 'cash_journals', checkType: 'COL_COMPARE', col: 'total_debit', params: { op: 'eq', other: 'total_credit' }, severity: 'HIGH', source: 'table-cash-journals' },
 ];
+
+const FEED_KEY = 'zse-closing-prices-file';
+const FEED_SCHEMA: FeedSchema = {
+  keyColumn: 'ticker',
+  columns: [
+    { name: 'ticker', type: 'text', required: true },
+    { name: 'price_date', type: 'date', required: true },
+    { name: 'close_price', type: 'num', required: true },
+    { name: 'volume', type: 'num', required: false },
+  ],
+};
+const FEED_RULES = [
+  { key: 'feed-closing-ticker-present', name: 'Closing price file: every row has a ticker', checkType: 'NOT_NULL', col: 'ticker', params: null, severity: 'MEDIUM' },
+  { key: 'feed-closing-price-positive', name: 'Closing price file: prices are positive', checkType: 'RANGE', col: 'close_price', params: { min: 0.000001 }, severity: 'HIGH' },
+  { key: 'feed-closing-fresh', name: 'Closing price file: newest row is no older than 7 days', checkType: 'FRESHNESS', col: 'price_date', params: { maxAgeDays: 7 }, severity: 'HIGH' },
+  { key: 'feed-closing-ticker-known', name: 'Closing price file: every ticker exists in the securities master', checkType: 'CROSS_TABLE', col: 'ticker', params: { refDataset: 'securities', refCol: 'ticker' }, severity: 'MEDIUM' },
+] as const;
 
 export async function seedReports() {
   const actor = (await prisma.user.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id;
@@ -132,6 +152,39 @@ export async function seedReports() {
     mdl++;
   }
   log(`${mdl} model(s) added`);
+
+  // ---- WP-6: file feed with a column contract, a sample load and feed rules
+  let feed = await prisma.dataSource.findUnique({ where: { key: FEED_KEY } });
+  if (!feed) {
+    feed = await prisma.dataSource.create({ data: { key: FEED_KEY, name: 'ZSE closing prices (CSV upload)', kind: 'FILE_FEED', system: 'ZSE market data file', owner: 'Operations', cadence: 'DAILY', description: 'Upload the day-end closing price CSV; rows are typed, validated and staged, refused rows are listed with the reason.', schemaSpec: FEED_SCHEMA as unknown as Prisma.InputJsonValue, createdBy: actor } });
+  } else if (!feed.schemaSpec) feed = await prisma.dataSource.update({ where: { id: feed.id }, data: { schemaSpec: FEED_SCHEMA as unknown as Prisma.InputJsonValue } });
+  if (!(await prisma.dataStagedRecord.count({ where: { sourceId: feed.id } }))) {
+    const d = new Date().toISOString().slice(0, 10);
+    const tickers = (await prisma.security.findMany({ orderBy: { ticker: 'asc' }, take: 5, select: { ticker: true } })).map((s) => s.ticker);
+    const csv = ['ticker,price_date,close_price,volume', ...tickers.map((t, i) => `${t},${d},${(10 + i * 1.25).toFixed(2)},${1000 * (i + 1)}`), `DEMO-UNLISTED,${d},3.10,500`, `BAD-ROW,${d},not-a-number,10`].join('\n');
+    const res = ingestCsv(csv, FEED_SCHEMA);
+    await prisma.$transaction(async (tx) => {
+      const ref = await nextRef(tx, 'dataJob');
+      const job = await tx.dataIngestionJob.create({ data: { ref, sourceId: feed!.id, status: 'SUCCEEDED', rowsRead: res.rowsRead, rowsRejected: res.rejected.length, latestRecordAt: res.latestRecordAt, note: `${res.accepted.length} accepted from seed sample`, triggeredBy: actor, finishedAt: new Date(), fileName: 'seed-sample.csv' } });
+      if (res.rejected.length) await tx.dataRejectedRow.createMany({ data: res.rejected.map((r) => ({ jobId: job.id, rowNo: r.rowNo, reason: r.reason, raw: r.raw })) });
+      await tx.dataStagedRecord.createMany({ data: res.accepted.map((r) => ({ sourceId: feed!.id, jobId: job.id, rowNo: r.rowNo, recordKey: r.key, data: r.data as Prisma.InputJsonValue })) });
+      await tx.dataSource.update({ where: { id: feed!.id }, data: { lastSyncAt: new Date(), lastRowCount: res.accepted.length } });
+    });
+  }
+  let fr = 0;
+  for (const r of FEED_RULES) {
+    if (await prisma.dataQualityRule.findUnique({ where: { key: r.key }, select: { id: true } })) continue;
+    await prisma.dataQualityRule.create({ data: { key: r.key, name: r.name, sourceId: feed.id, dataset: `feed:${FEED_KEY}`, checkType: r.checkType, col: r.col, params: (r.params ?? Prisma.JsonNull) as Prisma.InputJsonValue, severity: r.severity, createdBy: actor } });
+    fr++;
+  }
+  log(`file feed ${FEED_KEY} ready, ${fr} feed rule(s) added`);
+
+  // ---- WP-6: month-end schedules use a rolling window; the NAV pricing model is bound (not enforced) so NAV runs log their use
+  await prisma.reportSchedule.updateMany({ where: { name: { startsWith: 'Monthly cash report' }, rolling: null }, data: { rolling: 'PREVIOUS_MONTH' } });
+  const navModel = await prisma.govModel.findFirst({ where: { name: 'NAV pricing and FX conversion', status: 'APPROVED' } });
+  if (navModel && !(await prisma.govModelBinding.findUnique({ where: { purpose: 'NAV_VALUATION' } }))) await prisma.govModelBinding.create({ data: { purpose: 'NAV_VALUATION', modelId: navModel.id, enforce: false, updatedBy: actor } });
+  const riskModel = await prisma.govModel.findFirst({ where: { name: 'Concentration limit monitor', status: 'APPROVED' } });
+  if (riskModel && !(await prisma.govModelBinding.findUnique({ where: { purpose: 'RISK_SCENARIO' } }))) await prisma.govModelBinding.create({ data: { purpose: 'RISK_SCENARIO', modelId: riskModel.id, enforce: false, updatedBy: actor } });
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

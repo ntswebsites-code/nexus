@@ -39,7 +39,11 @@ export const DATASETS: Dataset[] = [
 ];
 export const DATASET_MAP = new Map(DATASETS.map((d) => [d.key, d]));
 
-export const CHECK_TYPES = ['NOT_NULL', 'UNIQUE', 'RANGE', 'FRESHNESS', 'ORPHAN'] as const;
+export const CHECK_TYPES = ['NOT_NULL', 'UNIQUE', 'RANGE', 'FRESHNESS', 'ORPHAN', 'COMPOSITE_UQ', 'CROSS_TABLE', 'COL_COMPARE'] as const;
+/** Comparison operators of a COL_COMPARE rule: the stored op is a key here, never interpolated into SQL. */
+export const COMPARE_OPS: Record<string, string> = { lt: '<', lte: '<=', gt: '>', gte: '>=', eq: '=', ne: '<>' };
+export const FEED_PREFIX = 'feed:';
+export const COMPOSITE_MAX = 4;
 export type CheckType = (typeof CHECK_TYPES)[number];
 export const SEVERITIES = ['LOW', 'MEDIUM', 'HIGH'] as const;
 export const SOURCE_KINDS = ['TABLE', 'FILE_FEED', 'API', 'MANUAL'] as const;
@@ -54,20 +58,30 @@ export interface RuleSpec {
 }
 
 /** Returns the problems with a rule definition (empty when it is valid). */
-export function validateRule(r: RuleSpec): { path: string; message: string }[] {
+/** `feedCols` is given for a file-feed dataset (feed:<source key>); registry datasets pass nothing. */
+export function validateRule(r: RuleSpec, feedCols?: Record<string, ColType>): { path: string; message: string }[] {
   const errs: { path: string; message: string }[] = [];
   const ds = DATASET_MAP.get(r.dataset);
-  if (!ds) return [{ path: 'dataset', message: 'Unknown dataset' }];
+  if (!ds && !feedCols) return [{ path: 'dataset', message: 'Unknown dataset' }];
+  const cols: Record<string, ColType> = feedCols ?? ds!.cols;
+  const relations = feedCols ? {} : ds!.relations;
   if (!(CHECK_TYPES as readonly string[]).includes(r.checkType)) return [{ path: 'checkType', message: 'Unknown check type' }];
   const p = (r.params ?? {}) as Record<string, unknown>;
   if (r.checkType === 'ORPHAN') {
-    const rel = ds.relations[String(p.relation ?? '')];
-    if (!rel) errs.push({ path: 'params.relation', message: `Choose one of: ${Object.keys(ds.relations).join(', ') || 'none for this dataset'}` });
+    const rel = relations[String(p.relation ?? '')];
+    if (!rel) errs.push({ path: 'params.relation', message: `Choose one of: ${Object.keys(relations).join(', ') || 'none for this dataset'}` });
     else if (r.col !== rel.col) errs.push({ path: 'col', message: `This relation checks column ${rel.col}` });
     return errs;
   }
-  const t = ds.cols[r.col];
-  if (!t) return [{ path: 'col', message: `Unknown column; choose one of: ${Object.keys(ds.cols).join(', ')}` }];
+  if (r.checkType === 'COMPOSITE_UQ') {
+    const list = r.col.split(',').map((c) => c.trim());
+    if (list.length < 2 || list.length > COMPOSITE_MAX || new Set(list).size !== list.length) errs.push({ path: 'col', message: `Give 2 to ${COMPOSITE_MAX} different columns separated by commas` });
+    const bad = list.find((c) => !cols[c]);
+    if (bad) errs.push({ path: 'col', message: `Unknown column ${bad}; choose from: ${Object.keys(cols).join(', ')}` });
+    return errs;
+  }
+  const t = cols[r.col];
+  if (!t) return [{ path: 'col', message: `Unknown column; choose one of: ${Object.keys(cols).join(', ')}` }];
   if (r.checkType === 'RANGE') {
     if (t !== 'num') errs.push({ path: 'col', message: 'A range check needs a numeric column' });
     const min = p.min === undefined || p.min === null || p.min === '' ? null : Number(p.min);
@@ -75,6 +89,18 @@ export function validateRule(r: RuleSpec): { path: string; message: string }[] {
     if ((min !== null && !Number.isFinite(min)) || (max !== null && !Number.isFinite(max))) errs.push({ path: 'params', message: 'min and max must be numbers' });
     else if (min === null && max === null) errs.push({ path: 'params', message: 'Give a min, a max or both' });
     else if (min !== null && max !== null && min > max) errs.push({ path: 'params', message: 'min must not exceed max' });
+  }
+  if (r.checkType === 'CROSS_TABLE') {
+    const ref = DATASET_MAP.get(String(p.refDataset ?? ''));
+    if (!ref) errs.push({ path: 'params.refDataset', message: `Choose a reference dataset: ${DATASETS.map((d) => d.key).join(', ')}` });
+    else if (!ref.cols[String(p.refCol ?? '')] && p.refCol !== ref.keyCol) errs.push({ path: 'params.refCol', message: `Unknown reference column; choose from: ${[...Object.keys(ref.cols), ref.keyCol].join(', ')}` });
+  }
+  if (r.checkType === 'COL_COMPARE') {
+    const other = String(p.other ?? '');
+    if (!COMPARE_OPS[String(p.op ?? '')]) errs.push({ path: 'params.op', message: `Use one of: ${Object.keys(COMPARE_OPS).join(', ')}` });
+    if (!cols[other]) errs.push({ path: 'params.other', message: 'Unknown comparison column' });
+    else if (other === r.col) errs.push({ path: 'params.other', message: 'Compare two different columns' });
+    else if (cols[other] !== t || t === 'text') errs.push({ path: 'col', message: 'Both columns must be numeric or both dates' });
   }
   if (r.checkType === 'FRESHNESS') {
     if (t !== 'date') errs.push({ path: 'col', message: 'A freshness check needs a date column' });
@@ -148,6 +174,32 @@ export function compile(r: RuleSpec): Compiled {
       const join = `FROM ${from} LEFT JOIN ${q(rel.refTable)} r ON r.${q(rel.refCol)} = ${col}`;
       const cond = `${col} IS NOT NULL AND r.${q(rel.refCol)} IS NULL`;
       return { countSql, failCountSql: `SELECT COUNT(*) AS n ${join} ${and(cond)}`, failSql: `SELECT ${key} AS k, CONCAT('${r.col} ', CAST(${col} AS CHAR), ' has no matching ${rel.refTable} row') AS d ${join} ${and(cond)} ORDER BY t.${q(ds.keyCol)} LIMIT ${EXCEPTION_LIMIT}`, params: [] };
+    }
+    case 'COMPOSITE_UQ': {
+      const list = r.col.split(',').map((c) => c.trim());
+      const cs = list.map((c) => `t.${q(c)}`);
+      const nn = cs.map((c) => `${c} IS NOT NULL`).join(' AND ');
+      const grp = cs.join(', ');
+      const ck = `CONCAT_WS(' | ', ${cs.map((c) => `CAST(${c} AS CHAR)`).join(', ')})`;
+      return {
+        countSql,
+        failCountSql: `SELECT COALESCE(SUM(c), 0) AS n FROM (SELECT COUNT(*) AS c FROM ${from} ${and(nn)} GROUP BY ${grp} HAVING COUNT(*) > 1) x`,
+        failSql: `SELECT LEFT(${ck}, 80) AS k, CONCAT('Combination appears ', COUNT(*), ' times') AS d FROM ${from} ${and(nn)} GROUP BY ${grp} HAVING COUNT(*) > 1 ORDER BY COUNT(*) DESC LIMIT ${EXCEPTION_LIMIT}`,
+        params: [],
+      };
+    }
+    case 'CROSS_TABLE': {
+      const ref = DATASET_MAP.get(String(p.refDataset))!;
+      const refCol = String(p.refCol);
+      const join = `FROM ${from} LEFT JOIN ${q(ref.table)} r ON r.${q(refCol)} = ${col}`;
+      const cond = `${col} IS NOT NULL AND r.${q(refCol)} IS NULL`;
+      return { countSql, failCountSql: `SELECT COUNT(*) AS n ${join} ${and(cond)}`, failSql: `SELECT ${key} AS k, CONCAT('${r.col} ', CAST(${col} AS CHAR), ' not found in ${ref.key}.${refCol}') AS d ${join} ${and(cond)} ORDER BY t.${q(ds.keyCol)} LIMIT ${EXCEPTION_LIMIT}`, params: [] };
+    }
+    case 'COL_COMPARE': {
+      const op = COMPARE_OPS[String(p.op)]!;
+      const other = `t.${q(String(p.other))}`;
+      const cond = `${col} IS NOT NULL AND ${other} IS NOT NULL AND NOT (${col} ${op} ${other})`;
+      return { countSql, failCountSql: `SELECT COUNT(*) AS n FROM ${from} ${and(cond)}`, failSql: `SELECT ${key} AS k, CONCAT('${r.col} = ', CAST(${col} AS CHAR), ' is not ${String(p.op)} ${String(p.other)} = ', CAST(${other} AS CHAR)) AS d FROM ${from} ${and(cond)} ORDER BY t.${q(ds.keyCol)} LIMIT ${EXCEPTION_LIMIT}`, params: [] };
     }
   }
 }

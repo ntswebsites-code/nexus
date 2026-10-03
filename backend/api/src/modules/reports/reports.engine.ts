@@ -19,7 +19,7 @@ export interface ReportData {
 
 export const REPORT_KEYS = ['FACT_SHEET', 'HOLDINGS', 'TRANSACTIONS', 'NAV_PACK', 'CASH'] as const;
 export type ReportKey = (typeof REPORT_KEYS)[number];
-export const REPORT_FORMATS = ['CSV', 'JSON', 'HTML'] as const;
+export const REPORT_FORMATS = ['CSV', 'JSON', 'HTML', 'PDF'] as const;
 export type ReportFormat = (typeof REPORT_FORMATS)[number];
 export const FREQUENCIES = ['DAILY', 'WEEKLY', 'MONTHLY', 'QUARTERLY'] as const;
 export type Frequency = (typeof FREQUENCIES)[number];
@@ -29,6 +29,7 @@ export const FORMAT_META: Record<ReportFormat, { mime: string; ext: string }> = 
   // JSON and HTML are stored as opaque downloads so a browser never renders them from the API origin.
   JSON: { mime: 'application/octet-stream', ext: 'json' },
   HTML: { mime: 'application/octet-stream', ext: 'html' },
+  PDF: { mime: 'application/pdf', ext: 'pdf' },
 };
 
 /** Spreadsheet formula injection guard: text cells that start with a formula character are prefixed with a quote. */
@@ -86,7 +87,8 @@ td.n{text-align:right;font-variant-numeric:tabular-nums}.empty,.foot{color:#5760
 </style></head><body><h1>${esc(d.title)}</h1><dl>${d.meta.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>${sections}${(d.notes ?? []).map((n) => `<p class="foot">${esc(n)}</p>`).join('')}<p class="foot">Generated ${esc(generatedAt.toISOString())} from live data. Print this page to save it as a PDF.</p></body></html>`;
 }
 
-export function render(d: ReportData, format: ReportFormat, generatedAt: Date): string {
+/** Text formats only; PDF is rendered to bytes by `renderReportPdf` (pdf.ts). */
+export function render(d: ReportData, format: Exclude<ReportFormat, 'PDF'>, generatedAt: Date): string {
   if (format === 'CSV') return toCsv(d);
   if (format === 'HTML') return toHtml(d, generatedAt);
   return JSON.stringify({ generatedAt: generatedAt.toISOString(), ...d }, null, 2);
@@ -111,3 +113,47 @@ export function nextRunAfter(from: Date, f: Frequency): Date {
 }
 
 export const safeName = (s: string) => s.replace(/[^\w.\-]+/g, '_').slice(0, 80);
+
+// ---------------------------------------------------------------- rolling windows (schedules)
+
+export const ROLLING_WINDOWS = ['PREVIOUS_DAY', 'TRAILING_30D', 'MONTH_TO_DATE', 'PREVIOUS_MONTH', 'QUARTER_TO_DATE', 'PREVIOUS_QUARTER', 'YEAR_TO_DATE'] as const;
+export type RollingWindow = (typeof ROLLING_WINDOWS)[number];
+
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+const utc = (y: number, m: number, d: number) => new Date(Date.UTC(y, m, d));
+
+/** Inclusive date range (YYYY-MM-DD) a rolling window covers on `now` (UTC calendar). */
+export function rollingRange(w: RollingWindow, now: Date): { from: string; to: string } {
+  const y = now.getUTCFullYear();
+  const m = now.getUTCMonth();
+  const today = utc(y, m, now.getUTCDate());
+  const q = Math.floor(m / 3) * 3;
+  switch (w) {
+    case 'PREVIOUS_DAY': {
+      const d = utc(y, m, now.getUTCDate() - 1);
+      return { from: iso(d), to: iso(d) };
+    }
+    case 'TRAILING_30D':
+      return { from: iso(utc(y, m, now.getUTCDate() - 29)), to: iso(today) };
+    case 'MONTH_TO_DATE':
+      return { from: iso(utc(y, m, 1)), to: iso(today) };
+    case 'PREVIOUS_MONTH':
+      return { from: iso(utc(y, m - 1, 1)), to: iso(utc(y, m, 0)) };
+    case 'QUARTER_TO_DATE':
+      return { from: iso(utc(y, q, 1)), to: iso(today) };
+    case 'PREVIOUS_QUARTER':
+      return { from: iso(utc(y, q - 3, 1)), to: iso(utc(y, q, 0)) };
+    case 'YEAR_TO_DATE':
+      return { from: iso(utc(y, 0, 1)), to: iso(today) };
+  }
+}
+
+/**
+ * Re-dates a schedule's stored parameters for this run: range reports get from/to, point-in-time reports get asOf = the
+ * window's end. This is what stops a monthly schedule from repeating the same fixed dates every month.
+ */
+export function applyRolling(key: ReportKey, params: Record<string, unknown>, w: RollingWindow, now: Date): Record<string, unknown> {
+  const r = rollingRange(w, now);
+  if (key === 'TRANSACTIONS' || key === 'NAV_PACK') return { ...params, from: r.from, to: r.to };
+  return { ...params, asOf: r.to };
+}

@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { asList, coGet, coPost, NoAccess, rawGet, rawPost, StaffSelect, Tabs, Tile, Tone, type StaffUser } from '@/ops/clientops';
-import { useCan } from '@/ops/session';
+import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, Loaded, optStr, PageHeader, str, useResource } from '@/ops/ui';
 
 interface ClientRow {
@@ -37,6 +37,7 @@ interface Detail360 {
   requests: { open: number; recent: { id: string; title: string; status: string; type: string; slaDueAt: string | null }[] };
   portalUsers: { email: string; name: string | null; role: string; lastLoginAt: string | null }[];
   capitalEvents: number;
+  pendingChanges: number;
 }
 
 export default function ClientsPage() {
@@ -72,6 +73,7 @@ export default function ClientsPage() {
           </div>
         )}
       </Loaded>
+      <ChangeRequests onChanged={() => { list.reload(); summary.reload(); }} />
       <Card title="Clients">
         <div className="ops-filters">
           <Field label="Search">
@@ -191,7 +193,7 @@ function Client360({ id, canEdit, onChanged }: { id: string; canEdit: boolean; o
             actions={
               canEdit ? (
                 <>
-                  {c.dealingHold ? <button className="ops-btn" type="button" onClick={() => setDialog('release')}>Release dealing hold</button> : <button className="ops-btn" type="button" onClick={() => setDialog('hold')}>Place dealing hold</button>}
+                  {c.dealingHold ? <button className="ops-btn" type="button" onClick={() => setDialog('release')}>Request hold release</button> : <button className="ops-btn" type="button" onClick={() => setDialog('hold')}>Place dealing hold</button>}
                   <button className="ops-btn" type="button" onClick={() => setDialog('owner')}>Assign owner</button>
                   <button className="ops-btn" type="button" onClick={() => setDialog('review')}>Set review date</button>
                 </>
@@ -199,6 +201,7 @@ function Client360({ id, canEdit, onChanged }: { id: string; canEdit: boolean; o
             }
           >
             {c.dealingHold && <Alert kind="warn">Dealing hold in place: {c.holdReason}</Alert>}
+            {d.pendingChanges > 0 && <Alert kind="info">{d.pendingChanges} change request{d.pendingChanges === 1 ? '' : 's'} awaiting approval for this client (see Pending approvals above).</Alert>}
             <Tabs
               tabs={[
                 { key: 'overview', label: 'Overview' },
@@ -272,8 +275,8 @@ function Client360({ id, canEdit, onChanged }: { id: string; canEdit: boolean; o
                             <td>{m.type}</td>
                             <td><Tone value={m.status} /></td>
                             <td>
-                              {canEdit && m.status === 'Shell' && <ActionButton label="Activate" primary onRun={() => coPost(`/clients/${c.id}/mandates/${m.id}/status`, { status: 'Active' })} onDone={done} />}
-                              {canEdit && m.status === 'Active' && <ActionButton label="Close" danger confirm="Close this mandate? A closed mandate cannot be reopened." onRun={() => coPost(`/clients/${c.id}/mandates/${m.id}/status`, { status: 'Closed' })} onDone={done} />}
+                              {canEdit && m.status === 'Shell' && <ActionButton label="Request activation" primary confirm="Send this mandate for activation approval? A different person must approve." onRun={(k) => coPost(`/clients/${c.id}/change-requests`, { kind: 'MANDATE_STATUS', mandate: m.id, status: 'Active', reason: 'Mandate activation requested from the client record' }, k)} onDone={done} />}
+                              {canEdit && m.status === 'Active' && <ActionButton label="Request closure" danger confirm="Send this mandate for closure approval? A closed mandate cannot be reopened." onRun={(k) => coPost(`/clients/${c.id}/change-requests`, { kind: 'MANDATE_STATUS', mandate: m.id, status: 'Closed', reason: 'Mandate closure requested from the client record' }, k)} onDone={done} />}
                             </td>
                           </tr>
                         ))}
@@ -326,8 +329,8 @@ function Client360({ id, canEdit, onChanged }: { id: string; canEdit: boolean; o
               </FormModal>
             )}
             {dialog === 'release' && (
-              <FormModal title="Release dealing hold" kicker={c.name} subtitle="Requires a fresh authentication code." submitLabel="Release hold" onClose={() => setDialog(null)} onDone={done}
-                onSubmit={(fd, key) => coPost(`/clients/${c.id}/dealing-hold`, { hold: false, reason: str(fd, 'reason') }, key)}>
+              <FormModal title="Request release of dealing hold" kicker={c.name} subtitle="A different person must approve the release (maker-checker). The hold stays in place until they do." submitLabel="Send for approval" onClose={() => setDialog(null)} onDone={done}
+                onSubmit={(fd, key) => coPost(`/clients/${c.id}/change-requests`, { kind: 'DEALING_HOLD_RELEASE', reason: str(fd, 'reason') }, key)}>
                 <Field label="Reason for release"><textarea className="ops-input" name="reason" required minLength={5} /></Field>
               </FormModal>
             )}
@@ -375,6 +378,70 @@ function Client360({ id, canEdit, onChanged }: { id: string; canEdit: boolean; o
           </Card>
         );
       }}
+    </Loaded>
+  );
+}
+
+interface ChangeReq {
+  id: string;
+  kind: string;
+  client: string | null;
+  clientRef: string | null;
+  mandate: string | null;
+  mandateName: string | null;
+  from: string;
+  to: string;
+  reason: string;
+  maker: string | null;
+  makerId: string;
+  createdAt: string;
+}
+
+/** Pending maker-checker requests: dealing-hold releases and mandate activation or closure. */
+function ChangeRequests({ onChanged }: { onChanged: () => void }) {
+  const { user } = useSession();
+  const canApprove = useCan('onboarding.approve');
+  const res = useResource<ChangeReq[]>(() => coGet<{ data: ChangeReq[] }>('/change-requests', { status: 'PENDING' }).then(asList), []);
+  const [act, setAct] = useState<{ r: ChangeReq; kind: 'approve' | 'reject' } | null>(null);
+  const done = () => { res.reload(); onChanged(); };
+  return (
+    <Loaded res={res} what="pending approvals">
+      {(rows) =>
+        rows.length === 0 ? null : (
+          <Card title={`Pending approvals (${rows.length})`}>
+            <div className="ops-table-wrap">
+              <table className="ops-table">
+                <thead><tr><th>Client</th><th>Change</th><th>Reason</th><th>Requested by</th><th /></tr></thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.id}>
+                      <td><strong>{r.client}</strong><span className="ops-sub">{r.clientRef}</span></td>
+                      <td>{r.kind === 'DEALING_HOLD_RELEASE' ? 'Release dealing hold' : `Mandate ${r.mandate ?? ''}: ${r.from} to ${r.to}`}</td>
+                      <td>{r.reason}</td>
+                      <td>{r.maker}<span className="ops-sub">{formatDate(r.createdAt)}</span></td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        {canApprove && r.makerId !== user.id && (
+                          <>
+                            <button className="ops-btn small primary" type="button" onClick={() => setAct({ r, kind: 'approve' })}>Approve</button>{' '}
+                            <button className="ops-btn small" type="button" onClick={() => setAct({ r, kind: 'reject' })}>Reject</button>
+                          </>
+                        )}
+                        {r.makerId === user.id && <ActionButton label="Withdraw" onRun={() => coPost(`/change-requests/${r.id}/withdraw`, {})} onDone={done} />}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {act && (
+              <FormModal title={`${act.kind === 'approve' ? 'Approve' : 'Reject'}: ${act.r.client}`} subtitle={act.kind === 'approve' ? 'Needs a fresh authentication code. The change is applied immediately.' : undefined} submitLabel={act.kind === 'approve' ? 'Approve and apply' : 'Reject'} danger={act.kind === 'reject'} onClose={() => setAct(null)} onDone={done}
+                onSubmit={(fd, key) => coPost(`/change-requests/${act.r.id}/${act.kind}`, { note: str(fd, 'note') }, key)}>
+                <Field label="Note"><textarea className="ops-input" name="note" required minLength={5} maxLength={500} /></Field>
+              </FormModal>
+            )}
+          </Card>
+        )
+      }
     </Loaded>
   );
 }

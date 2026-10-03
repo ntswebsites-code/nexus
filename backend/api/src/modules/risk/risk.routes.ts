@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { assertModelUsable, logModelUse } from '../model-governance/mg.usage';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
@@ -551,6 +552,7 @@ async function runViews(rows: RunRow[]) {
 riskRoutes.post('/scenarios/:id/run', ...canManage, validateBody(runBody), idempotent('risk.scenario.run', { required: false }), async (req, res) => {
   const s = await loadScenario(param(req, 'id'));
   const b = req.body as z.infer<typeof runBody>;
+  await assertModelUsable('RISK_SCENARIO');
   const { portfolioId, result } = await computeScenario(b.portfolioId, s.shocks as object, b.asOf ? toDate(b.asOf) : undefined);
   const run = await prisma.$transaction(async (tx) => {
     const row = await tx.riskScenarioRun.create({
@@ -565,6 +567,7 @@ riskRoutes.post('/scenarios/:id/run', ...canManage, validateBody(runBody), idemp
     });
     return row;
   });
+  await logModelUse('RISK_SCENARIO', { context: `Scenario run: ${s.name}`, objectRef: run.id.slice(0, 8), userId: req.user!.id, audit: audit(req) });
   res.status(201).json({ data: (await runViews([run]))[0] });
 });
 

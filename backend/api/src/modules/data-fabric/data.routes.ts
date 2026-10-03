@@ -10,8 +10,11 @@ import { nextRef } from '../../lib/refs';
 import { param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess } from '../../middleware/requireAuth';
+import { storeFile } from '../../lib/storage';
+import { uploadFiles } from '../../middleware/upload';
 import { audit } from '../ops/ops.common';
-import { CADENCES, CHECK_TYPES, DATASETS, DATASET_MAP, SEVERITIES, SOURCE_KINDS, ageDays, compile, validateRule } from './data.engine';
+import { MAX_REJECTED_STORED, evalFeedRule, feedCols, ingestCsv, validateSchema, type FeedSchema } from './data.feed';
+import { CADENCES, CHECK_TYPES, DATASETS, DATASET_MAP, FEED_PREFIX, SEVERITIES, SOURCE_KINDS, ageDays, compile, validateRule, type ColType } from './data.engine';
 
 /**
  * Data Fabric & Studio (SRD 5.A page `data`, permission `operations.view`). Admin-portal staff only, mounted at
@@ -44,7 +47,8 @@ dataRoutes.get('/datasets', ...canView, async (_req, res) => {
     const m = await one<{ m: Date | null }>(`SELECT MAX(t.\`${d.freshCol}\`) AS m FROM \`${d.table}\` t ${d.base ? `WHERE ${d.base}` : ''}`);
     out.push({ key: d.key, label: d.label, table: d.table, columns: d.cols, relations: Object.keys(d.relations), freshnessColumn: d.freshCol, rows: num(c.n), latest: m.m ? new Date(m.m).toISOString() : null });
   }
-  res.json({ data: out, checkTypes: CHECK_TYPES, severities: SEVERITIES, kinds: SOURCE_KINDS, cadences: CADENCES });
+  const feeds = await prisma.dataSource.findMany({ where: { kind: 'FILE_FEED', schemaSpec: { not: Prisma.AnyNull } }, orderBy: { key: 'asc' }, take: 100 });
+  res.json({ feeds: feeds.map((f) => ({ dataset: `${FEED_PREFIX}${f.key}`, label: `${f.name} (file feed)`, sourceKey: f.key, columns: feedCols(f.schemaSpec as unknown as FeedSchema) })), data: out, checkTypes: CHECK_TYPES, severities: SEVERITIES, kinds: SOURCE_KINDS, cadences: CADENCES });
 });
 
 // ================================================================ sources
@@ -69,6 +73,7 @@ async function sourceViews(rows: SourceRow[]) {
     owner: s.owner,
     cadence: s.cadence,
     description: s.description,
+    schemaSpec: s.schemaSpec,
     status: s.status,
     lastSyncAt: s.lastSyncAt?.toISOString() ?? null,
     lastRowCount: s.lastRowCount,
@@ -129,7 +134,7 @@ dataRoutes.patch('/sources/:id', ...canManage, validateBody(sourcePatch), async 
 type JobRow = Prisma.DataIngestionJobGetPayload<{ include: { source: true } }>;
 async function jobViews(rows: JobRow[]) {
   const n = await names(rows.map((r) => r.triggeredBy));
-  return rows.map((j) => ({ id: j.id, ref: j.ref, sourceId: j.sourceId, source: j.source.name, sourceKey: j.source.key, status: j.status, rowsRead: j.rowsRead, rowsRejected: j.rowsRejected, latestRecordAt: j.latestRecordAt?.toISOString() ?? null, note: j.note, error: j.error, triggeredBy: n.get(j.triggeredBy) ?? null, startedAt: j.startedAt.toISOString(), finishedAt: j.finishedAt?.toISOString() ?? null }));
+  return rows.map((j) => ({ id: j.id, ref: j.ref, sourceId: j.sourceId, source: j.source.name, sourceKey: j.source.key, status: j.status, rowsRead: j.rowsRead, rowsRejected: j.rowsRejected, latestRecordAt: j.latestRecordAt?.toISOString() ?? null, note: j.note, error: j.error, triggeredBy: n.get(j.triggeredBy) ?? null, startedAt: j.startedAt.toISOString(), finishedAt: j.finishedAt?.toISOString() ?? null, fileName: j.fileName, fileSha256: j.fileSha256 }));
 }
 
 const jobsQuery = z.object({ sourceId: z.string().trim().max(36).optional(), status: z.enum(['SUCCEEDED', 'FAILED']).optional(), limit: z.coerce.number().int().min(1).max(200).default(50), offset: z.coerce.number().int().min(0).default(0) });
@@ -186,6 +191,92 @@ dataRoutes.post('/sources/:id/ingest', ...canManage, validateBody(ingestBody), i
   res.status(201).json({ data: (await jobViews([job]))[0] });
 });
 
+// ================================================================ file feeds (column contract, CSV upload, staged rows)
+
+const schemaBody = z.object({
+  keyColumn: z.string().trim().min(1).max(40),
+  columns: z.array(z.object({ name: z.string().trim().min(1).max(40), type: z.enum(['text', 'num', 'date']), required: z.boolean().default(false), unique: z.boolean().optional() }).strict()).min(1).max(40),
+}).strict();
+
+dataRoutes.put('/sources/:id/schema', ...canManage, validateBody(schemaBody), async (req, res) => {
+  const s = await loadSource(param(req, 'id'));
+  if (s.kind !== 'FILE_FEED') throw HttpError.badRequest('Validation failed', [{ path: 'kind', message: 'Only a file feed has a column contract' }]);
+  const b = req.body as z.infer<typeof schemaBody>;
+  const errs = validateSchema(b);
+  if (errs.length) throw HttpError.badRequest('Validation failed', errs);
+  const row = await prisma.$transaction(async (tx) => {
+    const u = await tx.dataSource.update({ where: { id: s.id }, data: { schemaSpec: b as unknown as Prisma.InputJsonValue } });
+    await writeAudit(tx, audit(req), { action: 'data.feed_schema_set', objectType: 'data_source', objectId: s.id, before: { schema: s.schemaSpec ?? null }, after: { schema: b } });
+    return u;
+  });
+  res.json({ data: (await sourceViews([row]))[0] });
+});
+
+/** Loads a CSV into a file feed: typed, validated, staged; refused rows are kept with the reason. Replaces the previous staged load. */
+dataRoutes.post('/sources/:id/upload', ...canManage, uploadFiles('file', 1), async (req, res) => {
+  const s = await loadSource(param(req, 'id'));
+  if (s.kind !== 'FILE_FEED') throw HttpError.badRequest('Only a file-feed source accepts an upload');
+  if (s.status === 'PAUSED') throw HttpError.conflict(`${s.name} is paused; resume it first`, 'source_paused');
+  if (!s.schemaSpec) throw HttpError.conflict('Define the column contract for this feed before uploading', 'schema_required');
+  const file = req.file;
+  if (!file) throw HttpError.badRequest('Attach a CSV file');
+  const spec = s.schemaSpec as unknown as FeedSchema;
+  const text = file.buffer.toString('utf8');
+  const result = ingestCsv(text, spec);
+  const startedAt = new Date();
+  const status = result.headerError || (result.rowsRead > 0 && result.accepted.length === 0) ? 'FAILED' : 'SUCCEEDED';
+  const error = result.headerError ?? (status === 'FAILED' ? `All ${result.rowsRead} rows were rejected` : null);
+  const job = await prisma.$transaction(
+    async (tx) => {
+      const stored = await storeFile({ name: file.originalname, mime: file.mimetype === 'application/vnd.ms-excel' ? 'text/csv' : file.mimetype || 'text/csv', data: file.buffer, uploadedById: req.user!.id }, tx);
+      if (status === 'SUCCEEDED' && (await tx.dataIngestionJob.findFirst({ where: { sourceId: s.id, status: 'SUCCEEDED', fileSha256: stored.sha256 }, orderBy: { startedAt: 'desc' }, select: { id: true } }))) {
+        const latest = await tx.dataIngestionJob.findFirst({ where: { sourceId: s.id, status: 'SUCCEEDED' }, orderBy: { startedAt: 'desc' }, select: { fileSha256: true } });
+        if (latest?.fileSha256 === stored.sha256) throw HttpError.conflict('This exact file was already loaded as the latest load', 'duplicate_file');
+      }
+      const ref = await nextRef(tx, 'dataJob');
+      const j = await tx.dataIngestionJob.create({
+        data: { ref, sourceId: s.id, status, rowsRead: result.rowsRead, rowsRejected: result.rejected.length, latestRecordAt: result.latestRecordAt, note: `${result.accepted.length} accepted from ${file.originalname}`.slice(0, 500), error, triggeredBy: req.user!.id, startedAt, finishedAt: new Date(), fileId: stored.id, fileName: stored.name, fileSha256: stored.sha256 },
+        include: { source: true },
+      });
+      if (result.rejected.length) await tx.dataRejectedRow.createMany({ data: result.rejected.slice(0, MAX_REJECTED_STORED).map((r) => ({ jobId: j.id, rowNo: r.rowNo, reason: r.reason, raw: r.raw })) });
+      if (status === 'SUCCEEDED') {
+        await tx.dataStagedRecord.deleteMany({ where: { sourceId: s.id } });
+        for (let i = 0; i < result.accepted.length; i += 1000) {
+          await tx.dataStagedRecord.createMany({ data: result.accepted.slice(i, i + 1000).map((r) => ({ sourceId: s.id, jobId: j.id, rowNo: r.rowNo, recordKey: r.key, data: r.data as Prisma.InputJsonValue })) });
+        }
+        await tx.dataSource.update({ where: { id: s.id }, data: { lastSyncAt: j.finishedAt, lastRowCount: result.accepted.length, status: 'ACTIVE' } });
+      } else await tx.dataSource.update({ where: { id: s.id }, data: { status: 'ERROR' } });
+      await writeAudit(tx, audit(req), { action: status === 'SUCCEEDED' ? 'data.feed_loaded' : 'data.feed_load_failed', objectType: 'data_source', objectId: s.id, after: { job: ref, file: stored.name, sha256: stored.sha256, rowsRead: result.rowsRead, accepted: result.accepted.length, rejected: result.rejected.length, error } });
+      return j;
+    },
+    { timeout: 120_000, maxWait: 10_000 },
+  );
+  res.status(201).json({ data: { ...(await jobViews([job]))[0], accepted: result.accepted.length } });
+});
+
+const stagedQuery = z.object({ limit: z.coerce.number().int().min(1).max(200).default(50), offset: z.coerce.number().int().min(0).default(0) });
+dataRoutes.get('/sources/:id/staged', ...canView, validateQuery(stagedQuery), async (req, res) => {
+  const s = await loadSource(param(req, 'id'));
+  const f = query<z.infer<typeof stagedQuery>>(req);
+  const [rows, total] = await Promise.all([prisma.dataStagedRecord.findMany({ where: { sourceId: s.id }, orderBy: { rowNo: 'asc' }, take: f.limit, skip: f.offset }), prisma.dataStagedRecord.count({ where: { sourceId: s.id } })]);
+  res.json({ data: rows.map((r) => ({ rowNo: r.rowNo, key: r.recordKey, values: r.data })), total, columns: (s.schemaSpec as unknown as FeedSchema | null)?.columns ?? [] });
+});
+
+dataRoutes.get('/jobs/:id/rejected', ...canView, async (req, res) => {
+  const j = await prisma.dataIngestionJob.findFirst({ where: UUID.test(param(req, 'id')) ? { id: param(req, 'id') } : { ref: param(req, 'id') }, select: { id: true } });
+  if (!j) throw HttpError.notFound('Job not found');
+  const rows = await prisma.dataRejectedRow.findMany({ where: { jobId: j.id }, orderBy: { rowNo: 'asc' }, take: MAX_REJECTED_STORED });
+  res.json({ data: rows.map((r) => ({ rowNo: r.rowNo, reason: r.reason, raw: r.raw })) });
+});
+
+/** The columns a rule dataset offers: feed columns for `feed:<key>`, else null (registry validation applies). */
+async function feedContext(dataset: string): Promise<{ cols: Record<string, ColType>; source: Prisma.DataSourceGetPayload<object> } | null> {
+  if (!dataset.startsWith(FEED_PREFIX)) return null;
+  const src = await prisma.dataSource.findUnique({ where: { key: dataset.slice(FEED_PREFIX.length) } });
+  if (!src || src.kind !== 'FILE_FEED' || !src.schemaSpec) throw HttpError.badRequest('Validation failed', [{ path: 'dataset', message: 'Unknown file feed, or it has no column contract yet' }]);
+  return { cols: feedCols(src.schemaSpec as unknown as FeedSchema), source: src };
+}
+
 // ================================================================ quality rules
 
 type RuleRow = Prisma.DataQualityRuleGetPayload<{ include: { source: { select: { key: true; name: true } } } }>;
@@ -219,7 +310,7 @@ const ruleBody = z
   .object({
     key: z.string().trim().regex(/^[a-z0-9][a-z0-9_.-]{2,59}$/, 'Use 3-60 characters: lower case letters, digits, . _ -'),
     name: z.string().trim().min(3).max(200),
-    dataset: z.string().trim().min(1).max(40),
+    dataset: z.string().trim().min(1).max(64),
     checkType: z.enum(CHECK_TYPES),
     col: z.string().trim().min(1).max(60),
     params: z.record(z.string(), z.unknown()).optional(),
@@ -231,10 +322,11 @@ const rulePatch = z.object({ name: z.string().trim().min(3).max(200), severity: 
 
 dataRoutes.post('/rules', ...canManage, validateBody(ruleBody), idempotent('data.rule_create'), async (req, res) => {
   const b = req.body as z.infer<typeof ruleBody>;
-  const errs = validateRule(b);
+  const feed = await feedContext(b.dataset);
+  const errs = validateRule(b, feed?.cols);
   if (errs.length) throw HttpError.badRequest('Validation failed', errs);
   if (await prisma.dataQualityRule.findUnique({ where: { key: b.key }, select: { id: true } })) throw HttpError.conflict(`A rule with key ${b.key} already exists`, 'duplicate_rule');
-  const src = b.sourceKey ? await prisma.dataSource.findUnique({ where: { key: b.sourceKey } }) : null;
+  const src = feed ? feed.source : b.sourceKey ? await prisma.dataSource.findUnique({ where: { key: b.sourceKey } }) : null;
   if (b.sourceKey && !src) throw HttpError.badRequest('Validation failed', [{ path: 'sourceKey', message: 'Unknown source' }]);
   const row = await prisma.$transaction(async (tx) => {
     const r = await tx.dataQualityRule.create({ data: { key: b.key, name: b.name, sourceId: src?.id ?? null, dataset: b.dataset, checkType: b.checkType, col: b.col, params: (b.params ?? Prisma.JsonNull) as Prisma.InputJsonValue, severity: b.severity, createdBy: req.user!.id }, include: ruleInclude });
@@ -248,7 +340,7 @@ dataRoutes.patch('/rules/:id', ...canManage, validateBody(rulePatch), async (req
   const r = await loadRule(param(req, 'id'));
   const b = req.body as z.infer<typeof rulePatch>;
   if (b.params) {
-    const errs = validateRule({ dataset: r.dataset, checkType: r.checkType, col: r.col, params: b.params });
+    const errs = validateRule({ dataset: r.dataset, checkType: r.checkType, col: r.col, params: b.params }, (await feedContext(r.dataset))?.cols);
     if (errs.length) throw HttpError.badRequest('Validation failed', errs);
   }
   const row = await prisma.$transaction(async (tx) => {
@@ -269,6 +361,24 @@ async function executeRule(req: Request, rule: Prisma.DataQualityRuleGetPayload<
   let summary: string | null = null;
   let found: { k: string; d: string }[] = [];
   try {
+    const feed = await feedContext(rule.dataset);
+    if (feed) {
+      const rows = (await prisma.dataStagedRecord.findMany({ where: { sourceId: feed.source.id }, select: { recordKey: true, data: true }, take: 100_000 })).map((r) => ({ key: r.recordKey, data: r.data as Record<string, unknown> }));
+      if (!rows.length) throw new Error('The feed has no staged rows; upload a file first');
+      let refValues: Set<string> | null = null;
+      if (rule.checkType === 'CROSS_TABLE') {
+        const p = (rule.params ?? {}) as { refDataset: string; refCol: string };
+        const ref = DATASET_MAP.get(p.refDataset);
+        if (!ref || (!ref.cols[p.refCol] && p.refCol !== ref.keyCol)) throw new Error('Reference dataset or column is not in the registry');
+        refValues = new Set((await prisma.$queryRawUnsafe<{ v: string }[]>(`SELECT DISTINCT CAST(t.\`${p.refCol}\` AS CHAR) AS v FROM \`${ref.table}\` t ${ref.base ? `WHERE ${ref.base}` : ''} LIMIT 500000`)).map((x) => x.v));
+      }
+      const out = evalFeedRule({ checkType: rule.checkType, col: rule.col, params: rule.params }, rows, feed.cols, refValues);
+      rowsChecked = out.rowsChecked;
+      failures = out.failures;
+      found = out.found;
+      status = failures ? 'FAIL' : 'PASS';
+      summary = failures ? `${failures} failing of ${rowsChecked}` : `${rowsChecked} rows checked, no failures`;
+    } else {
     const c = compile({ dataset: rule.dataset, checkType: rule.checkType, col: rule.col, params: rule.params });
     rowsChecked = num((await one<{ n: bigint }>(c.countSql)).n);
     if (c.freshness) {
@@ -284,6 +394,7 @@ async function executeRule(req: Request, rule: Prisma.DataQualityRuleGetPayload<
     }
     status = failures ? 'FAIL' : 'PASS';
     summary = failures ? `${failures} failing of ${rowsChecked}` : `${rowsChecked} rows checked, no failures`;
+    }
   } catch (e) {
     status = 'ERROR';
     summary = (e instanceof Error ? e.message : String(e)).slice(0, 480);

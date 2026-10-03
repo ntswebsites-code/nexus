@@ -61,6 +61,7 @@ coClientsRoutes.get('/clients/:id/360', requirePermission('clients.view'), async
   ]);
   const openRequests = requests.filter((r) => r.status !== 'Closed');
   res.json({
+    pendingChanges: await prisma.clientChangeRequest.count({ where: { clientId: client.id, status: 'PENDING' } }),
     client: { ...clientView(row), dealingHold: client.dealingHold, holdReason: client.holdReason, country: client.country, relationshipOwnerId: client.relationshipOwnerId },
     mandates: row.mandates.map((m) => ({ id: m.ref, name: m.name, type: m.type, status: m.status })),
     cashAccounts: accounts.map((a) => ({ ...cashAccountView(a), status: a.status })),
@@ -90,6 +91,7 @@ coClientsRoutes.post('/clients/:id/dealing-hold', requirePermission('clients.edi
   {
     const b = req.body as z.infer<typeof holdSchema>;
     const client = await findClientByRef(param(req, 'id'));
+    if (!b.hold) throw new HttpError(409, 'checker_required', 'Releasing a dealing hold needs a second person: submit a change request (POST /clients/:id/change-requests)', { kind: 'DEALING_HOLD_RELEASE' });
     if (client.dealingHold === b.hold) throw HttpError.conflict(b.hold ? 'The client is already on dealing hold' : 'The client is not on dealing hold', 'invalid_state');
     await prisma.$transaction(async (tx) => {
       const n = await tx.client.updateMany({ where: { id: client.id, dealingHold: client.dealingHold }, data: { dealingHold: b.hold, holdReason: b.hold ? b.reason : null, updatedBy: req.user!.id, version: { increment: 1 } } });
@@ -135,6 +137,7 @@ coClientsRoutes.post('/clients/:id/mandates/:mref/status', requirePermission('cl
   const to = req.body.status as 'Shell' | 'Active' | 'Closed';
   if (m.status === to) throw HttpError.conflict(`The mandate is already ${to}`, 'invalid_state');
   if (m.status === 'Closed') throw HttpError.conflict('A closed mandate cannot be reopened; create a new mandate', 'invalid_state');
+  if ((to as string) !== 'Shell') throw new HttpError(409, 'checker_required', `Moving a mandate to ${to} needs a second person: submit a change request (POST /clients/:id/change-requests)`, { kind: 'MANDATE_STATUS', status: to });
   if (to === 'Active') {
     const blockers: string[] = [];
     if (client.kycStatus !== 'Current') blockers.push(`KYC is ${client.kycStatus}; it must be Current`);

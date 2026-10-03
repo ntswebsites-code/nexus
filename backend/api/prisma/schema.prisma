@@ -3192,6 +3192,8 @@ model PmEvidence {
   /// Document reference (vault ref or URL); the file itself lives in the document vault.
   reference String?  @db.VarChar(255)
   note      String?  @db.VarChar(500)
+  /// WP-6: vault document holding the evidence file.
+  documentId String? @map("document_id") @db.Char(36)
   addedBy   String   @map("added_by") @db.Char(36)
   createdAt DateTime @default(now()) @map("created_at")
 
@@ -3571,6 +3573,9 @@ model ReportRun {
   distributedBy String?   @map("distributed_by") @db.Char(36)
   /// Documents row created when the run was distributed to the LP portal.
   documentId    String?   @map("document_id") @db.Char(36)
+  /// WP-6: when the scheduled run was e-mailed, and the outcome note.
+  deliveredAt   DateTime? @map("delivered_at")
+  deliveryNote  String?   @map("delivery_note") @db.VarChar(300)
   createdAt     DateTime  @default(now()) @map("created_at")
 
   definition ReportDefinition @relation(fields: [definitionId], references: [id])
@@ -3592,6 +3597,10 @@ model ReportSchedule {
   lastRunAt    DateTime? @map("last_run_at")
   lastRunId    String?   @map("last_run_id") @db.Char(36)
   active       Boolean   @default(true)
+  /// WP-6: recipients (JSON array of emails) the completed run is mailed to.
+  recipients   Json?
+  /// WP-6: rolling date window applied at every run (PREVIOUS_DAY, MONTH_TO_DATE, PREVIOUS_MONTH, ...); null keeps the stored dates.
+  rolling      String?   @db.VarChar(24)
   createdBy    String    @map("created_by") @db.Char(36)
   createdAt    DateTime  @default(now()) @map("created_at")
   updatedAt    DateTime  @updatedAt @map("updated_at")
@@ -3696,6 +3705,8 @@ model DataSource {
   description  String?   @db.VarChar(500)
   /// ACTIVE | PAUSED | ERROR
   status       String    @default("ACTIVE") @db.VarChar(8)
+  /// WP-6: FILE_FEED column contract { columns: [{ name, type: text|num|date, required, unique? }], keyColumn }.
+  schemaSpec   Json?     @map("schema_spec")
   lastSyncAt   DateTime? @map("last_sync_at")
   lastRowCount Int?      @map("last_row_count")
   createdBy    String    @map("created_by") @db.Char(36)
@@ -3722,6 +3733,10 @@ model DataIngestionJob {
   note           String?   @db.VarChar(500)
   error          String?   @db.VarChar(500)
   triggeredBy    String    @map("triggered_by") @db.Char(36)
+  /// WP-6: uploaded feed file (file feeds only).
+  fileId         String?   @map("file_id") @db.Char(36)
+  fileName       String?   @map("file_name") @db.VarChar(255)
+  fileSha256     String?   @map("file_sha256") @db.Char(64)
   startedAt      DateTime  @default(now()) @map("started_at")
   finishedAt     DateTime? @map("finished_at")
 
@@ -3736,7 +3751,8 @@ model DataQualityRule {
   key       String   @unique @db.VarChar(60)
   name      String   @db.VarChar(200)
   sourceId  String?  @map("source_id") @db.Char(36)
-  dataset   String   @db.VarChar(40)
+  /// A registry dataset key, or feed:<source key> for a file feed (WP-6).
+  dataset   String   @db.VarChar(64)
   /// NOT_NULL | UNIQUE | RANGE | FRESHNESS | ORPHAN
   checkType String   @map("check_type") @db.VarChar(12)
   col       String   @db.VarChar(60)
@@ -4004,3 +4020,110 @@ model CopilotQuery {
 }
 
 // ---- end Admin Core ----
+
+// ---- WP6 ReportsDataModelsVault ----
+
+/// Configurable KYC risk factor (points) or rating threshold. kind THRESHOLD rows are rating cut-offs (HIGH, MEDIUM).
+model KycRiskFactor {
+  id        String   @id @default(uuid()) @db.Char(36)
+  key       String   @unique @db.VarChar(32)
+  /// FACTOR | THRESHOLD
+  kind      String   @default("FACTOR") @db.VarChar(10)
+  label     String   @db.VarChar(160)
+  points    Int
+  enabled   Boolean  @default(true)
+  /// Optional factor parameters, for example { countries: [...] }.
+  params    Json?
+  updatedBy String?  @map("updated_by") @db.Char(36)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("kyc_risk_factors")
+}
+
+/// Maker-checker request to release a dealing hold or to activate/close a mandate.
+model ClientChangeRequest {
+  id           String    @id @default(uuid()) @db.Char(36)
+  /// DEALING_HOLD_RELEASE | MANDATE_STATUS
+  kind         String    @db.VarChar(24)
+  clientId     String    @map("client_id") @db.Char(36)
+  /// Mandate id for MANDATE_STATUS.
+  targetId     String?   @map("target_id") @db.Char(36)
+  /// The requested end state, for example Active or Closed.
+  toValue      String    @map("to_value") @db.VarChar(24)
+  fromValue    String    @map("from_value") @db.VarChar(24)
+  reason       String    @db.VarChar(500)
+  /// PENDING | APPROVED | REJECTED | WITHDRAWN
+  status       String    @default("PENDING") @db.VarChar(10)
+  makerId      String    @map("maker_id") @db.Char(36)
+  checkerId    String?   @map("checker_id") @db.Char(36)
+  decisionNote String?   @map("decision_note") @db.VarChar(500)
+  decidedAt    DateTime? @map("decided_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@index([clientId, status])
+  @@map("client_change_requests")
+}
+
+/// Periodic model review: OPEN -> SUBMITTED (reviewer records an outcome) -> COMPLETED (a different person approves).
+model GovModelReview {
+  id           String    @id @default(uuid()) @db.Char(36)
+  modelId      String    @map("model_id") @db.Char(36)
+  dueOn        DateTime  @map("due_on") @db.Date
+  /// OPEN | SUBMITTED | COMPLETED | CANCELLED
+  status       String    @default("OPEN") @db.VarChar(10)
+  openedBy     String    @map("opened_by") @db.Char(36)
+  openedAt     DateTime  @default(now()) @map("opened_at")
+  reviewerId   String?   @map("reviewer_id") @db.Char(36)
+  /// CONFIRMED | CHANGES_REQUIRED | RETIRE
+  outcome      String?   @db.VarChar(16)
+  findings     String?   @db.VarChar(2000)
+  submittedAt  DateTime? @map("submitted_at")
+  approverId   String?   @map("approver_id") @db.Char(36)
+  decisionNote String?   @map("decision_note") @db.VarChar(500)
+  nextReviewOn DateTime? @map("next_review_on") @db.Date
+  completedAt  DateTime? @map("completed_at")
+
+  @@index([modelId, status])
+  @@index([status, dueOn])
+  @@map("gov_model_reviews")
+}
+
+/// Which approved model a platform calculation uses (NAV_VALUATION, RISK_SCENARIO). enforce blocks the calculation when the model is not usable.
+model GovModelBinding {
+  id        String   @id @default(uuid()) @db.Char(36)
+  purpose   String   @unique @db.VarChar(24)
+  modelId   String   @map("model_id") @db.Char(36)
+  enforce   Boolean  @default(false)
+  updatedBy String   @map("updated_by") @db.Char(36)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("gov_model_bindings")
+}
+
+/// Accepted rows of the latest load of a file-feed data source.
+model DataStagedRecord {
+  id        String   @id @default(uuid()) @db.Char(36)
+  sourceId  String   @map("source_id") @db.Char(36)
+  jobId     String   @map("job_id") @db.Char(36)
+  rowNo     Int      @map("row_no")
+  recordKey String   @map("record_key") @db.VarChar(80)
+  data      Json
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([sourceId, jobId])
+  @@map("data_staged_records")
+}
+
+/// Rows a feed load refused, with the reason.
+model DataRejectedRow {
+  id     String @id @default(uuid()) @db.Char(36)
+  jobId  String @map("job_id") @db.Char(36)
+  rowNo  Int    @map("row_no")
+  reason String @db.VarChar(300)
+  raw    String @db.VarChar(1000)
+
+  @@index([jobId])
+  @@map("data_rejected_rows")
+}
+// ---- end WP6 ReportsDataModelsVault ----

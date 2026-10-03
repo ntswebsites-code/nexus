@@ -1,7 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { asList, coGet, coPost, NoAccess, rawGet, Tabs, Tile, Tone } from '@/ops/clientops';
+import { asList, coGet, coPost, NoAccess, rawGet, rawPost, Tabs, Tile, Tone } from '@/ops/clientops';
+import { upload } from '@/ops/suite';
 import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
 
@@ -33,7 +34,7 @@ interface Summary {
 }
 interface Change { id: string; document: string | null; name: string | null; kind: string; from: string; to: string; reason: string; status: string; maker: string | null; makerId: string; at: string }
 interface Detail {
-  document: Doc & { label: string | null; relatedLabel: string | null; period: string | null };
+  document: Doc & { uuid: string; label: string | null; relatedLabel: string | null; period: string | null };
   versions: { version: number; sha256: string; file: string | null; size: string; scan: string | null; by: string | null; at: string }[];
   holds: { id: string; reason: string; placedBy: string | null; placedById: string; placedAt: string; releasedAt: string | null; releasedBy: string | null; releaseNote: string | null }[];
   changes: Change[];
@@ -47,7 +48,9 @@ const TYPES = ['report', 'statement', 'capital', 'legal', 'tax', 'kyc', 'company
 export default function VaultPage() {
   const canView = useCan('documents.view');
   const canApprove = useCan('documents.approve');
-  const [tab, setTab] = useState<'register' | 'changes' | 'access'>('register');
+  const canEditDocs = useCan('documents.edit');
+  const [uploading, setUploading] = useState(false);
+  const [tab, setTab] = useState<'register' | 'changes' | 'evidence' | 'access'>('register');
   const [q, setQ] = useState('');
   const [type, setType] = useState('');
   const [cls, setCls] = useState('');
@@ -63,7 +66,8 @@ export default function VaultPage() {
   if (!canView) return <NoAccess kicker="Clients" title="Document Vault" perm="documents.view" />;
   return (
     <>
-      <PageHeader kicker="Clients" title="Document Vault" subtitle="Register of every document with classification, retention, legal holds, versions and access history, linked to clients and funds." />
+      <PageHeader kicker="Clients" title="Document Vault" subtitle="Register of every document with classification, retention, legal holds, versions and access history, linked to clients and funds."
+        actions={canEditDocs ? <button className="ops-btn primary" type="button" onClick={() => setUploading(true)}>Upload document</button> : undefined} />
       <Loaded res={summary} what="vault summary">
         {(s) => (
           <div className="ops-tiles">
@@ -75,7 +79,7 @@ export default function VaultPage() {
           </div>
         )}
       </Loaded>
-      <Tabs tabs={[{ key: 'register', label: 'Register' }, { key: 'changes', label: 'Pending changes' }, ...(canApprove ? [{ key: 'access' as const, label: 'Access log' }] : [])]} value={tab} onChange={setTab} />
+      <Tabs tabs={[{ key: 'register', label: 'Register' }, { key: 'changes', label: 'Pending changes' }, { key: 'evidence', label: 'Valuation evidence' }, ...(canApprove ? [{ key: 'access' as const, label: 'Access log' }] : [])]} value={tab} onChange={setTab} />
       {tab === 'register' && (
         <Card title="Documents">
           <div className="ops-filters">
@@ -113,7 +117,33 @@ export default function VaultPage() {
         </Card>
       )}
       {tab === 'changes' && <Changes onDone={reload} />}
+      {tab === 'evidence' && <PmEvidence onDone={reload} />}
       {tab === 'access' && <AccessLog />}
+      {uploading && (
+        <FormModal
+          title="Upload document"
+          kicker="Document Vault"
+          subtitle="The file is encrypted and hashed. It starts as a Draft; submit it for review from the document, a different person approves it."
+          submitLabel="Upload"
+          onClose={() => setUploading(false)}
+          onDone={reload}
+          onSubmit={async (fd) => {
+            const f = fd.get('file');
+            if (!(f instanceof File) || !f.size) throw new Error('Choose a file');
+            return upload('/api/v1/documents', f, { name: str(fd, 'name') || f.name, type: str(fd, 'type'), classification: str(fd, 'classification'), clientId: str(fd, 'clientId'), documentDate: str(fd, 'documentDate'), retentionYears: str(fd, 'retentionYears') });
+          }}
+        >
+          <FieldGrid>
+            <Field label="File" span={2}><input className="ops-input" type="file" name="file" required /></Field>
+            <Field label="Name (optional)" hint="Defaults to the file name" span={2}><input className="ops-input" name="name" maxLength={255} /></Field>
+            <Field label="Type"><select className="ops-input" name="type" defaultValue="other">{TYPES.map((t) => <option key={t}>{t}</option>)}</select></Field>
+            <Field label="Classification"><select className="ops-input" name="classification" defaultValue="Internal">{CLASSES.map((t) => <option key={t}>{t}</option>)}</select></Field>
+            <Field label="Client (optional)"><select className="ops-input" name="clientId" defaultValue=""><option value="">None</option>{(clients.state === 'ok' ? clients.data : []).map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></Field>
+            <Field label="Document date (optional)"><input className="ops-input" type="date" name="documentDate" /></Field>
+            <Field label="Retention (years)"><input className="ops-input" type="number" name="retentionYears" min={1} max={50} defaultValue={7} /></Field>
+          </FieldGrid>
+        </FormModal>
+      )}
       {open && <DocModal id={open} clients={clients.state === 'ok' ? clients.data : []} funds={(funds.state === 'ok' ? funds.data : []).filter((f) => f.ref)} onClose={() => setOpen(null)} onChanged={reload} />}
     </>
   );
@@ -190,7 +220,7 @@ function AccessLog() {
   );
 }
 
-type Dlg = 'classification' | 'retention' | 'hold' | 'link' | { release: string } | null;
+type Dlg = 'classification' | 'retention' | 'hold' | 'link' | 'version' | 'dispose' | { release: string } | null;
 
 function DocModal({ id, clients, funds, onClose, onChanged }: { id: string; clients: { id: string; name: string }[]; funds: { id: string; ref?: string; name: string }[]; onClose: () => void; onChanged: () => void }) {
   const edit = useCan('documents.edit');
@@ -228,7 +258,21 @@ function DocModal({ id, clients, funds, onClose, onChanged }: { id: string; clie
                   {edit && <button className="ops-btn" type="button" onClick={() => setDlg('link')}>Link client / fund</button>}
                   {edit && !hold && <button className="ops-btn" type="button" onClick={() => setDlg('hold')}>Place legal hold</button>}
                   {approve && hold && hold.placedById !== user.id && <button className="ops-btn" type="button" onClick={() => setDlg({ release: hold.id })}>Release legal hold</button>}
+                  {edit && doc.status !== 'Disposed' && doc.status !== 'Superseded' && <button className="ops-btn" type="button" onClick={() => setDlg('version')}>Upload new version</button>}
+                  {edit && doc.retention === 'Disposal eligible' && !hold && doc.status !== 'Disposed' && !doc.pendingChanges && <button className="ops-btn danger" type="button" onClick={() => setDlg('dispose')}>Request disposal</button>}
                 </p>
+                {doc.status === 'Disposed' && <Alert kind="warn">This document was disposed at the end of its retention period. The record, version hashes and audit trail remain; the file can no longer be downloaded.</Alert>}
+                {edit && ['Draft', 'In review', 'Approved', 'Published'].includes(doc.status) && (
+                  <p style={{ display: 'flex', gap: 6, flexWrap: 'wrap', alignItems: 'center' }}>
+                    <span className="ops-sub">Lifecycle: {doc.status}</span>
+                    {doc.status === 'Draft' && <ActionButton label="Submit for review" primary onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/submit`, {})} onDone={done} />}
+                    {doc.status === 'In review' && <ActionButton label="Approve" primary title="Needs a fresh authentication code; a different person from the one who submitted" onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/approve`, {})} onDone={done} />}
+                    {(doc.status === 'In review' || doc.status === 'Approved') && <ActionButton label="Return to draft" onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/return`, { reason: 'Returned from the vault for changes' })} onDone={done} />}
+                    {doc.status === 'Approved' && ['Client', 'Public'].includes(doc.classification) && (
+                      <ActionButton label="Publish to client" disabled={!doc.clientRef} title={doc.clientRef ? undefined : 'Link the document to a client first'} confirm="Publish this document to the linked client's portal?" onRun={() => rawPost(`/api/v1/documents/${doc.uuid}/publish`, { clientIds: [doc.clientRef] })} onDone={done} />
+                    )}
+                  </p>
+                )}
                 <Tabs tabs={[{ key: 'versions', label: `Versions (${d.versions.length})` }, { key: 'access', label: `Access (${d.accessLog.length})` }, { key: 'changes', label: `Changes & holds (${d.changes.length + d.holds.length})` }]} value={tab} onChange={setTab} />
                 {tab === 'versions' && (
                   <div className="ops-table-wrap">
@@ -273,6 +317,22 @@ function DocModal({ id, clients, funds, onClose, onChanged }: { id: string; clie
                     </FieldGrid>
                   </FormModal>
                 )}
+                {dlg === 'version' && (
+                  <FormModal title="Upload new version" kicker={doc.id} subtitle="A new version returns the document to Draft and withdraws it from investors until it is approved again." submitLabel="Upload" onClose={() => setDlg(null)} onDone={done}
+                    onSubmit={async (fd) => {
+                      const f = fd.get('file');
+                      if (!(f instanceof File) || !f.size) throw new Error('Choose a file');
+                      return upload(`/api/v1/documents/${doc.uuid}/versions`, f);
+                    }}>
+                    <Field label="File"><input className="ops-input" type="file" name="file" required /></Field>
+                  </FormModal>
+                )}
+                {dlg === 'dispose' && (
+                  <FormModal title="Request disposal" kicker={doc.id} subtitle="Retention has ended and there is no legal hold. A different approver (with a fresh authentication code) must confirm; then the document is withdrawn and can no longer be downloaded." submitLabel="Submit for approval" danger onClose={() => setDlg(null)} onDone={done}
+                    onSubmit={(fd, key) => coPost(`/vault/documents/${doc.id}/changes`, { kind: 'DISPOSAL', to: 'Disposed', reason: str(fd, 'reason') }, key)}>
+                    <Field label="Reason"><textarea className="ops-input" name="reason" required minLength={5} /></Field>
+                  </FormModal>
+                )}
                 {dlg === 'hold' && (
                   <FormModal title="Place legal hold" kicker={doc.id} subtitle="Blocks retention shortening and disposal until a different person releases it." submitLabel="Place hold" onClose={() => setDlg(null)} onDone={done}
                     onSubmit={(fd, key) => coPost(`/vault/documents/${doc.id}/hold`, { reason: str(fd, 'reason') }, key)}>
@@ -300,5 +360,62 @@ function DocModal({ id, clients, funds, onClose, onChanged }: { id: string; clie
         </Loaded>
       </div>
     </Modal>
+  );
+}
+
+interface EvidenceRow {
+  id: string;
+  kind: string;
+  title: string;
+  note: string | null;
+  mark: string;
+  markStatus: string;
+  asOf: string;
+  commitment: string;
+  fund: string;
+  document: { id: string | null; name: string | null; status: string | null } | null;
+}
+
+/** Private-markets valuation evidence rows: attach the file so it is classified, retained and access-logged like any vault document. */
+function PmEvidence({ onDone }: { onDone: () => void }) {
+  const edit = useCan('documents.edit');
+  const res = useResource<EvidenceRow[]>(() => coGet<{ data: EvidenceRow[] }>('/vault/pm-evidence').then(asList), []);
+  const [att, setAtt] = useState<EvidenceRow | null>(null);
+  return (
+    <Card title="Private-markets valuation evidence">
+      <p className="ops-muted">Evidence recorded against valuation marks in Private Markets. The file itself lives in the vault.</p>
+      <Loaded res={res} what="valuation evidence">
+        {(rows) =>
+          rows.length === 0 ? <Empty>No valuation evidence recorded yet.</Empty> : (
+            <div className="ops-table-wrap">
+              <table className="ops-table">
+                <thead><tr><th>Evidence</th><th>Mark</th><th>Fund</th><th>File</th><th /></tr></thead>
+                <tbody>
+                  {rows.map((e) => (
+                    <tr key={e.id}>
+                      <td><strong>{e.title}</strong><span className="ops-sub">{e.kind.replace(/_/g, ' ').toLowerCase()}{e.note ? ` · ${e.note}` : ''}</span></td>
+                      <td>{e.mark}<span className="ops-sub">{e.markStatus.replace(/_/g, ' ').toLowerCase()} · as of {formatDate(e.asOf)}</span></td>
+                      <td>{e.fund}<span className="ops-sub">{e.commitment}</span></td>
+                      <td>{e.document?.id ? <>{e.document.id}<span className="ops-sub">{e.document.status}</span></> : <span className="ops-muted">No file</span>}</td>
+                      <td>{edit && <button className="ops-btn small" type="button" onClick={() => setAtt(e)}>{e.document?.id ? 'New version' : 'Attach file'}</button>}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
+      </Loaded>
+      {att && (
+        <FormModal title={`Attach file: ${att.title}`} kicker={att.mark} submitLabel="Attach" onClose={() => setAtt(null)} onDone={() => { res.reload(); onDone(); }}
+          onSubmit={async (fd) => {
+            const f = fd.get('file');
+            if (!(f instanceof File) || !f.size) throw new Error('Choose a file');
+            return upload(`/api/v1/client-ops/vault/pm-evidence/${att.id}/file`, f);
+          }}>
+          <Field label="File (PDF, image or spreadsheet)"><input className="ops-input" type="file" name="file" required /></Field>
+        </FormModal>
+      )}
+    </Card>
   );
 }
