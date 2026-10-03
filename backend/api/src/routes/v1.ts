@@ -25,6 +25,8 @@ import { accountingRoutes } from '../modules/accounting';
 import { corporateActionsRoutes } from '../modules/corporate-actions';
 import { cashRoutes } from '../modules/cash';
 import { reconRoutes } from '../modules/recon/recon.routes';
+import { marketDataRoutes } from '../integrations/market-data/routes';
+import { custodianFeedRoutes } from '../integrations/custodian-feed/routes';
 import { operationsRoutes, dashboardRoutes } from '../modules/wiring';
 import { iborRoutes } from '../modules/ibor';
 import { performanceRoutes } from '../modules/performance';
@@ -74,6 +76,9 @@ v1Router.use('/corporate-actions', corporateActionsRoutes);
 v1Router.use('/cash', cashRoutes);
 // Reconciliations: /recon/* (runs, breaks, sources, signoffs, account-map).
 v1Router.use('/recon', reconRoutes);
+// Integrations: market-data (public/fake/live) and custodian-feed (file-drop/fake/live).
+v1Router.use('/market-data', marketDataRoutes);
+v1Router.use('/custodian-feed', custodianFeedRoutes);
 // Operations Control (runbook tasks, live status) and Command Centre (today KPIs).
 v1Router.use('/operations', operationsRoutes);
 v1Router.use('/dashboard', dashboardRoutes);

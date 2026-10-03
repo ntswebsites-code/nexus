@@ -15,6 +15,8 @@ import { runDueSchedules } from './modules/reports';
 import { assertIntegrationsConfig, integrationTick } from './integrations';
 =======
 import { scanEsign } from './modules/esign';
+=======
+import { marketDataTick } from './integrations/market-data/scheduler';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -105,6 +107,9 @@ async function tick() {
     console.error('[worker] retention purge failed', error);
 =======
   await integrationTick();
+=======
+  // Market data: exchange-hours price refresh, EOD close and daily FX (no-op unless the scheduler is enabled).
+  void marketDataTick().catch((error) => console.error('[worker] market data tick failed', error));
   if (Date.now() - lastReportScan > 60 * 60 * 1000) {
     lastReportScan = Date.now();
     try {

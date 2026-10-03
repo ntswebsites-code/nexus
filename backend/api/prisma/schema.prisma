@@ -4972,3 +4972,139 @@ model EsignEvent {
 }
 
 // ---- end ESign ----
+
+// ---- MarketData ----
+// Market-data adapter bookkeeping (public/fake/live providers) and the custodian-feed placeholder.
+// Prices and FX still land in security_prices / fx_rates; these tables record where each value came from.
+
+/// Per-source health and back-off state for the market-data providers.
+model MdSourceStatus {
+  id                  String    @id @default(uuid()) @db.Char(36)
+  /// Short code, also used as security_prices.source, e.g. ZSE_AFX | ER_API | FAKE.
+  source              String    @unique @db.VarChar(24)
+  provider            String    @db.VarChar(16)
+  label               String    @db.VarChar(120)
+  url                 String    @db.VarChar(500)
+  enabled             Boolean   @default(true)
+  lastAttemptAt       DateTime? @map("last_attempt_at") @db.DateTime(3)
+  lastSuccessAt       DateTime? @map("last_success_at") @db.DateTime(3)
+  /// OK | PARTIAL | ERROR | BACKOFF | NOT_CONFIGURED
+  lastStatus          String?   @map("last_status") @db.VarChar(16)
+  lastError           String?   @map("last_error") @db.VarChar(500)
+  lastCount           Int       @default(0) @map("last_count")
+  consecutiveFailures Int       @default(0) @map("consecutive_failures")
+  backoffUntil        DateTime? @map("backoff_until") @db.DateTime(3)
+  updatedAt           DateTime  @updatedAt @map("updated_at")
+
+  @@map("md_source_status")
+}
+
+/// Provenance of one fetched value: which page, when, and a hash of the raw row. Accepted values point at the
+/// security_prices / fx_rates row they produced; rejected or failed rows are the exception list.
+model MdProvenance {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// sha256 of refType|source|ticker|priceDate|status|rawHash: repeats of the same observation update one row.
+  keyHash        String    @unique @map("key_hash") @db.Char(64)
+  /// PRICE | FX
+  refType        String    @map("ref_type") @db.VarChar(8)
+  /// security_prices.id or fx_rates.id (logical reference); null for rejected rows.
+  refId          String?   @map("ref_id") @db.Char(36)
+  securityId     String?   @map("security_id") @db.Char(36)
+  /// Ticker, or FROM/TO for FX.
+  ticker         String    @db.VarChar(32)
+  priceDate      DateTime? @map("price_date") @db.Date
+  source         String    @db.VarChar(24)
+  url            String    @db.VarChar(500)
+  fetchedAt      DateTime  @map("fetched_at") @db.DateTime(3)
+  rawHash        String    @map("raw_hash") @db.Char(64)
+  rawValue       String?   @map("raw_value") @db.VarChar(80)
+  value          Decimal?  @db.Decimal(24, 10)
+  previousValue  Decimal?  @map("previous_value") @db.Decimal(24, 10)
+  /// ACCEPTED | REJECTED | ERROR | OVERRIDDEN (a manual price exists for the same date)
+  status         String    @db.VarChar(12)
+  reason         String?   @db.VarChar(300)
+  seenCount      Int       @default(1) @map("seen_count")
+  acknowledgedAt DateTime? @map("acknowledged_at") @db.DateTime(3)
+  acknowledgedBy String?   @map("acknowledged_by") @db.Char(36)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([refType, refId])
+  @@index([securityId, fetchedAt])
+  @@index([status, fetchedAt])
+  @@map("md_provenance")
+}
+
+/// One refresh (scheduled or manual) across the active provider.
+model MdRefreshRun {
+  id          String    @id @default(uuid()) @db.Char(36)
+  /// SCHEDULE | MANUAL
+  trigger     String    @db.VarChar(12)
+  provider    String    @db.VarChar(16)
+  /// EOD | INTRADAY | FX | ALL
+  scope       String    @db.VarChar(12)
+  /// RUNNING | OK | PARTIAL | FAILED
+  status      String    @default("RUNNING") @db.VarChar(12)
+  startedAt   DateTime  @default(now()) @map("started_at") @db.DateTime(3)
+  finishedAt  DateTime? @map("finished_at") @db.DateTime(3)
+  requestedBy String?   @map("requested_by") @db.Char(36)
+  accepted    Int       @default(0)
+  rejected    Int       @default(0)
+  errors      Int       @default(0)
+  skipped     Int       @default(0)
+  summary     Json?
+
+  @@index([startedAt])
+  @@map("md_refresh_runs")
+}
+
+/// A statement file ingested through the custodian-feed adapter (file-drop or fake).
+model CustodianFeedFile {
+  id             String    @id @default(uuid()) @db.Char(36)
+  counterpartyId String    @map("counterparty_id") @db.Char(36)
+  /// file-drop | fake | live
+  adapter        String    @db.VarChar(12)
+  filename       String    @db.VarChar(200)
+  /// CSV | MT940 | JSON
+  format         String    @db.VarChar(8)
+  sha256         String    @db.Char(64)
+  accountRef     String?   @map("account_ref") @db.VarChar(64)
+  statementDate  DateTime? @map("statement_date") @db.Date
+  currency       String?   @db.Char(3)
+  closingCash    Decimal?  @map("closing_cash") @db.Decimal(20, 2)
+  holdingsMv     Decimal?  @map("holdings_mv") @db.Decimal(20, 2)
+  /// Imported | Failed
+  status         String    @db.VarChar(12)
+  tradesImported Int       @default(0) @map("trades_imported")
+  tradesSkipped  Int       @default(0) @map("trades_skipped")
+  holdingsCount  Int       @default(0) @map("holdings_count")
+  dayEndRef      String?   @map("day_end_ref") @db.VarChar(20)
+  warnings       Json?
+  error          String?   @db.VarChar(500)
+  uploadedBy     String?   @map("uploaded_by") @db.Char(36)
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@unique([counterpartyId, sha256])
+  @@index([counterpartyId, createdAt])
+  @@map("custodian_feed_files")
+}
+
+/// Holdings lines from a custodian statement (the recon day-end package only keeps the total).
+model CustodianFeedHolding {
+  id             String   @id @default(uuid()) @db.Char(36)
+  fileId         String   @map("file_id") @db.Char(36)
+  counterpartyId String   @map("counterparty_id") @db.Char(36)
+  accountRef     String   @map("account_ref") @db.VarChar(64)
+  statementDate  DateTime @map("statement_date") @db.Date
+  ticker         String   @db.VarChar(32)
+  isin           String?  @db.VarChar(12)
+  quantity       Decimal  @db.Decimal(24, 8)
+  price          Decimal? @db.Decimal(20, 8)
+  marketValue    Decimal? @map("market_value") @db.Decimal(20, 2)
+  currency       String   @db.Char(3)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([counterpartyId, accountRef, statementDate, ticker])
+  @@index([fileId])
+  @@map("custodian_feed_holdings")
+}
+// ---- end MarketData ----

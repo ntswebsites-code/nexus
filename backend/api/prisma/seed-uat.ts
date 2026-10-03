@@ -789,6 +789,7 @@ try {
   await (await import('./seed-corporate-actions')).seedCorporateActions();
   await (await import('./seed-cash')).seedCash();
   await (await import('./seed-wiring')).seedWiring();
+  await (await import('./seed-market-data')).seedMarketData();
   await (await import('./seed-admin-core')).seedAdminCore();
   await (await import('./seed-admin-shell')).seedAdminShell();
 =======
