@@ -82,7 +82,7 @@ workspaceRoutes.post('/cap-table/transactions/:ref/decide', requireProfile('sign
   const row = await decideCapTransaction(inv(req), param(req, 'ref'), body(req), investeeAudit(req));
   ok(res, row, row.status === 'APPROVED' ? 'Transaction approved' : 'Transaction rejected');
 });
-workspaceRoutes.post('/cap-table/transactions/:ref/withdraw', edit, async (req, res) => {
+workspaceRoutes.post('/cap-table/transactions/:ref/withdraw', edit, idempotent('investee.cap_tx.withdraw'), async (req, res) => {
   ok(res, await withdrawCapTransaction(inv(req), param(req, 'ref'), investeeAudit(req)), 'Transaction withdrawn');
 });
 workspaceRoutes.get('/cap-table/certificates', async (req, res) => {

@@ -188,7 +188,9 @@ export class InvesteeApiError extends Error {
   describe(): string {
     const fields = this.fieldProblems();
     const base = this.code === 'register_locked' ? 'The register already has transactions. Record a new transaction in Workspace tools > Cap table instead.' : this.message;
-    return fields.length && !fields.some((f) => base.includes(f)) ? `${base} - ${fields.join('; ')}` : base;
+    // The server (errorHandler) already appends field reasons to "Validation failed"; do not repeat them.
+    const covered = (f: string) => base.includes(f) || base.includes(f.includes(': ') ? f.slice(f.indexOf(': ') + 2) : f);
+    return fields.length && !fields.some(covered) ? `${base} - ${fields.join('; ')}` : base;
   }
 }
 
