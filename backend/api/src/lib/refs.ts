@@ -44,7 +44,12 @@ const FORMATS = {
   dataJob: { prefix: 'JOB-', pad: 5, start: 1 },
   dqRun: { prefix: 'DQR-', pad: 5, start: 1 },
   govModel: { prefix: 'MDL-', pad: 4, start: 1001 },
+  accessRequest: { prefix: 'ACR-', pad: 4, start: 1001 },
+  accessReview: { prefix: 'REV-', pad: 4, start: 1001 },
 } as const;
+
+/** Reference formats for the Settings numbering view. */
+export const refFormats = () => Object.entries(FORMATS).map(([kind, f]) => ({ kind, prefix: f.prefix, pad: f.pad, start: f.start }));
 
 export type RefKind = keyof typeof FORMATS;
 
