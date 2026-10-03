@@ -160,6 +160,7 @@ async function main() {
     check('HTML output is print-ready, escaped and names the fund', html.startsWith('<!doctype html>') && html.includes(`Report Fund`.slice(0, 6)) && !html.includes('<script'));
     const fs = (await cFa.get('/api/v1/reports/runs?report=FACT_SHEET&format=HTML')).body.data.find((r: any) => r.format === 'HTML');
     check('the preparer cannot distribute (needs reports.approve) -> 403', (await cFa.post(`/api/v1/reports/runs/${fs.id}/distribute`)).status === 403);
+    await prisma.session.updateMany({ where: { userId: comp.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment/earlier step-up counts as fresh; age it
     check('distribute without step-up -> 401', (await cComp.post(`/api/v1/reports/runs/${fs.id}/distribute`)).body?.error?.code === 'step_up_required');
     await cComp.stepUp();
     const dist = await cComp.post(`/api/v1/reports/runs/${fs.id}/distribute`);
@@ -193,6 +194,7 @@ async function main() {
     check('send for review -> IN_REVIEW with locked hash', (await cFa.post(`/api/v1/regulatory/filings/${F.id}/submit-review`)).body?.data?.payloadSha256?.length === 64);
     check('evidence cannot change in review -> 409', (await cFa.upload(`/api/v1/regulatory/filings/${F.id}/evidence`, 'late.txt', 'x')).status === 409);
     check('the preparer cannot approve (no reports.approve) -> 403', (await cFa.post(`/api/v1/regulatory/filings/${F.id}/approve`)).status === 403);
+    await prisma.session.updateMany({ where: { userId: comp.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment/earlier step-up counts as fresh; age it
     check('approve without step-up -> 401', (await cComp.post(`/api/v1/regulatory/filings/${F.id}/approve`)).body?.error?.code === 'step_up_required');
     await cComp.stepUp();
     check('return needs a reason -> 400', (await cComp.post(`/api/v1/regulatory/filings/${F.id}/return`, {})).status === 400);
@@ -220,7 +222,7 @@ async function main() {
 
     console.log('\nData Fabric');
     const ds = await cFa.get('/api/v1/data/datasets');
-    check('datasets registry with live row counts', ds.status === 200 && ds.body.data.length >= 9 && ds.body.data.find((d: any) => d.key === 'clients').rows >= 3, ds.body.data?.map((d: any) => [d.key, d.rows]));
+    check('datasets registry with live row counts', ds.status === 200 && ds.body.data.length >= 9 && ds.body.data.find((d: any) => d.key === 'clients').rows === (await prisma.client.count()), ds.body.data?.map((d: any) => [d.key, d.rows]));
     check('auditor cannot register a source -> 403', (await cAud.post('/api/v1/data/sources', { key: `x-${run}`, name: 'X source', kind: 'MANUAL', system: 'x', owner: 'x' }, { 'Idempotency-Key': key('s0') })).status === 403);
     check('table source without dataset -> 400', (await cFa.post('/api/v1/data/sources', { key: `t-${run}`, name: 'Table source', kind: 'TABLE', system: 'db', owner: 'ops' }, { 'Idempotency-Key': key('s1') })).status === 400);
     const src = await cFa.post('/api/v1/data/sources', { key: `clients-${run}`, name: `Clients ${run}`, kind: 'TABLE', dataset: 'clients', system: 'db', owner: 'ops' }, { 'Idempotency-Key': key('s2') });
@@ -279,6 +281,7 @@ async function main() {
     check('independent validation -> version VALIDATED', val.status === 201 && val.body.data.versionStatus === 'VALIDATED', val.body);
     await cComp.stepUp();
     check('the validator cannot also approve -> 403 sod', (await cComp.post(`/api/v1/model-governance/versions/${v1.id}/approve`)).body?.error?.code === 'sod_violation');
+    await prisma.session.updateMany({ where: { userId: dir.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment/earlier step-up counts as fresh; age it
     check('approve without step-up -> 401', (await cDir.post(`/api/v1/model-governance/versions/${v1.id}/approve`)).body?.error?.code === 'step_up_required');
     await cDir.stepUp();
     const apv = await cDir.post(`/api/v1/model-governance/versions/${v1.id}/approve`);

@@ -325,6 +325,43 @@ async function main() {
     }
   }
 
+  // S13 read-only GET sweep over every /ops module endpoint family (list endpoints must return 200 for sysadmin)
+  if (staff) {
+    const V = '/api/v1';
+    const sweep: [string, string[]][] = [
+      ['orders', ['/orders']],
+      ['portfolio', ['/portfolios', '/securities', '/brokers', '/ibor/positions']],
+      ['risk', ['/risk/limits', '/risk/breaches', '/risk/runs', '/risk/scenarios', '/risk/cases']],
+      ['nav', ['/nav/runs']],
+      ['accounting', ['/accounting/accounts', '/accounting/journals', '/accounting/periods']],
+      ['corporate-actions', ['/corporate-actions/events', '/corporate-actions/upcoming']],
+      ['cash', ['/cash/balances', '/cash/ledgers', '/cash/expectations', '/cash/reservations', '/cash/period-closes']],
+      ['recon', ['/recon/overview', '/recon/breaks', '/recon/runs', '/recon/sources', '/recon/signoffs']],
+      ['operations', ['/operations/status', '/operations/tasks', '/dashboard/today']],
+      ['ibor', ['/ibor/overview', '/ibor/health', '/ibor/events', '/ibor/snapshots']],
+      ['performance', ['/performance/summary', '/performance/periods', '/performance/benchmarks']],
+      ['research', ['/research/summary', '/research/decisions', '/research/meetings']],
+      ['private-markets', ['/private-markets/summary', '/private-markets/funds', '/private-markets/commitments', '/private-markets/marks']],
+      ['portfolio-lab', ['/portfolio-lab/models', '/portfolio-lab/rebalances']],
+      ['financing', ['/financing/summary', '/financing/facilities', '/financing/calls', '/financing/pools', '/financing/rules']],
+      ['client-ops', ['/client-ops/clients/summary', '/client-ops/onboarding/queue', '/client-ops/services/summary', '/client-ops/vault/access-log']],
+      ['reports', ['/reports/catalogue', '/reports/runs', '/reports/schedules']],
+      ['regulatory', ['/regulatory/calendar', '/regulatory/filings', '/regulatory/templates']],
+      ['data', ['/data/summary', '/data/datasets', '/data/sources', '/data/jobs', '/data/exceptions']],
+      ['model-governance', ['/model-governance/summary', '/model-governance/models', '/model-governance/usage']],
+      ['admin-core', ['/admin-core/settings', '/admin-core/rbac/matrix', '/admin-core/rbac/reviews', '/admin-core/audit/facets', '/admin-core/copilot/suggestions']],
+      ['ops', ['/ops/funds', '/ops/capital-calls', '/ops/notices']],
+    ];
+    for (const [family, paths] of sweep) {
+      const bad: string[] = [];
+      for (const pth of paths) {
+        const r = await staff.get(`${V}${pth}`);
+        if (r.status !== 200) bad.push(`${pth} ${brief(r)}`);
+      }
+      record('S13', `/ops GET sweep ${family}`, bad.length ? 'FAIL' : 'PASS', bad.length ? bad.join('; ') : `${paths.length} endpoints 200`);
+    }
+  } else record('S13', '/ops GET sweep', 'SKIP', 'no staff session');
+
   const count = (s: Status) => results.filter((r) => r.status === s).length;
   console.log(`\n${count('PASS')} pass, ${count('FAIL')} fail, ${count('WARN')} warn, ${count('SKIP')} skip`);
   if (process.env.SMOKE_REPORT) writeFileSync(process.env.SMOKE_REPORT, JSON.stringify({ generatedAt: new Date().toISOString(), api: API, mode: FULL ? 'full' : 'readonly', results }, null, 2));

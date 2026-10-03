@@ -200,6 +200,9 @@ async function main() {
 
     console.log('\nIBOR: reconciliation hook');
     check('recon.manage is required (portfolio manager has none) -> 403', (await cPm.post(`${I}/reconcile`, { portfolioId: p.id }, { 'Idempotency-Key': key('rc0') })).status === 403);
+    // HOLDINGS reconciliation needs the portfolio mapped to a custodian account (recon account map)
+    const rcCp = await prisma.counterparty.create({ data: { ref: `CPI${run}`, name: `IBOR Custodian ${run}`, type: 'CUSTODIAN', accounts: [`IACC-${run}`] } });
+    await prisma.reconAccountMap.create({ data: { counterpartyId: rcCp.id, accountRef: `IACC-${run}`, portfolioId: p.id } });
     const rc = await cFa.post(`${I}/reconcile`, { portfolioId: p.id }, { 'Idempotency-Key': key('rc1') });
     check('reconcile runs the HOLDINGS family and returns the run', rc.status === 201 && /^RUN-\d{5}$/.test(rc.body?.data?.run?.ref), rc.body);
     check('the run is recorded in the book lineage', (await prisma.iborEvent.count({ where: { portfolioId: p.id, eventType: 'RECON' } })) === 1);
@@ -235,6 +238,7 @@ async function main() {
     check('audit performance.period_prepared', (await auditCount('performance.period_prepared', per.id, pm.id)) === 1);
     check('all controls are done on the live view and the draft is lockable by someone else', (await cFa.get(`${P}/periods/${per.id}`)).body.data.controlsPending === 0 && (await cFa.get(`${P}/periods/${per.id}`)).body.data.canLock, (await cFa.get(`${P}/periods/${per.id}`)).body);
     check('the preparer without performance.lock cannot lock -> 403', (await cPm.post(`${P}/periods/${per.id}/lock`, {}, { 'Idempotency-Key': key('l0') })).status === 403);
+    await prisma.session.updateMany({ where: { userId: fa.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment counts as a fresh step-up; age it
     check('lock without step-up -> 401 step_up_required', (await cFa.post(`${P}/periods/${per.id}/lock`, {}, { 'Idempotency-Key': key('l1') })).body?.error?.code === 'step_up_required');
     await cFa.stepUp();
     const locked = await cFa.post(`${P}/periods/${per.id}/lock`, { note: 'Month end' }, { 'Idempotency-Key': key('l2') });
@@ -271,6 +275,8 @@ async function main() {
     await prisma.orderFill.deleteMany({ where: { order: { portfolioId: { in: pids } } } }).catch(() => undefined);
     await prisma.order.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
     await prisma.reconRun.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
+    await prisma.reconAccountMap.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
+    await prisma.counterparty.deleteMany({ where: { ref: `CPI${run}` } }).catch(() => undefined);
     await prisma.portfolio.deleteMany({ where: { id: { in: pids } } }).catch(() => undefined);
     await prisma.security.deleteMany({ where: { id: sec.id } }).catch(() => undefined);
     for (const id of userIds) {

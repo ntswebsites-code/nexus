@@ -104,6 +104,18 @@ Branch `dev` contains everything. All eight workstream branches are merged; noth
   Turbopack fails ONLY in worktrees whose `node_modules` is a junction outside the folder; not expected in Docker.
 - **Cloud agent (2 Oct):** full 3.1 script suite green on `dev` after KPI flatten fix; merged commits `c541bc1`, `c56fadd` (see section 0 and `PROGRESS.md`).
 
+### Verified table (WP-1, 3 Oct 2026)
+Run on the UAT host against a throwaway schema (live data untouched); commands, rules and the bug list are in `docs/VERIFY.md`.
+
+| Check | Result |
+|---|---|
+| `prisma migrate deploy` of all migrations on fresh MySQL 8.4, then `seed.ts` | pass |
+| 23 API flow scripts (`backend/api/scripts`), one fresh schema each | 23 of 23 pass (counts in VERIFY.md) |
+| Read-only smoke S1-S13 against the live API | S1-S12 pass; S13 `/ops` sweep passes except `/data/datasets` (fixed in the branch, needs deploy) |
+| `npm run verify` (prisma validate/generate, tsc all workspaces, offline rules, shell syntax) | pass |
+| CI | `.github/workflows/ci.yml` added (verify + flows jobs); first remote run pending |
+| Live-data flags | prepared in `deploy/.env.production.example`, not applied (`docs/GO-LIVE-FLAGS.md`) |
+
 ### Not verified yet (do these first)
 - **3.2 on cloud:** UAT seed + contract harness need `SEED_USERS_FILE` delivered out of band.
 - Browser end-to-end on cloud for 3.3–3.5 (prior local pass documented in section 0 archive).

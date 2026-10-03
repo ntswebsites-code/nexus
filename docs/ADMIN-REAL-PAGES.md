@@ -903,7 +903,7 @@ The script (`scripts/test-corporate-actions.ts`) covers the engine maths, valida
 ### Not done
 
 - No cash in lieu of fractional shares, no tax on non-dividend actions, no partial rights take-up or oversubscription, no rights trading or sale.
-- Effects are not linked to Accounting journals or the cash ledger (`/cash`); they update the portfolio position and cash rows only. No automatic corporate-action feed; announcements are entered by hand. Entitlements use the portfolio positions, not LP or client level holdings.
+- Processing books the cash legs as PENDING_APPROVAL journals in Accounting and the cash ledger (`postCorporateActionJournals`, `ca.routes.ts` process handler) as well as updating the portfolio position and cash rows. No automatic corporate-action feed; announcements are entered by hand. Entitlements use the portfolio positions, not LP or client level holdings.
 - A processed action cannot be reversed; correct it with a new action or a manual adjustment.
 E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exists=../../.env scripts/test-cash.ts
 ```

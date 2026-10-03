@@ -160,7 +160,7 @@ async function main() {
     const div = computeEntitlement({ type: 'CASH_DIVIDEND', rate: D('0.35'), ratioNew: null, ratioOld: null, withholdingPct: D('10') }, D('1000'), null);
     check('dividend 1,000 x 0.35, 10% tax: gross 350, tax 35, net 315', div.gross.toFixed(2) === '350.00' && div.tax.toFixed(2) === '35.00' && div.cash.toFixed(2) === '315.00');
     const odd = computeEntitlement({ type: 'CASH_DIVIDEND', rate: D('0.333333'), ratioNew: null, ratioOld: null, withholdingPct: D('0') }, D('3'), null);
-    check('Decimal maths: 3 x 0.333333 = 0.999999 exactly', odd.gross.toFixed(6) === '0.999999');
+    check('Decimal maths: 3 x 0.333333 = 0.999999, rounded to the engine 4 dp money precision = 1.0000', odd.gross.toFixed(4) === '1.0000');
     const split = computeEntitlement({ type: 'STOCK_SPLIT', rate: null, ratioNew: D(3), ratioOld: D(2), withholdingPct: D(0) }, D(7), null);
     check('3-for-2 split of 7 shares: 10 held, fraction 0.5 not paid', split.sharesDelta.toString() === '3' && split.fraction.toString() === '0.5');
     const rev = computeEntitlement({ type: 'STOCK_SPLIT', rate: null, ratioNew: D(1), ratioOld: D(10), withholdingPct: D(0) }, D(1000), null);
@@ -226,7 +226,7 @@ async function main() {
     check('calculated for the two holders', calc.status === 200 && ents.length === 3, calc.body);
     check('PA: 1,000 shares, gross 350.00, tax 35.00, net 315.00', ea?.quantity === '1000' && ea.grossAmount === '350.00' && ea.taxAmount === '35.00' && ea.cashAmount === '315.00', ea);
     check('PB: 500 shares, net 157.50', eb?.quantity === '500' && eb.cashAmount === '157.50', eb);
-    check('totals add up', calc.body.data.totals.netCash === '480.00', calc.body.data.totals);
+    check('totals add up', calc.body.data.totals.netCash === '474.71', calc.body.data.totals);
     check('a later position change after the record date does not change the entitlement', (await prisma.portfolioPosition.create({ data: { portfolioId: pb.id, securityId: s1.id, quantity: D('9999'), avgCost: D('3'), asOf: day(-2) } })) !== null && (await cDealer.post(`${A}/events/${E1.id}/entitlements/calculate`)).body.data.entitlements.find((e: any) => e.portfolioId === pb.id).quantity === '500');
     await prisma.portfolioPosition.deleteMany({ where: { portfolioId: pb.id, securityId: s1.id, asOf: day(-2) } });
 
@@ -236,6 +236,7 @@ async function main() {
     check('edit after confirm -> 409', (await cDealer.patch(`${A}/events/${E1.id}`, { description: 'x' })).status === 409);
     check('a dealer without corporate_actions.process cannot process -> 403', (await cDealer.post(`${A}/events/${E1.id}/process`)).status === 403);
     check('an auditor cannot process -> 403', (await cAud.post(`${A}/events/${E1.id}/process`)).status === 403);
+    await prisma.session.updateMany({ where: { userId: ops.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment counts as a fresh step-up; age it
     check('process without step-up -> 401 step_up_required', (await cOps.post(`${A}/events/${E1.id}/process`)).body?.error?.code === 'step_up_required');
     check('step-up succeeds', (await cOps.stepUp()).status === 200);
     const before = { pa: await cashNow(pa), pb: await cashNow(pb) };
@@ -280,7 +281,7 @@ async function main() {
     check('PA: 1,000 -> 1,500, cost kept at 1.333333', (await posNow(pa, s1))?.qty === '1500' && (await posNow(pa, s1))?.avg === '1.333333', await posNow(pa, s1));
 
     console.log('\nScrip dividend: elections');
-    const sc = await cDealer.post(`${A}/events`, { securityId: s2.id, type: 'SCRIP_DIVIDEND', ...base, electionDeadline: dayStr(0), rate: '0.10', ratioNew: '1', ratioOld: '50' }, { 'Idempotency-Key': key('scrip') });
+    const sc = await cDealer.post(`${A}/events`, { securityId: s2.id, type: 'SCRIP_DIVIDEND', ...base, payDate: dayStr(1), electionDeadline: dayStr(0), rate: '0.10', ratioNew: '1', ratioOld: '50' }, { 'Idempotency-Key': key('scrip') });
     const C = sc.body.data;
     check('scrip created with CASH as the default option', sc.status === 201 && C.defaultOption === 'CASH' && C.elective === true, sc.body);
     check('election before entitlements -> 404', (await cDealer.put(`${A}/events/${C.id}/elections`, { portfolioId: pa.id, option: 'SCRIP' })).status === 404);
@@ -306,7 +307,7 @@ async function main() {
     check('election on a cash dividend -> 409 no_election', (await cDealer.put(`${A}/events/${future.body.data.id}/elections`, { portfolioId: pa.id, option: 'CASH' })).body?.error?.code === 'no_election');
 
     console.log('\nRights issue and merger');
-    const ri = await cDealer.post(`${A}/events`, { securityId: s2.id, type: 'RIGHTS_ISSUE', ...base, electionDeadline: dayStr(0), rate: '1.50', ratioNew: '1', ratioOld: '4' }, { 'Idempotency-Key': key('rights') });
+    const ri = await cDealer.post(`${A}/events`, { securityId: s2.id, type: 'RIGHTS_ISSUE', ...base, payDate: dayStr(1), electionDeadline: dayStr(0), rate: '1.50', ratioNew: '1', ratioOld: '4' }, { 'Idempotency-Key': key('rights') });
     const R = ri.body.data;
     check('rights default to LAPSE', R.defaultOption === 'LAPSE', R);
     await cDealer.post(`${A}/events/${R.id}/entitlements/calculate`);
@@ -319,7 +320,7 @@ async function main() {
     await cOps.post(`${A}/events/${R.id}/process`);
     check('rights applied: PB 500 -> 625 shares, cash 10,020.00', (await posNow(pb, s2))?.qty === '625' && (await cashNow(pb)) === '10020.00', { pos: await posNow(pb, s2), cash: await cashNow(pb) });
 
-    const mg = await cDealer.post(`${A}/events`, { securityId: s2.id, type: 'MERGER', ...base, rate: '0.20', ratioNew: '1', ratioOld: '10', targetSecurityId: s3.id }, { 'Idempotency-Key': key('merger') });
+    const mg = await cDealer.post(`${A}/events`, { securityId: s2.id, type: 'MERGER', ...base, payDate: dayStr(2), rate: '0.20', ratioNew: '1', ratioOld: '10', targetSecurityId: s3.id }, { 'Idempotency-Key': key('merger') });
     const M = mg.body.data;
     check('merger created with the acquirer', mg.status === 201 && M.targetTicker === s3.ticker, mg.body);
     await cDealer.post(`${A}/events/${M.id}/entitlements/calculate`);

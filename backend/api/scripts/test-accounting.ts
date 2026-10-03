@@ -193,6 +193,7 @@ async function main() {
     check('editing a pending journal -> 409 journal_immutable', (await cPm.patch(`${A}/journals/${J1.id}`, { entryDate: '2026-09-10', description: 'Late edit', lines: j1b.lines })).body?.error?.code === 'journal_immutable');
     check('a view-only preparer cannot post -> 403', (await cPm.post(`${A}/journals/${J1.id}/post`)).status === 403);
     check('an auditor cannot post -> 403', (await cAud.post(`${A}/journals/${J1.id}/post`)).status === 403);
+    await prisma.session.updateMany({ where: { userId: fa.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment counts as a fresh step-up; age it
     check('post without step-up -> 401 step_up_required', (await cFa.post(`${A}/journals/${J1.id}/post`)).body?.error?.code === 'step_up_required');
     check('step-up succeeds', (await cFa.stepUp()).status === 200);
 

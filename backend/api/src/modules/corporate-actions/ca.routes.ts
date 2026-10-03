@@ -25,6 +25,7 @@ export const corporateActionsRoutes = Router();
 const D = Prisma.Decimal;
 const staff = [requireAuth, requirePortalAccess('admin')];
 const canView = [...staff, requirePermission('operations.view')];
+const canWrite = [...staff, requirePermission('operations.view'), requirePermission('corporate_actions.manage')];
 const canProcess = [...staff, requirePermission('operations.view'), requirePermission('corporate_actions.process')];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -189,7 +190,7 @@ corporateActionsRoutes.get('/events/:id', ...canView, async (req, res) => {
 
 // ================================================================ create / edit
 
-corporateActionsRoutes.post('/events', ...canView, validateBody(createSchema), idempotent('corp_action.create'), async (req, res) => {
+corporateActionsRoutes.post('/events', ...canWrite, validateBody(createSchema), idempotent('corp_action.create'), async (req, res) => {
   const b = req.body as z.infer<typeof createSchema>;
   const sec = await resolveSecurity(b.securityId, 'securityId');
   const target = b.targetSecurityId ? await resolveSecurity(b.targetSecurityId, 'targetSecurityId') : null;
@@ -243,7 +244,7 @@ corporateActionsRoutes.post('/events', ...canView, validateBody(createSchema), i
   await respond(res, req, created.id, 201);
 });
 
-corporateActionsRoutes.patch('/events/:id', ...canView, validateBody(patchSchema), async (req, res) => {
+corporateActionsRoutes.patch('/events/:id', ...canWrite, validateBody(patchSchema), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'edited');
   if (e.status !== 'ANNOUNCED') throw HttpError.conflict(`${e.ref} is ${e.status}; only an ANNOUNCED action can be edited`, 'invalid_state');
@@ -300,7 +301,7 @@ corporateActionsRoutes.patch('/events/:id', ...canView, validateBody(patchSchema
 
 // ================================================================ lifecycle
 
-corporateActionsRoutes.post('/events/:id/confirm', ...canView, idempotent('corp_action.confirm', { required: false }), async (req, res) => {
+corporateActionsRoutes.post('/events/:id/confirm', ...canWrite, idempotent('corp_action.confirm', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'confirmed');
   if (e.status !== 'ANNOUNCED') throw HttpError.conflict(`${e.ref} is ${e.status}; it must be ANNOUNCED to confirm`, 'invalid_state');
@@ -317,14 +318,14 @@ corporateActionsRoutes.post('/events/:id/confirm', ...canView, idempotent('corp_
   await respond(res, req, e.id);
 });
 
-corporateActionsRoutes.post('/events/:id/entitlements/calculate', ...canView, idempotent('corp_action.calculate', { required: false }), async (req, res) => {
+corporateActionsRoutes.post('/events/:id/entitlements/calculate', ...canWrite, idempotent('corp_action.calculate', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'recalculated');
   await calculateEntitlements(req, e);
   await respond(res, req, e.id);
 });
 
-corporateActionsRoutes.put('/events/:id/elections', ...canView, validateBody(electionSchema), async (req, res) => {
+corporateActionsRoutes.put('/events/:id/elections', ...canWrite, validateBody(electionSchema), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'changed');
   const opts = ELECTION_OPTIONS[e.type as CaType];
@@ -372,7 +373,7 @@ corporateActionsRoutes.post('/events/:id/process', ...canProcess, requireStepUp,
   res.json({ data: { ...detail, applied: out.summary, journals: out.journals.map((j) => ({ portfolioId: j.portfolioId, accountingJournal: j.accounting.ref ?? null, accountingSkipped: j.accounting.skipped ?? null, cashJournal: j.cash?.ref ?? null, cashSkipped: j.cash?.skipped ?? null })) } });
 });
 
-corporateActionsRoutes.post('/events/:id/cancel', ...canView, validateBody(cancelSchema), idempotent('corp_action.cancel', { required: false }), async (req, res) => {
+corporateActionsRoutes.post('/events/:id/cancel', ...canWrite, validateBody(cancelSchema), idempotent('corp_action.cancel', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'cancelled');
   const b = req.body as z.infer<typeof cancelSchema>;

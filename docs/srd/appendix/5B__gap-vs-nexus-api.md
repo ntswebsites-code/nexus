@@ -1,3 +1,5 @@
+> Status note (3 Oct 2026): this appendix describes the pre-build state. The methods listed as Missing are now built (see the matching module under `backend/api/src/modules`); see docs/GAP-ANALYSIS.md for the current status.
+
 # GAP VS NEXUS API (from the 5B draft)
 
 Nexus API baseline: `docs`-independent audit `backend-audit.md` (sections 1 and 2): 140 route handlers; investor portal routes under `/api/v1/investor/*`; data model of 55 tables with no `funds`, `fund_commitments`, `units`, NAV, dealing, notice or LP-ledger entity; no `Idempotency-Key` handling; no pagination; no export; no realtime; error body `{error:{code,message,details}}`; list body `{data, total}`. Statuses: **Covered** = a Nexus endpoint already does the same job and only an adapter is needed; **Partial** = a related endpoint or entity exists but the contract differs materially; **Missing** = nothing exists.

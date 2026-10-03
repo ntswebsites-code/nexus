@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+    branches: [main, 'feat/**']
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      # Dummy URLs: prisma validate/generate need the variables to exist, nothing connects.
+      DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci
+      SHADOW_DATABASE_URL: mysql://ci:ci@127.0.0.1:3306/ci_shadow
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Prisma validate and generate
+        run: |
+          npm run db:validate -w @matanho/api
+          npm run db:generate -w @matanho/api
+      - name: Typecheck packages and API
+        run: npm run typecheck
+      - name: Typecheck portals
+        run: npm run typecheck:portals
+      - name: Offline rule tests
+        run: npm run test:offline
+      - name: Shell scripts (syntax, LF endings)
+        run: bash tools/uat/check-sh.sh
+      - name: UAT harness typecheck
+        run: npx tsc --noEmit -p tools/uat/tsconfig.json
+
+  flows:
+    # API flow scripts against a disposable MySQL (one fresh schema per script), see tools/uat/run-flows.sh.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    needs: verify
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: ci-root
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -pci-root"
+          --health-interval=5s --health-timeout=5s --health-retries=20
+    env:
+      DB_ROOT_URL: mysql://root:ci-root@127.0.0.1:3306
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate -w @matanho/api
+        env:
+          DATABASE_URL: mysql://root:ci-root@127.0.0.1:3306/nexus_flow_test
+          SHADOW_DATABASE_URL: mysql://root:ci-root@127.0.0.1:3306/nexus_flow_shadow
+      - name: Flow scripts
+        run: bash tools/uat/run-flows.sh
