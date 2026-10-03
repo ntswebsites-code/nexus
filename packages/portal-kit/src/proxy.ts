@@ -23,7 +23,16 @@ export function createPortalProxy(
       .includes(portal);
     if (!gated) return NextResponse.next();
 
-    const cookieName = process.env.SESSION_COOKIE_NAME ?? 'nexus_session';
+    const baseCookieName = process.env.SESSION_COOKIE_NAME ?? 'nexus_session';
+    // Outside production every portal shares `localhost`, so the API stores the session cookie per portal
+    // port (`<name>_<port>`; see backend/api/src/config/cors.ts). Look up this portal's own cookie.
+    const hostHeader = request.headers.get('x-forwarded-host') ?? request.headers.get('host') ?? '';
+    const [hostName, hostPort] = hostHeader.split(':');
+    const scopedLocally =
+      process.env.NODE_ENV !== 'production' &&
+      !!hostPort &&
+      /^(localhost|127\.0\.0\.1|.+\.localhost)$/i.test(hostName);
+    const cookieName = scopedLocally ? `${baseCookieName}_${hostPort}` : baseCookieName;
     // API_INTERNAL_URL lets the server reach the API over a private network
     // (e.g. http://api:4100 in Docker) instead of the public hostname.
     const apiUrl = (
@@ -44,7 +53,7 @@ export function createPortalProxy(
     if (token) {
       try {
         const res = await fetch(`${apiUrl}/api/auth/me`, {
-          headers: { cookie: `${cookieName}=${token}`, accept: 'application/json' },
+          headers: { cookie: `${baseCookieName}=${token}`, accept: 'application/json' },
           cache: 'no-store',
         });
         if (res.ok) {

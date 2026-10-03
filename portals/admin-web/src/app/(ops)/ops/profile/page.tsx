@@ -18,6 +18,14 @@ interface Me {
   sessions: { id: string; current: boolean; createdAt: string; lastUsedAt: string; expiresAt: string; userAgent: string | null; ip: string | null }[];
 }
 
+/** "Chrome on Windows" from a raw user-agent string (ISS-ADB-027). */
+function deviceLabel(ua: string | null): string {
+  if (!ua) return 'Unknown device';
+  const browser = /Edg\//.test(ua) ? 'Edge' : /Firefox\//.test(ua) ? 'Firefox' : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : /^node|undici|curl|python/i.test(ua) ? 'Script or API client' : null;
+  const os = /Windows/.test(ua) ? 'Windows' : /Android/.test(ua) ? 'Android' : /iPhone|iPad/.test(ua) ? 'iOS' : /Mac OS X/.test(ua) ? 'macOS' : /Linux/.test(ua) ? 'Linux' : null;
+  return browser ? (os ? `${browser} on ${os}` : browser) : ua.slice(0, 40);
+}
+
 /** Self-service profile (SRD 5A.30): name, authenticator enrolment, password change and active sessions. */
 export default function ProfilePage() {
   const res = useResource(() => api.get<Me>(v1('/shell/me')) as unknown as Promise<Me>, []);
@@ -216,7 +224,7 @@ function Sessions({ me, onChanged }: { me: Me; onChanged: () => void }) {
             {me.sessions.map((s) => (
               <tr key={s.id}>
                 <td>
-                  {(s.userAgent ?? 'Unknown device').slice(0, 70)} {s.current && <StatusBadge status="This browser" />}
+                  {deviceLabel(s.userAgent)} {s.current && <StatusBadge status="This browser" />}
                 </td>
                 <td>{formatDateTime(s.createdAt)}</td>
                 <td>{formatDateTime(s.lastUsedAt)}</td>

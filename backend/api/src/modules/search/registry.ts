@@ -106,6 +106,10 @@ export async function loadRecord(k: KindDef, id: string): Promise<RecordView | n
   const fields: { label: string; value: string }[] = [];
   for (const [key, raw] of Object.entries(row)) {
     if (omit.has(key) || SENSITIVE.test(key) || raw === null || raw === undefined) continue;
+    // Internal plumbing is not a field a person reads: row id and ref (shown in the header), foreign-key uuids,
+    // optimistic-lock versions and denormalised counters that can disagree with the live figures (ISS-ADB-028c).
+    if (key === 'id' || key === 'ref' || key === 'version' || /Count$/.test(key)) continue;
+    if (/Id$/.test(key) && typeof raw === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-/i.test(raw)) continue;
     let value: string;
     if (raw instanceof Date) value = raw.toISOString();
     else if (typeof raw === 'object') {

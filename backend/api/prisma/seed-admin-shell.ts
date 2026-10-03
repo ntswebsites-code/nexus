@@ -5,6 +5,8 @@
  *   npx tsx --env-file-if-exists=../../.env prisma/seed-admin-shell.ts   (standalone; run the role seed first)
  *   also called by seed-demo.ts and seed-uat.ts
  */
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prisma } from '../src/lib/prisma';
 
@@ -15,7 +17,26 @@ const CUSTOM_PERMISSIONS = [
   { code: 'board.pack.view', label: 'View board packs', description: 'Read-only access to assembled board packs.' },
 ];
 
+/**
+ * ISS-ADB-020: revoke from existing databases the permissions the role catalogue no longer ships, so the
+ * out-of-the-box roles satisfy the separation-of-duties catalogue. prisma/seed.ts only ever adds permissions.
+ */
+async function retireCataloguePermissions() {
+  const file = path.join(path.dirname(fileURLToPath(import.meta.url)), 'seed', 'role-catalog.json');
+  const catalog = JSON.parse(readFileSync(file, 'utf8')) as { retiredPermissions?: { roles?: Record<string, string[]> } };
+  let revoked = 0;
+  for (const [id, perms] of Object.entries(catalog.retiredPermissions?.roles ?? {})) {
+    const [portal, key] = id.split(':');
+    const role = await prisma.role.findUnique({ where: { portal_key: { portal: portal!, key: key! } } });
+    if (!role) continue;
+    const res = await prisma.rolePermission.deleteMany({ where: { roleId: role.id, permission: { in: perms } } });
+    revoked += res.count;
+  }
+  log(`SoD: ${revoked} retired role permission grants revoked`);
+}
+
 export async function seedAdminShell() {
+  await retireCataloguePermissions();
   const admin = await prisma.user.findFirst({ where: { roles: { some: { role: { portal: 'admin', key: 'system_admin' } } } }, orderBy: { createdAt: 'asc' } });
   const actorId = admin?.id ?? (await prisma.user.findFirst({ orderBy: { createdAt: 'asc' } }))?.id;
   if (!actorId) {

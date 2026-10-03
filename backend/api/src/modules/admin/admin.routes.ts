@@ -33,10 +33,8 @@ type StaffRow = Prisma.UserGetPayload<{ include: typeof staffRoleInclude }>;
 
 function hhmm(d: Date | null) {
   if (!d) return 'Never';
-  const today = new Date().toDateString() === d.toDateString();
-  return today
-    ? d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Harare' })
-    : d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', timeZone: 'Africa/Harare' });
+  // Always date and time (ISS-ADB-020): a bare "14:46" does not say which day.
+  return d.toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Harare' });
 }
 
 function staffView(u: StaffRow) {

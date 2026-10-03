@@ -16,7 +16,10 @@ Runtime flags are live: `LP_LIVE_DOMAINS=all`, `INVESTEE_LIVE_ACTIONS=all`, `CUS
 | Company / Investee | http://localhost:48224 |
 | Custodian | http://localhost:48225 |
 
-Use `localhost` (not `127.0.0.1` for the first visit) so the session cookie and CORS origins match; both hosts are allowed by CORS.
+Use `localhost`. Each portal keeps its own session cookie outside production (`nexus_session_<port>`, e.g. `nexus_session_48221` for admin), so
+you can be signed in to the admin and LP portals as different users in one browser at the same time. Signing in to one portal no longer ends
+the session in another. Do not use `127.0.0.1` or `*.localhost` for browser testing: Next dev blocks cross-origin dev resources there and the
+pages never hydrate. For two personas on the same portal, use a second browser profile or a private window.
 
 ## Credentials
 
@@ -28,9 +31,20 @@ Sign in with email and password; there is no MFA step.
 Personas (email is `<persona>@uat.matanho.test` unless noted):
 
 - Admin: `local_admin` (admin@local.matanho.test, system admin), `sysadmin`, `client_services` (maker), `compliance`, `investment_director` (approver), `operations`, `analyst`
+  - `local_admin` and `sysadmin` hold the System Administrator role, which is deliberately view-only on operations and cannot change platform settings: separation of duties forbids an administrator who grants access from also moving money or approving. Use the test personas below for operations flows.
+  - The shipped roles satisfy the separation-of-duties catalogue (RBAC & Controls > Segregation of duties shows no warnings): the Investment Director approves and closes but no longer creates orders, posts journals or manages financing; Dealer routes but no longer creates orders; Operations prepares cash journals, Fund Accountant approves and closes them; Compliance approves but no longer creates or submits reports.
+- Admin test personas (test-only, passwords in `secrets/uat-users.json`, email `<persona>@uat.matanho.test`; created by `seed-uat.ts`, re-run it after pulling):
+  - `test_portfolio_manager` creates orders and authors term sheets (maker); the seeded draft term sheets are authored by it.
+  - `test_dealer` routes orders and records fills.
+  - `test_approver` (Investment Director role, a second person from `investment_director`) approves orders, releases NAV, closes and reopens accounting periods, processes corporate actions.
+  - `test_fund_accountant` posts accounting journals, approves and closes cash journals, runs reconciliations, processes corporate actions.
+  - `test_compliance` approves term sheets and cash, signs off reconciliations.
+  - `test_settings_admin` (Platform Settings Administrator) is the only role that changes Settings (kept apart from the System Administrator).
+  - Orders already seeded before this change keep their original maker; create a new order as `test_portfolio_manager` to walk create > approve > route > fill with three different people.
+- Step-up: no persona has an authenticator enrolled and `mfa_required` is off, so step-up prompts are skipped by design. To exercise them, enrol an authenticator from Profile, or run seed-uat with `SEED_UAT_MFA_REQUIRED=1`.
 - Investor / LP: `lp_a_manager` (Jane Smith, all funds), `lp_a_signatory` (one fund), `lp_a_viewer`, `lp_b_signatory` (a second client)
 - Company / Investee: `investee_101_approver`, `investee_101_contributor`, `investee_101_viewer` (company PC-101), `investee_102_admin` (PC-102)
-- Custodian: `custodian_submitter`, `custodian_approver`
+- Custodian: `custodian_submitter`, `custodian_approver`, `test_custodian_approver` (a second approver, so a day-end package submitted by another custodian user can be approved)
 - Onboarding: public; start an application without signing in.
 
 ## Data

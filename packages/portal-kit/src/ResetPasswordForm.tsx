@@ -36,6 +36,18 @@ export function ResetPasswordForm({ portal, apiUrl }: { portal: PortalId; apiUrl
     }
   }
 
+  const back = (
+    <p className="mx-foot">
+      <a className="mx-link" href="/login?forgot=1">
+        Request a new reset link
+      </a>
+      {' · '}
+      <a className="mx-link" href="/login">
+        Back to sign in
+      </a>
+    </p>
+  );
+
   return (
     <AuthCard portal={portal} title="Choose a new password">
       {token === null ? null : done ? (
@@ -46,7 +58,10 @@ export function ResetPasswordForm({ portal, apiUrl }: { portal: PortalId; apiUrl
           </a>
         </>
       ) : !token ? (
-        <ErrorNote error="This reset link is incomplete. Request a new one from the sign-in page." />
+        <>
+          <ErrorNote error="This reset link is incomplete. Request a new one." />
+          {back}
+        </>
       ) : (
         <form onSubmit={onSubmit}>
           <label>
@@ -61,6 +76,7 @@ export function ResetPasswordForm({ portal, apiUrl }: { portal: PortalId; apiUrl
           <button className="mx-btn primary block" type="submit" disabled={busy}>
             {busy ? 'Saving…' : 'Set password'}
           </button>
+          {back}
         </form>
       )}
     </AuthCard>
