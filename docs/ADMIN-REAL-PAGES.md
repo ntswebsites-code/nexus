@@ -845,6 +845,47 @@ Page 19 `corporate-actions` (SRD 5.A, permission `operations.view`). Module `bac
 ### Demo seed
 
 `prisma/seed-corporate-actions.ts` (called by `seed-uat.ts` and `seed-demo.ts`, also standalone, idempotent): a DLTA.ZW cash dividend, a SIM.ZW scrip dividend (confirmed, with election) and a CMCL.VX 2-for-1 split, dated relative to the seed day. Nothing is processed.
+## Cash & Ledgers
+
+Page 16 `cash` (SRD 5.A.15, permission `cash.view`; FR-CASH-001..008 and the related FR-CASH-009..019 where noted): a double-entry cash sub-ledger per portfolio with derived balances, maker-checker journals, reservations, expected movements, statement imports and a cash period close. Module `backend/api/src/modules/cash` (`cash.engine.ts` pure rules and statement parsing, `cash.service.ts` balances and the close pre-check, `cash.routes.ts`), mounted at `/api/v1/cash`, admin portal staff only. It builds on `portfolios`, `orders` (a reservation may reference an order id) and the accounting/reconciliation close pattern; the Phase 1 `cash_accounts` table (client bank accounts) is reused by reference (`cash_ledgers.cash_account_id`) and not duplicated.
+
+### Tables (migration `20261006100000_cash_ledgers`, additive)
+
+`cash_ledgers` (ref `CLG-1001`; per portfolio and currency; kind BANK, CONTROL, CLEARING, SUSPENSE or EXPENSE; min buffer, tolerance, status), `cash_journals` (ref `CJ-00001`, purpose, source and evidence refs, status, totals, maker, poster, reversal links, optional reservation and expectation link), `cash_journal_lines` (debit or credit DECIMAL(20,4) against a ledger), `cash_reservations` (ref `RSV-1001`), `cash_expectations` (ref `EXP-1001`), `cash_statement_imports` (ref `IMP-1001`, file hash, opening, closing, variance) with `cash_statement_lines` (fingerprint, match state), `cash_period_closes`. No stored balances.
+
+### Rules
+
+- Balances are derived: posted = sum of debit minus credit on BANK ledger lines of POSTED and REVERSED journals up to the as-of date. `available = max(0, posted - live reservations - minimum buffer)`, label `AVAIL-v1`; withdrawable equals it. Expected movements never change availability; a statement balance is evidence only. `GET /balances/explain` lists the journal lines and reservations behind the figures (they sum to the tile values).
+- Journals: DRAFT, PENDING_APPROVAL, POSTED, REVERSED, REJECTED, DISCARDED. At least two lines, one positive side each, debits equal credits, one currency, ledgers active and in the portfolio. The creator edits and submits (`cash.journal.create`); **a different `cash.journal.approve` holder posts, with step-up MFA** (403 `sod_violation` for the maker). Approvers can return or reject (reason required). Posted journals are immutable (409 `journal_immutable`); **reverse** (approve + step-up + reason) posts the exact inverse, links both ways, one reversal per journal. A journal dated on or before a CLOSED cash close returns 409 `period_closed`.
+- Posting a journal linked to a reservation consumes it by the cash credited to its ledger; one linked to an expectation sets that expectation POSTED.
+- Reservations (`cash.reservation` or `cash.journal.create`): created against a BANK ledger inside a transaction that takes a row lock on the ledger first, so concurrent holds cannot overspend (409 `insufficient_available_cash`). Release never deletes; releasing someone else's hold needs `cash.journal.approve`. Consume (partial or full); expiry date (a lapsed hold stops counting at once, and `POST /reservations/expire-sweep` marks it EXPIRED). Optional `orderId` (checked against orders; one live hold per order). `releaseOrderReservations(tx, orderId, actorId, reason)` is exported for the Orders module.
+- Expectations: IN or OUT forecast; EXPECTED, DUE (shown once the date arrives), POSTED, CANCELLED.
+- Statement import (`cash.import` stages): CSV (header with date, amount or credit/debit, optional reference and description; quoted fields) or JSON; positive = cash in. It must foot (opening + lines = closing within the ledger tolerance, else 400 `statement_does_not_foot`) and be new (409 `duplicate_file`, `duplicate_statement`, `duplicate_lines`). A different `cash.journal.approve` holder commits it with step-up (403 `sod_violation` for the uploader); commit auto-matches lines one-to-one to posted journals (equal amount, within 3 days). Manual match and write-off (needs a note and a person other than the uploader) are available.
+- **Cash period close pre-check** (`cash.close` prepares, closes and reopens; `cash.journal.approve` approves): STATEMENT_COVERAGE (a committed, continuous statement reaching the date for every bank ledger), BALANCE_VARIANCE (statement balance at the date vs ledger, within tolerance), SUSPENSE (suspense ledgers net zero), AGED_ITEMS (unmatched statement lines and expectations older than 5 days), UNPOSTED_JOURNALS, CHECKER_APPROVAL (approved by someone other than the preparer). `GET /period-closes/precheck` is informational; `POST /period-closes/:id/close` (step-up) returns 409 `close_blocked` with `error.details.blockers` and the full checklist. Reopen needs step-up and a reason.
+- Mutations that create records take `Idempotency-Key`. Audit actions use the `cash.` prefix (`journal_created`, `journal_posted`, `journal_reversed`, `reservation_created`, `reservation_released`, `import_staged`, `import_committed`, `close_closed`, and so on). Submit, stage, close prepare and approve notify the next role.
+
+### Endpoints (`/api/v1/cash`)
+
+| Endpoint | Permission |
+|---|---|
+| `GET /ledgers`, `/balances`, `/balances/explain`, `/journals`, `/journals/:id`, `/reservations`, `/expectations`, `/statement-imports`, `/statement-imports/:id`, `/statement-lines`, `/period-closes`, `/period-closes/precheck`, `/period-closes/:id` | `cash.view` |
+| `POST /journals`, `PATCH /journals/:id`, `POST /journals/:id/submit`, `/discard`, `POST /expectations`, `/expectations/:id/cancel`, `POST /reservations/:id/consume` | `cash.journal.create` (edit and submit: creator only) |
+| `POST /reservations`, `/reservations/:id/release` | `cash.reservation` or `cash.journal.create` |
+| `POST /journals/:id/post`, `/reverse` | `cash.journal.approve` + step-up (post: not the creator) |
+| `POST /journals/:id/return`, `/reject`, `POST /ledgers`, `/ledgers/default-set`, `PATCH /ledgers/:id`, `POST /reservations/expire-sweep`, `/period-closes/:id/approve`, `/statement-lines/:id/ignore` | `cash.journal.approve` |
+| `POST /statement-imports`, `/statement-imports/:id/reject`, `/statement-lines/:id/match` | `cash.import` |
+| `POST /statement-imports/:id/commit` | `cash.journal.approve` + step-up (not the uploader) |
+| `POST /period-closes`, `/period-closes/:id/close`, `/reopen` | `cash.close` (close and reopen + step-up) |
+
+No new permission codes: `cash.view`, `cash.journal.create`, `cash.journal.approve`, `cash.reservation`, `cash.import` and `cash.close` already exist in `role-catalog.json` (`operations` and `fund_accountant` hold the maker and checker set; `portfolio_manager` and `dealer` hold `cash.reservation`; the Auditor is read-only).
+
+### Console
+
+`/ops/cash` (nav section "Cash", `cash.view`): portfolio filter and tabs Balances (as-of date, Explain, add the standard ledgers), Cash ledger (journals, New controlled journal with a balanced line grid), Reservations (new, consume, release, sweep), Expected cash, Statement imports (file upload, CSV or JSON), Period close (prepare). `/ops/cash/journals/[id]` (submit, approve and post, return, reject, discard, reverse, enabled from the server `allowed` flags), `/ops/cash/imports/[id]` (arithmetic, staged lines, commit, reject, match, write off), `/ops/cash/closes/[id]` (pre-check with every blocker, approve, close, reopen). `?journal=`, `?import=`, `?close=` deep-link from notifications. Typecheck only; no browser verification was done.
+
+### Demo seed
+
+`prisma/seed-cash.ts` (called by `seed-uat.ts` and `seed-demo.ts`, also standalone, idempotent): adds the standard ledger set per portfolio and currency and, for a portfolio with no cash journal and a latest `portfolio_cash` figure, one POSTED opening-balance journal so derived balances start from the existing cash record.
 
 ### Running the test
 
@@ -864,3 +905,12 @@ The script (`scripts/test-corporate-actions.ts`) covers the engine maths, valida
 - No cash in lieu of fractional shares, no tax on non-dividend actions, no partial rights take-up or oversubscription, no rights trading or sale.
 - Effects are not linked to Accounting journals or the cash ledger (`/cash`); they update the portfolio position and cash rows only. No automatic corporate-action feed; announcements are entered by hand. Entitlements use the portfolio positions, not LP or client level holdings.
 - A processed action cannot be reversed; correct it with a new action or a manual adjustment.
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exists=../../.env scripts/test-cash.ts
+```
+
+`scripts/test-cash.ts` covers the engine and parser, permissions, derived balances, journal lifecycle, maker-checker and step-up, reversal, concurrent reservations (one 201, one 409), consume on post, expiry, expectations, statement staging, duplicates, checker commit and auto-match, the multi-blocker 409 close, clearing each blocker, closing, the period lock, reopen, idempotency and audit. It was typechecked but **not run** (no local database was started).
+
+### Not done
+
+- Orders do not yet call the reservation service on submit, cancel or fill (FR-CASH-015); `releaseOrderReservations` is exported for that and the order ticket still reads its own availability.
+- Reversing a settlement journal does not restore a consumed reservation; no CAMT.053 parser; no client/mandate context bar; no holds, pending-withdrawal or reusable-proceeds components in availability; no sub-ledger-to-GL tie-out to the accounting module; cash-account lifecycle stays on the Clients page.

@@ -18,6 +18,11 @@ const FORMATS = {
   navRun: { prefix: 'NAV-', pad: 5, start: 1 },
   journal: { prefix: 'JNL-', pad: 5, start: 1 },
   corpAction: { prefix: 'CA-', pad: 5, start: 1 },
+  cashLedger: { prefix: 'CLG-', pad: 4, start: 1001 },
+  cashJournal: { prefix: 'CJ-', pad: 5, start: 1 },
+  cashReservation: { prefix: 'RSV-', pad: 4, start: 1001 },
+  cashExpectation: { prefix: 'EXP-', pad: 4, start: 1001 },
+  cashImport: { prefix: 'IMP-', pad: 4, start: 1001 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;

@@ -22,6 +22,7 @@ import { riskRoutes } from '../modules/risk/risk.routes';
 import { navRoutes } from '../modules/nav';
 import { accountingRoutes } from '../modules/accounting';
 import { corporateActionsRoutes } from '../modules/corporate-actions';
+import { cashRoutes } from '../modules/cash';
 import { reconRoutes } from '../modules/recon/recon.routes';
 
 /** `/api/v1` - SRD section 11 domain API. */
@@ -44,6 +45,8 @@ v1Router.use('/nav', navRoutes);
 v1Router.use('/accounting', accountingRoutes);
 // Corporate Actions: /corporate-actions/* (events, entitlements, elections, processing).
 v1Router.use('/corporate-actions', corporateActionsRoutes);
+// Cash & Ledgers: /cash/* (balances, journals, reservations, expectations, statement imports, period closes).
+v1Router.use('/cash', cashRoutes);
 // Reconciliations: /recon/* (runs, breaks, sources, signoffs, account-map).
 v1Router.use('/recon', reconRoutes);
 v1Router.use('/auth', identityRoutes);

@@ -2496,3 +2496,245 @@ model CorpActionEntitlement {
   @@map("corp_action_entitlements")
 }
 // ---- end CorporateActions ----
+// ---- Cash ----
+// Cash & Ledgers (SRD 5.A.15 page `cash`): a double-entry cash sub-ledger per portfolio. Balances are never stored;
+// they are derived from posted journal lines. Reservations, expectations and statement imports sit beside it.
+
+/// A ledger account in a portfolio's cash sub-ledger. BANK ledgers hold cash; the others are contra sides.
+model CashLedger {
+  id            String   @id @default(uuid()) @db.Char(36)
+  /// CLG-1001 ...
+  ref           String   @unique @db.VarChar(16)
+  portfolioId   String   @map("portfolio_id") @db.Char(36)
+  name          String   @db.VarChar(160)
+  currency      String   @default("USD") @db.Char(3)
+  /// BANK | CONTROL | CLEARING | SUSPENSE | EXPENSE
+  kind          String   @default("BANK") @db.VarChar(12)
+  /// Logical reference to cash_accounts.id (the client bank account this ledger mirrors).
+  cashAccountId String?  @map("cash_account_id") @db.Char(36)
+  /// Cash kept back from availability.
+  minBuffer     Decimal  @default(0) @map("min_buffer") @db.Decimal(20, 4)
+  /// Statement-to-ledger variance allowed at close and on import arithmetic.
+  tolerance     Decimal  @default(0) @db.Decimal(20, 4)
+  /// ACTIVE | SUSPENDED | CLOSED
+  status        String   @default("ACTIVE") @db.VarChar(12)
+  createdBy     String   @map("created_by") @db.Char(36)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  lines CashJournalLine[]
+
+  @@index([portfolioId, kind])
+  @@index([cashAccountId])
+  @@map("cash_ledgers")
+}
+
+/// A cash journal. DRAFT -> PENDING_APPROVAL -> POSTED -> REVERSED (or REJECTED / DISCARDED before posting).
+/// Posted journals are immutable; a reversal is a new POSTED journal with the sides swapped.
+model CashJournal {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// CJ-00001 ...
+  ref           String    @unique @db.VarChar(16)
+  portfolioId   String    @map("portfolio_id") @db.Char(36)
+  entryDate     DateTime  @map("entry_date") @db.Date
+  description   String    @db.VarChar(500)
+  /// BUY_SETTLEMENT | CLIENT_DEPOSIT | CLIENT_WITHDRAWAL | EXTERNAL_FEE | TRANSFER | MANUAL_CORRECTION | REVERSAL
+  purpose       String    @default("MANUAL_CORRECTION") @db.VarChar(24)
+  sourceRef     String?   @map("source_ref") @db.VarChar(80)
+  evidenceRef   String?   @map("evidence_ref") @db.VarChar(120)
+  currency      String    @default("USD") @db.Char(3)
+  /// DRAFT | PENDING_APPROVAL | POSTED | REVERSED | REJECTED | DISCARDED
+  status        String    @default("DRAFT") @db.VarChar(20)
+  totalDebit    Decimal   @default(0) @map("total_debit") @db.Decimal(20, 4)
+  totalCredit   Decimal   @default(0) @map("total_credit") @db.Decimal(20, 4)
+  makerId       String    @map("maker_id") @db.Char(36)
+  submittedAt   DateTime? @map("submitted_at")
+  postedBy      String?   @map("posted_by") @db.Char(36)
+  postedAt      DateTime? @map("posted_at")
+  rejectReason  String?   @map("reject_reason") @db.VarChar(500)
+  /// Settles this expectation when the journal posts.
+  expectationId String?   @map("expectation_id") @db.Char(36)
+  /// Consumes this reservation (by the cash credited) when the journal posts.
+  reservationId String?   @map("reservation_id") @db.Char(36)
+  reversalOfId  String?   @map("reversal_of_id") @db.Char(36)
+  reversedById  String?   @map("reversed_by_id") @db.Char(36)
+  reversedAt    DateTime? @map("reversed_at")
+  reverseReason String?   @map("reverse_reason") @db.VarChar(500)
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  lines CashJournalLine[]
+
+  @@index([portfolioId, entryDate])
+  @@index([portfolioId, status])
+  @@map("cash_journals")
+}
+
+model CashJournalLine {
+  id        String  @id @default(uuid()) @db.Char(36)
+  journalId String  @map("journal_id") @db.Char(36)
+  lineNo    Int     @map("line_no")
+  ledgerId  String  @map("ledger_id") @db.Char(36)
+  debit     Decimal @default(0) @db.Decimal(20, 4)
+  credit    Decimal @default(0) @db.Decimal(20, 4)
+  memo      String? @db.VarChar(255)
+
+  journal CashJournal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  ledger  CashLedger  @relation(fields: [ledgerId], references: [id])
+
+  @@index([journalId])
+  @@index([ledgerId])
+  @@map("cash_journal_lines")
+}
+
+/// Cash held back for an order, withdrawal or transfer. Reduces availability without changing posted cash.
+model CashReservation {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// RSV-1001 ...
+  ref           String    @unique @db.VarChar(16)
+  portfolioId   String    @map("portfolio_id") @db.Char(36)
+  ledgerId      String    @map("ledger_id") @db.Char(36)
+  /// Logical reference to orders.id when the hold backs an order.
+  orderId       String?   @map("order_id") @db.Char(36)
+  source        String    @db.VarChar(80)
+  /// BUY_SETTLEMENT | WITHDRAWAL | TRANSFER
+  purpose       String    @default("BUY_SETTLEMENT") @db.VarChar(20)
+  currency      String    @db.Char(3)
+  amount        Decimal   @db.Decimal(20, 4)
+  consumed      Decimal   @default(0) @db.Decimal(20, 4)
+  requiredDate  DateTime  @map("required_date") @db.Date
+  expiresOn     DateTime? @map("expires_on") @db.Date
+  /// ACTIVE | PARTIALLY_CONSUMED | CONSUMED | RELEASED | EXPIRED
+  status        String    @default("ACTIVE") @db.VarChar(20)
+  createdBy     String    @map("created_by") @db.Char(36)
+  releasedBy    String?   @map("released_by") @db.Char(36)
+  releasedAt    DateTime? @map("released_at")
+  releaseReason String?   @map("release_reason") @db.VarChar(500)
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([portfolioId, status])
+  @@index([ledgerId, status])
+  @@index([orderId])
+  @@map("cash_reservations")
+}
+
+/// A forecast cash movement. Projection only: it never changes availability. EXPECTED -> DUE -> POSTED.
+model CashExpectation {
+  id           String   @id @default(uuid()) @db.Char(36)
+  /// EXP-1001 ...
+  ref          String   @unique @db.VarChar(16)
+  portfolioId  String   @map("portfolio_id") @db.Char(36)
+  ledgerId     String   @map("ledger_id") @db.Char(36)
+  /// IN | OUT
+  direction    String   @db.VarChar(3)
+  /// SETTLEMENT | DIVIDEND | CAPITAL_CALL | DISTRIBUTION | FEE | OTHER
+  kind         String   @default("OTHER") @db.VarChar(16)
+  source       String?  @db.VarChar(80)
+  currency     String   @db.Char(3)
+  amount       Decimal  @db.Decimal(20, 4)
+  expectedDate DateTime @map("expected_date") @db.Date
+  /// EXPECTED | DUE | POSTED | CANCELLED
+  status       String   @default("EXPECTED") @db.VarChar(12)
+  journalId    String?  @map("journal_id") @db.Char(36)
+  note         String?  @db.VarChar(500)
+  createdBy    String   @map("created_by") @db.Char(36)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([portfolioId, status])
+  @@index([ledgerId, expectedDate])
+  @@map("cash_expectations")
+}
+
+/// A bank statement staged for review. STAGED -> COMMITTED by a checker other than the uploader (or REJECTED).
+model CashStatementImport {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// IMP-1001 ...
+  ref            String    @unique @db.VarChar(16)
+  ledgerId       String    @map("ledger_id") @db.Char(36)
+  portfolioId    String    @map("portfolio_id") @db.Char(36)
+  filename       String    @db.VarChar(200)
+  /// SHA-256 of the uploaded content; a repeat on the same ledger is refused.
+  fileHash       String    @map("file_hash") @db.Char(64)
+  /// CSV | JSON
+  format         String    @db.VarChar(8)
+  statementFrom  DateTime  @map("statement_from") @db.Date
+  statementTo    DateTime  @map("statement_to") @db.Date
+  openingBalance Decimal   @map("opening_balance") @db.Decimal(20, 4)
+  closingBalance Decimal   @map("closing_balance") @db.Decimal(20, 4)
+  lineCount      Int       @map("line_count")
+  /// opening + sum(lines) - closing; must be within the ledger tolerance to stage.
+  variance       Decimal   @db.Decimal(20, 4)
+  /// STAGED | COMMITTED | REJECTED
+  status         String    @default("STAGED") @db.VarChar(12)
+  makerId        String    @map("maker_id") @db.Char(36)
+  checkerId      String?   @map("checker_id") @db.Char(36)
+  committedAt    DateTime? @map("committed_at")
+  rejectReason   String?   @map("reject_reason") @db.VarChar(500)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  lines CashStatementLine[]
+
+  @@unique([ledgerId, fileHash])
+  @@index([portfolioId, status])
+  @@index([ledgerId, statementTo])
+  @@map("cash_statement_imports")
+}
+
+model CashStatementLine {
+  id               String    @id @default(uuid()) @db.Char(36)
+  importId         String    @map("import_id") @db.Char(36)
+  ledgerId         String    @map("ledger_id") @db.Char(36)
+  lineNo           Int       @map("line_no")
+  valueDate        DateTime  @map("value_date") @db.Date
+  /// Signed from the fund's view: positive = cash in.
+  amount           Decimal   @db.Decimal(20, 4)
+  reference        String?   @db.VarChar(120)
+  description      String?   @db.VarChar(255)
+  /// SHA-256 of ledger, date, amount, reference and description; repeats are refused.
+  fingerprint      String    @db.Char(64)
+  /// UNMATCHED | MATCHED | IGNORED
+  status           String    @default("UNMATCHED") @db.VarChar(12)
+  matchedJournalId String?   @map("matched_journal_id") @db.Char(36)
+  matchedAt        DateTime? @map("matched_at")
+  note             String?   @db.VarChar(255)
+
+  import CashStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+
+  @@index([importId])
+  @@index([ledgerId, fingerprint])
+  @@index([ledgerId, status, valueDate])
+  @@map("cash_statement_lines")
+}
+
+/// Month-end (or any date) cash close for a portfolio. PREPARED -> APPROVED (independent checker) -> CLOSED.
+model CashPeriodClose {
+  id            String    @id @default(uuid()) @db.Char(36)
+  portfolioId   String    @map("portfolio_id") @db.Char(36)
+  periodEnd     DateTime  @map("period_end") @db.Date
+  /// PREPARED | APPROVED | CLOSED
+  status        String    @default("PREPARED") @db.VarChar(12)
+  preparedBy    String    @map("prepared_by") @db.Char(36)
+  preparedAt    DateTime  @default(now()) @map("prepared_at")
+  approvedBy    String?   @map("approved_by") @db.Char(36)
+  approvedAt    DateTime? @map("approved_at")
+  closedBy      String?   @map("closed_by") @db.Char(36)
+  closedAt      DateTime? @map("closed_at")
+  reopenedBy    String?   @map("reopened_by") @db.Char(36)
+  reopenedAt    DateTime? @map("reopened_at")
+  reopenReason  String?   @map("reopen_reason") @db.VarChar(500)
+  /// Pre-check result at the moment of close.
+  closeSnapshot Json?     @map("close_snapshot")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([portfolioId, periodEnd])
+  @@index([portfolioId, status])
+  @@map("cash_period_closes")
+}
+
+// ---- end Cash ----
