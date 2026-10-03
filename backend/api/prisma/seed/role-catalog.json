@@ -41,7 +41,11 @@
         "dealing.approve",
         "term_sheets.view",
         "term_sheets.approve",
-        "custodian.view"
+        "custodian.view",
+        "research.ic.decide",
+        "private.mark.approve",
+        "financing.manage",
+        "financing.approve"
       ]
     },
     {
@@ -74,7 +78,9 @@
         "notices.view",
         "dealing.view",
         "term_sheets.view",
-        "term_sheets.create"
+        "term_sheets.create",
+        "research.ic.decide",
+        "financing.manage"
       ]
     },
     {
@@ -150,7 +156,9 @@
         "dealing.approve",
         "term_sheets.view",
         "term_sheets.approve",
-        "custodian.view"
+        "custodian.view",
+        "financing.manage",
+        "financing.approve"
       ]
     },
     {
@@ -190,7 +198,8 @@
         "dealing.view",
         "dealing.process",
         "custodian.view",
-        "custodian.review"
+        "custodian.review",
+        "financing.manage"
       ]
     },
     {
@@ -230,7 +239,8 @@
         "dealing.view",
         "dealing.process",
         "custodian.view",
-        "custodian.review"
+        "custodian.review",
+        "private.mark.approve"
       ]
     },
     {

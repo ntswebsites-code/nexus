@@ -789,6 +789,7 @@ try {
   await (await import('./seed-corporate-actions')).seedCorporateActions();
   await (await import('./seed-cash')).seedCash();
   await (await import('./seed-recon')).seedRecon();
+  await (await import('./seed-research-privates')).seedResearchPrivates();
 
   if (process.env.SEED_UAT_MFA_REQUIRED === '1') {
     await prisma.policy.upsert({ where: { key: 'mfa_required' }, update: { value: true }, create: { key: 'mfa_required', value: true } });
