@@ -25,6 +25,10 @@ import type { PortfolioSummary } from '@/ops/types';
 import { Alert, Card, Empty, Field, formatDate, formatDateTime, Loaded, PageHeader, useAction, useResource } from '@/ops/ui';
 
 const PAGE = 50;
+const failing = (items: { title: string; ok: boolean }[]) => {
+  const bad = items.filter((i) => !i.ok);
+  return bad.length ? `${bad.length} check(s) need attention: ${bad.map((i) => i.title).join(' · ')}` : 'All controls clear';
+};
 const ASSET_CLASSES = ['Equity', 'Fixed income', 'Cash', 'Fund', 'Private'];
 
 export default function IborPage() {
@@ -84,12 +88,12 @@ export default function IborPage() {
         subtitle="Positions, tax lots, unsettled activity and available-to-trade, with the event lineage behind every change."
         actions={
           <>
-            {canReconcile && (
+            {(
               <button
                 className="ops-btn"
                 type="button"
-                disabled={!portfolioId || reconcile.busy}
-                title={portfolioId ? 'Runs the holdings reconciliation for this portfolio' : 'Pick a portfolio first'}
+                disabled={!canReconcile || !portfolioId || reconcile.busy}
+                title={!canReconcile ? 'Needs the recon.manage permission' : portfolioId ? 'Runs the holdings reconciliation for this portfolio' : 'Pick a portfolio first'}
                 onClick={async () => {
                   setNotice(null);
                   const r = await reconcile.run((key) => api.post<{ run: { ref: string; status: string; breaks: number } }>(v1('/ibor/reconcile'), { portfolioId }, { idempotencyKey: key }));
@@ -102,12 +106,12 @@ export default function IborPage() {
                 {reconcile.busy ? 'Reconciling…' : 'Reconcile positions'}
               </button>
             )}
-            {canRefresh && (
+            {(
               <button
                 className="ops-btn primary"
                 type="button"
-                disabled={refresh.busy}
-                title="Books new fills into tax lots and records any drift against the position record"
+                disabled={!canRefresh || refresh.busy}
+                title={canRefresh ? 'Books new fills into tax lots and records any drift against the position record' : 'Needs the portfolio.manage permission'}
                 onClick={async () => {
                   setNotice(null);
                   const r = await refresh.run((key) => api.post<RefreshResult>(v1('/ibor/refresh'), portfolioId ? { portfolioId } : {}, { idempotencyKey: key }));
@@ -153,17 +157,17 @@ export default function IborPage() {
           <>
             <div className="ops-tiles">
               <Tile label="As of" value={formatDate(o.asOf)} hint="Position snapshot date" />
-              <Tile label="Book state" value={o.control.bookState} tone={o.control.bookState === 'Current' ? undefined : 'warn'} hint={o.health.items.filter((i) => !i.ok).map((i) => i.title).join(' · ') || 'All controls clear'} />
+              <Tile label="Book state" value={o.control.bookState} tone={o.control.bookState === 'Current' ? undefined : 'warn'} hint={failing(o.health.items)} />
               <Tile label="Last event" value={o.control.lastEvent ? `${EVENT_LABEL[o.control.lastEvent.type] ?? o.control.lastEvent.type} · ${o.control.lastEvent.ref}` : 'None yet'} hint={o.control.lastEvent ? formatDateTime(o.control.lastEvent.at) : 'Refresh IBOR to start the lineage'} onClick={() => setTab('events')} />
-              <Tile label="Last refresh" value={ageText(o.control.refreshAgeSeconds)} hint={o.control.lastRefresh ? `${o.control.lastRefresh.ref} · ${o.control.lastRefresh.durationMs} ms` : undefined} />
+              <Tile label="Last refresh" value={ageText(o.control.refreshAgeSeconds)} hint={o.control.lastRefresh ? `${o.control.lastRefresh.ref} · ${o.control.lastRefresh.durationMs} ms` : canRefresh ? 'Use Refresh IBOR to book new fills' : 'Refresh IBOR needs portfolio.manage'} />
             </div>
             <div className="ops-tiles">
-              <Tile label="Market value" value={money2(o.kpis.marketValueBase)} hint="Base-currency equivalent" />
+              <Tile label="Market value" value={`${o.kpis.currency} ${money2(o.kpis.marketValueBase)}`} hint={`Every position converted to ${o.kpis.currency}`} />
               <Tile label="Positions" value={String(o.kpis.positions)} hint={`${o.kpis.portfolios} portfolio(s)`} />
-              <Tile label="Available cash" value={money2(o.kpis.availableCash)} hint="After reservations" />
-              <Tile label="Unsettled buys" value={money2(o.kpis.unsettledBuys)} hint={`${o.kpis.unsettledBuyCount} live fill(s)`} />
-              <Tile label="Accrued income" value={money2(o.kpis.accruedIncome)} hint="Confirmed dividends not yet paid" />
-              <Tile label="Exceptions" value={String(o.kpis.exceptions)} tone={o.kpis.exceptions ? 'warn' : undefined} hint={`${o.kpis.materialExceptions} material`} onClick={() => filter(setState)('Review')} />
+              <Tile label="Available cash" value={`${o.kpis.currency} ${money2(o.kpis.availableCash)}`} hint="After reservations" />
+              <Tile label="Unsettled buys" value={`${o.kpis.currency} ${money2(o.kpis.unsettledBuys)}`} hint={`${o.kpis.unsettledBuyCount} live fill(s)`} />
+              <Tile label="Accrued income" value={`${o.kpis.currency} ${money2(o.kpis.accruedIncome)}`} hint="Confirmed dividends not yet paid" />
+              <Tile label="Exceptions" value={String(o.kpis.exceptions)} tone={o.kpis.exceptions ? 'warn' : undefined} hint={`${o.kpis.materialExceptions} material position exception(s)${o.health.items.some((i) => !i.ok) ? ` · plus ${o.health.items.filter((i) => !i.ok).length} failing book check(s)` : ''}`} onClick={() => filter(setState)('Review')} />
             </div>
           </>
         )}

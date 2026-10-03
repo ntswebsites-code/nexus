@@ -60,6 +60,7 @@ export interface BookHealth {
 export interface IborOverview {
   asOf: string;
   kpis: {
+    currency: string;
     marketValueBase: string;
     positions: number;
     portfolios: number;

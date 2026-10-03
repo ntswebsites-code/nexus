@@ -198,7 +198,7 @@ function Overview({ summary, portfolioId, onOpen }: { summary: ReturnType<typeof
           <p className="ops-muted" style={{ margin: '0 0 8px' }}>Pooled totals are in {s.reportCurrency}; each fund is converted at its latest rate.</p>
           <div className="ops-tiles">
             <Tile label="Committed" value={m2(s.totals.committed)} hint={`${m2(s.totals.unfunded)} unfunded`} />
-            <Tile label="NAV" value={m2(s.totals.nav)} hint={s.totals.navAsOf ? `Latest approved mark ${formatDate(s.totals.navAsOf)}` : 'No approved marks'} />
+            <Tile label="NAV" value={m2(s.totals.nav)} hint={(s.totals.navAsOf ? `Latest approved mark ${formatDate(s.totals.navAsOf)}` : 'No approved marks') + (s.pendingMarks ? ` · ${s.pendingMarks} newer mark(s) awaiting approval` : '')} />
             <Tile label="TVPI / DPI" value={`${xr(s.totals.tvpi)} / ${xr(s.totals.dpi)}`} hint={`RVPI ${xr(s.totals.rvpi)}`} />
             <Tile label="IRR" value={irr(s.totals.irrPct)} hint={`Paid-in ${m2(s.totals.paidIn)} · distributed ${m2(s.totals.distributed)}`} />
             <Tile label="Marks awaiting approval" value={String(s.pendingMarks)} hint={`${s.staleMarks} commitment(s) with a stale or missing mark`} />
@@ -682,6 +682,7 @@ function MarkModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                       <button className="ops-btn danger" type="button" onClick={() => setSub('reject')}>Reject</button>
                     </>
                   )}
+                  {m.status === 'PENDING_APPROVAL' && !canApprove && <button className="ops-btn primary" type="button" disabled title="Needs the private.mark.approve permission">Approve</button>}
                   {m.status === 'PENDING_APPROVAL' && maker && <span className="ops-muted">A different person with private.mark.approve must approve.</span>}
                 </div>
                 {sub === 'evidence' && (

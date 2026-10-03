@@ -7,6 +7,7 @@ import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useAction, useResource } from '@/ops/ui';
 
 const L = (p: string) => v1(`/portfolio-lab${p}`);
+const NEEDS_MANAGE = 'Needs the portfolio.manage permission';
 
 interface Model {
   id: string;
@@ -129,7 +130,7 @@ function ModelsTab({ onOpen }: { onOpen: (id: string) => void }) {
   const [creating, setCreating] = useState(false);
   const res = useResource<Model[]>(() => api.get<Model[]>(L('/models')), []);
   return (
-    <Card title="Model portfolios" actions={canManage && <button className="ops-btn primary" type="button" onClick={() => setCreating(true)}>New model</button>}>
+    <Card title="Model portfolios" actions={<button className="ops-btn primary" type="button" disabled={!canManage} title={canManage ? undefined : 'Needs the portfolio.manage permission'} onClick={() => setCreating(true)}>New model</button>}>
       <Loaded res={res} what="models">
         {(rows) =>
           rows.length === 0 ? (
@@ -141,7 +142,7 @@ function ModelsTab({ onOpen }: { onOpen: (id: string) => void }) {
                   <td><strong>{m.ref}</strong><div className="ops-muted">{m.name}</div></td>
                   <td className="r">{m.holdings}</td>
                   <td className="r">{m.cashTargetPct}%</td>
-                  <td className="r">{m.totalPct}%</td>
+                  <td className="r">{m.totalPct}%{m.problems.length > 0 && <div><Tag value="Check" tone="amber" /> <span className="ops-muted" title={m.problems.join('. ')}>{m.problems[0]}</span></div>}</td>
                   <td>{m.createdByName}</td>
                   <td><Tag value={m.status} /></td>
                 </tr>
@@ -223,15 +224,14 @@ function ModelModal({ id, onClose, onChanged }: { id: string; onClose: () => voi
                   <tr key={w.securityId}><td>{w.ticker} <span className="ops-muted">{w.name}</span></td><td>{w.sector}</td><td className="r">{w.targetPct}%</td></tr>
                 ))}
               </DataTable>
-              {canManage && (
-                <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
-                  {m.status === 'DRAFT' && <button className="ops-btn" type="button" onClick={() => setSub('edit')}>Edit</button>}
-                  {m.status === 'DRAFT' && m.createdBy !== user.id && <ActionButton primary label="Activate" confirm="Activate this model? Rebalances can then target it." onRun={(k) => api.post(L(`/models/${m.id}/activate`), {}, { idempotencyKey: k })} onDone={done} />}
-                  {m.status === 'DRAFT' && m.createdBy === user.id && <span className="ops-muted">A second person activates your model.</span>}
-                  <ActionButton label="Clone" onRun={(k) => api.post(L(`/models/${m.id}/clone`), {}, { idempotencyKey: k })} onDone={done} />
-                  {m.status !== 'RETIRED' && <button className="ops-btn" type="button" onClick={() => setSub('retire')}>Retire</button>}
-                </div>
-              )}
+              <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+                {m.status === 'DRAFT' && <button className="ops-btn" type="button" disabled={!canManage} title={canManage ? undefined : NEEDS_MANAGE} onClick={() => setSub('edit')}>Edit</button>}
+                {m.status === 'DRAFT' && m.createdBy !== user.id && (canManage ? <ActionButton primary label="Activate" confirm="Activate this model? Rebalances can then target it." onRun={(k) => api.post(L(`/models/${m.id}/activate`), {}, { idempotencyKey: k })} onDone={done} /> : <button className="ops-btn primary" type="button" disabled title={NEEDS_MANAGE}>Activate</button>)}
+                {m.status === 'DRAFT' && m.createdBy === user.id && <span className="ops-muted">A second person activates your model.</span>}
+                {canManage ? <ActionButton label="Clone" onRun={(k) => api.post(L(`/models/${m.id}/clone`), {}, { idempotencyKey: k })} onDone={done} /> : <button className="ops-btn" type="button" disabled title={NEEDS_MANAGE}>Clone</button>}
+                {m.status !== 'RETIRED' && <button className="ops-btn" type="button" disabled={!canManage} title={canManage ? undefined : NEEDS_MANAGE} onClick={() => setSub('retire')}>Retire</button>}
+                {!canManage && <span className="ops-muted">{NEEDS_MANAGE}.</span>}
+              </div>
               {sub === 'edit' && <ModelForm model={m} onClose={() => setSub(null)} onDone={done} />}
               {sub === 'retire' && <ReasonModal title="Retire model" submitLabel="Retire" danger onClose={() => setSub(null)} onSubmit={(reason) => api.post(L(`/models/${m.id}/retire`), { reason })} onDone={done} />}
             </>
@@ -292,6 +292,8 @@ function WhatIf({ onSaved }: { onSaved: (id: string) => void }) {
   const run = useAction();
   const save = useAction();
   const body = { portfolioId, modelId, driftThresholdPct: drift || '0.5', keepUnmodelled: keep };
+  const failing = preview ? preview.lines.filter((l) => l.checkResult === 'Fail').length : 0;
+  const review = preview ? preview.lines.filter((l) => l.checkResult === 'Review').length : 0;
   return (
     <>
       <Card title="Rebalance a portfolio to a model">
@@ -320,14 +322,16 @@ function WhatIf({ onSaved }: { onSaved: (id: string) => void }) {
             <Tile label="Portfolio value" value={`${preview.baseCurrency} ${m2(preview.totalValueBase)}`} hint={`${preview.portfolioName} → ${preview.modelName}`} />
             <Tile label="Turnover" value={`${preview.turnoverPct}%`} hint={`${preview.lines.length} trade(s)`} />
             <Tile label="Cash after" value={`${preview.cashAfterPct}%`} hint={`${preview.baseCurrency} ${m2(preview.cashAfterBase)}`} />
-            <Tile label="Mandate" value={preview.constraintsPassed ? 'Within' : 'Breached'} hint={preview.constraintsPassed ? 'All whole-book checks pass' : 'Fix the model or threshold before ordering'} />
+            <Tile label="Mandate (whole book)" value={preview.constraintsPassed ? 'Within' : 'Breached'} hint={preview.constraintsPassed ? 'Whole-book checks pass after the trades' : 'Fix the model or threshold before ordering'} />
+            <Tile label="Trade checks" value={failing === 0 && review === 0 ? 'All pass' : `${failing} fail · ${review} review`} hint={`${preview.lines.length} proposed trade(s), checked one by one`} />
           </div>
+          {failing > 0 && <Alert kind="warn">{`${failing} of ${preview.lines.length} proposed trades fail their own pre-trade or risk checks. The whole-book mandate result above does not cover liquidity, cash or limit checks on individual trades; those trades cannot be turned into orders.`}</Alert>}
           {preview.warnings.map((w) => <Alert key={w} kind="warn">{w}</Alert>)}
           <Card title="Proposed trades">{preview.lines.length ? <LinesTable lines={preview.lines} /> : <Empty>The portfolio is already within the drift threshold of the model.</Empty>}</Card>
           <Card title="Whole-book mandate checks after the trades"><Constraints items={preview.constraints} /></Card>
-          {canManage && preview.lines.length > 0 && (
+          {preview.lines.length > 0 && (
             <div className="ops-actions">
-              <button className="ops-btn primary" type="button" disabled={save.busy} onClick={async () => { const r = await save.run((k) => api.post<Rebalance>(L('/rebalances'), body, { idempotencyKey: k })); if (r) onSaved(r.id); }}>
+              <button className="ops-btn primary" type="button" disabled={!canManage || save.busy} title={canManage ? undefined : NEEDS_MANAGE} onClick={async () => { const r = await save.run((k) => api.post<Rebalance>(L('/rebalances'), body, { idempotencyKey: k })); if (r) onSaved(r.id); }}>
                 {save.busy ? 'Saving…' : 'Save as proposal'}
               </button>
               <Alert>{save.error}</Alert>
@@ -405,9 +409,10 @@ function RebalanceModal({ id, onClose, onChanged }: { id: string; onClose: () =>
               {r.status === 'PROPOSED' && (
                 <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
                   {canManage && canOrder && (
-                    <ActionButton primary label="Create draft orders" disabled={r.stale || !r.constraintsPassed} title={!r.constraintsPassed ? 'The mandate is breached after these trades' : undefined} confirm="Create DRAFT orders for the trades that did not fail their checks? They still need approval in Orders." onRun={(k) => api.post(L(`/rebalances/${r.id}/orders`), {}, { idempotencyKey: k })} onDone={done} />
+                    <ActionButton primary label="Create draft orders" disabled={r.stale || !r.constraintsPassed} title={!r.constraintsPassed ? 'The mandate is breached after these trades' : r.stale ? 'The proposal is stale; run a new what-if' : undefined} confirm="Create DRAFT orders for the trades that did not fail their checks? They still need approval in Orders." onRun={(k) => api.post(L(`/rebalances/${r.id}/orders`), {}, { idempotencyKey: k })} onDone={done} />
                   )}
-                  {canManage && <button className="ops-btn" type="button" onClick={() => setDiscard(true)}>Discard</button>}
+                  {(!canManage || !canOrder) && <button className="ops-btn primary" type="button" disabled title={!canManage ? NEEDS_MANAGE : 'Needs the orders.create permission'}>Create draft orders</button>}
+                  <button className="ops-btn" type="button" disabled={!canManage} title={canManage ? undefined : NEEDS_MANAGE} onClick={() => setDiscard(true)}>Discard</button>
                   {canManage && !canOrder && <span className="ops-muted">Creating orders needs the orders.create permission.</span>}
                 </div>
               )}

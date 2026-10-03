@@ -74,6 +74,12 @@ export default function PerformancePage() {
         }
       />
 
+      {(() => {
+        const today = new Date().toISOString().slice(0, 10);
+        const latest = rows.map((x) => x.periodEnd).filter((x): x is string => !!x).sort().pop();
+        const gap = latest ? Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${latest}T00:00:00Z`)) / 86_400_000) : 0;
+        return gap > 7 ? <Alert kind="warn">{`Price history ends ${formatDate(latest)}, ${gap} days before today. Returns stop at that date until newer prices are loaded; check the period dates before preparing an official period.`}</Alert> : null;
+      })()}
       <Card title="Returns by portfolio">
         <div className="ops-filters">
           <Field label="From" hint="Blank uses each portfolio's price history">
@@ -111,7 +117,7 @@ export default function PerformancePage() {
                         <td className="r" style={{ color: tone(r.twrPct) }}>
                           {pct(r.twrPct)}
                         </td>
-                        <td className="r">{pct(r.benchmarkPct)}</td>
+                        <td className="r">{r.benchmarkPct == null && !r.error ? <span className="ops-muted" title={`${r.benchmarkName ?? 'This benchmark'} has no constituent composition loaded, so no benchmark return can be computed`}>No composition</span> : pct(r.benchmarkPct)}</td>
                         <td className="r" style={{ color: tone(r.activePct) }}>
                           {pct(r.activePct)}
                         </td>
@@ -178,10 +184,10 @@ export default function PerformancePage() {
           onDone={(r) => router.push(`/ops/performance/${encodeURIComponent((r as PeriodDetail).id)}`)}
         >
           <FieldGrid>
-            <Field label="Period start">
+            <Field label="Period start" hint="Pre-filled from the portfolio's price history; confirm both dates">
               <input className="ops-input" type="date" name="periodStart" required defaultValue={selected?.periodStart ?? from} />
             </Field>
-            <Field label="Period end">
+            <Field label="Period end" hint="Cannot be in the future">
               <input className="ops-input" type="date" name="periodEnd" required defaultValue={selected?.periodEnd ?? to} max={new Date().toISOString().slice(0, 10)} />
             </Field>
             <Field label="Benchmark" span={2} hint="Blank uses the benchmark matching the portfolio's benchmark name">

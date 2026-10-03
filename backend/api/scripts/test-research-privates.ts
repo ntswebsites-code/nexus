@@ -287,7 +287,7 @@ async function main() {
     const mdl = await cPm.post(`${L}/models`, mBody, { 'Idempotency-Key': key('ml1') });
     const MODEL = mdl.body?.data;
     if (MODEL) created.models.push(MODEL.id);
-    check('model created MDL-#### DRAFT totalling 100%', mdl.status === 201 && MODEL?.status === 'DRAFT' && MODEL.totalPct === '100.0000' && /^MDL-\d{4}$/.test(MODEL.ref), mdl.body);
+    check('model created PMD-#### DRAFT totalling 100%', mdl.status === 201 && MODEL?.status === 'DRAFT' && MODEL.totalPct === '100.0000' && /^PMD-\d{4}$/.test(MODEL.ref), mdl.body);
     check('what-if before activation -> 409', (await cPm.post(`${L}/whatif`, { portfolioId: pf.id, modelId: MODEL.id })).body?.error?.code === 'invalid_state');
     check('the author cannot activate -> 403 sod_violation', (await cPm.post(`${L}/models/${MODEL.id}/activate`)).body?.error?.code === 'sod_violation');
     check('a second person activates -> ACTIVE', (await cOps.post(`${L}/models/${MODEL.id}/activate`)).body?.data?.status === 'ACTIVE');

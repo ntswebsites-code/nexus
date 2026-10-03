@@ -386,20 +386,51 @@ privateMarketsRoutes.get('/clients', ...canView, validateQuery(z.object({ client
     if (!c) throw HttpError.notFound('Client not found');
     only = c.id;
   }
-  const portfolios = await prisma.portfolio.findMany({ where: only ? { clientId: only } : { clientId: { not: null } }, select: { id: true, clientId: true } });
-  const cs = portfolios.length ? await prisma.pmCommitment.findMany({ where: { status: 'ACTIVE', portfolioId: { in: portfolios.map((p) => p.id) } }, orderBy: { ref: 'asc' } }) : [];
+  // A commitment sits in a portfolio. The portfolio reaches clients two ways: it is owned by one client directly
+  // (portfolio.clientId), or it backs a pooled fund whose investors hold units (LpHolding), in which case each investor
+  // is attributed its pro-rata share of the portfolio's commitments (share of the fund's unit value).
+  const allActive = await prisma.pmCommitment.findMany({ where: { status: 'ACTIVE' }, orderBy: { ref: 'asc' } });
+  const pfIds = [...new Set(allActive.map((c) => c.portfolioId))];
+  const [portfolios, backing] = await Promise.all([
+    pfIds.length ? prisma.portfolio.findMany({ where: { id: { in: pfIds } }, select: { id: true, clientId: true } }) : [],
+    pfIds.length ? prisma.fund.findMany({ where: { portfolioId: { in: pfIds } }, select: { id: true, portfolioId: true } }) : [],
+  ]);
+  const holdings = backing.length ? await prisma.lpHolding.findMany({ where: { fundId: { in: backing.map((f) => f.id) }, isActive: true }, select: { clientId: true, fundId: true, accountValue: true } }) : [];
+  const shares = new Map<string, Map<string, Dec>>(); // portfolioId -> clientId -> fraction of the portfolio's commitments
+  const addShare = (pid: string, cid: string, f: Dec) => {
+    const m = shares.get(pid) ?? new Map<string, Dec>();
+    m.set(cid, (m.get(cid) ?? ZERO).add(f));
+    shares.set(pid, m);
+  };
+  for (const p of portfolios) if (p.clientId) addShare(p.id, p.clientId, new D(1));
+  for (const f of backing) {
+    if (shares.has(f.portfolioId!)) continue;
+    const hs = holdings.filter((h) => h.fundId === f.id && h.accountValue.gt(0));
+    const total = hs.reduce((a, h) => a.add(h.accountValue), ZERO);
+    if (total.gt(0)) for (const h of hs) addShare(f.portfolioId!, h.clientId, h.accountValue.div(total));
+  }
+  const cs = allActive.filter((c) => (only ? shares.get(c.portfolioId)?.has(only) : (shares.get(c.portfolioId)?.size ?? 0) > 0));
   const v = await commitmentViews(cs);
   const ids = cs.map((c) => c.id);
   const [flows, marks] = await Promise.all([ids.length ? prisma.pmCashflow.findMany({ where: { commitmentId: { in: ids }, status: { not: 'CANCELLED' } } }) : [], latestApproved(ids)]);
   const rates = await reportRates(v.rows.map((r) => r.currency));
-  const clientOf = new Map(portfolios.map((p) => [p.id, p.clientId!]));
-  const clients = await prisma.client.findMany({ where: { id: { in: [...new Set(portfolios.map((p) => p.clientId!))] } }, select: { id: true, ref: true, name: true } });
+  const clientIds = [...new Set(cs.flatMap((c) => [...(shares.get(c.portfolioId)?.keys() ?? [])]))].filter((id) => !only || id === only);
+  const clients = await prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, ref: true, name: true } });
   const out = [];
   for (const cl of clients) {
-    const mine = cs.filter((c) => clientOf.get(c.portfolioId) === cl.id);
+    const mine = cs.filter((c) => shares.get(c.portfolioId)?.has(cl.id));
     if (!mine.length) continue;
     const conv = toReport(
-      mine.map((c) => ({ currency: v.rows.find((r) => r.id === c.id)?.currency ?? REPORT_CCY, committed: c.amount, flows: flows.filter((f) => f.commitmentId === c.id).map(flowOf), mark: marks.get(c.id) ? { nav: marks.get(c.id)!.nav, asOf: marks.get(c.id)!.asOf } : null })),
+      mine.map((c) => {
+        const f = shares.get(c.portfolioId)!.get(cl.id)!;
+        const mark = marks.get(c.id);
+        return {
+          currency: v.rows.find((r) => r.id === c.id)?.currency ?? REPORT_CCY,
+          committed: c.amount.mul(f),
+          flows: flows.filter((x) => x.commitmentId === c.id).map((x) => ({ ...flowOf(x), amount: flowOf(x).amount.mul(f) })),
+          mark: mark ? { nav: mark.nav.mul(f), asOf: mark.asOf } : null,
+        };
+      }),
       rates,
     );
     out.push({ clientId: cl.id, clientRef: cl.ref, clientName: cl.name, commitments: mine.length, currency: REPORT_CCY, fxMissing: conv.missing, ...perfView(pooled(conv.items)), lines: only ? v.rows.filter((r) => mine.some((c) => c.id === r.id)) : undefined });
