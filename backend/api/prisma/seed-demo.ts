@@ -423,4 +423,5 @@ export async function seedDemo() {
   await (await import('./seed-portfolio')).seedPortfolio();
   await (await import('./seed-orders')).seedOrders();
   await (await import('./seed-risk')).seedRisk();
+  await (await import('./seed-nav')).seedNav();
 }

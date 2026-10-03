@@ -1208,6 +1208,9 @@ model Fund {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
   version           Int       @default(1)
+  /// Logical link to the portfolio that holds this fund's assets (NAV module); no FK. A released NAV run updates
+  /// nav_per_unit / total_nav / as_of_date / valuation_status above.
+  portfolioId       String?   @map("portfolio_id") @db.Char(36)
 
   commitments     FundCommitment[]
   holdings        LpHolding[]
@@ -2070,3 +2073,111 @@ model RiskCase {
   @@map("risk_cases")
 }
 // ---- end Risk ----
+
+// ---- NAV ----
+/// A NAV & valuation run for one portfolio (and optionally the fund it backs) at a date. Each recalculation of the
+/// same portfolio + date is a new `version`; only one version per portfolio + date can be RELEASED at a time.
+model NavRun {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// NAV-00001 ...
+  ref           String    @unique @db.VarChar(16)
+  portfolioId   String    @map("portfolio_id") @db.Char(36)
+  fundId        String?   @map("fund_id") @db.Char(36)
+  navDate       DateTime  @map("nav_date") @db.Date
+  /// Per portfolio + nav_date, starting at 1.
+  version       Int       @default(1)
+  /// POSITIONS | CASH | PRICES | FEES | UNITS | MAKER_REVIEW | RELEASE | DONE (derived from state, stored for the stage bar)
+  stage         String    @default("PRICES") @db.VarChar(16)
+  baseCurrency  String    @default("USD") @map("base_currency") @db.Char(3)
+  marketValue   Decimal   @default(0) @map("market_value") @db.Decimal(20, 4)
+  cash          Decimal   @default(0) @db.Decimal(20, 4)
+  accruals      Decimal   @default(0) @db.Decimal(20, 4)
+  fees          Decimal   @default(0) @db.Decimal(20, 4)
+  liabilities   Decimal   @default(0) @db.Decimal(20, 4)
+  /// Management fee, percent per year; when set, fees = rate / 100 x (market value + cash + accruals) / 365.
+  feeRatePct    Decimal?  @map("fee_rate_pct") @db.Decimal(8, 4)
+  nav           Decimal   @default(0) @db.Decimal(20, 4)
+  units         Decimal?  @db.Decimal(24, 6)
+  /// nav / units, 4 dp.
+  navPerUnit    Decimal?  @map("nav_per_unit") @db.Decimal(20, 4)
+  /// Percent of positions (by value) that carry a price and an FX rate, 4 dp.
+  priceCoverage Decimal   @default(100) @map("price_coverage") @db.Decimal(7, 4)
+  positionCount Int       @default(0) @map("position_count")
+  /// DRAFT | EXCEPTIONS_OPEN | MAKER_REVIEWED | RELEASED | SUPERSEDED
+  status        String    @default("DRAFT") @db.VarChar(20)
+  /// The preparer (created this version).
+  makerId       String    @map("maker_id") @db.Char(36)
+  /// The maker review (first control); the releaser must be someone else.
+  reviewerId    String?   @map("reviewer_id") @db.Char(36)
+  reviewedAt    DateTime? @map("reviewed_at")
+  /// The releaser (second control).
+  checkerId     String?   @map("checker_id") @db.Char(36)
+  releasedAt    DateTime? @map("released_at")
+  notes         String?   @db.VarChar(2000)
+  /// Cash by currency and the tolerance settings applied to this calculation.
+  detail        Json?
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  lines      NavRunLine[]
+  exceptions NavException[]
+
+  @@unique([portfolioId, navDate, version])
+  @@index([portfolioId, navDate])
+  @@index([status])
+  @@index([fundId])
+  @@map("nav_runs")
+}
+
+model NavRunLine {
+  id          String    @id @default(uuid()) @db.Char(36)
+  runId       String    @map("run_id") @db.Char(36)
+  securityId  String    @map("security_id") @db.Char(36)
+  ticker      String    @db.VarChar(32)
+  name        String    @db.VarChar(200)
+  currency    String    @db.Char(3)
+  quantity    Decimal   @db.Decimal(24, 6)
+  price       Decimal?  @db.Decimal(20, 6)
+  priceSource String?   @map("price_source") @db.VarChar(40)
+  priceDate   DateTime? @map("price_date") @db.Date
+  fxRate      Decimal?  @map("fx_rate") @db.Decimal(20, 10)
+  /// quantity x price in the security currency.
+  valueLocal  Decimal?  @map("value_local") @db.Decimal(20, 4)
+  /// In the portfolio base currency; null when unpriced or no FX.
+  valueBase   Decimal?  @map("value_base") @db.Decimal(20, 4)
+  /// ["STALE_PRICE", "MISSING_PRICE", "MISSING_FX", "TOLERANCE"]
+  flags       Json?
+
+  run NavRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+  @@map("nav_run_lines")
+}
+
+model NavException {
+  id             String    @id @default(uuid()) @db.Char(36)
+  runId          String    @map("run_id") @db.Char(36)
+  /// STALE_PRICE | MISSING_PRICE | MISSING_FX | TOLERANCE | NEGATIVE_CASH
+  type           String    @db.VarChar(20)
+  securityId     String?   @map("security_id") @db.Char(36)
+  ticker         String?   @db.VarChar(32)
+  detail         String    @db.VarChar(500)
+  currentValue   Decimal?  @map("current_value") @db.Decimal(20, 4)
+  referenceValue Decimal?  @map("reference_value") @db.Decimal(20, 4)
+  difference     Decimal?  @db.Decimal(20, 4)
+  /// A material exception blocks the maker review until it is resolved.
+  material       Boolean   @default(false)
+  /// OPEN | RESOLVED
+  status         String    @default("OPEN") @db.VarChar(12)
+  resolution     String?   @db.VarChar(1000)
+  evidenceRef    String?   @map("evidence_ref") @db.VarChar(200)
+  resolvedBy     String?   @map("resolved_by") @db.Char(36)
+  resolvedAt     DateTime? @map("resolved_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  run NavRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, status])
+  @@map("nav_exceptions")
+}
+// ---- end NAV ----

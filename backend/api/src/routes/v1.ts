@@ -19,6 +19,7 @@ import { custodianRoutes } from '../modules/custodian/custodian.routes';
 import { portfolioRoutes } from '../modules/portfolio/portfolio.routes';
 import { ordersRoutes } from '../modules/orders';
 import { riskRoutes } from '../modules/risk/risk.routes';
+import { navRoutes } from '../modules/nav';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -34,6 +35,8 @@ v1Router.use('/', portfolioRoutes);
 v1Router.use('/orders', ordersRoutes);
 // Risk & Compliance: /risk/* (limits, breaches, scenarios, runs, cases, monitor).
 v1Router.use('/risk', riskRoutes);
+// NAV & Valuation: /nav/runs (calculate, exceptions, maker review, release).
+v1Router.use('/nav', navRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);
