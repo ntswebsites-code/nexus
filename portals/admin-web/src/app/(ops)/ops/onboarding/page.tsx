@@ -109,6 +109,48 @@ export default function OnboardingPage() {
 
 type Dlg = 'check' | 'risk' | 'info' | 'advance' | 'decide' | 'assign' | { decideRisk: string; approve: boolean } | null;
 
+interface Triage {
+  id: string;
+  riskBand: string;
+  summary: string;
+  flags: string[];
+  nextSteps: string[];
+  model: string;
+  by: string | null;
+  at: string;
+}
+
+/** R4-8: advisory AI triage of the case facts. It never changes the case, a check or the rating. */
+function TriagePanel({ id, manage }: { id: string; manage: boolean }) {
+  const res = useResource<Triage[]>(() => coGet<{ data: Triage[] }>(`/onboarding/cases/${encodeURIComponent(id)}/triage`).then(asList), [id]);
+  return (
+    <>
+      <h3>AI triage <span className="ops-sub">advisory only</span></h3>
+      <Loaded res={res} what="the triage">
+        {(rows) => {
+          const t = rows[0];
+          return (
+            <>
+              {manage && <p><ActionButton label={t ? 'Re-run triage' : 'Run triage'} onRun={(k) => coPost(`/onboarding/cases/${encodeURIComponent(id)}/triage`, {}, k)} onDone={res.reload} /></p>}
+              {!t ? (
+                <Empty>No triage has been run for this case.</Empty>
+              ) : (
+                <>
+                  <p><Tone value={t.riskBand === 'HIGH' ? 'High' : t.riskBand === 'MEDIUM' ? 'Medium' : 'Low'} /> {t.summary}</p>
+                  {t.flags.length > 0 && <><strong>Flags</strong><ul>{t.flags.map((f) => <li key={f}>{f}</li>)}</ul></>}
+                  <strong>Suggested next steps</strong>
+                  <ul>{t.nextSteps.map((f) => <li key={f}>{f}</li>)}</ul>
+                  <p className="ops-muted">Generated {formatDateTime(t.at)}{t.by ? ` by ${t.by}` : ''} with {t.model}. The analyst and a different approver still decide.</p>
+                </>
+              )}
+            </>
+          );
+        }}
+      </Loaded>
+    </>
+  );
+}
+
 function CaseModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
   const manage = useCan('onboarding.manage');
   const approve = useCan('onboarding.approve');
@@ -158,6 +200,7 @@ function CaseModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                     </tbody>
                   </table>
                 </div>
+                <TriagePanel id={c.id} manage={manage} />
                 <h3>Risk rating</h3>
                 <p>
                   Computed now: <Tone value={w.riskPreview.rating} /> (score {w.riskPreview.score}). Case rating: <Tone value={c.risk} />.

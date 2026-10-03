@@ -32,7 +32,7 @@ import {
   type SettingDef,
 } from './admin-core.engine';
 import { SUGGESTIONS } from './copilot';
-import { getLlmAdapter } from '../../integrations/llm';
+import { askCopilot } from './copilot-agent';
 import { integrationsRoutes } from './integrations.routes';
 
 /**
@@ -738,13 +738,15 @@ adminCoreRoutes.get('/copilot/suggestions', COPILOT, async (_req, res) => {
 
 adminCoreRoutes.get('/copilot/history', COPILOT, async (req, res) => {
   const rows = await prisma.copilotQuery.findMany({ where: { userId: req.user!.id }, orderBy: { createdAt: 'desc' }, take: 20 });
-  res.json({ data: rows.map((r) => ({ id: r.id, question: r.question, intent: r.intent, answer: r.answer, sources: r.sources, at: r.createdAt.toISOString() })) });
+  res.json({ data: rows.map((r) => ({ id: r.id, question: r.question, intent: r.intent, answer: r.answer, sources: r.sources, engine: r.copilotEngine, toolCalls: r.copilotToolCalls, at: r.createdAt.toISOString() })) });
 });
 
 adminCoreRoutes.post('/copilot/ask', COPILOT, validateBody(z.object({ question: z.string().trim().min(3).max(500) })), async (req, res) => {
   if (!(await copilotEnabled())) throw HttpError.forbidden('The Copilot is switched off in platform settings', 'feature_disabled');
   const question = (req.body as { question: string }).question;
-  const result = await getLlmAdapter().answer({ question, permissions: [...req.user!.permissions] });
-  const row = await prisma.copilotQuery.create({ data: { userId: req.user!.id, question, intent: result.intent, answer: result.answer, sources: result.sources as unknown as Prisma.InputJsonValue } });
+  const result = await askCopilot(question, [...req.user!.permissions]);
+  const row = await prisma.copilotQuery.create({
+    data: { userId: req.user!.id, question, intent: result.intent, answer: result.answer, sources: result.sources as unknown as Prisma.InputJsonValue, copilotToolCalls: (result.toolCalls ?? []) as unknown as Prisma.InputJsonValue, copilotEngine: result.engine ?? 'ROUTER' },
+  });
   res.json({ data: { id: row.id, question, ...result, at: row.createdAt.toISOString() } });
 });

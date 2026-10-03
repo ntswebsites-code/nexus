@@ -13,6 +13,6 @@ export async function smtpSend(m: EmailMessage): Promise<string> {
     secure: config.smtp.secure,
     auth: config.smtp.user ? { user: config.smtp.user, pass: config.smtp.password } : undefined,
   });
-  const info = await transporter.sendMail({ from: config.mailFrom, to: m.to, subject: m.subject, text: m.text });
+  const info = await transporter.sendMail({ from: config.mailFrom, to: m.to, subject: m.subject, text: m.text, attachments: m.attachments?.map((a) => ({ filename: a.filename, contentType: a.contentType, content: a.content })) });
   return String(info.messageId ?? '');
 }

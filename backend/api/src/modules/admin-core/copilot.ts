@@ -21,6 +21,19 @@ export interface CopilotAnswer {
   answer: string;
   table: { columns: string[]; rows: string[][] } | null;
   sources: CopilotSource[];
+  /** R4-8: more result tables when the question needed several data sets. */
+  extraTables?: { title: string; columns: string[]; rows: string[][] }[];
+  /** R4-8: which engine answered (the LLM adapter calling tools, or the keyword router) and the tool calls it made. */
+  engine?: 'LLM' | 'ROUTER';
+  toolCalls?: CopilotToolCall[];
+  model?: string;
+}
+
+export interface CopilotToolCall {
+  tool: string;
+  permission: string | null;
+  status: 'OK' | 'DENIED';
+  rows: number;
 }
 
 const D = Prisma.Decimal;
@@ -37,6 +50,7 @@ export const SUGGESTIONS = [
   'What is the cash position by portfolio?',
   'What approvals are waiting on me?',
   'Show recent audit activity',
+  'Are the books balanced and which journals await approval?',
 ];
 
 const src = (label: string, endpoint: string, rows: number, href: string): CopilotSource => ({ label, endpoint, rows, href, asOf: new Date().toISOString() });
@@ -66,11 +80,13 @@ export async function answerQuestion(question: string, perms: Set<string>): Prom
       return approvals(perms);
     case 'audit':
       return perms.has('audit.view') ? auditTrail() : denied(intent, 'audit.view');
+    case 'accounting':
+      return perms.has('valuation.view') ? accounting() : denied(intent, 'valuation.view');
     default:
       return {
         intent: 'help',
         answer:
-          'I answer from live platform data: positions and exposure, orders and approvals, NAV runs, reconciliation breaks, risk breaches, cash by portfolio, pending approvals and recent audit activity. Try one of the suggested questions. I do not give investment advice.',
+          'I answer from live platform data: positions and exposure, orders and approvals, NAV runs, accounting journals, reconciliation breaks, risk breaches, cash by portfolio, pending approvals and recent audit activity. Try one of the suggested questions. I do not give investment advice.',
         table: null,
         sources: [],
       };
@@ -269,3 +285,50 @@ async function auditTrail(): Promise<CopilotAnswer> {
     sources: [src('Audit events', 'audit_events (latest)', rows.length, '/ops/audit')],
   };
 }
+
+async function accounting(): Promise<CopilotAnswer> {
+  const [groups, pending, periods, posted] = await Promise.all([
+    prisma.accJournal.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.accJournal.findMany({ where: { status: 'PENDING_APPROVAL' }, orderBy: { submittedAt: 'asc' }, take: 10 }),
+    prisma.accPeriod.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.accJournal.aggregate({ where: { status: { in: ['POSTED', 'REVERSED'] } }, _sum: { totalDebit: true, totalCredit: true } }),
+  ]);
+  const ports = await prisma.portfolio.findMany({ where: { id: { in: pending.map((j) => j.portfolioId) } }, select: { id: true, ref: true } });
+  const pf = new Map(ports.map((p) => [p.id, p.ref]));
+  const total = groups.reduce((n, g) => n + g._count._all, 0);
+  const mix = groups.map((g) => `${g._count._all} ${g.status}`).join(', ') || 'none';
+  const dr = posted._sum.totalDebit ?? new D(0);
+  const cr = posted._sum.totalCredit ?? new D(0);
+  const per = periods.map((p) => `${p._count._all} ${p.status}`).join(', ') || 'none';
+  return {
+    intent: 'accounting',
+    answer: `${total} journals (${mix}). Posted debits ${fmt(dr)} and credits ${fmt(cr)}: the books ${dr.equals(cr) ? 'balance' : 'DO NOT balance'}. Accounting periods: ${per}. ${pending.length} journal(s) awaiting approval${pending.length ? ', oldest first below' : ''}.`,
+    table: pending.length
+      ? { columns: ['Journal', 'Portfolio', 'Entry date', 'Description', 'Debit', 'Submitted'], rows: pending.map((j) => [j.ref, pf.get(j.portfolioId) ?? '', day(j.entryDate), j.description.slice(0, 60), `${fmt(j.totalDebit)} ${j.currency}`, j.submittedAt ? day(j.submittedAt) : '']) }
+      : null,
+    sources: [src('Accounting journals', 'acc_journals (status counts, PENDING_APPROVAL queue, posted totals)', total, '/ops/accounting'), src('Accounting periods', 'acc_periods (status counts)', periods.reduce((n, p) => n + p._count._all, 0), '/ops/accounting')],
+  };
+}
+
+// ------------------------------------------------------------------ R4-8: tools the LLM adapter can call
+
+export interface CopilotTool {
+  name: CopilotIntent;
+  /** Permission the caller needs (null: the tool applies its own per-queue permission checks). */
+  permission: string | null;
+  description: string;
+  run: (question: string, perms: Set<string>) => Promise<CopilotAnswer>;
+}
+
+/** Every tool reads live rows only, is permission-gated by the same rules as the router, and returns its sources as citations. */
+export const COPILOT_TOOLS: CopilotTool[] = [
+  { name: 'positions', permission: 'portfolio.view', description: 'Largest positions and market value by portfolio (optionally one portfolio by ref or name)', run: (q) => positions(q) },
+  { name: 'orders', permission: 'orders.view', description: 'Order status counts and the queue awaiting approval', run: () => orders() },
+  { name: 'nav', permission: 'valuation.view', description: 'Latest NAV run per portfolio and open NAV exceptions', run: () => nav() },
+  { name: 'breaks', permission: 'operations.view', description: 'Open reconciliation breaks by severity', run: () => breaks() },
+  { name: 'risk', permission: 'risk.view', description: 'Open risk limit breaches', run: () => risk() },
+  { name: 'cash', permission: 'cash.view', description: 'Available cash by portfolio and currency, with live reservations', run: () => cash() },
+  { name: 'approvals', permission: null, description: 'Items waiting for approval (orders, access changes, NAV runs) the caller may see', run: (_q, p) => approvals(p) },
+  { name: 'audit', permission: 'audit.view', description: 'Most recent audit events', run: () => auditTrail() },
+  { name: 'accounting', permission: 'valuation.view', description: 'Journals by status, posted debit/credit balance, accounting periods and the approval queue', run: () => accounting() },
+];

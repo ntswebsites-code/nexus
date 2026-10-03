@@ -1357,3 +1357,11 @@ Test: `cd backend/api && npx tsx scripts/test-market-data.ts` (offline, no datab
 - No free public source for VFEX or OTC prices; the AFX list price is the last traded price stamped with the page date, so a counter that did not trade carries its previous close under today's date (the per-counter history page has the true last-trade date but costs one request per counter).
 - FX: stored and read by NAV and the portfolio snapshot through existing `fx_rates`; no new conversion logic was added. Only USD-base pairs plus pairs already in `fx_rates` are refreshed.
 - Corporate actions and benchmark series are not fed. Custodian: no MT535/536 or CAMT.053 proper, no SWIFT or API connectivity (stub), no automatic mapping of unmapped accounts (a warning points to the Reconciliation account map).
+
+## R4-8 AI and reporting depth
+
+- Copilot: LlmAdapter plan/compose run cited, permission-gated tool calls (positions, orders, NAV, breaks, risk, cash, approvals, audit, accounting); keyword router remains the fallback (engine ROUTER). Tool calls and engine are stored per query.
+- Onboarding: advisory AI triage panel in the case review (POST/GET /client-ops/onboarding/cases/:id/triage, onboarding.manage to run); idempotent on unchanged facts, audited, never changes the case.
+- Reports: email can attach the stored file (8 MB cap); schedules can mail attachments and publish each run to LP portal Documents (switched on by a different reports.approve holder with step-up, never the creator).
+- Regulatory: submit goes through the regulator-filing adapter; each acknowledgement receipt is stored (reg_filing_submissions) and shown on the filing.
+- Gaps: live LLM and live regulator adapters are NotConfigured stubs; the fake regulator can only reject an empty payload hash (blocked earlier by the integrity gate).

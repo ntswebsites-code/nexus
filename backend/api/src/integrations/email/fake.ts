@@ -21,7 +21,7 @@ export class FakeEmail implements EmailAdapter {
     }
     if (!config.isProduction) {
       await prisma.integrationInbox
-        .create({ data: { adapter: 'email', kind: 'email', externalRef: messageId.slice(0, 80), status: 'NEW', payload: { to: m.to, subject: m.subject, text: m.text, transport } } })
+        .create({ data: { adapter: 'email', kind: 'email', externalRef: messageId.slice(0, 80), status: 'NEW', payload: { to: m.to, subject: m.subject, text: m.text, transport, attachments: (m.attachments ?? []).map((a) => ({ filename: a.filename, contentType: a.contentType, bytes: a.content.length })) } } })
         .catch(() => undefined);
     }
     return { messageId, transport };
