@@ -31,6 +31,7 @@ import { researchRoutes } from '../modules/research';
 import { privateMarketsRoutes } from '../modules/private-markets';
 import { portfolioLabRoutes } from '../modules/portfolio-lab';
 import { financingRoutes } from '../modules/financing';
+import { clientOpsRoutes } from '../modules/clients-onboarding';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -71,6 +72,8 @@ v1Router.use('/private-markets', privateMarketsRoutes);
 v1Router.use('/portfolio-lab', portfolioLabRoutes);
 // Collateral & Financing: /financing/* (facilities, pools, haircut rules, drawdowns, margin calls).
 v1Router.use('/financing', financingRoutes);
+// Clients, Investor Services, Onboarding & KYC, Document Vault: /client-ops/*.
+v1Router.use('/client-ops', clientOpsRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

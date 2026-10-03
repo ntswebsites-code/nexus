@@ -8,6 +8,8 @@ export const POLICY_DEFAULTS = {
   client_publish_approval: true,
   mfa_required: false,
   kyc_dual_control: true,
+  /** When true a KYC approval needs an approved risk assessment (Onboarding & KYC page). */
+  kyc_risk_assessment_required: false,
   session_idle_minutes: 30,
 } as const;
 

@@ -161,6 +161,8 @@
         "custodian.view",
         "financing.manage",
         "financing.approve"
+        "onboarding.approve",
+        "documents.approve"
       ]
     },
     {

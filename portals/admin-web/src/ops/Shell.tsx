@@ -54,6 +54,15 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [{ href: '/ops/accounting', label: 'Accounting & Close', perms: ['valuation.view'] }],
   },
   {
+    section: 'Clients',
+    items: [
+      { href: '/ops/clients', label: 'Clients & Accounts', perms: ['clients.view'] },
+      { href: '/ops/investor-services', label: 'Investor Services', perms: ['clients.view'] },
+      { href: '/ops/onboarding', label: 'Onboarding & KYC', perms: ['onboarding.view'] },
+      { href: '/ops/vault', label: 'Document Vault', perms: ['documents.view'] },
+    ],
+  },
+  {
     section: 'Cash',
     items: [{ href: '/ops/cash', label: 'Cash & Ledgers', perms: ['cash.view'] }],
   },

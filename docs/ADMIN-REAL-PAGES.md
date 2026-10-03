@@ -1087,3 +1087,25 @@ The engine checks were run (IRR, TVPI/DPI, rebalance sizing, haircut and margin 
 - Private markets: capital calls and distributions are not posted to the cash ledger or accounting; no FX for non-USD funds in the pooled totals; no look-through to underlying companies or J-curve forecast; evidence is a vault reference, not an uploaded file.
 - Portfolio Construction: no optimiser, tax or transaction-cost model, no model drift monitor or scheduled rebalance; per-line checks run against today's book, so one line's effect on another is only caught by the whole-book mandate check.
 - Financing: no interest accrual or fee postings, no lender-side margin feed, no FX conversion of pool value beyond the latest `fx_rates`, no intraday revaluation (coverage is computed on demand and by the monitor button); `financing.*` codes are not in the system-admin SoD blocklist in `admin.routes.ts`.
+## Clients & Accounts, Investor Services, Onboarding & KYC, Document Vault (`clients`, `investor-services`, `onboarding`, `vault`)
+
+Reuses the existing client, cash-account, mandate, service-request, KYC and document tables and routes; adds `/api/v1/client-ops/*` (module `backend/api/src/modules/clients-onboarding`) and four ops screens under `/ops/clients`, `/ops/investor-services`, `/ops/onboarding`, `/ops/vault`. Migration `20261009100000_clients_onboarding` (additive: `kyc_checks`, `kyc_risk_assessments`, `service_sla_policies`, `document_changes`, `document_holds`; logical references only, no FKs).
+
+| Page | Endpoints (under `/client-ops`) | Permissions |
+|---|---|---|
+| Clients & Accounts | `GET /clients/summary`, `GET /clients/:id/360` (adds portfolios and fund commitments), `POST /clients/:id/dealing-hold` (release needs step-up), `/relationship-owner`, `/review-date`, `/mandates/:ref/status` (activation gated on current KYC, no hold, an active cash account), `GET /staff`. Existing `/clients` and `/cash-accounts/:id/:action` are used for create and the account lifecycle. | `clients.view`, `clients.edit` |
+| Investor Services | `GET /services/summary`, `/services/requests[/:ref]`, `POST /services/requests` (due date from policy), `/assign`, `/status` (notifies investor users), `/note`, `/sla`; `GET/PUT /services/sla-policies` | `clients.view`, `clients.edit` |
+| Onboarding & KYC | `GET /onboarding/queue`, `/cases/:id/workup`, `POST /cases/:id/checks`, `/risk` (maker proposes a computed rating; an override needs a rationale), `/risk/:id/approve` (checker, a different person, step-up) and `/reject`, `/cases/:id/assign`. Request-more-info, stage moves, decision and activation reuse `/kyc/cases/*`. | `onboarding.view`, `onboarding.manage`, new `onboarding.approve` |
+| Document Vault | `GET /vault/summary`, `/vault/documents[/:id]`, `/documents/:id/download-url` (writes the access log), `POST /documents/:id/changes` (classification or retention, maker-checker), `/changes/:id/approve` (step-up) and `/reject`, `/documents/:id/hold`, `/holds/:id/release` (a different person, step-up), `/documents/:id/link` (client, fund), `GET /vault/changes`, `/vault/access-log` | `documents.view`, `documents.edit`, new `documents.approve` (access log: `audit.view` or `documents.approve`) |
+
+New permissions `onboarding.approve` and `documents.approve` are granted to the Compliance role in `prisma/seed/role-catalog.json`. New policy `kyc_risk_assessment_required` (default off): when on, a KYC approval also needs an approved risk assessment matching the case rating. Every mutation is audited; creating endpoints accept an `Idempotency-Key`.
+
+Seed: `prisma/seed-clients-onboarding.ts` (called by `seed-uat.ts` and `seed-demo.ts`, idempotent) adds SLA policies, assigns and dates service requests, sets client review dates, adds checks and a proposed risk rating on open cases, one pending classification change and one legal hold.
+
+Tests: `npx tsx scripts/test-clients-onboarding.ts` runs the pure rules (risk score, SLA state, retention, change validation) with no database. The endpoints were typechecked but **not run** (no database started).
+
+### Not done
+
+- No document upload or deletion in the vault screen (upload and lifecycle stay on the existing `/documents` API); retention only flags disposal eligibility, nothing is destroyed.
+- Screening is still the existing stub provider; checks are recorded manually. Risk factors are fixed rules, not configurable.
+- Client dealing-hold and mandate changes are audited but single-step (no checker).

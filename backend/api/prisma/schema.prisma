@@ -3423,3 +3423,97 @@ model FinMarginCall {
   @@map("fin_margin_calls")
 }
 // ---- end ResearchPrivates ----
+// ---- ClientsOnboarding ----
+// Clients & Accounts, Investor Services, Onboarding & KYC and Document Vault (SRD 5.A pages `clients`, `investor-services`,
+// `onboarding`, `vault`). These tables extend the existing client, service-request, KYC-case and document tables with
+// logical references only (no FKs), so the legacy modules are untouched.
+
+/// A KYC/AML check performed by staff on an onboarding case (sanctions, PEP, adverse media, ID, address, funds ...).
+model KycCheck {
+  id          String   @id @default(uuid()) @db.Char(36)
+  caseId      String   @map("case_id") @db.Char(36)
+  /// SANCTIONS | PEP | ADVERSE_MEDIA | ID_VERIFICATION | ADDRESS | SOURCE_OF_FUNDS | SOURCE_OF_WEALTH | UBO
+  kind        String   @db.VarChar(24)
+  /// PASS | REFER | FAIL
+  outcome     String   @db.VarChar(8)
+  provider    String   @default("Manual review") @db.VarChar(80)
+  notes       String?  @db.Text
+  performedBy String   @map("performed_by") @db.Char(36)
+  performedAt DateTime @default(now()) @map("performed_at")
+
+  @@index([caseId, kind, performedAt])
+  @@map("kyc_checks")
+}
+
+/// A risk-rating assessment for a case. PROPOSED by the maker, APPROVED or REJECTED by a different checker; approval sets the case risk.
+model KycRiskAssessment {
+  id             String    @id @default(uuid()) @db.Char(36)
+  caseId         String    @map("case_id") @db.Char(36)
+  score          Int
+  factors        Json
+  /// Low | Medium | High
+  proposedRating String    @map("proposed_rating") @db.VarChar(16)
+  rationale      String?   @db.Text
+  /// PROPOSED | APPROVED | REJECTED | SUPERSEDED
+  status         String    @default("PROPOSED") @db.VarChar(12)
+  makerId        String    @map("maker_id") @db.Char(36)
+  checkerId      String?   @map("checker_id") @db.Char(36)
+  decisionNote   String?   @map("decision_note") @db.VarChar(500)
+  decidedAt      DateTime? @map("decided_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([caseId, status])
+  @@map("kyc_risk_assessments")
+}
+
+/// Configurable service-level target per request type and priority.
+model ServiceSlaPolicy {
+  id          String   @id @default(uuid()) @db.Char(36)
+  requestType String   @map("request_type") @db.VarChar(64)
+  /// Normal | Time sensitive
+  priority    String   @db.VarChar(16)
+  targetHours Int      @map("target_hours")
+  updatedBy   String?  @map("updated_by") @db.Char(36)
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([requestType, priority])
+  @@map("service_sla_policies")
+}
+
+/// Maker-checker change to a document's classification or retention period.
+model DocumentChange {
+  id           String    @id @default(uuid()) @db.Char(36)
+  documentId   String    @map("document_id") @db.Char(36)
+  /// CLASSIFICATION | RETENTION
+  kind         String    @db.VarChar(16)
+  fromValue    String    @map("from_value") @db.VarChar(32)
+  toValue      String    @map("to_value") @db.VarChar(32)
+  reason       String    @db.VarChar(500)
+  /// PENDING | APPROVED | REJECTED
+  status       String    @default("PENDING") @db.VarChar(10)
+  makerId      String    @map("maker_id") @db.Char(36)
+  checkerId    String?   @map("checker_id") @db.Char(36)
+  decisionNote String?   @map("decision_note") @db.VarChar(500)
+  decidedAt    DateTime? @map("decided_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  @@index([documentId, status])
+  @@index([status])
+  @@map("document_changes")
+}
+
+/// Legal hold on a document: blocks retention shortening and disposal while active.
+model DocumentHold {
+  id          String    @id @default(uuid()) @db.Char(36)
+  documentId  String    @map("document_id") @db.Char(36)
+  reason      String    @db.VarChar(500)
+  placedBy    String    @map("placed_by") @db.Char(36)
+  placedAt    DateTime  @default(now()) @map("placed_at")
+  releasedBy  String?   @map("released_by") @db.Char(36)
+  releasedAt  DateTime? @map("released_at")
+  releaseNote String?   @map("release_note") @db.VarChar(500)
+
+  @@index([documentId, releasedAt])
+  @@map("document_holds")
+}
+// ---- end ClientsOnboarding ----

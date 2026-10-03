@@ -298,6 +298,10 @@ kycRoutes.post(
     if (decision === 'approve') {
       if (c.stage !== 'ComplianceReview') throw HttpError.conflict(`Cannot approve a case in ${c.stage}`, 'invalid_transition');
       const gates = blockers(c);
+      if (await policy('kyc_risk_assessment_required')) {
+        const ok = await prisma.kycRiskAssessment.findFirst({ where: { caseId: c.id, status: 'APPROVED', proposedRating: c.risk }, select: { id: true } });
+        if (!ok) gates.push('An approved risk assessment matching the case rating is required');
+      }
       if (gates.length) throw new HttpError(409, 'approval_blocked', gates.join('; '), { blockers: gates });
       to = 'Approved';
     } else if (decision === 'reject') {
