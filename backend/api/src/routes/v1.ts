@@ -27,6 +27,7 @@ import { cashRoutes } from '../modules/cash';
 import { reconRoutes } from '../modules/recon/recon.routes';
 import { marketDataRoutes } from '../integrations/market-data/routes';
 import { custodianFeedRoutes } from '../integrations/custodian-feed/routes';
+import { tradingFeedsRoutes } from '../modules/trading-feeds';
 import { operationsRoutes, dashboardRoutes } from '../modules/wiring';
 import { iborRoutes } from '../modules/ibor';
 import { performanceRoutes } from '../modules/performance';
@@ -77,6 +78,8 @@ v1Router.use('/recon', reconRoutes);
 // Integrations: market-data (public/fake/live) and custodian-feed (file-drop/fake/live).
 v1Router.use('/market-data', marketDataRoutes);
 v1Router.use('/custodian-feed', custodianFeedRoutes);
+// Trading feeds (R4-10): broker contract notes, FIX fills, breaks, settlement instructions, corporate-action feed.
+v1Router.use('/trading-feeds', tradingFeedsRoutes);
 // Operations Control (runbook tasks, live status) and Command Centre (today KPIs).
 v1Router.use('/operations', operationsRoutes);
 v1Router.use('/dashboard', dashboardRoutes);

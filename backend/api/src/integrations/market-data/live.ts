@@ -1,5 +1,5 @@
 import { IntegrationNotConfiguredError } from '../common';
-import type { Batch, FetchContext, FxPair, FxQuote, HealthReport, HistoryPoint, MarketDataAdapter, Quote } from './types';
+import type { Batch, CorporateActionAnnouncement, FetchContext, FxPair, FxQuote, HealthReport, HistoryPoint, MarketDataAdapter, Quote } from './types';
 
 /**
  * Paid market-data feed placeholder (Bloomberg/Refinitiv/ZSE Data Direct licence or similar). The vendor and
@@ -21,6 +21,9 @@ export class LiveMarketDataProvider implements MarketDataAdapter {
     return fail();
   }
   async fetchFx(_pairs: FxPair[], _ctx?: FetchContext): Promise<Batch<FxQuote>> {
+    return fail();
+  }
+  async fetchCorporateActions(_tickers: string[], _ctx?: FetchContext): Promise<Batch<CorporateActionAnnouncement>> {
     return fail();
   }
   async healthCheck(): Promise<HealthReport> {

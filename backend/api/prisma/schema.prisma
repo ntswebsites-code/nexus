@@ -5106,3 +5106,170 @@ model CustodianFeedHolding {
   @@map("custodian_feed_holdings")
 }
 // ---- end MarketData ----
+
+// ---- TradingFeeds ----
+// R4-10 Trading and corporate-action feeds. Written by `modules/trading-feeds`. broker_id / order_id / portfolio_id /
+// security_id / event_id are logical references (no FK), like the Orders and CorporateActions blocks.
+
+/// One uploaded broker contract-note file (CSV or JSON). Identical content per broker is refused (sha-256).
+model TradeFeedFile {
+  id             String   @id @default(uuid()) @db.Char(36)
+  brokerId       String   @map("broker_id") @db.Char(36)
+  /// Adapter that parsed it (file-drop | fake | live).
+  adapter        String   @db.VarChar(24)
+  filename       String   @db.VarChar(200)
+  /// CSV | JSON
+  format         String   @db.VarChar(8)
+  sha256         String   @db.Char(64)
+  /// Imported | Failed
+  status         String   @db.VarChar(12)
+  linesTotal     Int      @default(0) @map("lines_total")
+  linesMatched   Int      @default(0) @map("lines_matched")
+  linesBreak     Int      @default(0) @map("lines_break")
+  linesDuplicate Int      @default(0) @map("lines_duplicate")
+  error          String?  @db.VarChar(500)
+  uploadedBy     String?  @map("uploaded_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([brokerId, sha256])
+  @@index([createdAt])
+  @@map("trade_feed_files")
+}
+
+/// One inbound trade line (a contract-note row or a FIX execution report). MATCHED lines created an order fill;
+/// BREAK lines wait for an operator (resolve against an order, or reject). `dedupe_key` = sha-256 of
+/// source|broker|external reference, so a re-sent line or re-uploaded note never fills twice.
+model TradeFeedLine {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// TFL-000001 ...
+  ref           String    @unique @db.VarChar(16)
+  /// CONTRACT_NOTE | FIX
+  source        String    @db.VarChar(16)
+  fileId        String?   @map("file_id") @db.Char(36)
+  brokerId      String?   @map("broker_id") @db.Char(36)
+  dedupeKey     String    @unique @map("dedupe_key") @db.Char(64)
+  /// Trade reference (contract note) or ExecID (FIX).
+  externalRef   String    @map("external_ref") @db.VarChar(120)
+  /// Our order reference as quoted by the broker (ClOrdID / order_ref), if any.
+  orderRef      String?   @map("order_ref") @db.VarChar(32)
+  brokerOrderRef String?  @map("broker_order_ref") @db.VarChar(64)
+  orderId       String?   @map("order_id") @db.Char(36)
+  fillId        String?   @map("fill_id") @db.Char(36)
+  ticker        String    @db.VarChar(32)
+  side          String    @db.VarChar(4)
+  quantity      Decimal   @db.Decimal(24, 6)
+  price         Decimal   @db.Decimal(20, 6)
+  fees          Decimal   @default(0) @db.Decimal(20, 4)
+  tradeDate     DateTime  @map("trade_date") @db.Date
+  executedAt    DateTime  @map("executed_at")
+  /// MATCHED | BREAK | RESOLVED | REJECTED
+  status        String    @db.VarChar(12)
+  /// NO_ORDER | TICKER_MISMATCH | SIDE_MISMATCH | ORDER_NOT_WORKING | OVERFILL | LIMIT_BREACH | PRICE_DEVIATION | INSUFFICIENT_POSITION | APPLY_FAILED
+  breakReason   String?   @map("break_reason") @db.VarChar(24)
+  detail        String?   @db.VarChar(500)
+  raw           Json?
+  resolvedBy    String?   @map("resolved_by") @db.Char(36)
+  resolvedAt    DateTime? @map("resolved_at")
+  resolution    String?   @db.VarChar(500)
+  createdBy     String    @map("created_by") @db.Char(36)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([orderId])
+  @@index([fileId])
+  @@map("trade_feed_lines")
+}
+
+/// The settlement instruction for a filled order (one per order). GENERATED -> RELEASED (a second person, unless the
+/// system generated it) -> CONFIRMED | FAILED; CANCELLED before release.
+model SettlementInstruction {
+  id           String    @id @default(uuid()) @db.Char(36)
+  /// SIN-00001 ...
+  ref          String    @unique @db.VarChar(16)
+  orderId      String    @unique @map("order_id") @db.Char(36)
+  orderRef     String    @map("order_ref") @db.VarChar(16)
+  portfolioId  String    @map("portfolio_id") @db.Char(36)
+  securityId   String    @map("security_id") @db.Char(36)
+  ticker       String    @db.VarChar(24)
+  side         String    @db.VarChar(4)
+  /// BUY -> RVP (receive vs payment), SELL -> DVP (deliver vs payment)
+  instructionType String @map("instruction_type") @db.VarChar(3)
+  quantity     Decimal   @db.Decimal(24, 6)
+  avgPrice     Decimal   @map("avg_price") @db.Decimal(20, 6)
+  grossAmount  Decimal   @map("gross_amount") @db.Decimal(20, 4)
+  fees         Decimal   @db.Decimal(20, 4)
+  /// BUY: gross + fees to pay; SELL: gross - fees to receive.
+  netAmount    Decimal   @map("net_amount") @db.Decimal(20, 4)
+  currency     String    @db.Char(3)
+  tradeDate    DateTime  @map("trade_date") @db.Date
+  settleDate   DateTime  @map("settle_date") @db.Date
+  brokerId     String?   @map("broker_id") @db.Char(36)
+  /// The custodian counterparty mapped to the portfolio in the reconciliation account map, when there is one.
+  counterpartyId String? @map("counterparty_id") @db.Char(36)
+  accountRef   String?   @map("account_ref") @db.VarChar(64)
+  /// GENERATED | RELEASED | CONFIRMED | FAILED | CANCELLED
+  status       String    @default("GENERATED") @db.VarChar(12)
+  payload      Json
+  generatedBy  String    @map("generated_by") @db.Char(36)
+  releasedBy   String?   @map("released_by") @db.Char(36)
+  releasedAt   DateTime? @map("released_at")
+  confirmedBy  String?   @map("confirmed_by") @db.Char(36)
+  confirmedAt  DateTime? @map("confirmed_at")
+  failReason   String?   @map("fail_reason") @db.VarChar(500)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  version      Int       @default(1)
+
+  @@index([status, settleDate])
+  @@index([portfolioId])
+  @@map("settlement_instructions")
+}
+
+/// One corporate-action announcement seen on the market-data feed. `dedupe_key` is a sha-256 over
+/// source|ticker|type|ex-date|rate|ratio; a second sighting only raises `seen_count`. DRAFTED items created an
+/// ANNOUNCED corp_action_events row awaiting confirmation; DUPLICATE ones matched an existing event.
+model CaFeedItem {
+  id          String   @id @default(uuid()) @db.Char(36)
+  dedupeKey   String   @unique @map("dedupe_key") @db.Char(64)
+  source      String   @db.VarChar(24)
+  sourceRef   String?  @map("source_ref") @db.VarChar(120)
+  ticker      String   @db.VarChar(24)
+  caType      String   @map("ca_type") @db.VarChar(20)
+  exDate      DateTime? @map("ex_date") @db.Date
+  /// DRAFTED | DUPLICATE | REJECTED
+  status      String   @db.VarChar(12)
+  reason      String?  @db.VarChar(500)
+  eventId     String?  @map("event_id") @db.Char(36)
+  announcement Json
+  seenCount   Int      @default(1) @map("seen_count")
+  runId       String?  @map("run_id") @db.Char(36)
+  firstSeenAt DateTime @default(now()) @map("first_seen_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@index([status, firstSeenAt])
+  @@index([eventId])
+  @@map("ca_feed_items")
+}
+
+/// One run of the corporate-action feed sync (manual or scheduled).
+model CaFeedRun {
+  id         String    @id @default(uuid()) @db.Char(36)
+  /// MANUAL | SCHEDULE
+  trigger    String    @db.VarChar(12)
+  provider   String    @db.VarChar(12)
+  /// OK | ERROR
+  status     String    @db.VarChar(12)
+  fetched    Int       @default(0)
+  drafted    Int       @default(0)
+  duplicates Int       @default(0)
+  rejected   Int       @default(0)
+  error      String?   @db.VarChar(500)
+  startedBy  String?   @map("started_by") @db.Char(36)
+  startedAt  DateTime  @default(now()) @map("started_at")
+  finishedAt DateTime? @map("finished_at")
+
+  @@index([startedAt])
+  @@map("ca_feed_runs")
+}
+// ---- end TradingFeeds ----

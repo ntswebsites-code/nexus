@@ -37,6 +37,10 @@ export const NAV: { section: string; items: NavItem[] }[] = [
     items: [{ href: '/ops/orders', label: 'Orders', perms: ['orders.view'] }],
   },
   {
+    section: 'Trade feeds',
+    items: [{ href: '/ops/trading-feeds', label: 'Trading feeds', perms: ['orders.view'] }],
+  },
+  {
     section: 'Valuation',
     items: [{ href: '/ops/nav', label: 'NAV & valuation', perms: ['valuation.view'] }],
   },

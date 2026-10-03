@@ -26,7 +26,7 @@ export function marketDataFor(mode: MarketDataMode) {
 export function getMarketDataAdapter(env: NodeJS.ProcessEnv = process.env): MarketDataAdapter {
   const mode = marketDataMode(env);
   if (cached?.mode === mode) return cached.adapter;
-  const adapter = instrument('market-data', mode, marketDataFor(mode), ['fetchQuotes', 'fetchHistory', 'fetchFx']);
+  const adapter = instrument('market-data', mode, marketDataFor(mode), ['fetchQuotes', 'fetchHistory', 'fetchFx', 'fetchCorporateActions']);
   cached = { mode, adapter };
   return adapter;
 }

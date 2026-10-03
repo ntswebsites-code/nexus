@@ -15,6 +15,7 @@ import { runDueSchedules } from './modules/reports';
 import { assertIntegrationsConfig, integrationTick } from './integrations';
 import { scanEsign } from './modules/esign';
 import { marketDataTick } from './integrations/market-data/scheduler';
+import { caFeedTick } from './modules/trading-feeds';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -104,6 +105,8 @@ async function tick() {
   await integrationTick();
   // Market data: exchange-hours price refresh, EOD close and daily FX (no-op unless the scheduler is enabled).
   void marketDataTick().catch((error) => console.error('[worker] market data tick failed', error));
+  // Corporate-action announcements from the market-data feed become ANNOUNCED drafts (R4-10); off for the fake provider.
+  await scheduled('trading.ca_feed', 6 * HOUR, () => caFeedTick());
   try {
     const sent = await runDigests();
     if (sent) console.log(`[worker] digests queued: ${sent}`);
