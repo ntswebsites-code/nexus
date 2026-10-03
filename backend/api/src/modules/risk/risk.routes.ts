@@ -321,6 +321,12 @@ riskRoutes.post('/monitor', ...canManage, validateBody(monitorBody), idempotent(
   res.json({ data: summary });
 });
 
+/** Read-only: every ACTIVE limit that applies to a portfolio, judged by the same engine the monitor uses (no model-use log). */
+riskRoutes.get('/portfolios/:portfolioId/limits', ...canView, async (req, res) => {
+  const result = await checkLimitsForPortfolio(param(req, 'portfolioId'));
+  res.json({ data: { asOf: result.asOf, evaluations: result.evaluations } });
+});
+
 // ================================================================ pre-trade check (read only)
 
 const checkBody = z

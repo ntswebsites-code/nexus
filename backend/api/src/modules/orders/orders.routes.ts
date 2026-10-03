@@ -15,7 +15,7 @@ import { getBrokerList, latestPrices, loadPortfolio } from '../portfolio/portfol
 import { ensureOrderReservation, orderCashView, releaseOrderCash, reserveOrderCash, syncOrderReservation } from '../cash/cash.orders';
 import { settleOrder } from './orders.settle';
 import { applyFillTx } from './orders.fill';
-import { RESERVING_STATUSES, estimateFee, runPreTradeChecks, type PreTradeResult } from './orders.checks';
+import { ADV_SANITY_MULTIPLE, RESERVING_STATUSES, estimateFee, runPreTradeChecks, type PreTradeResult } from './orders.checks';
 import {
   CANCELLABLE,
   allowedActions,
@@ -149,8 +149,8 @@ function assertTicketSize(security: { boardLot: number; averageDailyVolume: Pris
   const lot = security.boardLot > 0 ? security.boardLot : 1;
   if (!qty.mod(lot).isZero()) throw HttpError.badRequest('Validation failed', [{ path: 'quantity', message: `Quantity must be a multiple of the ${security.ticker} board lot (${lot})` }]);
   const adv = security.averageDailyVolume;
-  if (adv && adv.gt(0) && qty.gt(adv.mul(10))) {
-    throw HttpError.badRequest('Validation failed', [{ path: 'quantity', message: `Quantity ${qty.toString()} is more than 10 times the average daily volume of ${security.ticker} (${adv.toString()}); check the size` }]);
+  if (adv && adv.gt(0) && qty.gt(adv.mul(ADV_SANITY_MULTIPLE))) {
+    throw HttpError.badRequest('Validation failed', [{ path: 'quantity', message: `Quantity ${qty.toString()} is more than ${ADV_SANITY_MULTIPLE} times the average daily volume of ${security.ticker} (${adv.toString()}); check the size` }]);
   }
 }
 

@@ -48,7 +48,7 @@ export default function AccountingPage() {
     return (
       <>
         <PageHeader kicker="Accounting" title="Accounting & Close" />
-        <Alert>Your role does not include valuation. Ask an administrator for the valuation.view permission.</Alert>
+        <Alert>Accounting & Close is opened with the valuation.view permission (shared with NAV); posting journals also needs accounting.post. Ask an administrator to add it to your role.</Alert>
       </>
     );
   }

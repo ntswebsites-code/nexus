@@ -204,7 +204,7 @@ export async function calculateValuation(portfolioId: string, navDate: Date, s: 
   return {
     baseCurrency: snap.baseCurrency,
     // Use the portfolio's own total (sum of unrounded line values, rounded once) so NAV and the Portfolio page agree to the cent.
-    marketValue: unvaluedRef.gt(ZERO) || snap.lines.some((l) => !l.marketValueBase) ? valued : new D(snap.totals.securitiesValueBase),
+    marketValue: new D(snap.totals.securitiesValueBase), // the snapshot total already covers valued lines only, so this holds with unvalued lines too
     cash: new D(snap.totals.cashBase),
     coverage: priceCoverage(valued, unvaluedRef),
     positionCount: snap.lines.length,

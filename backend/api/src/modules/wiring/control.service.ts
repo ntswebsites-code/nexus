@@ -246,7 +246,14 @@ export async function dashboardToday(perms: string[], now = new Date()) {
     can('valuation.view') ? navStatus(now) : Promise.resolve(null),
     can('risk.view') ? prisma.riskBreach.groupBy({ by: ['status'], where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] } }, _count: { _all: true } }) : Promise.resolve(null),
     can('operations.view') ? prisma.opsTask.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS', 'BLOCKED'] }, dueAt: { lte: endOfDay(now) } } }) : Promise.resolve(null),
-    can('risk.view') ? countUnrecordedExceedances(now).catch(() => 0) : Promise.resolve(null),
+    can('risk.view')
+      ? countUnrecordedExceedances(now).catch((err: unknown) => {
+          // Never present a failed check as "0 breaches": log it and tell the dashboard the figure is unavailable.
+          // eslint-disable-next-line no-console
+          console.error('dashboard: unrecorded risk exceedance check failed', err instanceof Error ? err.message : 'unknown error');
+          return -1;
+        })
+      : Promise.resolve(null),
   ]);
   const aum = portfolios
     ? Object.entries(
@@ -258,13 +265,13 @@ export async function dashboardToday(perms: string[], now = new Date()) {
     : null;
   return {
     asOf: now.toISOString(),
-    aum: portfolios ? { byCurrency: aum, portfolios: portfolios.length, positions: portfolios.reduce((s, p) => s + p.positionCount, 0), cashPct: portfolios.length ? portfolios.reduce((s, p) => s.add(new D(p.cashPct)), ZERO).div(portfolios.length).toFixed(2) : '0.00', warnings: portfolios.reduce((s, p) => s + p.warnings, 0) } : null,
+    aum: portfolios ? { byCurrency: aum, portfolios: portfolios.length, positions: portfolios.reduce((s, p) => s + p.positionCount, 0), cashPct: portfolios.length ? portfolios.reduce((s, p) => s.add(new D(p.cashPct)), ZERO).div(portfolios.length).toFixed(2) : '0.00', warnings: portfolios.reduce((s, p) => s + p.warnings, 0), stalePrices: portfolios.reduce((s, p) => s + (p.stalePrices ?? 0), 0) } : null,
     ordersWorking: working ? { total: working.filter((w) => WORKING_ORDERS.includes(w.status)).reduce((s, w) => s + w._count._all, 0), awaitingApproval: working.find((w) => w.status === 'AwaitingApproval')?._count._all ?? 0, byStatus: Object.fromEntries(working.filter((w) => WORKING_ORDERS.includes(w.status)).map((w) => [w.status, w._count._all])) } : null,
     breaks: recon ? { open: recon.open, high: recon.high, pendingChecker: recon.pendingChecker } : null,
     approvals,
     cash,
     nav,
-    risk: risk ? { open: risk.find((r) => r.status === 'OPEN')?._count._all ?? 0, acknowledged: risk.find((r) => r.status === 'ACKNOWLEDGED')?._count._all ?? 0, unrecorded: unrecordedBreaches ?? 0 } : null,
+    risk: risk ? { open: risk.find((r) => r.status === 'OPEN')?._count._all ?? 0, acknowledged: risk.find((r) => r.status === 'ACKNOWLEDGED')?._count._all ?? 0, unrecorded: unrecordedBreaches !== null && unrecordedBreaches >= 0 ? unrecordedBreaches : 0, unrecordedUnavailable: unrecordedBreaches === -1 } : null,
     runbookDueToday: tasks,
   };
 }

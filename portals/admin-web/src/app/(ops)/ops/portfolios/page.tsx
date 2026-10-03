@@ -83,6 +83,7 @@ export default function PortfoliosPage() {
                           <td className="r">
                             <Money value={p.marketValueBase} currency={p.baseCurrency} />
                             {p.warnings > 0 && <span className="ops-sub">{p.warnings} unvalued</span>}
+                            {((p as { stalePrices?: number }).stalePrices ?? 0) > 0 && <span className="ops-sub">{(p as { stalePrices?: number }).stalePrices} stale price{(p as { stalePrices?: number }).stalePrices === 1 ? '' : 's'}</span>}
                           </td>
                           <td className="r">{formatDecimal(p.cashPct, 1)}%</td>
                           <td className="r">{p.positionCount}</td>

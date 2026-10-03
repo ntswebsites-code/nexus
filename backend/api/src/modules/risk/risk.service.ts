@@ -210,19 +210,26 @@ export async function checkLimitsForPortfolio(portfolioIdOrRef: string, hypothet
  */
 export async function countUnrecordedExceedances(asOf: Date = new Date()): Promise<number> {
   const detectedOn = startOfDay(asOf);
-  const portfolios = await prisma.portfolio.findMany({ where: { status: 'Active' }, select: { id: true }, take: 1000 });
+  // One query each for limits, portfolios and today's recorded breaches (no per-limit lookups); a snapshot is only
+  // built for portfolios that actually have an active limit.
+  const [limits, portfolios, recorded] = await Promise.all([
+    prisma.riskLimit.findMany({ where: { status: 'ACTIVE' }, orderBy: { ref: 'asc' } }),
+    prisma.portfolio.findMany({ where: { status: 'Active' }, select: { id: true }, take: 1000 }),
+    prisma.riskBreach.findMany({ where: { detectedOn }, select: { limitId: true, portfolioId: true } }),
+  ]);
+  if (!limits.length) return 0;
+  const done = new Set(recorded.map((x) => `${x.limitId}:${x.portfolioId}`));
+  const firm = limits.filter((l) => l.scopeType === 'FIRM');
   let n = 0;
   for (const p of portfolios) {
-    const limits = await activeLimitsFor(p.id);
-    if (!limits.length) continue;
+    const applicable = [...firm, ...limits.filter((l) => l.scopeType === 'PORTFOLIO' && l.scopeId === p.id)];
+    if (!applicable.length) continue;
     const snap = await getPortfolioSnapshot(p.id, { asOf });
     const measures = measureBook(bookFromSnapshot(snap));
     if (!measures) continue;
-    for (const l of limits) {
+    for (const l of applicable) {
       const ev = evaluateMeasure(l.metric as RiskMetric, l.threshold, measures[l.metric as RiskMetric]);
-      if (ev.state !== 'BREACH') continue;
-      const existing = await prisma.riskBreach.findUnique({ where: { limitId_portfolioId_detectedOn: { limitId: l.id, portfolioId: p.id, detectedOn } }, select: { id: true } });
-      if (!existing) n += 1;
+      if (ev.state === 'BREACH' && !done.has(`${l.id}:${p.id}`)) n += 1;
     }
   }
   return n;
