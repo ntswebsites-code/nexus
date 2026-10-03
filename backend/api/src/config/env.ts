@@ -50,6 +50,15 @@ const schema = z.object({
 
   PUBLIC_API_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   STORAGE_DIR: z.string().default('./storage'),
+  /// Object-store backend: local (filesystem under STORAGE_DIR), s3 (MinIO / S3), fake (in-memory, tests).
+  INTEGRATION_OBJECT_STORAGE: z.preprocess(emptyToUndefined, z.enum(['local', 's3', 'fake']).default('local')),
+  STORAGE_S3_ENDPOINT: z.preprocess(emptyToUndefined, z.string().url().optional()),
+  STORAGE_S3_REGION: z.string().default('us-east-1'),
+  STORAGE_S3_ACCESS_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  STORAGE_S3_SECRET_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
+  STORAGE_S3_BUCKET_DOCUMENTS: z.string().default('nexus-documents'),
+  STORAGE_S3_BUCKET_ESIGN: z.string().default('nexus-esign'),
+  STORAGE_S3_BUCKET_EXPORTS: z.string().default('nexus-exports'),
   MAX_UPLOAD_MB: z.coerce.number().positive().default(25),
   /// 32-byte key, base64 or hex. Encrypts stored files and sensitive columns.
   FILE_ENCRYPTION_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
@@ -87,7 +96,18 @@ export interface AppConfig {
   bcryptRounds: number;
   allowSelfRegistration: boolean;
   publicApiUrl: string;
-  storage: { dir: string; maxUploadBytes: number };
+  storage: {
+    dir: string;
+    maxUploadBytes: number;
+    backend: 'local' | 's3' | 'fake';
+    s3: {
+      endpoint?: string;
+      region: string;
+      accessKey?: string;
+      secretKey?: string;
+      buckets: { documents: string; esign: string; exports: string };
+    };
+  };
   encryptionKey: Buffer;
   signingSecret: string;
   smtp?: { host: string; port: number; secure: boolean; user?: string; password?: string };
@@ -166,7 +186,22 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     // provisioned by an administrator unless explicitly enabled.
     allowSelfRegistration: e.ALLOW_SELF_REGISTRATION ?? !isProduction,
     publicApiUrl: (e.PUBLIC_API_URL ?? `http://localhost:${e.API_PORT}`).replace(/\/+$/, ''),
-    storage: { dir: e.STORAGE_DIR, maxUploadBytes: e.MAX_UPLOAD_MB * 1024 * 1024 },
+    storage: {
+      dir: e.STORAGE_DIR,
+      maxUploadBytes: e.MAX_UPLOAD_MB * 1024 * 1024,
+      backend: e.INTEGRATION_OBJECT_STORAGE,
+      s3: {
+        endpoint: e.STORAGE_S3_ENDPOINT,
+        region: e.STORAGE_S3_REGION,
+        accessKey: e.STORAGE_S3_ACCESS_KEY,
+        secretKey: e.STORAGE_S3_SECRET_KEY,
+        buckets: {
+          documents: e.STORAGE_S3_BUCKET_DOCUMENTS,
+          esign: e.STORAGE_S3_BUCKET_ESIGN,
+          exports: e.STORAGE_S3_BUCKET_EXPORTS,
+        },
+      },
+    },
     encryptionKey: parseKey(e.FILE_ENCRYPTION_KEY, isProduction),
     signingSecret: (() => {
       if (e.DOWNLOAD_SIGNING_SECRET) return e.DOWNLOAD_SIGNING_SECRET;

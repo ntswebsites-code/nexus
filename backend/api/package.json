@@ -25,6 +25,8 @@
     "schema": "prisma/schema.prisma"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1146.0",
+    "@aws-sdk/s3-request-presigner": "^3.1146.0",
     "@matanho/shared": "*",
     "@prisma/client": "^6.19.0",
     "bcryptjs": "^3.0.2",

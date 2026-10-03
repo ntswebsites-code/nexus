@@ -17,6 +17,7 @@ export function platformFlags(): PlatformFlags {
     investee: { liveActions: config.flags.investeeLiveActions },
     custodian: { live: config.flags.custodianLive },
     onboarding: { live: config.flags.onboardingLive },
+    storage: { backend: config.storage.backend },
   };
 }
 

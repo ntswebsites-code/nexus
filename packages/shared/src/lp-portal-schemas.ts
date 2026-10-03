@@ -160,4 +160,6 @@ export interface PlatformFlags {
   investee: { liveActions: string[] };
   custodian: { live: boolean };
   onboarding: { live: boolean };
+  /** Active object-store backend (INTEGRATION_OBJECT_STORAGE). */
+  storage?: { backend: 'local' | 's3' | 'fake' };
 }

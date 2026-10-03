@@ -104,4 +104,5 @@ export interface HealthResponse {
   uptimeSeconds: number;
   timestamp: string;
   database?: 'up' | 'down';
+  storage?: { backend: 'local' | 's3' | 'fake'; ok: boolean; detail?: string };
 }
