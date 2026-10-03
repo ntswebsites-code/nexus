@@ -439,4 +439,6 @@ export async function seedDemo() {
   await (await import('./seed-custodian-ops')).seedCustodianOps();
   await (await import('./seed-admin-core')).seedAdminCore();
   await (await import('./seed-admin-shell')).seedAdminShell();
+=======
+  await (await import('./seed-integrations')).seedIntegrations();
 }

@@ -12,6 +12,7 @@ import type { EmailPayload, NotifyPermissionPayload, NotifyUsersPayload } from '
 import { runScreening } from './modules/kyc/screening';
 import { scanReportingReminders } from './modules/company/reminders';
 import { runDueSchedules } from './modules/reports';
+import { assertIntegrationsConfig, integrationTick } from './integrations';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -96,6 +97,17 @@ async function tick() {
     if (purged) console.log(`[worker] retention purge: ${JSON.stringify(purged)}`);
   } catch (error) {
     console.error('[worker] retention purge failed', error);
+=======
+  await integrationTick();
+  if (Date.now() - lastReportScan > 60 * 60 * 1000) {
+    lastReportScan = Date.now();
+    try {
+      const ran = await runDueSchedules();
+      if (ran) console.log(`[worker] scheduled reports generated: ${ran}`);
+    } catch (error) {
+      console.error('[worker] scheduled report run failed', error);
+      lastReportScan = 0;
+    }
   }
   try {
     const sent = await runDigests();
@@ -126,6 +138,7 @@ async function tick() {
 let stopping = false;
 
 async function main() {
+  assertIntegrationsConfig();
   console.log(`[worker] Matanho Nexus worker started (${config.nodeEnv}); SMTP ${config.smtp ? 'on' : 'console'}`);
   while (!stopping) {
     let handled = 0;

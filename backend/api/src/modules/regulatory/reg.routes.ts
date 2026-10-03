@@ -12,6 +12,7 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { uploadFiles } from '../../middleware/upload';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
+import { getRegulatorFilingAdapter } from '../../integrations/regulator-filing';
 import { FILING_STATUSES, TEMPLATES, canMove, daysToDue, dueDateFor, effectiveStatus, isoDay, lastClosedPeriod, payloadCsv, payloadHash, periodContaining, startOfDay, type Payload } from './reg.engine';
 import { buildPayload } from './reg.service';
 
@@ -344,9 +345,11 @@ regulatoryRoutes.post('/filings/:id/submit', ...canSubmit, requireStepUp, valida
   if (f.makerId === req.user!.id) throw sod('The preparer cannot submit their own filing');
   assertIntact(f);
   const { submissionRef } = req.body as z.infer<typeof submitBody>;
+  // Electronic submission through the regulator-filing adapter (fake: acknowledges and keeps the receipt; live: not configured -> 503, filing stays APPROVED).
+  const receipt = await getRegulatorFilingAdapter().submit({ regulator: f.template.regulator, formCode: f.template.formCode, filingRef: f.ref, payloadSha256: f.payloadSha256 ?? '' });
   await prisma.$transaction(async (tx) => {
     assertUpdated((await tx.regFiling.updateMany({ where: { id: f.id, status: 'APPROVED', version: f.version }, data: { status: 'SUBMITTED', submittedBy: req.user!.id, submittedAt: new Date(), submissionRef, version: { increment: 1 } } })).count);
-    await writeAudit(tx, audit(req), { action: 'regulatory.filing_submitted', objectType: 'reg_filing', objectId: f.id, before: { status: 'APPROVED' }, after: { status: 'SUBMITTED', submissionRef, payloadSha256: f.payloadSha256 } });
+    await writeAudit(tx, audit(req), { action: 'regulatory.filing_submitted', objectType: 'reg_filing', objectId: f.id, before: { status: 'APPROVED' }, after: { status: 'SUBMITTED', submissionRef, payloadSha256: f.payloadSha256, adapterReceipt: receipt.receiptRef } });
   });
   res.json({ data: await detail(await load(f.id), req.user!) });
 });

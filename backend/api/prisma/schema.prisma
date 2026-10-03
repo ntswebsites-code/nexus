@@ -4788,3 +4788,61 @@ model CustodianExecutionEvent {
   @@map("custodian_execution_events")
 }
 // ---- end Custodian Ops ----
+
+// ---- Integrations ----
+// WP-8 integrations layer: every call through an adapter is logged; fake adapters persist simulated inbound
+// traffic (SMS codes, feed files, payment instructions) in the inbox. No foreign keys, like the other staff modules.
+
+model IntegrationCall {
+  id            String   @id @default(uuid()) @db.Char(36)
+  /// email | sms | screening | ... (see integrations/core/registry.ts)
+  adapter       String   @db.VarChar(32)
+  /// fake | live
+  mode          String   @db.VarChar(8)
+  operation     String   @db.VarChar(48)
+  /// SHA-256 of the canonical request JSON (before redaction).
+  requestHash   String   @map("request_hash") @db.Char(64)
+  /// OK | ERROR
+  status        String   @db.VarChar(8)
+  durationMs    Int      @map("duration_ms")
+  /// Redacted request (secrets, bodies and bytes removed).
+  request       Json?
+  result        Json?
+  error         String?  @db.VarChar(500)
+  correlationId String?  @map("correlation_id") @db.VarChar(40)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([adapter, createdAt])
+  @@index([createdAt])
+  @@map("integration_calls")
+}
+
+/// Simulated inbound or asynchronous artefacts held by fake adapters (SMS OTPs, payment instructions, feeds).
+model IntegrationInbox {
+  id          String    @id @default(uuid()) @db.Char(36)
+  adapter     String    @db.VarChar(32)
+  kind        String    @db.VarChar(32)
+  externalRef String?   @map("external_ref") @db.VarChar(80)
+  /// NEW | PENDING | SETTLED | FAILED | PROCESSED
+  status      String    @default("NEW") @db.VarChar(12)
+  payload     Json
+  createdAt   DateTime  @default(now()) @map("created_at")
+  processedAt DateTime? @map("processed_at")
+
+  @@index([adapter, kind, status])
+  @@index([externalRef])
+  @@map("integration_inbox")
+}
+
+/// Per-adapter failure simulation (fake mode only): `error` fails the next `failuresRemaining` calls.
+model IntegrationState {
+  adapter           String   @id @db.VarChar(32)
+  failureMode       String   @default("none") @map("failure_mode") @db.VarChar(8)
+  failuresRemaining Int      @default(0) @map("failures_remaining")
+  updatedBy         String?  @map("updated_by") @db.Char(36)
+  updatedAt         DateTime @default(now()) @map("updated_at")
+
+  @@map("integration_state")
+}
+
+// ---- end Integrations ----

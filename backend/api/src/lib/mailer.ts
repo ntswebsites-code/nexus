@@ -1,5 +1,4 @@
-import nodemailer, { type Transporter } from 'nodemailer';
-import { config } from '../config';
+import { getEmailAdapter } from '../integrations/email';
 
 let transporter: Transporter | null = null;
 
@@ -30,4 +29,11 @@ export async function sendMail(to: string, subject: string, text: string) {
     auth: config.smtp.user ? { user: config.smtp.user, pass: config.smtp.password } : undefined,
   });
   await transporter.sendMail({ from: config.mailFrom, to, subject, text });
+=======
+/**
+ * Sends through the email adapter (INTEGRATION_EMAIL). Fake mode keeps the previous behaviour: SMTP when
+ * configured, otherwise the console. Every send is logged to `integration_calls`.
+ */
+export async function sendMail(to: string, subject: string, text: string) {
+  await getEmailAdapter().send({ to, subject, text });
 }
