@@ -16,15 +16,27 @@ export function useIdempotencyKey() {
 
 const headers = (key?: string) => (key ? { 'Idempotency-Key': key } : undefined);
 
+/** A 401 means the session expired or was replaced: send the user to sign in instead of leaving a stale shell on screen. */
+async function guarded<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+    }
+    throw e;
+  }
+}
+
 export const custodian = {
-  get: <T,>(path: string) => client.get<T>(`${BASE}${path}`),
-  post: <T,>(path: string, body: unknown, key?: string) => client.post<T>(`${BASE}${path}`, body, headers(key ?? crypto.randomUUID())),
-  patch: <T,>(path: string, body: unknown, key?: string) => client.patch<T>(`${BASE}${path}`, body, headers(key ?? crypto.randomUUID())),
+  get: <T,>(path: string) => guarded(() => client.get<T>(`${BASE}${path}`)),
+  post: <T,>(path: string, body: unknown, key?: string) => guarded(() => client.post<T>(`${BASE}${path}`, body, headers(key ?? crypto.randomUUID()))),
+  patch: <T,>(path: string, body: unknown, key?: string) => guarded(() => client.patch<T>(`${BASE}${path}`, body, headers(key ?? crypto.randomUUID()))),
 };
 
 export const platform = {
-  get: <T,>(path: string) => client.get<T>(`/api/v1${path}`),
-  post: <T,>(path: string, body: unknown = {}) => client.post<T>(`/api/v1${path}`, body),
+  get: <T,>(path: string) => guarded(() => client.get<T>(`/api/v1${path}`)),
+  post: <T,>(path: string, body: unknown = {}) => guarded(() => client.post<T>(`/api/v1${path}`, body)),
 };
 
 export const auth = client;
