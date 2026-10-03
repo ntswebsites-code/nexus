@@ -1,0 +1,16 @@
+{
+  "name": "@matanho/uat-e2e",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Playwright smoke journeys for the legacy-HTML portals (onboarding, custodian). Not a workspace: install here with `npm install && npx playwright install chromium`.",
+  "scripts": {
+    "test": "playwright test",
+    "test:onboarding": "playwright test onboarding.spec.ts",
+    "test:custodian": "playwright test custodian.spec.ts"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@types/node": "^22.0.0",
+    "typescript": "~5.9.3"
+  }
+}

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import type { ReactNode } from 'react';
 import { SessionProvider } from '@/ops/session';
 import { OpsShell } from '@/ops/Shell';
+import { LegacyHashRedirect } from '@/ops/LegacyHashRedirect';
 import './ops.css';
 
 export const metadata: Metadata = { title: 'Operations | Matanho Nexus' };
@@ -12,6 +13,7 @@ export default function OpsLayout({ children }: { children: ReactNode }) {
     <html lang="en">
       <body className="ops-body">
         <SessionProvider>
+          <LegacyHashRedirect />
           <OpsShell>{children}</OpsShell>
         </SessionProvider>
       </body>

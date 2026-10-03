@@ -1676,10 +1676,17 @@ model CounterpartyExecution {
   supersedeReason String?   @map("supersede_reason") @db.VarChar(255)
   submittedById   String    @map("submitted_by_id") @db.Char(36)
   submittedAt     DateTime  @default(now()) @map("submitted_at")
+  /// WP-7: bulk upload batch this row came from (null for single entry).
+  batchId         String?   @map("batch_id") @db.Char(36)
+  /// WP-7: set when the counterparty cancels the execution (status becomes Superseded).
+  cancelledAt     DateTime? @map("cancelled_at")
+  amendCount      Int       @default(0) @map("amend_count")
+  amendedAt       DateTime? @map("amended_at")
 
   counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Restrict)
 
   @@unique([counterpartyId, tradeRef])
+  @@index([batchId])
   @@index([accountRef, executionAt])
   @@map("counterparty_executions")
 }
@@ -1705,6 +1712,9 @@ model CounterpartyDayEndPackage {
   approvedById    String?   @map("approved_by_id") @db.Char(36)
   approvedAt      DateTime? @map("approved_at")
   submittedAt     DateTime  @default(now()) @map("submitted_at")
+  /// WP-7: optional control totals declared by the custodian for the day (executions in the package currency).
+  tradeQuantity   Decimal?  @map("trade_quantity") @db.Decimal(24, 8)
+  tradeNotional   Decimal?  @map("trade_notional") @db.Decimal(24, 2)
 
   counterparty Counterparty @relation(fields: [counterpartyId], references: [id], onDelete: Restrict)
 
@@ -4728,3 +4738,53 @@ model DataRejectedRow {
   @@map("data_rejected_rows")
 }
 // ---- end WP6 ReportsDataModelsVault ----
+
+// ---- Custodian Ops ----
+/// WP-7: one bulk CSV upload of executions with declared control totals. Rejected batches are kept as evidence.
+model CustodianExecutionBatch {
+  id               String   @id @default(uuid()) @db.Char(36)
+  ref              String   @unique @db.VarChar(20)
+  counterpartyId   String   @map("counterparty_id") @db.Char(36)
+  fileId           String?  @map("file_id") @db.Char(36)
+  fileName         String   @map("file_name") @db.VarChar(255)
+  rowCount         Int      @map("row_count")
+  acceptedCount    Int      @map("accepted_count")
+  duplicateCount   Int      @map("duplicate_count")
+  rejectedCount    Int      @map("rejected_count")
+  declaredCount    Int?     @map("declared_count")
+  declaredQuantity Decimal? @map("declared_quantity") @db.Decimal(24, 8)
+  declaredNotional Decimal? @map("declared_notional") @db.Decimal(24, 2)
+  actualQuantity   Decimal  @map("actual_quantity") @db.Decimal(24, 8)
+  actualNotional   Decimal  @map("actual_notional") @db.Decimal(24, 2)
+  /// NONE | OK | MISMATCH
+  controlStatus    String   @map("control_status") @db.VarChar(10)
+  /// Accepted | Rejected
+  status           String   @db.VarChar(10)
+  errors           Json?
+  submittedById    String   @map("submitted_by_id") @db.Char(36)
+  submittedAt      DateTime @default(now()) @map("submitted_at")
+
+  @@index([counterpartyId, submittedAt])
+  @@map("custodian_execution_batches")
+}
+
+/// WP-7: counterparty-visible status history of an execution (submitted, amended, cancelled).
+model CustodianExecutionEvent {
+  id             String   @id @default(uuid()) @db.Char(36)
+  executionId    String   @map("execution_id") @db.Char(36)
+  counterpartyId String   @map("counterparty_id") @db.Char(36)
+  action         String   @db.VarChar(20)
+  fromStatus     String?  @map("from_status") @db.VarChar(16)
+  toStatus       String   @map("to_status") @db.VarChar(16)
+  reason         String?  @db.VarChar(500)
+  changes        Json?
+  /// COUNTERPARTY | STAFF | SYSTEM
+  actorType      String   @map("actor_type") @db.VarChar(12)
+  actorId        String?  @map("actor_id") @db.Char(36)
+  at             DateTime @default(now())
+
+  @@index([executionId, at])
+  @@index([counterpartyId, at])
+  @@map("custodian_execution_events")
+}
+// ---- end Custodian Ops ----

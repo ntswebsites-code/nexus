@@ -7,5 +7,5 @@
     "baseUrl": ".",
     "paths": { "@/*": ["../../portals/investor-web/src/*"] }
   },
-  "include": ["lib.ts", "contract-harness.ts", "smoke.ts", "export-mock-seed.ts", "seed-types.ts"]
+  "include": ["lib.ts", "contract-harness.ts", "contract-staff.ts", "smoke.ts", "export-mock-seed.ts", "seed-types.ts"]
 }

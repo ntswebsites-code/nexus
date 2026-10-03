@@ -47,6 +47,7 @@ export const manifest: LegacyManifest = {
   "scripts": [
     "/legacy/js/bridge/mx-core.js",
     "/legacy/js/bridge/admin-00-common.js",
+    "/legacy/js/bridge/admin-01-retired.js",
     "/legacy/js/bridge/admin-10-kyc.js",
     "/legacy/js/bridge/admin-20-clients.js",
     "/legacy/js/bridge/admin-30-investor-services.js",

@@ -8,7 +8,7 @@ import { ctx, param } from '../../lib/http';
 import { idempotent } from '../../lib/idempotency';
 import { requirePermission } from '../../middleware/requireAuth';
 import { validateBody } from '../../middleware/validate';
-import { accountRefs, dayEndView, executionView, filesById, latestReviews, packageHash, tradeControl } from '../custodian/custodian.service';
+import { accountRefs, dayEndView, executionView, filesById, latestReviews, packageHash, tradeControlFor } from '../custodian/custodian.service';
 import { createInvitation } from '../identity/invitations';
 import { saveInviteGrant } from '../identity/invite-grant';
 
@@ -90,7 +90,7 @@ opsCustodianRoutes.get('/submissions', requirePermission('custodian.view'), asyn
   ]);
   const files = await filesById(dayEnds.map((d) => d.fileId));
   const reviews = await latestReviews(dayEnds.map((d) => d.id));
-  const controls = await Promise.all(dayEnds.map((d) => tradeControl(d.counterpartyId, d.accountRef, d.statementDate, d.tradeCount)));
+  const controls = await Promise.all(dayEnds.map((d) => tradeControlFor(d)));
   res.json({
     counts: {
       awaitingReview: dayEnds.filter((d) => d.status === 'Approved').length,
@@ -118,7 +118,7 @@ opsCustodianRoutes.get('/day-end/:id', requirePermission('custodian.view'), asyn
   res.json({
     package: { ...dayEndView(pkg, pkg.fileId ? files.get(pkg.fileId) : null), counterparty: pkg.counterparty },
     integrity: { verified: recomputed === pkg.sha256 },
-    controls: await tradeControl(pkg.counterpartyId, pkg.accountRef, pkg.statementDate, pkg.tradeCount),
+    controls: await tradeControlFor(pkg),
     review: (await latestReviews([pkg.id])).get(pkg.id) ?? null,
   });
 });
@@ -150,7 +150,7 @@ opsCustodianRoutes.post(
     if ((await packageHash(pkg, pkg.counterparty.ref)) !== pkg.sha256) {
       throw HttpError.conflict('The package no longer matches its submitted fingerprint', 'integrity_mismatch');
     }
-    const controls = await tradeControl(pkg.counterpartyId, pkg.accountRef, pkg.statementDate, pkg.tradeCount);
+    const controls = await tradeControlFor(pkg);
     const next = decision === 'ACCEPT' ? 'Accepted' : 'Rejected';
     const executionStatus = decision === 'ACCEPT' ? 'Matched' : 'Exception';
     const start = new Date(`${pkg.statementDate.toISOString().slice(0, 10)}T00:00:00.000Z`);

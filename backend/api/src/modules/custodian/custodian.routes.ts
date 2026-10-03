@@ -10,6 +10,9 @@ import { ctx, param } from '../../lib/http';
 import { idempotent } from '../../lib/idempotency';
 import { requireAuth, requirePermission, requirePortalAccess } from '../../middleware/requireAuth';
 import { validateBody } from '../../middleware/validate';
+import { CURRENCIES, decimalString, executionSchema, isoDay } from './custodian.schemas';
+import { recordExecutionEvent } from './custodian.events';
+import { custodianOpsRoutes } from './custodian.ops';
 import { uploadFiles, uploadedFiles } from '../../middleware/upload';
 import {
   counterpartyContext,
@@ -20,7 +23,8 @@ import {
   latestReviews,
   nextCustodianRef,
   packageHash,
-  tradeControl,
+  tradeControlFor,
+  totalsMismatch,
 } from './custodian.service';
 
 /** `/api/v1/custodian` - counterparty (custodian) executions and day-end packages (SRD 5E). Owned by WS4. */
@@ -32,13 +36,6 @@ custodianRoutes.get('/health', (_req, res) => {
 });
 custodianRoutes.use(counterpartyContext);
 
-const CURRENCIES = ['USD', 'ZWG', 'ZAR'] as const;
-const decimalString = (max: number, dp: number) =>
-  z
-    .union([z.string(), z.number()])
-    .transform((v) => String(v).trim())
-    .refine((v) => new RegExp(`^-?\\d{1,${max}}(\\.\\d{1,${dp}})?$`).test(v), { message: `Enter a number with at most ${dp} decimals` });
-const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').refine((v) => !Number.isNaN(Date.parse(`${v}T00:00:00Z`)), 'Invalid date');
 const audit = (req: Parameters<typeof ctx>[0]) => ctx(req, 'custodian');
 
 /** Counterparty users with the approver role, for in-counterparty notifications. */
@@ -76,26 +73,6 @@ custodianRoutes.get('/me', (req, res) => {
 
 // ------------------------------------------------------------------ executions
 
-const executionSchema = z.object({
-  tradeRef: z.string().trim().min(1).max(64),
-  executionAt: z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Invalid execution time'),
-  accountRef: z.string().trim().min(1).max(64),
-  ticker: z.string().trim().min(1).max(32).transform((v) => v.toUpperCase()),
-  isin: z
-    .string()
-    .trim()
-    .toUpperCase()
-    .regex(/^[A-Z]{2}[A-Z0-9]{9}\d$/, 'Invalid ISIN')
-    .optional()
-    .or(z.literal('').transform(() => undefined)),
-  side: z.enum(['BUY', 'SELL']),
-  quantity: decimalString(16, 8).refine((v) => Number(v) > 0, 'Quantity must be greater than zero'),
-  price: decimalString(12, 8).refine((v) => Number(v) > 0, 'Price must be greater than zero'),
-  currency: z.enum(CURRENCIES),
-  settlementDate: isoDay.optional().or(z.literal('').transform(() => undefined)),
-  broker: z.string().trim().max(120).optional(),
-  note: z.string().trim().max(2000).optional(),
-});
 const batchSchema = z.object({ executions: z.array(executionSchema).min(1).max(200) });
 
 custodianRoutes.get('/executions', async (req, res) => {
@@ -177,6 +154,7 @@ custodianRoutes.post(
             objectId: row.id,
             after: { ref: row.ref, counterparty: c.ref, tradeRef: row.tradeRef, accountRef: row.accountRef, side: row.side, quantity: e.quantity, price: e.price },
           });
+          await recordExecutionEvent(tx, { executionId: row.id, counterpartyId: c.id, action: 'submitted', fromStatus: null, toStatus: 'Received', actorId: req.user!.id });
           created.push(row);
         }
         if (created.length) {
@@ -214,6 +192,9 @@ const dayEndSchema = z
     closingCash: decimalString(18, 2),
     holdingsMv: decimalString(18, 2).refine((v) => Number(v) >= 0, 'Holdings market value cannot be negative'),
     tradeCount: z.coerce.number().int().min(0).max(100_000),
+    /** Optional control totals (quantity and notional of the day's executions, in the package currency). */
+    tradeQuantity: decimalString(16, 8).refine((v) => Number(v) >= 0, 'Quantity cannot be negative').optional().or(z.literal('').transform(() => undefined)),
+    tradeNotional: decimalString(18, 2).refine((v) => Number(v) >= 0, 'Notional cannot be negative').optional().or(z.literal('').transform(() => undefined)),
     note: z.string().trim().max(2000).optional(),
     supersedesId: z.string().trim().max(36).optional().or(z.literal('').transform(() => undefined)),
     supersedeReason: z.string().trim().max(255).optional(),
@@ -241,7 +222,7 @@ custodianRoutes.get('/day-end/:id', async (req, res) => {
   const files = await filesById([pkg.fileId]);
   res.json({
     package: dayEndView(pkg, pkg.fileId ? files.get(pkg.fileId) : null),
-    controls: await tradeControl(c.id, pkg.accountRef, pkg.statementDate, pkg.tradeCount),
+    controls: await tradeControlFor(pkg),
     review: counterpartyReview((await latestReviews([pkg.id])).get(pkg.id)),
   });
 });
@@ -291,6 +272,8 @@ custodianRoutes.post(
           closingCash: b.closingCash,
           holdingsMv: b.holdingsMv,
           tradeCount: b.tradeCount,
+          tradeQuantity: b.tradeQuantity ?? null,
+          tradeNotional: b.tradeNotional ?? null,
           fileId: stored.id,
           note: b.note || null,
           status: 'Draft',
@@ -325,7 +308,14 @@ custodianRoutes.post('/day-end/:id/submit', requirePermission('custodian.dayend.
     if (active) throw HttpError.conflict(`Package ${active.ref} already covers this account, date and currency; supersede it with a reason`, 'package_exists');
   }
   const sha256 = await packageHash(pkg, c.ref);
-  const controls = await tradeControl(c.id, pkg.accountRef, pkg.statementDate, pkg.tradeCount);
+  const controls = await tradeControlFor(pkg);
+  const mismatch = totalsMismatch(controls);
+  if (mismatch) {
+    throw HttpError.conflict(
+      `Declared control totals do not match the executions received (${mismatch}). Amend the executions or supersede this package.`,
+      'control_total_mismatch',
+    );
+  }
   const approvers = await approverIds(c.id, req.user!.id);
   const updated = await prisma.$transaction(async (tx) => {
     const n = await tx.counterpartyDayEndPackage.updateMany({ where: { id: pkg.id, status: 'Draft' }, data: { status: 'Received', sha256, submittedAt: new Date() } });
@@ -420,3 +410,6 @@ custodianRoutes.get('/submissions', async (_req, res) => {
     dayEnds: dayEnds.map((d) => ({ ...dayEndView(d, d.fileId ? files.get(d.fileId) : null), review: counterpartyReview(reviews.get(d.id)) })),
   });
 });
+
+// Bulk CSV upload, amend / cancel and status history (WP-7).
+custodianRoutes.use(custodianOpsRoutes);
