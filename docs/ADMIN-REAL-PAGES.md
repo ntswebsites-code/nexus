@@ -1172,3 +1172,13 @@ Test: `npx tsx scripts/test-admin-core.ts` (engine rules, no database needed). T
 - No LLM; unrecognised questions get a help message. Copilot does not add values across currencies.
 - Retention, notification and most feature-flag settings are recorded but not yet read by other modules. No scheduled purge.
 - Custom permission codes cannot be created; role creation and staff invitation still use the direct `/admin` endpoints.
+
+## WP-2: orders, cash, private-markets and corporate-action wiring (GAP-004, 005, 007, part of 010)
+
+Migration `20261021100000_orders_pm_wiring`. Typechecked only (backend, admin-web); `scripts/test-orders-pm-wiring.ts` was not run on a database.
+
+- Orders and cash (GAP-004): the reservation wiring already existed in `cash/cash.orders.ts` (hold on submit, resize on fill, release on cancel/reject, consumed when the settlement journal posts, restored on reversal); the gap table was stale. New: the order ticket (`GET /orders/:id`) returns `cash` (the order's holds and the bank ledger availability) and `decision` (the IC decision and research case that produced it); the screen shows both.
+- Realised gain (GAP-010 part): each SELL fill writes `order_realised_gains` (average cost); settlement books investments out at cost and the gain to account 4300; the ticket shows the gain.
+- Private markets (GAP-005): paying a call or distribution and approving a mark create PENDING_APPROVAL system journals (`PMX:<ref>`, `PMM:<ref>`) and a `pm_postings` row (carrying value, FX rate used, journal refs). Accounts 1150, 4300, 4400 were added to the auto-journal chart. Non-USD funds need an FX rate (409 `no_fx_rate` otherwise); pooled summary totals are in USD with `fxMissing`. Distributions can carry `returnOfCapital`. `GET /private-markets/jcurve` and `/clients` (exposure per client). Evidence files: `POST /marks/:id/evidence/upload` (multipart) files a restricted vault document; `documentId` links an existing one.
+- Corporate actions (GAP-007): per-event `cashInLieu` + `cilPrice` pay fractions in cash (the fraction's cost leaves the position, gain to 4300); `POST /events/:id/reverse` (process permission, step-up, not the processor) reverses by adjustment (new rows dated today, pending journals discarded, posted ones get an inverse `:REV` journal); status REVERSED. Client level: `GET /events/:id/clients` and `GET /corporate-actions/clients/:clientId/entitlements`.
+- Seed: `prisma/seed-orders-pm.ts` (called last by seed-demo and seed-uat). Remaining: realised gain uses the position average cost, not IBOR lots; a CA reversal limits itself to what is held if the position moved since.

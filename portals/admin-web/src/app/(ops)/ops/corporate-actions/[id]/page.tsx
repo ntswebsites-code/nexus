@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { api, v1 } from '@/ops/api';
-import { CaStatusBadge, money2, OPTION_LABEL, shares, signed, terms, TYPE_LABEL, type CaDetail, type CaEntitlement } from '@/ops/corporate-actions';
+import { CaStatusBadge, money2, OPTION_LABEL, shares, signed, terms, TYPE_LABEL, type CaClientRow, type CaDetail, type CaEntitlement } from '@/ops/corporate-actions';
 import { useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, DefinitionList, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, PageHeader, useResource } from '@/ops/ui';
 
@@ -23,7 +23,7 @@ export default function CorporateActionPage() {
   );
 }
 
-type Dialog = 'edit' | 'cancel' | { elect: CaEntitlement } | null;
+type Dialog = 'edit' | 'cancel' | 'reverse' | { elect: CaEntitlement } | null;
 
 function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
@@ -46,7 +46,8 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
     close();
     reload();
   };
-  const closed = e.status === 'PROCESSED' || e.status === 'CANCELLED';
+  const closed = e.status === 'PROCESSED' || e.status === 'CANCELLED' || e.status === 'REVERSED';
+  const clients = useResource<CaClientRow[]>(() => api.get<CaClientRow[]>(v1(`/corporate-actions/events/${encodeURIComponent(e.id)}/clients`)), [e.id, e.status, e.entitlementsAt]);
   const hasCash = e.entitlements.some((x) => Number(x.cashAmount) !== 0);
   const hasShares = e.entitlements.some((x) => Number(x.sharesDelta) !== 0);
 
@@ -105,10 +106,21 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
                 Cancel action
               </button>
             )}
+            {e.status === 'PROCESSED' && (
+              <button className="ops-btn danger" type="button" disabled={!e.allowed.reverse} title={e.allowed.reverseBlocker ?? 'Reverses by adjustment; history is kept. Requires a fresh authenticator code'} onClick={() => setDialog('reverse')}>
+                Reverse by adjustment
+              </button>
+            )}
           </>
         }
       />
 
+      {e.status === 'REVERSED' && (
+        <Alert kind="warn">
+          Reversed by {e.reversedByName ?? 'a second person'} on {formatDateTime(e.reversedAt)}: {e.reverseReason}. Positions, cost and cash were adjusted back with new rows dated today; pending journals were discarded and posted ones have an inverse journal awaiting approval.
+        </Alert>
+      )}
+      {e.status === 'PROCESSED' && !e.allowed.reverse && e.allowed.reverseBlocker && <Alert kind="info">{e.allowed.reverseBlocker}.</Alert>}
       {e.status === 'CANCELLED' && <Alert kind="warn">Cancelled on {formatDateTime(e.cancelledAt)}: {e.cancelReason}</Alert>}
       {e.status === 'PROCESSED' && (
         <Alert kind="ok">
@@ -126,6 +138,7 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
         <Tile label="Pay date" value={formatDate(e.payDate)} hint={e.electionDeadline ? `Elect by ${formatDate(e.electionDeadline)}` : 'No election'} />
         <Tile label="Entitled portfolios" value={String(e.entitlementCount)} hint={e.elective ? `${e.electedCount} elected` : e.entitlementsAt ? `Calculated ${formatDateTime(e.entitlementsAt)}` : 'Not calculated'} />
         <Tile label={`Net cash (${e.currency})`} value={e.entitlementCount ? signed(e.totals.netCash) : '—'} hint={e.entitlementCount ? `Tax ${money2(e.totals.tax)}` : undefined} />
+        {Number(e.totals.cashInLieu) !== 0 && <Tile label={`Cash in lieu (${e.currency})`} value={money2(e.totals.cashInLieu)} hint={e.cilPrice ? `Fractions at ${e.cilPrice}` : undefined} />}
         {hasShares && <Tile label="Share change" value={e.entitlementCount ? `${Number(e.totals.sharesDelta) > 0 ? '+' : ''}${shares(e.totals.sharesDelta)}` : '—'} hint={e.type === 'MERGER' ? `Plus ${shares(e.totals.targetShares)} ${e.targetTicker ?? ''}` : undefined} />}
       </div>
 
@@ -168,10 +181,10 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
                     <td className="r">
                       {Number(x.sharesDelta) === 0 && Number(x.targetShares) === 0 ? '—' : `${Number(x.sharesDelta) > 0 ? '+' : ''}${shares(x.sharesDelta)}`}
                       {Number(x.targetShares) > 0 && <span className="ops-sub">+{shares(x.targetShares)} {e.targetTicker}</span>}
-                      {Number(x.fraction) > 0 && <span className="ops-sub">fraction {Number(x.fraction)} not paid</span>}
+                      {Number(x.fraction) > 0 && <span className="ops-sub">{Number(x.cashInLieu) > 0 ? `fraction ${Number(x.fraction).toFixed(4)} paid ${money2(x.cashInLieu)} in cash` : `fraction ${Number(x.fraction).toFixed(4)} not paid`}</span>}
                     </td>
                     <td>
-                      <span className={`ops-badge ${x.status === 'APPLIED' ? 'green' : 'grey'}`}>{x.status.toLowerCase()}</span>
+                      <span className={`ops-badge ${x.status === 'APPLIED' ? 'green' : x.status === 'REVERSED' ? 'red' : 'grey'}`}>{x.status.toLowerCase()}</span>
                       {x.note && <span className="ops-sub">{x.note}</span>}
                     </td>
                     <td className="r">
@@ -189,6 +202,53 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
         )}
         {e.entitlements.length > 0 && e.status !== 'PROCESSED' && <p className="ops-muted">Unelected holders get the default option when the action is processed. Positions sold after the record date still receive the entitlement; the change is limited to what is held.</p>}
       </Card>
+
+      {e.entitlements.length > 0 && (
+        <Card title="By client">
+          <Loaded res={clients} what="the client roll-up">
+            {(rows) => (
+              <div className="ops-table-wrap">
+                <table className="ops-table">
+                  <thead>
+                    <tr>
+                      <th>Client</th>
+                      <th>Portfolios</th>
+                      <th className="r">Held</th>
+                      <th className="r">Net cash</th>
+                      <th className="r">Cash in lieu</th>
+                      <th className="r">Shares</th>
+                      {e.elective && <th className="r">Elected</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((c) => (
+                      <tr key={c.clientId ?? 'none'}>
+                        <td>
+                          <strong>{c.clientName}</strong>
+                          {c.clientRef && <span className="ops-sub">{c.clientRef}</span>}
+                        </td>
+                        <td>{c.portfolios.join(', ')}</td>
+                        <td className="r">{shares(c.quantity)}</td>
+                        <td className="r">{signed(c.cash)}</td>
+                        <td className="r">{money2(c.cashInLieu)}</td>
+                        <td className="r">
+                          {Number(c.sharesDelta) > 0 ? '+' : ''}
+                          {shares(c.sharesDelta)}
+                        </td>
+                        {e.elective && (
+                          <td className="r">
+                            {c.elected}/{c.entitlements}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Loaded>
+        </Card>
+      )}
 
       <Card title="Terms and controls">
         <DefinitionList
@@ -235,6 +295,24 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
         >
           <FieldGrid>
             <Field label="Reason" span={2} hint="Required, 5 or more characters">
+              <textarea className="ops-input" name="reason" rows={3} required minLength={5} maxLength={1000} />
+            </Field>
+          </FieldGrid>
+        </FormModal>
+      )}
+      {dialog === 'reverse' && (
+        <FormModal
+          title={`Reverse ${e.ref}`}
+          kicker="Corporate action"
+          subtitle="Positions, cost and cash are put back with new rows dated today (history is never rewritten). Pending journals are discarded; posted journals get an inverse journal that someone must approve."
+          submitLabel="Reverse by adjustment"
+          danger
+          onClose={close}
+          onDone={done}
+          onSubmit={(fd, key) => api.post(`${base}/reverse`, { reason: String(fd.get('reason') ?? '').trim() }, { idempotencyKey: key })}
+        >
+          <FieldGrid>
+            <Field label="Reason" span={2} hint="Required, 5 or more characters. Kept in the audit trail.">
               <textarea className="ops-input" name="reason" rows={3} required minLength={5} maxLength={1000} />
             </Field>
           </FieldGrid>
@@ -288,6 +366,12 @@ function EditDialog({ ev: e, base, onClose, onDone }: { ev: CaDetail; base: stri
         }
         if (fd.has('withholdingPct') && clean(f(fd, 'withholdingPct')) && Number(clean(f(fd, 'withholdingPct'))) !== Number(e.withholdingPct)) body.withholdingPct = clean(f(fd, 'withholdingPct'));
         if (f(fd, 'description') !== (e.description ?? '')) body.description = f(fd, 'description') || null;
+        if (fd.has('cashInLieuPresent')) {
+          const on = fd.get('cashInLieu') === 'on';
+          const price = clean(f(fd, 'cilPrice'));
+          if (on !== e.cashInLieu) body.cashInLieu = on;
+          if (price !== (e.cilPrice ?? '') && (price || e.cilPrice)) body.cilPrice = price || null;
+        }
         if (Object.keys(body).length === 0) return Promise.reject(new Error('Nothing was changed.'));
         return api.patch(base, body);
       }}
@@ -326,6 +410,17 @@ function EditDialog({ ev: e, base, onClose, onDone }: { ev: CaDetail; base: stri
           <Field label="Withholding tax, %">
             <input className="ops-input" name="withholdingPct" inputMode="decimal" defaultValue={e.withholdingPct} />
           </Field>
+        )}
+        {e.type !== 'CASH_DIVIDEND' && (
+          <>
+            <input type="hidden" name="cashInLieuPresent" value="1" />
+            <Field label="Pay cash in lieu of fractions" hint="Off: fractions of a share are only reported">
+              <input type="checkbox" name="cashInLieu" defaultChecked={e.cashInLieu} />
+            </Field>
+            <Field label="Cash-in-lieu price per share">
+              <input className="ops-input" name="cilPrice" inputMode="decimal" defaultValue={e.cilPrice ?? ''} />
+            </Field>
+          </>
         )}
         <Field label="Notes" span={2}>
           <textarea className="ops-input" name="description" rows={2} maxLength={1000} defaultValue={e.description ?? ''} />

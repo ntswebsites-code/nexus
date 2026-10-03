@@ -89,7 +89,50 @@ export interface OrderTimelineEntry {
   reason: string | null;
 }
 
+export interface OrderCashHold {
+  id: string;
+  ref: string;
+  status: string;
+  amount: string;
+  consumed: string;
+  remaining: string;
+  currency: string;
+  releaseReason: string | null;
+}
+
+export interface OrderDecision {
+  id: string;
+  ref: string;
+  action: string;
+  status: string;
+  quantity: string | null;
+  rationale: string;
+  ratifiedAt: string | null;
+  votes: { for: number; against: number; abstain: number };
+  caseId: string;
+  caseRef: string;
+  caseTitle: string;
+  link: string;
+}
+
+export interface OrderRealisedGain {
+  method: string;
+  currency: string;
+  proceeds: string;
+  costBasis: string;
+  fees: string;
+  gain: string;
+  netOfFees: string;
+  fills: { fillId: string; quantity: string; unitCost: string; proceeds: string; costBasis: string; gain: string }[];
+}
+
 export interface OrderDetail extends OrderRow {
+  /** The cash service's view: this order's holds and the bank ledger availability (buys). */
+  cash: { holds: OrderCashHold[]; ledger: { ref: string; posted: string; reservedByOthers: string; minBuffer: string; available: string } | null };
+  /** The IC decision that produced this order, if any. */
+  decision: OrderDecision | null;
+  /** Sells: gain against average cost, recorded per fill. */
+  realisedGain: OrderRealisedGain | null;
   fills: OrderFill[];
   instruction: { id: string; channel: string; payload: InstructionPayload; sentAt: string | null; deliveryStatus: string; createdAt: string } | null;
   timeline: OrderTimelineEntry[];

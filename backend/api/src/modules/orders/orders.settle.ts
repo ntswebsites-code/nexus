@@ -13,8 +13,8 @@ const ZERO = new D(0);
  * Settlement of a filled order: the trade journals, created PENDING_APPROVAL by the system actor and idempotent per
  * order (source ORDER:<ref>:SETTLE). The cash journal is linked to the order's cash hold, which it consumes when posted.
  *   BUY   cash:  Dr settlement clearing, Cr bank (cost + fees)       accounting: Dr investments, Cr cash at bank
- *   SELL  cash:  Dr bank (net), Dr fees, Cr settlement clearing      accounting: Dr cash, Dr trade costs, Cr investments
- * Realised gains are not split out of the investments credit; that is left to the period-end valuation journals.
+ *   SELL  cash:  Dr bank (net), Dr fees, Cr settlement clearing      accounting: Dr cash, Dr trade costs, Cr investments (cost), Cr/Dr realised gain
+ * A sell splits the realised gain (proceeds less average cost, stored per fill in order_realised_gains) to account 4300.
  */
 export async function settleOrder(tx: Prisma.TransactionClient, ctx: AuditContext, o: OrderRow): Promise<{ accounting: AutoResult; cash: AutoResult }> {
   const fills = await tx.orderFill.findMany({ where: { orderId: o.id }, select: { quantity: true, price: true, fees: true } });
@@ -62,6 +62,10 @@ export async function settleOrder(tx: Prisma.TransactionClient, ctx: AuditContex
     const cost = c(gross.add(fees));
     const g = c(gross);
     const f = c(fees);
+    // A sell takes the investments out at book cost and books the difference to realised gains (recorded per fill, average cost).
+    const gains = buy ? [] : await tx.orderRealisedGain.findMany({ where: { orderId: o.id }, select: { costBasis: true } });
+    const bookCost = gains.length ? c(gains.reduce((s, x) => s.add(x.costBasis), ZERO)) : g;
+    const gain = g.sub(bookCost);
     const lines = buy
       ? [
           { code: '1100', debit: cost, memo: `${o.ref} investments purchased` },
@@ -70,7 +74,8 @@ export async function settleOrder(tx: Prisma.TransactionClient, ctx: AuditContex
       : [
           { code: '1000', debit: g.sub(f), memo: `${o.ref} cash received` },
           { code: '5100', debit: f, memo: `${o.ref} trade costs` },
-          { code: '1100', credit: g, memo: `${o.ref} investments sold` },
+          { code: '1100', credit: bookCost, memo: `${o.ref} investments sold at cost` },
+          ...(gain.gt(0) ? [{ code: '4300', credit: gain, memo: `${o.ref} realised gain` }] : gain.lt(0) ? [{ code: '4300', debit: gain.abs(), memo: `${o.ref} realised loss` }] : []),
         ];
     accounting = await autoAccountingJournal(tx, { portfolioId: o.portfolioId, entryDate, description: desc, sourceRef, lines, approvalLink: `/ops/orders/${o.id}` });
   }

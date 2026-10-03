@@ -121,6 +121,41 @@ export function pooled(items: { committed: Dec; flows: Flow[]; mark: { nav: Dec;
   return finish(committed, flows, paidIn, asOf ? { nav, asOf } : null);
 }
 
+export interface CurvePoint {
+  date: Date;
+  /** Cumulative paid calls. */
+  calls: Dec;
+  /** Cumulative paid distributions. */
+  distributions: Dec;
+  /** distributions - calls to date: dips below zero while capital is being drawn (the J). */
+  netCash: Dec;
+  /** Latest approved NAV at or before the date, or null before the first mark. */
+  nav: Dec | null;
+  /** netCash + nav: what the investor is ahead or behind, null before the first mark. */
+  netValue: Dec | null;
+}
+
+/** J-curve points on every settled-flow and mark date (pooled across commitments when the inputs are pooled). */
+export function jCurve(flows: Flow[], marks: { asOf: Date; nav: Dec }[]): CurvePoint[] {
+  const paid = flows.filter((f) => f.status === 'PAID').sort((a, b) => a.date.getTime() - b.date.getTime());
+  const ms = [...marks].sort((a, b) => a.asOf.getTime() - b.asOf.getTime());
+  const days = [...new Set([...paid.map((f) => f.date.getTime()), ...ms.map((m) => m.asOf.getTime())])].sort((a, b) => a - b);
+  return days.map((t) => {
+    const upTo = paid.filter((f) => f.date.getTime() <= t);
+    const calls = upTo.filter((f) => f.kind === 'CALL').reduce((s, f) => s.add(f.amount), ZERO);
+    const distributions = upTo.filter((f) => f.kind === 'DISTRIBUTION').reduce((s, f) => s.add(f.amount), ZERO);
+    const mark = [...ms].reverse().find((m) => m.asOf.getTime() <= t) ?? null;
+    const netCash = distributions.sub(calls);
+    return { date: new Date(t), calls, distributions, netCash, nav: mark?.nav ?? null, netValue: mark ? netCash.add(mark.nav) : null };
+  });
+}
+
+/** Distribution split: the return of capital cannot exceed the amount. */
+export function rocProblem(amount: Dec, roc: Dec | null | undefined): string | null {
+  if (!roc) return null;
+  return roc.gt(amount) ? `Return of capital ${roc.toFixed(2)} exceeds the distribution of ${amount.toFixed(2)}` : null;
+}
+
 /** Call cap: a new call may not exceed what is still uncommitted to calls. */
 export function callProblem(committed: Dec, called: Dec, amount: Dec): string | null {
   const room = committed.sub(called);

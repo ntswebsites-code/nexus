@@ -49,7 +49,9 @@ export async function apiRequest<T = unknown>(
   opts: RequestOptions = {},
 ): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  // A FormData body (file upload) sets its own multipart Content-Type with the boundary.
+  const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
   if (opts.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
 
   let res: Response;
@@ -57,7 +59,7 @@ export async function apiRequest<T = unknown>(
     res = await fetch(`${apiBase}${path}`, {
       method,
       headers,
-      body: body === undefined ? undefined : JSON.stringify(body),
+      body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
       credentials: 'include',
       cache: 'no-store',
     });

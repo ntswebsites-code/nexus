@@ -11,8 +11,8 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
 import { CA_STATUSES, CA_TYPES, ELECTION_OPTIONS, dateErrors, needsRate, needsRatio, normaliseOption, type CaType } from './ca.engine';
-import { postCorporateActionJournals } from '../wiring/autojournals';
-import { applyEntitlements, calculateEntitlements, eventDetail, eventViews, isoDay, electionOpen, loadEvent, repriceFor, startOfDay, type EventRow } from './ca.service';
+import { postCorporateActionJournals, reverseCorporateActionJournals } from '../wiring/autojournals';
+import { applyEntitlements, calculateEntitlements, clientEntitlements, entitlementsForClient, reverseApplied, eventDetail, eventViews, isoDay, electionOpen, loadEvent, repriceFor, startOfDay, type EventRow } from './ca.service';
 
 /**
  * Corporate Actions (SRD 5.A.19 page `corporate-actions`, permission `operations.view`). Admin-portal staff only.
@@ -55,6 +55,8 @@ const fields = {
   defaultOption: z.string().trim().max(12).nullable(),
   currency: z.string().trim().length(3).transform((v) => v.toUpperCase()),
   description: z.string().trim().max(1000).nullable(),
+  cashInLieu: z.boolean(),
+  cilPrice: dec(8, 'Cash-in-lieu price').nullable(),
 };
 
 const createSchema = z
@@ -69,6 +71,8 @@ const createSchema = z
     defaultOption: fields.defaultOption.optional(),
     currency: fields.currency.optional(),
     description: fields.description.optional(),
+    cashInLieu: fields.cashInLieu.optional(),
+    cilPrice: fields.cilPrice.optional(),
   })
   .strict();
 
@@ -85,6 +89,8 @@ const patchSchema = z
     targetSecurityId: fields.targetSecurityId,
     defaultOption: fields.defaultOption,
     description: fields.description,
+    cashInLieu: fields.cashInLieu,
+    cilPrice: fields.cilPrice,
   })
   .partial()
   .strict()
@@ -122,6 +128,8 @@ type Merged = {
   ratioOld: Prisma.Decimal | null;
   targetSecurityId: string | null;
   defaultOption: string | null;
+  cashInLieu: boolean;
+  cilPrice: Prisma.Decimal | null;
 };
 
 /** Cross-field rules for the whole event, as 400 details. */
@@ -134,6 +142,8 @@ function assertValid(m: Merged, securityId: string) {
     if (!m.targetSecurityId) errs.push({ path: 'targetSecurityId', message: 'The acquirer security is required for a merger' });
     else if (m.targetSecurityId === securityId) errs.push({ path: 'targetSecurityId', message: 'The acquirer must be a different security' });
   }
+  if (m.cashInLieu && !(m.cilPrice && m.cilPrice.gt(0))) errs.push({ path: 'cilPrice', message: 'Enter the cash-in-lieu price per share' });
+  if (m.cashInLieu && !['STOCK_SPLIT', 'BONUS_ISSUE', 'SCRIP_DIVIDEND', 'RIGHTS_ISSUE', 'MERGER'].includes(m.type)) errs.push({ path: 'cashInLieu', message: 'A cash dividend has no fractions of shares' });
   const opts = ELECTION_OPTIONS[m.type as CaType];
   if (m.defaultOption && (!opts || !opts.includes(m.defaultOption))) errs.push({ path: 'defaultOption', message: opts ? `Use ${opts.join(' or ')}` : 'This action has no election' });
   if (errs.length) throw HttpError.badRequest('Validation failed', errs);
@@ -144,7 +154,7 @@ async function respond(res: import('express').Response, req: import('express').R
 }
 
 function assertOpen(e: EventRow, action: string) {
-  if (e.status === 'PROCESSED' || e.status === 'CANCELLED') throw new HttpError(409, 'event_immutable', `${e.ref} is ${e.status} and cannot be ${action}.`);
+  if (e.status === 'PROCESSED' || e.status === 'CANCELLED' || e.status === 'REVERSED') throw new HttpError(409, 'event_immutable', `${e.ref} is ${e.status} and cannot be ${action}.`);
 }
 
 // ================================================================ list and read
@@ -204,6 +214,8 @@ corporateActionsRoutes.post('/events', ...canView, validateBody(createSchema), i
     ratioOld: b.ratioOld ?? null,
     targetSecurityId: target?.id ?? null,
     defaultOption: b.defaultOption ?? null,
+    cashInLieu: b.cashInLieu ?? false,
+    cilPrice: b.cilPrice ?? null,
   };
   assertValid(m, sec.id);
   const currency = b.currency ?? sec.currency;
@@ -228,6 +240,8 @@ corporateActionsRoutes.post('/events', ...canView, validateBody(createSchema), i
         targetSecurityId: target?.id ?? null,
         targetTicker: target?.ticker ?? null,
         defaultOption: m.defaultOption ?? ELECTION_OPTIONS[m.type as CaType]?.[0] ?? null,
+        cashInLieu: m.cashInLieu,
+        cilPrice: m.cashInLieu ? m.cilPrice : null,
         description: b.description ?? null,
         makerId: req.user!.id,
       },
@@ -260,6 +274,8 @@ corporateActionsRoutes.patch('/events/:id', ...canView, validateBody(patchSchema
     ratioOld: b.ratioOld !== undefined ? b.ratioOld : e.ratioOld,
     targetSecurityId: b.targetSecurityId !== undefined ? (target?.id ?? null) : e.targetSecurityId,
     defaultOption: b.defaultOption !== undefined ? b.defaultOption : e.defaultOption,
+    cashInLieu: b.cashInLieu !== undefined ? b.cashInLieu : e.cashInLieu,
+    cilPrice: b.cilPrice !== undefined ? b.cilPrice : e.cilPrice,
   };
   assertValid(m, e.securityId);
   await prisma.$transaction(async (tx) => {
@@ -279,6 +295,8 @@ corporateActionsRoutes.patch('/events/:id', ...canView, validateBody(patchSchema
             targetSecurityId: m.targetSecurityId,
             ...(b.targetSecurityId !== undefined ? { targetTicker: target?.ticker ?? null } : {}),
             defaultOption: m.defaultOption,
+            cashInLieu: m.cashInLieu,
+            cilPrice: m.cashInLieu ? m.cilPrice : null,
             ...(b.description !== undefined ? { description: b.description } : {}),
             // entitlements depend on these terms: force a recalculation
             entitlementsAt: null,
@@ -363,13 +381,53 @@ corporateActionsRoutes.post('/events/:id/process', ...canProcess, requireStepUp,
     if (summary.applied === 0) throw HttpError.conflict('No portfolio holds this security at the record date; nothing to process', 'no_entitlements');
     await tx.corpActionEvent.update({ where: { id: e.id }, data: { detail: summary as unknown as Prisma.InputJsonValue } });
     // Cash legs book to Accounting and the cash ledger as PENDING_APPROVAL journals made by the system actor (idempotent per action and portfolio).
-    const applied = await tx.corpActionEntitlement.findMany({ where: { eventId: e.id, status: 'APPLIED' }, select: { portfolioId: true, grossAmount: true, taxAmount: true, cashAmount: true } });
+    const appliedRows = await tx.corpActionEntitlement.findMany({ where: { eventId: e.id, status: 'APPLIED' }, select: { portfolioId: true, grossAmount: true, taxAmount: true, cashAmount: true, cashInLieu: true, detail: true } });
+    const applied = appliedRows.map((a) => ({ portfolioId: a.portfolioId, grossAmount: a.grossAmount, taxAmount: a.taxAmount, cashAmount: a.cashAmount, cashInLieu: a.cashInLieu, cilCost: new D(((a.detail ?? {}) as { cilCost?: string }).cilCost ?? 0) }));
     const journals = await postCorporateActionJournals(tx, fresh, applied);
     await writeAudit(tx, audit(req), { action: 'corp_action.processed', objectType: 'corp_action', objectId: e.id, before: { status: 'CONFIRMED' }, after: { status: 'PROCESSED', ref: e.ref, creatorId: e.makerId, processedBy: req.user!.id, ...summary, journals: journals.map((j) => ({ portfolioId: j.portfolioId, accounting: j.accounting.ref ?? j.accounting.skipped, cash: j.cash?.ref ?? j.cash?.skipped ?? null })) } });
     return { summary, journals };
   });
   const detail = await eventDetail(await loadEvent(e.id), req.user!);
   res.json({ data: { ...detail, applied: out.summary, journals: out.journals.map((j) => ({ portfolioId: j.portfolioId, accountingJournal: j.accounting.ref ?? null, accountingSkipped: j.accounting.skipped ?? null, cashJournal: j.cash?.ref ?? null, cashSkipped: j.cash?.skipped ?? null })) } });
+});
+
+const reverseSchema = z.object({ reason: z.string().trim().min(5, 'Give a reason (5+ characters)').max(1000) }).strict();
+
+/**
+ * Reversal by adjustment (never edits history): positions, cost and cash are put back with new append-by-date rows dated
+ * today, pending journals are discarded and posted ones get an inverse pending journal. Needs the process permission,
+ * step-up MFA, and a different person from the one who processed it.
+ */
+corporateActionsRoutes.post('/events/:id/reverse', ...canProcess, requireStepUp, validateBody(reverseSchema), idempotent('corp_action.reverse', { required: false }), async (req, res) => {
+  const e = await loadEvent(param(req, 'id'));
+  if (e.status === 'REVERSED') throw HttpError.conflict(`${e.ref} is already reversed`, 'already_reversed');
+  if (e.status !== 'PROCESSED') throw HttpError.conflict(`${e.ref} is ${e.status}; only a PROCESSED action can be reversed`, 'invalid_state');
+  if (e.processedBy === req.user!.id) throw HttpError.forbidden('The person who processed this action cannot reverse it (maker-checker)', 'segregation_of_duties');
+  const b = req.body as z.infer<typeof reverseSchema>;
+  const out = await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.corpActionEvent.updateMany({ where: { id: e.id, status: 'PROCESSED' }, data: { status: 'REVERSED', reversedBy: req.user!.id, reversedAt: new Date(), reverseReason: b.reason } })).count);
+    const summary = await reverseApplied(tx, e);
+    const journals = await reverseCorporateActionJournals(tx, e, summary.portfolios, b.reason, startOfDay(new Date()));
+    await writeAudit(tx, audit(req), { action: 'corp_action.reversed', objectType: 'corp_action', objectId: e.id, before: { status: 'PROCESSED' }, after: { status: 'REVERSED', ref: e.ref, processedBy: e.processedBy, reversedBy: req.user!.id, ...summary, journals }, reason: b.reason });
+    await notifyPermission(tx, 'operations.view', { type: 'corp_action.reversed', title: `${e.ref} ${e.ticker} was reversed`, body: b.reason.slice(0, 200), link: `/ops/corporate-actions/${e.id}` });
+    return { summary, journals };
+  });
+  const detail = await eventDetail(await loadEvent(e.id), req.user!);
+  res.json({ data: { ...detail, reversal: out } });
+});
+
+/** Entitlements rolled up per client (portfolio.client_id). */
+corporateActionsRoutes.get('/events/:id/clients', ...canView, async (req, res) => {
+  const e = await loadEvent(param(req, 'id'));
+  res.json({ data: await clientEntitlements(e.id) });
+});
+
+/** Everything one client is entitled to across their portfolios. */
+corporateActionsRoutes.get('/clients/:clientId/entitlements', ...canView, async (req, res) => {
+  const id = param(req, 'clientId');
+  const c = await prisma.client.findFirst({ where: UUID.test(id) ? { id } : { ref: id.toUpperCase() }, select: { id: true, ref: true, name: true } });
+  if (!c) throw HttpError.notFound('Client not found');
+  res.json({ data: { client: c, entitlements: await entitlementsForClient(c.id) } });
 });
 
 corporateActionsRoutes.post('/events/:id/cancel', ...canView, validateBody(cancelSchema), idempotent('corp_action.cancel', { required: false }), async (req, res) => {

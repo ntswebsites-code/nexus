@@ -45,6 +45,7 @@ export default function CashPage() {
     if (sp.get('journal')) router.replace(`/ops/cash/journals/${encodeURIComponent(sp.get('journal')!)}`);
     else if (sp.get('import')) router.replace(`/ops/cash/imports/${encodeURIComponent(sp.get('import')!)}`);
     else if (sp.get('close')) router.replace(`/ops/cash/closes/${encodeURIComponent(sp.get('close')!)}`);
+    else if (sp.get('tab') === 'reservations') setTab('reservations'); // order ticket -> its cash hold
   }, [router]);
 
   if (!canView) {
