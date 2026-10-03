@@ -162,7 +162,7 @@ export default function IborPage() {
               <Tile label="Last refresh" value={ageText(o.control.refreshAgeSeconds)} hint={o.control.lastRefresh ? `${o.control.lastRefresh.ref} · ${o.control.lastRefresh.durationMs} ms` : canRefresh ? 'Use Refresh IBOR to book new fills' : 'Refresh IBOR needs portfolio.manage'} />
             </div>
             <div className="ops-tiles">
-              <Tile label="Market value" value={`${o.kpis.currency} ${money2(o.kpis.marketValueBase)}`} hint={`Every position converted to ${o.kpis.currency}`} />
+              <Tile label="Market value" tone={o.kpis.fxMissing?.length ? 'warn' : undefined} value={`${o.kpis.currency} ${money2(o.kpis.marketValueBase)}`} hint={o.kpis.fxMissing?.length ? `Incomplete: no FX rate for ${o.kpis.fxMissing.join(', ')}; those amounts are excluded` : `Every position converted to ${o.kpis.currency}`} />
               <Tile label="Positions" value={String(o.kpis.positions)} hint={`${o.kpis.portfolios} portfolio(s)`} />
               <Tile label="Available cash" value={`${o.kpis.currency} ${money2(o.kpis.availableCash)}`} hint="After reservations" />
               <Tile label="Unsettled buys" value={`${o.kpis.currency} ${money2(o.kpis.unsettledBuys)}`} hint={`${o.kpis.unsettledBuyCount} live fill(s)`} />

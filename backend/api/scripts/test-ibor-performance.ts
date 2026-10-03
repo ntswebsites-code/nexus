@@ -236,6 +236,8 @@ async function main() {
     check('prepare -> 201 DRAFT PRF-#### with the stored return', pp.status === 201 && per.status === 'DRAFT' && /^PRF-\d{4}$/.test(per.ref) && per.twrPct === '6.666667' && per.version === 1, pp.body);
     check('a second prepare for the same period -> 409 period_exists', (await cPm.post(`${P}/periods`, body, { 'Idempotency-Key': key('pp2') })).body?.error?.code === 'period_exists');
     check('audit performance.period_prepared', (await auditCount('performance.period_prepared', per.id, pm.id)) === 1);
+    // ADB-005: the valuation control now needs a released NAV on the period end, so the test supplies one equal to the computed end value
+    await prisma.navRun.create({ data: { ref: `NAV-T${run}`.slice(0, 16), portfolioId: p.id, navDate: dayDate(-3), version: 1, stage: 'DONE', baseCurrency: 'USD', nav: D(per.endValue), status: 'RELEASED', makerId: pm.id, reviewerId: fa.id, checkerId: fa.id, releasedAt: new Date() } });
     check('all controls are done on the live view and the draft is lockable by someone else', (await cFa.get(`${P}/periods/${per.id}`)).body.data.controlsPending === 0 && (await cFa.get(`${P}/periods/${per.id}`)).body.data.canLock, (await cFa.get(`${P}/periods/${per.id}`)).body);
     check('the preparer without performance.lock cannot lock -> 403', (await cPm.post(`${P}/periods/${per.id}/lock`, {}, { 'Idempotency-Key': key('l0') })).status === 403);
     await prisma.session.updateMany({ where: { userId: fa.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment counts as a fresh step-up; age it
@@ -267,6 +269,7 @@ async function main() {
   } finally {
     // best-effort cleanup of throwaway records
     const pids = [p.id, p2.id];
+    await prisma.navRun.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
     await prisma.perfPeriod.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
     await prisma.perfBenchmark.deleteMany({ where: { id: bm.id } }).catch(() => undefined);
     await prisma.iborLot.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
