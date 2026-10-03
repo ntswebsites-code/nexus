@@ -1,5 +1,18 @@
-import { liveStub } from '../core/live';
-import { meta, type EsignAdapter } from './types';
+import { NotConfiguredError, type ESignAdapter } from './types';
 
-/** Live esign adapter: not built yet. Every call throws NotConfiguredError naming the required env vars (see meta.requiredEnv). */
-export const live: EsignAdapter = liveStub<EsignAdapter>(meta);
+/**
+ * Placeholder for a future hosted e-signature vendor (INTEGRATION_ESIGN=live). A vendor would take
+ * over envelope delivery, signer identity and sealing; this stub documents that and fails loudly.
+ */
+const missing = () =>
+  new NotConfiguredError('ESign', 'set INTEGRATION_ESIGN=native, or implement the vendor client in integrations/esign/live.ts and add its credentials');
+
+export const liveESign: ESignAdapter = {
+  mode: 'live',
+  async seal() {
+    throw missing();
+  },
+  verifyChain() {
+    throw missing();
+  },
+};

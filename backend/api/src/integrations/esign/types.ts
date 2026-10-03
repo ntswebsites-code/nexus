@@ -1,30 +1,72 @@
-import type { AdapterBase, AdapterMeta } from '../core/types';
+/** E-signature adapter contract (GAP-A07). `native` is the in-house implementation; `live` is a vendor stub. */
 
-export interface EsignRequest {
-  documentName: string;
-  documentSha256: string;
-  signers: { name: string; email: string }[];
-}
-export interface EsignEnvelope {
-  envelopeId: string;
-  status: 'SENT' | 'COMPLETED' | 'VOIDED';
-  /** Set once completed: a stored file holding the completion certificate. */
-  certificateFileId: string | null;
+export type SignatureMode = 'TYPED' | 'DRAWN';
+
+export class NotConfiguredError extends Error {
+  readonly code = 'integration_not_configured';
+  constructor(adapter: string, hint: string) {
+    super(`${adapter} integration is not configured: ${hint}`);
+    this.name = 'NotConfiguredError';
+  }
 }
 
-export interface EsignAdapter extends AdapterBase {
-  createEnvelope(request: EsignRequest): Promise<EsignEnvelope>;
-  getEnvelope(input: { envelopeId: string }): Promise<EsignEnvelope>;
+/** One collected signature as it enters the hash chain and the sealed PDF. */
+export interface SealSigner {
+  signerId: string;
+  name: string;
+  email: string;
+  roleLabel: string | null;
+  kind: string;
+  identityMethod: string;
+  signatureMode: SignatureMode;
+  signatureText: string | null;
+  /** Raw PNG bytes of a drawn signature. */
+  signaturePng: Buffer | null;
+  signatureHash: string;
+  ip: string | null;
+  userAgent: string | null;
+  signedAt: Date;
+  consentTextVersion: string;
+  consentText: string;
+  consentHash: string;
+  docSha256: string;
+  chainHash: string;
 }
 
-export const meta: AdapterMeta = {
-  name: 'esign',
-  label: 'E-signature',
-  gap: 'GAP-A07',
-  description: 'Signature envelopes for term sheets and subscription documents, with completion certificates.',
-  requiredEnv: ['ESIGN_API_URL', 'ESIGN_API_KEY'],
-  vendorCalls: {
-    createEnvelope: 'POST {ESIGN_API_URL}/envelopes with the document hash and signers',
-    getEnvelope: 'GET {ESIGN_API_URL}/envelopes/{id}; download the completion certificate when COMPLETED',
-  },
-};
+export interface SealInput {
+  ref: string;
+  title: string;
+  subjectLabel: string | null;
+  originalPdf: Buffer;
+  originalSha256: string;
+  createdAt: Date;
+  completedAt: Date;
+  chainHead: string;
+  signers: SealSigner[];
+  /** Condensed audit trail lines for the certificate. */
+  events: { at: Date; type: string; who: string | null; ip: string | null }[];
+  verifyUrl: string;
+}
+
+export interface SealResult {
+  /** Original pages + signature page + certificate pages, with a seal footer on every page. */
+  sealedPdf: Buffer;
+  sealedSha256: string;
+  /** Stand-alone copy of the certificate of completion. */
+  certificatePdf: Buffer;
+}
+
+export interface ChainCheck {
+  ok: boolean;
+  expectedHead: string;
+  /** Index of the first signer whose recorded link does not match, if any. */
+  brokenAt: number | null;
+}
+
+export interface ESignAdapter {
+  readonly mode: 'native' | 'live';
+  /** Stamps signatures + audit block, appends the certificate and returns the sealed bytes. */
+  seal(input: SealInput): Promise<SealResult>;
+  /** Recomputes the signature hash chain from the recorded signers. */
+  verifyChain(ref: string, originalSha256: string, signers: SealSigner[], recordedHead: string | null): ChainCheck;
+}

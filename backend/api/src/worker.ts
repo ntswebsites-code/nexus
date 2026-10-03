@@ -13,6 +13,8 @@ import { runScreening } from './modules/kyc/screening';
 import { scanReportingReminders } from './modules/company/reminders';
 import { runDueSchedules } from './modules/reports';
 import { assertIntegrationsConfig, integrationTick } from './integrations';
+=======
+import { scanEsign } from './modules/esign';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -88,6 +90,10 @@ async function scheduled(name: string, everyMs: number, run: () => Promise<numbe
     await releaseJob(name);
   }
 }
+=======
+let lastReminderScan = 0;
+let lastReportScan = 0;
+let lastEsignScan = 0;
 
 async function tick() {
   await scheduled('reports.schedules', HOUR, () => runDueSchedules());
@@ -116,6 +122,22 @@ async function tick() {
     console.error('[worker] digest run failed', error);
   }
   const events = await claimEvents(INSTANCE_ID, BATCH);
+=======
+  if (Date.now() - lastEsignScan > 15 * 60 * 1000) {
+    lastEsignScan = Date.now();
+    try {
+      const r = await scanEsign();
+      if (r.expired || r.reminded) console.log(`[worker] esign: expired ${r.expired}, reminders ${r.reminded}`);
+    } catch (error) {
+      console.error('[worker] esign scan failed', error);
+      lastEsignScan = 0;
+    }
+  }
+  const events = await prisma.outboxEvent.findMany({
+    where: { publishedAt: null, attempts: { lt: MAX_ATTEMPTS } },
+    orderBy: { id: 'asc' },
+    take: BATCH,
+  });
   for (const event of events) {
     const handler = handlers[event.type];
     try {

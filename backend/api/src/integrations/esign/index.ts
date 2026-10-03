@@ -1,7 +1,11 @@
-import { getAdapter } from '../core/registry';
-import type { EsignAdapter } from './types';
+import { liveESign } from './live';
+import { nativeESign } from './native';
+import type { ESignAdapter } from './types';
 
 export * from './types';
+export * from './chain';
 
-/** The configured esign adapter (INTEGRATION_ESIGN=fake|live). Every call is logged to integration_calls. */
-export const getEsignAdapter = (): EsignAdapter => getAdapter('esign');
+/** `INTEGRATION_ESIGN=native|live` (default native). */
+export function getESignAdapter(): ESignAdapter {
+  return (process.env.INTEGRATION_ESIGN ?? 'native').trim().toLowerCase() === 'live' ? liveESign : nativeESign;
+}
