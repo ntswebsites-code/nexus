@@ -28,6 +28,13 @@ export async function seedCash() {
     log('no users yet: skipped');
     return;
   }
+  // Maker-checker: the opening-balance journals are prepared by one user and posted by a different one.
+  const poster = (await prisma.user.findFirst({ where: { id: { not: actor }, isActive: true }, orderBy: { createdAt: 'asc' }, select: { id: true } }))?.id ?? actor;
+  if (poster === actor) log('only one user exists: opening journals keep the same maker and poster');
+  else {
+    const fixed = await prisma.cashJournal.updateMany({ where: { sourceRef: 'OPENING-BALANCE', status: 'POSTED', makerId: actor, postedBy: actor }, data: { postedBy: poster } });
+    if (fixed.count) log(`${fixed.count} opening journal(s): poster changed to a different user than the maker`);
+  }
   const portfolios = await prisma.portfolio.findMany({ select: { id: true, ref: true, baseCurrency: true } });
   if (!portfolios.length) {
     log('no portfolios: skipped');
@@ -72,7 +79,7 @@ export async function seedCash() {
             totalCredit: v.available,
             makerId: actor,
             submittedAt: now,
-            postedBy: actor,
+            postedBy: poster,
             postedAt: now,
             lines: {
               create: [

@@ -52,6 +52,7 @@ opsCapitalRoutes.get('/capital-calls', requirePermission('capital.view'), async 
         callLabel: callNoLabel(c.callNo),
         totalAmount: money(c.totalAmount),
         paid: money(paid),
+        amountPaid: money(paid),
         outstanding: money(D.max(ZERO, c.totalAmount.sub(paid))),
         currency: c.currency,
         callDate: c.transactionDate?.toISOString().slice(0, 10) ?? null,

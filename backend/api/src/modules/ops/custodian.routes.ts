@@ -91,6 +91,16 @@ opsCustodianRoutes.get('/submissions', requirePermission('custodian.view'), asyn
   const files = await filesById(dayEnds.map((d) => d.fileId));
   const reviews = await latestReviews(dayEnds.map((d) => d.id));
   const controls = await Promise.all(dayEnds.map((d) => tradeControlFor(d)));
+  // Executions received for the package's own account and statement date: the same scope the reconciliation
+  // source-health screen counts, so the two screens agree. (`counts.executions` is the whole list, not one package.)
+  const receivedFor = await Promise.all(
+    dayEnds.map((d) => {
+      const from = new Date(`${d.statementDate.toISOString().slice(0, 10)}T00:00:00.000Z`);
+      return prisma.counterpartyExecution.count({
+        where: { counterpartyId: d.counterpartyId, accountRef: d.accountRef, executionAt: { gte: from, lt: new Date(from.getTime() + 86_400_000) }, status: { not: 'Superseded' } },
+      });
+    }),
+  );
   res.json({
     counts: {
       awaitingReview: dayEnds.filter((d) => d.status === 'Approved').length,
@@ -101,6 +111,7 @@ opsCustodianRoutes.get('/submissions', requirePermission('custodian.view'), asyn
       ...dayEndView(d, d.fileId ? files.get(d.fileId) : null),
       counterparty: d.counterparty,
       controls: controls[i],
+      executionsReceived: receivedFor[i],
       review: reviews.get(d.id) ?? null,
     })),
     executions: executions.map((e) => ({ ...executionView(e), counterparty: e.counterparty })),

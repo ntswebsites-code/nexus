@@ -69,6 +69,30 @@ function noticeView(n: LpNotice & { _count?: { receipts: number } }) {
   };
 }
 
+/** Adds display names (preparer, approver, fund, LP, user) so the console never shows raw ids. */
+async function noticeNames(rows: LpNotice[]) {
+  const uniq = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x))];
+  const userIds = uniq(rows.flatMap((n) => [n.createdById, n.approvedById, n.publishedById, n.userId]));
+  const fundIds = uniq(rows.map((n) => n.fundId));
+  const clientIds = uniq(rows.map((n) => n.clientId));
+  const [users, funds, clients] = await Promise.all([
+    userIds.length ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }) : [],
+    fundIds.length ? prisma.fund.findMany({ where: { id: { in: fundIds } }, select: { id: true, name: true } }) : [],
+    clientIds.length ? prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, name: true } }) : [],
+  ]);
+  const userName = (id: string | null) => {
+    const u = users.find((x) => x.id === id);
+    return u ? (u.name ?? u.email) : null;
+  };
+  return (n: LpNotice) => ({
+    createdByName: userName(n.createdById),
+    approvedByName: userName(n.approvedById),
+    userName: userName(n.userId),
+    fundName: funds.find((f) => f.id === n.fundId)?.name ?? null,
+    clientName: clients.find((c) => c.id === n.clientId)?.name ?? null,
+  });
+}
+
 async function findNotice(id: string) {
   const n = await prisma.lpNotice.findFirst({ where: { OR: [{ id }, { ref: id }] } });
   if (!n) throw HttpError.notFound('Notice not found');
@@ -96,13 +120,15 @@ opsNoticesRoutes.get('/', requirePermission('notices.view'), async (req, res) =>
     orderBy: { createdAt: 'desc' },
     take: 500,
   });
-  res.json({ data: rows.map(noticeView), total: rows.length });
+  const names = await noticeNames(rows);
+  res.json({ data: rows.map((n) => ({ ...noticeView(n), ...names(n) })), total: rows.length });
 });
 
 opsNoticesRoutes.get('/:id', requirePermission('notices.view'), async (req, res) => {
   const n = await findNotice(param(req, 'id'));
   const recipients = await prisma.lpNoticeReceipt.count({ where: { noticeId: n.id } });
-  res.json({ notice: { ...noticeView(n), recipients } });
+  const names = await noticeNames([n]);
+  res.json({ notice: { ...noticeView(n), ...names(n), recipients } });
 });
 
 opsNoticesRoutes.post('/', requirePermission('notices.create'), validateBody(createSchema), idempotent('ops.post.root', { required: false }), async (req, res) => {

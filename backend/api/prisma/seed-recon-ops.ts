@@ -23,6 +23,12 @@ import { FAMILIES, DEFAULT_TOLERANCES } from '../src/modules/recon/recon.engine'
 const D = (v: string | number) => new Prisma.Decimal(v);
 const log = (m: string) => console.log(`[seed:recon-ops] ${m}`);
 const dayStr = (offset: number) => new Date(Date.now() + offset * 86_400_000).toISOString().slice(0, 10);
+/** The trade date offset by `offset` days, rolled back to the previous weekday (no trades on Saturday or Sunday). */
+const tradingDayStr = (offset: number) => {
+  const d = new Date(Date.now() + offset * 86_400_000);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+};
 const dayOf = (s: string) => new Date(`${s}T00:00:00.000Z`);
 
 export async function seedReconOps() {
@@ -102,11 +108,11 @@ export async function seedReconOps() {
   const sec = await prisma.security.findFirst({ where: { ticker: 'OKZ.ZW' } });
   const failRef = 'DEMO-CN-FAIL';
   if (sec && !(await prisma.orderFill.findFirst({ where: { sourceRef: failRef } }))) {
-    const at = new Date(`${dayStr(-6)}T09:30:00.000Z`);
+    const at = new Date(`${tradingDayStr(-6)}T09:30:00.000Z`);
     const ref = await prisma.$transaction((tx) => seqRef(tx, 'order', 'ORD-', 6, 1001));
     const price = D('5.10');
     const order = await prisma.order.create({
-      data: { ref, portfolioId: portfolio.id, securityId: sec.id, side: 'BUY', quantity: D(20000), orderType: 'MARKET', currency: sec.currency, decisionPrice: price, status: 'Filled', rationale: 'Demo recon: filled six days ago and never settled', makerId: author.userId, filledQty: D(20000), avgPrice: price, submittedAt: at },
+      data: { ref, portfolioId: portfolio.id, securityId: sec.id, side: 'BUY', quantity: D(20000), orderType: 'MARKET', currency: sec.currency, decisionPrice: price, status: 'Filled', rationale: 'Demo recon: filled on a past trading day and never settled', makerId: author.userId, filledQty: D(20000), avgPrice: price, submittedAt: at },
     });
     await prisma.orderFill.create({ data: { orderId: order.id, quantity: D(20000), price, executedAt: at, source: 'CONTRACT_NOTE', sourceRef: failRef, recordedBy: author.userId } });
     log(`unsettled demo order ${ref}`);

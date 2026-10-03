@@ -71,11 +71,11 @@ export function ValueBox({ value, empty }: { value: Record<string, unknown> | nu
   if (!value) return <div className="ops-muted">{empty}</div>;
   const rows = Object.entries(value).filter(([, v]) => v !== null && v !== undefined && v !== '');
   return (
-    <dl className="ops-dl">
+    <dl className="ops-dl" style={{ gridTemplateColumns: 'minmax(0, 1fr)' }}>
       {rows.map(([k, v]) => (
-        <div key={k}>
+        <div key={k} style={{ minWidth: 0 }}>
           <dt>{k.replace(/([A-Z])/g, ' $1').replace(/^./, (c) => c.toUpperCase())}</dt>
-          <dd>{Array.isArray(v) ? v.join(', ') : String(v)}</dd>
+          <dd style={{ overflowWrap: 'anywhere' }}>{Array.isArray(v) ? v.join(', ') : String(v)}</dd>
         </div>
       ))}
     </dl>

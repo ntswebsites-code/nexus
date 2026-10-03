@@ -100,7 +100,7 @@ export default function CashPage() {
 }
 
 const useLedgers = (entity: string, kind?: string) =>
-  useResource<{ data: LedgerRow[] }>(() => api.get<{ data: LedgerRow[] }>(v1(`/cash/ledgers${qs({ portfolioId: entity, kind, status: 'ACTIVE' })}`)), [entity, kind]);
+  useResource<{ data: LedgerRow[] }>(() => apiRequest<{ data: LedgerRow[] }>('GET', v1(`/cash/ledgers${qs({ portfolioId: entity, kind, status: 'ACTIVE' })}`)), [entity, kind]);
 
 // ================================================================ balances
 
@@ -384,7 +384,7 @@ function ReservationsTab({ entity }: { entity: string }) {
   const [releasing, setReleasing] = useState<ReservationRow | null>(null);
   const [consuming, setConsuming] = useState<ReservationRow | null>(null);
   const ledgers = useLedgers(entity, 'BANK');
-  const res = useResource<{ data: ReservationRow[]; summary: { active: number; remaining: string } }>(() => api.get(v1(`/cash/reservations${qs({ portfolioId: entity, status })}`)), [entity, status]);
+  const res = useResource<{ data: ReservationRow[]; summary: { active: number; remaining: string } }>(() => apiRequest<{ data: ReservationRow[]; summary: { active: number; remaining: string } }>('GET', v1(`/cash/reservations${qs({ portfolioId: entity, status })}`)), [entity, status]);
   const canConsume = useCan('cash.journal.create');
   return (
     <>
@@ -597,7 +597,7 @@ function ExpectedTab({ entity }: { entity: string }) {
   const [creating, setCreating] = useState(false);
   const [cancelling, setCancelling] = useState<ExpectationRow | null>(null);
   const ledgers = useLedgers(entity, 'BANK');
-  const res = useResource<{ data: ExpectationRow[]; summary: { open: number; expectedNet: string; due: number } }>(() => api.get(v1(`/cash/expectations${qs({ portfolioId: entity, status })}`)), [entity, status]);
+  const res = useResource<{ data: ExpectationRow[]; summary: { open: number; expectedNet: string; due: number } }>(() => apiRequest<{ data: ExpectationRow[]; summary: { open: number; expectedNet: string; due: number } }>('GET', v1(`/cash/expectations${qs({ portfolioId: entity, status })}`)), [entity, status]);
   return (
     <>
       <Card
@@ -765,7 +765,7 @@ function ImportsTab({ entity }: { entity: string }) {
   const router = useRouter();
   const canImport = useCan('cash.import');
   const [uploading, setUploading] = useState(false);
-  const res = useResource<{ data: ImportRow[] }>(() => api.get<{ data: ImportRow[] }>(v1(`/cash/statement-imports${qs({ portfolioId: entity })}`)), [entity]);
+  const res = useResource<{ data: ImportRow[] }>(() => apiRequest<{ data: ImportRow[] }>('GET', v1(`/cash/statement-imports${qs({ portfolioId: entity })}`)), [entity]);
   return (
     <>
       <Card
@@ -905,7 +905,7 @@ function CloseTab({ entity, portfolios }: { entity: string; portfolios: Portfoli
   const router = useRouter();
   const canClose = useCan('cash.close');
   const [preparing, setPreparing] = useState(false);
-  const res = useResource<{ data: CloseRow[] }>(() => api.get<{ data: CloseRow[] }>(v1(`/cash/period-closes${qs({ portfolioId: entity })}`)), [entity]);
+  const res = useResource<{ data: CloseRow[] }>(() => apiRequest<{ data: CloseRow[] }>('GET', v1(`/cash/period-closes${qs({ portfolioId: entity })}`)), [entity]);
   return (
     <>
       <Card

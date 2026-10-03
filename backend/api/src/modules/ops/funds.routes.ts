@@ -61,6 +61,8 @@ function fundView(f: FundBase, extra: { commitmentCount?: number; totalCommitmen
     createdAt: f.createdAt,
     updatedAt: f.updatedAt,
     ...extra,
+    // The console reads `totalCommitted`; `totalCommitment` is kept for existing API consumers.
+    totalCommitted: extra.totalCommitment ?? null,
   };
 }
 

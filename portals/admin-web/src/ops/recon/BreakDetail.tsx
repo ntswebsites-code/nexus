@@ -62,11 +62,11 @@ export function BreakDetail({ id, onClose, onChanged }: { id: string; onClose: (
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 14 }}>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <h3 style={{ fontSize: 13, margin: '0 0 6px' }}>Internal (our book)</h3>
                     <ValueBox value={b.internalValue} empty="Nothing in the internal book for this item." />
                   </div>
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <h3 style={{ fontSize: 13, margin: '0 0 6px' }}>External (counterparty)</h3>
                     <ValueBox value={b.externalValue} empty="Nothing received from the counterparty for this item." />
                   </div>

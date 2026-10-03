@@ -14,15 +14,22 @@ import { prisma } from '../src/lib/prisma';
 import { nextRef } from '../src/lib/refs';
 
 const log = (m: string) => console.log(`[seed:corporate-actions] ${m}`);
-const MARK = 'Demo event.';
-const day = (n: number) => {
+/** Older seeds stamped descriptions with 'Demo event.'; both markers identify a seeded event so re-runs stay idempotent. */
+const LEGACY_MARK = 'Demo event.';
+const MARK = 'Sample event.';
+const day = (n: number, roll: 'back' | 'forward' = 'back') => {
   const d = new Date();
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + n));
+  const out = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + n));
+  // Market events fall on business days: roll a weekend date to the nearest weekday.
+  while (out.getUTCDay() === 0 || out.getUTCDay() === 6) out.setUTCDate(out.getUTCDate() + (roll === 'back' ? -1 : 1));
+  return out;
 };
 
 const EVENTS = [
   { ticker: 'DLTA.ZW', type: 'CASH_DIVIDEND', status: 'ANNOUNCED', ex: 7, rec: 9, pay: 21, deadline: null, rate: '0.35', ratio: null, wht: '10', note: 'Interim cash dividend.' },
   { ticker: 'SIM.ZW', type: 'SCRIP_DIVIDEND', status: 'CONFIRMED', ex: 5, rec: 7, pay: 20, deadline: 12, rate: '0.12', ratio: ['1', '40'], wht: '0', note: 'Scrip alternative: 1 new share per 40 held, or cash.' },
+  // Record date already passed, so entitlements can be calculated and the event processed today.
+  { ticker: 'CMCL.VX', type: 'CASH_DIVIDEND', status: 'CONFIRMED', ex: -6, rec: -4, pay: 4, deadline: null, rate: '0.05', ratio: null, wht: '10', note: 'Final cash dividend, record date passed.' },
   { ticker: 'CMCL.VX', type: 'STOCK_SPLIT', status: 'ANNOUNCED', ex: 14, rec: 16, pay: 16, deadline: null, rate: null, ratio: ['2', '1'], wht: '0', note: '2-for-1 split.' },
 ] as const;
 
@@ -32,13 +39,24 @@ export async function seedCorporateActions() {
     log('no users yet: skipped');
     return;
   }
-  for (const e of EVENTS) {
-    const sec = await prisma.security.findUnique({ where: { ticker: e.ticker } });
+  // Tidy events seeded by an older run: drop the 'Demo event.' wording and move weekend dates to a weekday.
+  const roll = (d: Date, dir: 1 | -1) => {
+    const out = new Date(d);
+    while (out.getUTCDay() === 0 || out.getUTCDay() === 6) out.setUTCDate(out.getUTCDate() + dir);
+    return out;
+  };
+  for (const old of await prisma.corpActionEvent.findMany({ where: { description: { startsWith: LEGACY_MARK }, status: { in: ['ANNOUNCED', 'CONFIRMED'] } } })) {
+    await prisma.corpActionEvent.update({
+      where: { id: old.id },
+      data: { description: `${(old.description ?? '').slice(LEGACY_MARK.length).trim()} ${MARK}`.trim(), exDate: roll(old.exDate, -1), recordDate: roll(old.recordDate, -1), payDate: roll(old.payDate, 1) },
+    });
+  }
+  for (const e of EVENTS) {    const sec = await prisma.security.findUnique({ where: { ticker: e.ticker } });
     if (!sec) {
       log(`${e.ticker}: security not present, skipped`);
       continue;
     }
-    if (await prisma.corpActionEvent.findFirst({ where: { securityId: sec.id, type: e.type, description: { startsWith: MARK } } })) {
+    if (await prisma.corpActionEvent.findFirst({ where: { securityId: sec.id, type: e.type, OR: [{ description: { endsWith: MARK } }, { description: { startsWith: LEGACY_MARK } }] } })) {
       log(`${e.ticker} ${e.type}: already seeded`);
       continue;
     }
@@ -55,14 +73,14 @@ export async function seedCorporateActions() {
           currency: sec.currency,
           exDate: day(e.ex),
           recordDate: day(e.rec),
-          payDate: day(e.pay),
+          payDate: day(e.pay, 'forward'),
           electionDeadline: e.deadline === null ? null : day(e.deadline),
           rate: e.rate ? new Prisma.Decimal(e.rate) : null,
           ratioNew: e.ratio ? new Prisma.Decimal(e.ratio[0]) : null,
           ratioOld: e.ratio ? new Prisma.Decimal(e.ratio[1]) : null,
           withholdingPct: new Prisma.Decimal(e.wht),
           defaultOption: e.type === 'SCRIP_DIVIDEND' ? 'CASH' : null,
-          description: `${MARK} ${e.note}`,
+          description: `${e.note} ${MARK}`,
           makerId: actor,
           ...(e.status === 'CONFIRMED' ? { confirmedBy: actor, confirmedAt: new Date() } : {}),
         },
