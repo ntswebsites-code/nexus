@@ -58,3 +58,10 @@ Status: fixed for the admin display; screening source needs F9.
 - Needs other group (F9): the "No advisory exceptions. Risk rated Low" timeline wording and the missing bank-holder-mismatch exception are produced in `modules/kyc/screening.ts` and `public.routes.ts`.
 - Files: `co.onboarding.routes.ts`, `onboarding/page.tsx`.
 - Re-test: submit an application, open its case in Onboarding: warning "Provisional: 0 of 8 provider checks"; screening line states checks not run.
+
+## Rework round
+- ADB-013 (REWORK): clientView (modules/clients) now computes accounts from cashAccounts rows and mandate from Mandate rows only (no stale accountsCount/mandateLabel); cashAccountView/accountInclude read the active Mandate row; 360 route no longer falls back to the label. PATCH /clients/:id keeps the active Mandate row in step with an edited mandate. Seed reconcile narrowed to legacy clients with a label and zero Mandate rows; accountsCount overwrite removed. Unowned modules/clients hard-coded legalEntity now defaults to the client name. Re-test: add a cash account, Clients list count +1; edit mandate, list and 360 agree. Status: fixed.
+- ADB-015 (verify): sla filter and summary tiles use the computed r.sla (co.services.routes.ts), so Waiting on client filters correctly and is excluded from Breached/At risk. Not a defect.
+- ADB-016: sizeLabel moved below imports. Server SoD confirmed: decideChange calls assertSegregation(user, makerId). Fixed/confirmed.
+- LPC-004 (orphaned, now F6): signRequest rejects typed names that differ (case/whitespace/accent-insensitive) from the registered signer name: 400 "The typed name must match your registered name (NAME)". Portal-kit hint is F3. Re-test: typed Wrong Name -> 400; exact name -> success. Fixed (API).
+- INO-025 wording in modules/kyc is F9; ISIN seed (ADB-019) outside F6; not touched.

@@ -96,6 +96,17 @@ clientsRoutes.patch('/clients/:id', requirePermission('clients.edit'), validateB
   if (Object.keys(changed).length) {
     await prisma.$transaction(async (tx) => {
       await tx.client.update({ where: { id: client.id }, data: { ...changed, updatedBy: req.user!.id, version: { increment: 1 } } });
+      // The mandate shown in lists and the 360 view comes from Mandate rows, so keep them in step with the edited label.
+      if (req.body.mandate !== undefined) {
+        const active = await tx.mandate.findFirst({ where: { clientId: client.id, status: { not: 'Closed' } }, orderBy: { createdAt: 'asc' } });
+        if (req.body.mandate && active) {
+          if (active.name !== req.body.mandate) await tx.mandate.update({ where: { id: active.id }, data: { name: req.body.mandate } });
+        } else if (req.body.mandate) {
+          await tx.mandate.create({ data: { ref: await nextRef(tx, 'mandate'), clientId: client.id, name: req.body.mandate, type: 'discretionary', createdBy: req.user!.id } });
+        } else if (active) {
+          await tx.mandate.update({ where: { id: active.id }, data: { status: 'Closed' } });
+        }
+      }
       await writeAudit(tx, ctx(req, 'admin'), {
         action: 'client.updated',
         objectType: 'client',
@@ -181,7 +192,7 @@ clientsRoutes.post('/cash-accounts', requirePermission('clients.edit'), validate
       data: {
         ref,
         clientId: client.id,
-        legalEntity: 'Matanho Managed Funds',
+        legalEntity: client.name,
         ownership: b.ownership,
         type: b.type,
         provider: b.provider,

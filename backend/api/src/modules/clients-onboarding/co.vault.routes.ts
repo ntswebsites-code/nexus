@@ -8,8 +8,6 @@ import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { fmtSize } from '../../lib/format';
 
-/** Exact bytes below 1 KB (the shared formatter rounds 22 bytes up to "1 KB"). */
-const sizeLabel = (n: number | null | undefined) => (n && n < 1000 ? `${n} B` : fmtSize(n));
 import { param, query } from '../../lib/http';
 import { signedDownloadUrl, storeFile } from '../../lib/storage';
 import { nextRef } from '../../lib/refs';
@@ -19,6 +17,9 @@ import { requireAnyPermission, requirePermission, requireStepUp } from '../../mi
 import { assertSegregation, audit, notifyPermission } from '../ops/ops.common';
 import { CLASSIFICATIONS, documentChangeProblem, retentionState } from './co.engine';
 import { userNames } from './co.service';
+
+/** Exact bytes below 1 KB (the shared formatter rounds 22 bytes up to "1 KB"). */
+const sizeLabel = (n: number | null | undefined) => (n && n < 1000 ? `${n} B` : fmtSize(n));
 
 /** Document Vault (page `vault`): register over the document store with classification, retention, holds, versions and access log. */
 export const coVaultRoutes = Router();

@@ -18,12 +18,12 @@ export function clientView(c: ClientRow) {
     uuid: c.id,
     name: c.name,
     type: c.type,
-    accounts: Math.max(c.accountsCount, c._count.cashAccounts),
+    accounts: c._count.cashAccounts,
     value: c.valueLabel ?? 'US$ 0.00M',
     ccy: c.baseCurrency,
     kyc: c.kycStatus,
     risk: c.riskRating,
-    mandate: c.mandateLabel ?? mandate?.name ?? '—',
+    mandate: mandate?.name ?? '—',
     owner: c.ownerName ?? 'Client Services',
     email: c.email ?? '',
     phone: c.phone ?? '',
@@ -38,7 +38,7 @@ export function clientView(c: ClientRow) {
 
 export const clientInclude = { mandates: true, _count: { select: { cashAccounts: true } } } satisfies Prisma.ClientInclude;
 
-type AccountRow = Prisma.CashAccountGetPayload<{ include: { client: { select: { ref: true; name: true; mandateLabel: true } } } }>;
+type AccountRow = Prisma.CashAccountGetPayload<{ include: { client: { select: { ref: true; name: true; mandates: { select: { name: true; status: true } } } } } }>;
 
 interface CashMeta {
   portfolio?: string;
@@ -67,7 +67,7 @@ export function cashAccountView(a: AccountRow) {
     legalEntity: a.legalEntity,
     client: a.client.name,
     clientId: a.client.ref,
-    mandate: a.client.mandateLabel ?? '—',
+    mandate: a.client.mandates.find((m) => m.status !== 'Closed')?.name ?? '—',
     portfolio: m.portfolio ?? '—',
     ownership: a.ownership,
     moneyClass: a.moneyClass === 'Client money' ? 'CLIENT_MONEY' : a.moneyClass,
@@ -93,7 +93,7 @@ export function cashAccountView(a: AccountRow) {
   };
 }
 
-export const accountInclude = { client: { select: { ref: true, name: true, mandateLabel: true } } } satisfies Prisma.CashAccountInclude;
+export const accountInclude = { client: { select: { ref: true, name: true, mandates: { select: { name: true, status: true } } } } } satisfies Prisma.CashAccountInclude;
 
 export async function findAccount(refOrId: string) {
   const account = await prisma.cashAccount.findFirst({ where: { OR: [{ ref: refOrId }, { id: refOrId }] }, include: accountInclude });
