@@ -27,7 +27,7 @@ import {
   uploadItemFiles,
 } from '../company/company.service';
 import { createInvitation } from '../identity/invitations';
-import { saveInviteGrant } from '../identity/invite-grant';
+import { saveInviteGrant, INVITE_GRANT_KEY } from '../identity/invite-grant';
 import { workbook } from '../../lib/xlsx';
 import {
   decline,
@@ -98,6 +98,7 @@ import {
   saveForecast,
   signatureRequests,
   uploadVaultFile,
+  assertFileContentMatches,
   vaultDocuments,
 } from './investee-workspace';
 import { workspaceRoutes } from './workspace/workspace.routes';
@@ -382,6 +383,7 @@ letterheadRouter.post('/logo', requireProfile('manage_company'), uploadFiles('lo
   if (!file) throw HttpError.badRequest('Attach a logo image in the `logo` field');
   if (!LOGO_MIMES.has(file.mimetype)) throw HttpError.badRequest('Logo must be a PNG, JPEG or WebP image');
   if (file.size > 2 * 1024 * 1024) throw new HttpError(413, 'payload_too_large', 'Logo must be 2 MB or smaller');
+  assertFileContentMatches(file);
   const c = inv(req);
   const stored = await storeFile({ name: file.originalname, mime: file.mimetype, data: file.buffer, uploadedById: c.userId });
   const current = letterheadJson(c.company);
@@ -562,6 +564,7 @@ investeePortalRoutes.post('/financial-reports/:kind/draft', requireProfile('edit
 investeePortalRoutes.post('/financial-reports/:id/file', requireProfile('edit_draft'), uploadFiles('file', 1), async (req, res) => {
   const c = inv(req);
   const { period, item } = await loadReport(c.company.id, param(req, 'id'));
+  for (const f of uploadedFiles(req)) assertFileContentMatches(f);
   await uploadItemFiles(packActor(req), period, item.key, uploadedFiles(req));
   const after = await loadPeriod(c.company.id, period.period);
   const it = after.items.find((i) => i.id === item.id)!;
@@ -701,6 +704,14 @@ investeePortalRoutes.get('/team', async (req, res) => {
     orderBy: { createdAt: 'desc' },
   });
   const activeEmails = new Set(links.map((l) => l.user.email.toLowerCase()));
+  const grantRows = pending.length
+    ? await prisma.setting.findMany({ where: { key: INVITE_GRANT_KEY, ownerId: { in: pending.map((p) => p.id) } } })
+    : [];
+  const grantByInvite = new Map<string, { profile?: string; title?: string | null }>();
+  for (const g of grantRows) {
+    const v = g.value as { kind?: string; profile?: string; title?: string | null } | null;
+    if (v && v.kind === 'company') grantByInvite.set(g.ownerId, v);
+  }
   ok(
     res,
     [
@@ -723,8 +734,9 @@ investeePortalRoutes.get('/team', async (req, res) => {
         id: p.id,
         name: p.name ?? p.email,
         email: p.email,
-        title: null,
-        accessProfile: 'read_only' as const,
+        title: grantByInvite.get(p.id)?.title ?? null,
+        accessProfile: asProfile(grantByInvite.get(p.id)?.profile ?? 'read_only'),
+        invitationId: p.id,
         status: 'invited',
         lastActiveAt: null,
         mfaEnabled: false,
@@ -963,6 +975,7 @@ investeePortalRoutes.post(
     const body = req.body as z.infer<typeof signTermSheetSchema>;
     const image = uploadedFiles(req)[0];
     if (image && !LOGO_MIMES.has(image.mimetype)) throw HttpError.badRequest('Signature image must be PNG, JPEG or WebP');
+    if (image) assertFileContentMatches(image);
     const result = await sign(ts, {
       userId: c.userId,
       typedName: body.name,

@@ -80,3 +80,15 @@ Slow "Checking session..." is Next dev compilation on first hit (not present in 
 
 ## Summary
 Fixed 23 (INO-001..008, 009, 010, 011..021, 027, 028), not-a-defect 1 (INO-030), needs-other-group residuals: seed-uat.ts KPI units/period labels/totalRevenue (F3), login-page Continue link (F3), proxy redirect (F3).
+
+## Rework round
+- INO-008: `POST /cap-table/transactions/:ref/withdraw` now uses `idempotent('investee.cap_tx.withdraw')` (workspace.routes.ts). Re-test: double-click Withdraw, second call replays the first response, no 409.
+- INO-020: `/team` pending invitations now show the invited profile and title from the invite grant (setting `invite.grant`), plus `invitationId`; `id` unchanged, UI already disables actions for status `invited`.
+- INO-021: `assertFileContentMatches` now also applied to logo, financial-report attachment and term-sheet signature image uploads. Other paths store server-generated files only. Re-test: upload an .exe renamed .png as logo: 400 "looks like a program".
+- ADA-025 (F7 part): removed `details.stack` from `investee.http.ts`.
+- Duplicate field names: `InvesteeApiError.describe()` no longer repeats reasons already in the server's "Validation failed. ..." message.
+- INO-012: signer name is required (`min(1)`) at creation, so a null name cannot block signing. No change.
+- INO-016: grep for Zambezi/DEMO_COMPANY in `lib/investee` finds nothing.
+- INO-006: resolver pre-exists (`companyMembership`), scoped by caller memberships; no change.
+- INO-009 seed residual (KPI units/periods, totalRevenue) is assigned to F3 by the orchestrator; not done here.
+- INO-001 login Continue link: F3. INO-017 needs e2e test (not run).

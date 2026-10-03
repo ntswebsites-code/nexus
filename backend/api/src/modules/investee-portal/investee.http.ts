@@ -1,6 +1,5 @@
 import type { ErrorRequestHandler, Request, Response } from 'express';
 import { HttpError } from '../../lib/errors';
-import { config } from '../../config';
 
 /** Success envelope the Investee runtime reads (`{ success, message, data, timestamp }`). */
 export function ok<T>(res: Response, data: T, message = 'OK', status = 200) {
@@ -28,7 +27,6 @@ export const investeeErrorHandler: ErrorRequestHandler = (err, req: Request, res
     message = 'Request body is not valid JSON';
   } else {
     console.error('[investee-portal] unhandled error:', err);
-    if (!config.isProduction && err instanceof Error) details = { stack: err.stack };
   }
   res.status(status).json({
     success: false,
