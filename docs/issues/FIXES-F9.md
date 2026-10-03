@@ -46,3 +46,14 @@ Change: Wizard blocks negative/non-numeric amounts, SWIFT not 8/11 chars, invali
 
 ## INO-029 mostly not-a-defect
 "Saved locally/prototype" copy is gone; tax id and account show "On file. Leave blank to keep it." Resume returning to step 1: not fixed (low value). HTML in name: React escapes; admin rendering is F6.
+
+## Rework round
+Verification: tsc clean in backend/api (except pre-existing `seed-research-privates.ts` nextRef errors, F5's file) and custodian-web. Turbopack build fails only because of the worktree node_modules junction; `next build --webpack` for custodian-web succeeds. onboarding-web not touched.
+
+- LPC-016 fixed: day-end form shows the API `warnings` (duplicate Draft) as a warning notice after save (day-end/page.tsx).
+- LPC-015 fixed: bulk `declaredCount` has field-named messages (custodian.ops.ts).
+- LPC-019 fixed: 401 redirect only for code `unauthorized` (not mfa/step-up codes), keeps the query string in `next` (lib/api.ts).
+- INO-025 fixed (kyc root cause): screening adds a "Bank account holder differs from applicant" advisory exception when `bankHolder` matches neither legal name nor an owner; timeline wording now "Indicative risk X ... not a completed provider check" instead of "No advisory exceptions. Risk rated Low" (kyc/screening.ts). Risk value unchanged. Re-test: submit an application with a different bank holder: case timeline lists the exception.
+- LPC-012 / ADA-027 seed: `seed-custodian.ts` does not exist; DAY-DEMO1 is in `seed-recon.ts` (F1 per assignment). Not edited; needs-other-group (F1).
+- LPC-013 note (leading +/- text refused) and INO-023 duplicate magic-byte helper: left as is (consolidation is F3 lib).
+- LPC-017/018: not browser-verified (no browser per rule 8).
