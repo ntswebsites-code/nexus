@@ -27,6 +27,10 @@ import { reconRoutes } from '../modules/recon/recon.routes';
 import { operationsRoutes, dashboardRoutes } from '../modules/wiring';
 import { iborRoutes } from '../modules/ibor';
 import { performanceRoutes } from '../modules/performance';
+import { researchRoutes } from '../modules/research';
+import { privateMarketsRoutes } from '../modules/private-markets';
+import { portfolioLabRoutes } from '../modules/portfolio-lab';
+import { financingRoutes } from '../modules/financing';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -59,6 +63,14 @@ v1Router.use('/dashboard', dashboardRoutes);
 v1Router.use('/ibor', iborRoutes);
 // Performance & Attribution: /performance/* (returns, attribution, benchmarks, periods and maker-checker lock).
 v1Router.use('/performance', performanceRoutes);
+// Research & IC: /research/* (cases, ratings, IC meetings, decisions, votes, linked orders).
+v1Router.use('/research', researchRoutes);
+// Private Markets book: /private-markets/{summary,funds,commitments,cashflows,marks}; mounted before the company-reporting hub below (paths do not overlap).
+v1Router.use('/private-markets', privateMarketsRoutes);
+// Portfolio Construction: /portfolio-lab/* (model portfolios, what-if and saved rebalances, draft orders).
+v1Router.use('/portfolio-lab', portfolioLabRoutes);
+// Collateral & Financing: /financing/* (facilities, pools, haircut rules, drawdowns, margin calls).
+v1Router.use('/financing', financingRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

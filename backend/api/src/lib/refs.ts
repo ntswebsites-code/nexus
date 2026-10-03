@@ -27,6 +27,18 @@ const FORMATS = {
   iborEvent: { prefix: 'IBE-', pad: 6, start: 1 },
   iborSnapshot: { prefix: 'IBR-', pad: 4, start: 1001 },
   perfPeriod: { prefix: 'PRF-', pad: 4, start: 1001 },
+  researchCase: { prefix: 'RSC-', pad: 4, start: 1001 },
+  icMeeting: { prefix: 'ICM-', pad: 4, start: 1001 },
+  icDecision: { prefix: 'ICD-', pad: 4, start: 1001 },
+  pmFund: { prefix: 'PMF-', pad: 4, start: 1001 },
+  pmCommitment: { prefix: 'PMC-', pad: 4, start: 1001 },
+  pmCashflow: { prefix: 'PMX-', pad: 5, start: 1 },
+  pmMark: { prefix: 'PMM-', pad: 5, start: 1 },
+  modelPortfolio: { prefix: 'MDL-', pad: 4, start: 1001 },
+  rebalance: { prefix: 'RBL-', pad: 5, start: 1 },
+  finFacility: { prefix: 'FAC-', pad: 4, start: 1001 },
+  finPool: { prefix: 'POOL-', pad: 4, start: 1001 },
+  finMarginCall: { prefix: 'MC-', pad: 4, start: 1 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;

@@ -2763,6 +2763,34 @@ model OpsTask {
   createdBy     String    @map("created_by") @db.Char(36)
   completedBy   String?   @map("completed_by") @db.Char(36)
   completedAt   DateTime? @map("completed_at")
+// ---- ResearchPrivates ----
+// Research & IC, Private Markets, Portfolio Construction (lab) and Collateral & Financing (SRD 5.A.3/4/6/15).
+// portfolio_id / security_id / user ids are logical references (no foreign keys), like the other staff modules.
+
+/// A research case on one security: thesis, rating and target price. DRAFT -> IN_REVIEW -> PUBLISHED -> ARCHIVED.
+model ResearchCase {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// RSC-1001 ...
+  ref           String    @unique @db.VarChar(16)
+  securityId    String    @map("security_id") @db.Char(36)
+  title         String    @db.VarChar(200)
+  thesis        String    @db.Text
+  risks         String?   @db.Text
+  /// BUY | ACCUMULATE | HOLD | REDUCE | SELL
+  rating        String    @db.VarChar(12)
+  targetPrice   Decimal   @map("target_price") @db.Decimal(20, 6)
+  /// Security currency the target is quoted in.
+  currency      String    @db.Char(3)
+  horizonMonths Int       @default(12) @map("horizon_months")
+  /// 1 (low) .. 5 (high)
+  conviction    Int       @default(3)
+  /// DRAFT | IN_REVIEW | PUBLISHED | ARCHIVED
+  status        String    @default("DRAFT") @db.VarChar(12)
+  analystId     String    @map("analyst_id") @db.Char(36)
+  submittedAt   DateTime? @map("submitted_at")
+  reviewerId    String?   @map("reviewer_id") @db.Char(36)
+  publishedAt   DateTime? @map("published_at")
+  returnReason  String?   @map("return_reason") @db.VarChar(500)
   version       Int       @default(1)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
@@ -2925,3 +2953,473 @@ model PerfPeriod {
   @@map("perf_periods")
 }
 // ---- end IborPerformance ----
+  ratings   ResearchRatingChange[]
+  decisions IcDecision[]
+
+  @@index([securityId, status])
+  @@index([status, updatedAt])
+  @@index([analystId])
+  @@map("research_cases")
+}
+
+/// Append-only history of published ratings and targets.
+model ResearchRatingChange {
+  id            String   @id @default(uuid()) @db.Char(36)
+  caseId        String   @map("case_id") @db.Char(36)
+  rating        String   @db.VarChar(12)
+  targetPrice   Decimal  @map("target_price") @db.Decimal(20, 6)
+  conviction    Int
+  /// Latest security price when it was published (null when unpriced).
+  priceAtChange Decimal? @map("price_at_change") @db.Decimal(20, 6)
+  note          String?  @db.VarChar(500)
+  changedBy     String   @map("changed_by") @db.Char(36)
+  approvedBy    String   @map("approved_by") @db.Char(36)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  researchCase ResearchCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  @@index([caseId, createdAt])
+  @@map("research_rating_changes")
+}
+
+/// An investment committee meeting. SCHEDULED -> HELD (or CANCELLED).
+model IcMeeting {
+  id          String   @id @default(uuid()) @db.Char(36)
+  /// ICM-1001 ...
+  ref         String   @unique @db.VarChar(16)
+  title       String   @db.VarChar(200)
+  scheduledAt DateTime @map("scheduled_at")
+  agenda      String?  @db.Text
+  /// Votes needed (FOR + AGAINST + ABSTAIN) for a decision taken at this meeting to be valid.
+  quorum      Int      @default(3)
+  status      String   @default("SCHEDULED") @db.VarChar(12)
+  chairId     String?  @map("chair_id") @db.Char(36)
+  minutes     String?  @db.Text
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  decisions IcDecision[]
+
+  @@index([status, scheduledAt])
+  @@map("ic_meetings")
+}
+
+/// A proposal put to the committee. PROPOSED -> VOTING -> APPROVED | REJECTED (ratified by a second person) | WITHDRAWN.
+model IcDecision {
+  id           String    @id @default(uuid()) @db.Char(36)
+  /// ICD-1001 ...
+  ref          String    @unique @db.VarChar(16)
+  caseId       String    @map("case_id") @db.Char(36)
+  meetingId    String?   @map("meeting_id") @db.Char(36)
+  portfolioId  String?   @map("portfolio_id") @db.Char(36)
+  securityId   String    @map("security_id") @db.Char(36)
+  /// BUY | SELL | HOLD
+  action       String    @db.VarChar(8)
+  /// Proposed size in units (BUY / SELL only).
+  quantity     Decimal?  @db.Decimal(24, 6)
+  rationale    String    @db.Text
+  status       String    @default("PROPOSED") @db.VarChar(12)
+  proposerId   String    @map("proposer_id") @db.Char(36)
+  openedAt     DateTime? @map("opened_at")
+  /// Tally at ratification.
+  votesFor     Int       @default(0) @map("votes_for")
+  votesAgainst Int       @default(0) @map("votes_against")
+  votesAbstain Int       @default(0) @map("votes_abstain")
+  ratifiedBy   String?   @map("ratified_by") @db.Char(36)
+  ratifiedAt   DateTime? @map("ratified_at")
+  outcomeNote  String?   @map("outcome_note") @db.VarChar(500)
+  version      Int       @default(1)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  researchCase ResearchCase      @relation(fields: [caseId], references: [id])
+  meeting      IcMeeting?        @relation(fields: [meetingId], references: [id])
+  votes        IcVote[]
+  orders       IcDecisionOrder[]
+
+  @@index([status, createdAt])
+  @@index([caseId])
+  @@index([meetingId])
+  @@map("ic_decisions")
+}
+
+model IcVote {
+  id         String   @id @default(uuid()) @db.Char(36)
+  decisionId String   @map("decision_id") @db.Char(36)
+  voterId    String   @map("voter_id") @db.Char(36)
+  /// FOR | AGAINST | ABSTAIN
+  vote       String   @db.VarChar(8)
+  comment    String?  @db.VarChar(500)
+  castAt     DateTime @default(now()) @map("cast_at")
+
+  decision IcDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@unique([decisionId, voterId])
+  @@map("ic_votes")
+}
+
+/// Link from an approved decision to the draft order it produced (order_id is a logical reference).
+model IcDecisionOrder {
+  id         String   @id @default(uuid()) @db.Char(36)
+  decisionId String   @map("decision_id") @db.Char(36)
+  orderId    String   @map("order_id") @db.Char(36)
+  orderRef   String   @map("order_ref") @db.VarChar(16)
+  createdBy  String   @map("created_by") @db.Char(36)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  decision IcDecision @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  @@unique([decisionId, orderId])
+  @@index([orderId])
+  @@map("ic_decision_orders")
+}
+
+/// A private fund / vehicle the firm invests in (PE, VC, real assets, private credit, infrastructure).
+model PmFund {
+  id        String   @id @default(uuid()) @db.Char(36)
+  /// PMF-1001 ...
+  ref       String   @unique @db.VarChar(16)
+  name      String   @db.VarChar(200)
+  manager   String   @db.VarChar(160)
+  strategy  String   @db.VarChar(24)
+  vintage   Int
+  currency  String   @default("USD") @db.Char(3)
+  /// ACTIVE | REALISED | CLOSED
+  status    String   @default("ACTIVE") @db.VarChar(12)
+  notes     String?  @db.VarChar(500)
+  createdBy String   @map("created_by") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  commitments PmCommitment[]
+
+  @@index([status])
+  @@map("pm_funds")
+}
+
+/// A portfolio's commitment to a private fund. Paid-in, distributions and NAV are derived from cashflows and marks.
+model PmCommitment {
+  id          String   @id @default(uuid()) @db.Char(36)
+  /// PMC-1001 ...
+  ref         String   @unique @db.VarChar(16)
+  fundId      String   @map("fund_id") @db.Char(36)
+  portfolioId String   @map("portfolio_id") @db.Char(36)
+  amount      Decimal  @db.Decimal(20, 4)
+  committedOn DateTime @map("committed_on") @db.Date
+  /// ACTIVE | CANCELLED
+  status      String   @default("ACTIVE") @db.VarChar(12)
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  fund      PmFund       @relation(fields: [fundId], references: [id])
+  cashflows PmCashflow[]
+  marks     PmMark[]
+
+  @@unique([fundId, portfolioId])
+  @@index([portfolioId])
+  @@map("pm_commitments")
+}
+
+/// A capital call or a distribution. NOTICED -> PAID (or CANCELLED).
+model PmCashflow {
+  id           String    @id @default(uuid()) @db.Char(36)
+  /// PMX-00001 ...
+  ref          String    @unique @db.VarChar(16)
+  commitmentId String    @map("commitment_id") @db.Char(36)
+  /// CALL | DISTRIBUTION
+  kind         String    @db.VarChar(12)
+  amount       Decimal   @db.Decimal(20, 4)
+  noticeDate   DateTime  @map("notice_date") @db.Date
+  dueDate      DateTime  @map("due_date") @db.Date
+  paidOn       DateTime? @map("paid_on") @db.Date
+  status       String    @default("NOTICED") @db.VarChar(12)
+  note         String?   @db.VarChar(500)
+  createdBy    String    @map("created_by") @db.Char(36)
+  settledBy    String?   @map("settled_by") @db.Char(36)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  commitment PmCommitment @relation(fields: [commitmentId], references: [id])
+
+  @@index([commitmentId, status])
+  @@index([dueDate, status])
+  @@map("pm_cashflows")
+}
+
+/// A NAV mark (our share of the fund's NAV at a date). Maker-checker: DRAFT -> PENDING_APPROVAL -> APPROVED | REJECTED.
+/// Approval needs at least one piece of valuation evidence.
+model PmMark {
+  id           String    @id @default(uuid()) @db.Char(36)
+  /// PMM-00001 ...
+  ref          String    @unique @db.VarChar(16)
+  commitmentId String    @map("commitment_id") @db.Char(36)
+  asOf         DateTime  @map("as_of") @db.Date
+  nav          Decimal   @db.Decimal(20, 4)
+  /// GP_REPORTED | DCF | COMPARABLES | COST | ADJUSTED
+  method       String    @db.VarChar(16)
+  status       String    @default("DRAFT") @db.VarChar(20)
+  note         String?   @db.VarChar(500)
+  makerId      String    @map("maker_id") @db.Char(36)
+  approverId   String?   @map("approver_id") @db.Char(36)
+  approvedAt   DateTime? @map("approved_at")
+  rejectReason String?   @map("reject_reason") @db.VarChar(500)
+  version      Int       @default(1)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  commitment PmCommitment @relation(fields: [commitmentId], references: [id])
+  evidence   PmEvidence[]
+
+  @@index([commitmentId, asOf])
+  @@index([status])
+  @@map("pm_marks")
+}
+
+model PmEvidence {
+  id        String   @id @default(uuid()) @db.Char(36)
+  markId    String   @map("mark_id") @db.Char(36)
+  /// GP_STATEMENT | VALUATION_REPORT | AUDITED_FS | TRANSACTION | OTHER
+  kind      String   @db.VarChar(20)
+  title     String   @db.VarChar(200)
+  /// Document reference (vault ref or URL); the file itself lives in the document vault.
+  reference String?  @db.VarChar(255)
+  note      String?  @db.VarChar(500)
+  addedBy   String   @map("added_by") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  mark PmMark @relation(fields: [markId], references: [id], onDelete: Cascade)
+
+  @@index([markId])
+  @@map("pm_evidence")
+}
+
+/// A model portfolio: target weights by security plus a cash target. DRAFT -> ACTIVE -> RETIRED.
+model ModelPortfolio {
+  id            String   @id @default(uuid()) @db.Char(36)
+  /// MDL-1001 ...
+  ref           String   @unique @db.VarChar(16)
+  name          String   @db.VarChar(160)
+  description   String?  @db.VarChar(500)
+  /// Percent of the portfolio held as cash after rebalancing.
+  cashTargetPct Decimal  @default(0) @map("cash_target_pct") @db.Decimal(8, 4)
+  status        String   @default("DRAFT") @db.VarChar(12)
+  createdBy     String   @map("created_by") @db.Char(36)
+  version       Int      @default(1)
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  weights    ModelWeight[]
+  rebalances PlRebalance[]
+
+  @@index([status])
+  @@map("model_portfolios")
+}
+
+model ModelWeight {
+  id         String  @id @default(uuid()) @db.Char(36)
+  modelId    String  @map("model_id") @db.Char(36)
+  securityId String  @map("security_id") @db.Char(36)
+  targetPct  Decimal @map("target_pct") @db.Decimal(8, 4)
+
+  model ModelPortfolio @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@unique([modelId, securityId])
+  @@map("model_weights")
+}
+
+/// A what-if rebalance of a portfolio to a model. PROPOSED -> ORDERS_CREATED | DISCARDED. Nothing trades until
+/// the draft orders are approved in Orders.
+model PlRebalance {
+  id                String   @id @default(uuid()) @db.Char(36)
+  /// RBL-00001 ...
+  ref               String   @unique @db.VarChar(16)
+  portfolioId       String   @map("portfolio_id") @db.Char(36)
+  modelId           String   @map("model_id") @db.Char(36)
+  status            String   @default("PROPOSED") @db.VarChar(16)
+  /// Trades smaller than this drift (percentage points of portfolio value) are skipped.
+  driftThresholdPct Decimal  @map("drift_threshold_pct") @db.Decimal(8, 4)
+  totalValueBase    Decimal  @map("total_value_base") @db.Decimal(20, 4)
+  baseCurrency      String   @map("base_currency") @db.Char(3)
+  /// Whole-book constraint results (mandate and risk limits) after the trades.
+  constraints       Json
+  turnoverPct       Decimal  @map("turnover_pct") @db.Decimal(8, 4)
+  cashAfterPct      Decimal  @map("cash_after_pct") @db.Decimal(8, 4)
+  warnings          Json?
+  createdBy         String   @map("created_by") @db.Char(36)
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  model ModelPortfolio  @relation(fields: [modelId], references: [id])
+  lines PlRebalanceLine[]
+
+  @@index([portfolioId, status])
+  @@index([modelId])
+  @@map("pl_rebalances")
+}
+
+model PlRebalanceLine {
+  id           String  @id @default(uuid()) @db.Char(36)
+  rebalanceId  String  @map("rebalance_id") @db.Char(36)
+  securityId   String  @map("security_id") @db.Char(36)
+  /// BUY | SELL
+  side         String  @db.VarChar(4)
+  quantity     Decimal @db.Decimal(24, 6)
+  price        Decimal @db.Decimal(20, 6)
+  currency     String  @db.Char(3)
+  currentPct   Decimal @map("current_pct") @db.Decimal(8, 4)
+  targetPct    Decimal @map("target_pct") @db.Decimal(8, 4)
+  afterPct     Decimal @map("after_pct") @db.Decimal(8, 4)
+  notionalBase Decimal @map("notional_base") @db.Decimal(20, 4)
+  /// Pass | Review | Fail (pre-trade checks plus risk limits for this trade).
+  checkResult  String  @map("check_result") @db.VarChar(8)
+  checks       Json
+  orderId      String? @map("order_id") @db.Char(36)
+  orderRef     String? @map("order_ref") @db.VarChar(16)
+
+  rebalance PlRebalance @relation(fields: [rebalanceId], references: [id], onDelete: Cascade)
+
+  @@index([rebalanceId])
+  @@map("pl_rebalance_lines")
+}
+
+/// A financing facility (margin loan, repo, securities lending, overdraft). Maker-checker activation.
+model FinFacility {
+  id               String    @id @default(uuid()) @db.Char(36)
+  /// FAC-1001 ...
+  ref              String    @unique @db.VarChar(16)
+  name             String    @db.VarChar(160)
+  /// MARGIN_LOAN | REPO | SEC_LENDING | OVERDRAFT
+  type             String    @db.VarChar(16)
+  lender           String    @db.VarChar(160)
+  portfolioId      String    @map("portfolio_id") @db.Char(36)
+  poolId           String?   @map("pool_id") @db.Char(36)
+  currency         String    @default("USD") @db.Char(3)
+  limitAmount      Decimal   @map("limit_amount") @db.Decimal(20, 4)
+  ratePct          Decimal   @default(0) @map("rate_pct") @db.Decimal(8, 4)
+  /// Eligible collateral value after haircuts / drawn. A margin call restores this ratio.
+  initialRatio     Decimal   @default(1.5) @map("initial_ratio") @db.Decimal(8, 4)
+  /// A margin call is raised when coverage falls below this ratio.
+  maintenanceRatio Decimal   @default(1.25) @map("maintenance_ratio") @db.Decimal(8, 4)
+  callDueDays      Int       @default(2) @map("call_due_days")
+  /// DRAFT | PENDING_APPROVAL | ACTIVE | SUSPENDED | CLOSED
+  status           String    @default("DRAFT") @db.VarChar(20)
+  makerId          String    @map("maker_id") @db.Char(36)
+  approverId       String?   @map("approver_id") @db.Char(36)
+  approvedAt       DateTime? @map("approved_at")
+  version          Int       @default(1)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  movements FinMovement[]
+  calls     FinMarginCall[]
+
+  @@index([portfolioId, status])
+  @@index([poolId])
+  @@map("fin_facilities")
+}
+
+/// Drawdowns and repayments. Drawn balance = draws - repayments.
+model FinMovement {
+  id         String   @id @default(uuid()) @db.Char(36)
+  facilityId String   @map("facility_id") @db.Char(36)
+  /// DRAW | REPAY
+  kind       String   @db.VarChar(6)
+  amount     Decimal  @db.Decimal(20, 4)
+  valueDate  DateTime @map("value_date") @db.Date
+  note       String?  @db.VarChar(255)
+  createdBy  String   @map("created_by") @db.Char(36)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  facility FinFacility @relation(fields: [facilityId], references: [id])
+
+  @@index([facilityId, valueDate])
+  @@map("fin_movements")
+}
+
+/// A pool of pledged securities that backs one or more facilities.
+model FinPool {
+  id          String   @id @default(uuid()) @db.Char(36)
+  /// POOL-1001 ...
+  ref         String   @unique @db.VarChar(16)
+  name        String   @db.VarChar(160)
+  portfolioId String   @map("portfolio_id") @db.Char(36)
+  /// ACTIVE | CLOSED
+  status      String   @default("ACTIVE") @db.VarChar(12)
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items FinCollateralItem[]
+
+  @@index([portfolioId])
+  @@map("fin_pools")
+}
+
+model FinCollateralItem {
+  id         String    @id @default(uuid()) @db.Char(36)
+  poolId     String    @map("pool_id") @db.Char(36)
+  securityId String    @map("security_id") @db.Char(36)
+  quantity   Decimal   @db.Decimal(24, 6)
+  /// POSTED | RELEASED
+  status     String    @default("POSTED") @db.VarChar(10)
+  postedAt   DateTime  @default(now()) @map("posted_at")
+  releasedAt DateTime? @map("released_at")
+  createdBy  String    @map("created_by") @db.Char(36)
+
+  pool FinPool @relation(fields: [poolId], references: [id], onDelete: Cascade)
+
+  @@index([poolId, status])
+  @@index([securityId])
+  @@map("fin_collateral_items")
+}
+
+/// Eligibility and haircut schedule. The most specific rule wins: asset class + market, then asset class alone.
+model FinEligibilityRule {
+  id         String   @id @default(uuid()) @db.Char(36)
+  assetClass String   @map("asset_class") @db.VarChar(24)
+  /// ZSE | VFEX | OTC, or empty for any market.
+  market     String   @default("") @db.VarChar(8)
+  eligible   Boolean  @default(true)
+  haircutPct Decimal  @default(0) @map("haircut_pct") @db.Decimal(8, 4)
+  /// Value above this share of the pool (after haircut) is not counted. Null = no cap.
+  maxPoolPct Decimal? @map("max_pool_pct") @db.Decimal(8, 4)
+  note       String?  @db.VarChar(255)
+  updatedBy  String   @map("updated_by") @db.Char(36)
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([assetClass, market])
+  @@map("fin_eligibility_rules")
+}
+
+/// A margin call. ISSUED -> ACKNOWLEDGED -> MET | DISPUTED -> ACKNOWLEDGED; WAIVED (second person) | CANCELLED.
+model FinMarginCall {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// MC-0001 ...
+  ref            String    @unique @db.VarChar(16)
+  facilityId     String    @map("facility_id") @db.Char(36)
+  status         String    @default("ISSUED") @db.VarChar(14)
+  calledAmount   Decimal   @map("called_amount") @db.Decimal(20, 4)
+  drawn          Decimal   @db.Decimal(20, 4)
+  eligibleValue  Decimal   @map("eligible_value") @db.Decimal(20, 4)
+  coverageRatio  Decimal   @map("coverage_ratio") @db.Decimal(10, 4)
+  dueAt          DateTime  @map("due_at")
+  issuedBy       String    @map("issued_by") @db.Char(36)
+  acknowledgedBy String?   @map("acknowledged_by") @db.Char(36)
+  acknowledgedAt DateTime? @map("acknowledged_at")
+  resolvedBy     String?   @map("resolved_by") @db.Char(36)
+  resolvedAt     DateTime? @map("resolved_at")
+  resolution     String?   @db.VarChar(500)
+  coverageAfter  Decimal?  @map("coverage_after") @db.Decimal(10, 4)
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  facility FinFacility @relation(fields: [facilityId], references: [id])
+
+  @@index([facilityId, status])
+  @@index([status, dueAt])
+  @@map("fin_margin_calls")
+}
+// ---- end ResearchPrivates ----

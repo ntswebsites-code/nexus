@@ -1,4 +1,4 @@
-﻿# Admin real pages (Orders, Risk and the portfolio foundation)
+# Admin real pages (Orders, Risk and the portfolio foundation)
 
 Branch `feat/admin-orders-risk`. This file is the shared hand-off between the engineers building the staff-side
 modules. Add your own section ("Orders", "Risk") below the foundation; do not edit the Foundation section except to
@@ -984,6 +984,79 @@ New permission code `performance.lock` (added to `investment_director`, `complia
 ### Demo seed
 
 `prisma/seed-ibor-performance.ts` (called by `seed-uat.ts` and `seed-demo.ts`, also standalone, idempotent): about 60 weekdays of deterministic price and FX history before the earliest seeded price, one backdated position and cash row per portfolio at the start of that history, opening lots and OPENING events for every current position, and benchmark compositions for the benchmark names the seeded portfolios carry (the "USD LIBOR + 3%" portfolio has none, so its composite control stays open). Seeded prices end in August 2026, so a period ending later shows a stale-price warning.
+## Research, Private Markets, Portfolio Construction and Financing
+
+Branch `worktree-wf_7f59526f-b16-3`. Migration `20261008100000_research_privates` (additive; models between the `// ---- ResearchPrivates ----` markers at the end of `schema.prisma`). Code: `backend/api/src/modules/{research,private-markets,portfolio-lab,financing}` (engine, service/routes, index) plus the shared helpers in `modules/rp-common.ts`. Screens: `/ops/research`, `/ops/private-markets`, `/ops/portfolio-lab`, `/ops/financing` (shared pieces in `src/ops/rp.tsx`). Seed: `prisma/seed-research-privates.ts` (called by `seed-demo.ts` and `seed-uat.ts`, idempotent). Test: `scripts/test-research-privates.ts`.
+
+### New permissions (role catalogue)
+
+| Code | Granted to | Used for |
+|---|---|---|
+| `research.ic.decide` | investment_director, portfolio_manager | Checker: publishes a research case (not its author), ratifies an IC vote tally (not the proposer, step-up) |
+| `private.mark.approve` | investment_director, fund_accountant | Checker for NAV marks (not the maker, step-up, evidence required) |
+| `financing.manage` | investment_director, portfolio_manager, compliance, operations | Prepares facilities, pools, haircut rules (step-up), drawdowns (step-up), margin calls |
+| `financing.approve` | investment_director, compliance | Checker: activates a facility, reactivates, waives a margin call (not the issuer, step-up) |
+
+Existing codes reused: `research.view`/`research.edit`, `portfolio.view`/`portfolio.manage`, `risk.view`, `orders.create` (creating draft orders).
+
+### Research & IC (`/api/v1/research`)
+
+Tables: `research_cases`, `research_rating_changes` (append-only), `ic_meetings`, `ic_decisions`, `ic_votes`, `ic_decision_orders`. Refs `RSC-`, `ICM-`, `ICD-`.
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /summary`, `/cases`, `/cases/:id`, `/meetings`, `/meetings/:id`, `/decisions`, `/decisions/:id`, `/orders/:orderId/decision` | `research.view` | Case view has latest price and upside to target |
+| `POST /cases`, `PATCH /cases/:id` (DRAFT, author only) | `research.edit` | Idempotency-Key on create |
+| `POST /cases/:id/submit` (author), `/revise`, `/archive` | `research.edit` | DRAFT -> IN_REVIEW; a published case revises back to DRAFT |
+| `POST /cases/:id/publish`, `/return` | `research.ic.decide` | Not the author (403 `sod_violation`); publish appends a rating-history row |
+| `POST /meetings`, `PATCH /meetings/:id` | `research.edit` | HELD needs every decision ratified; quorum per meeting |
+| `POST /decisions` | `research.edit` | Only on a PUBLISHED case; BUY/SELL need a quantity |
+| `POST /decisions/:id/open-voting` (proposer), `/vote`, `/withdraw` (proposer) | `research.edit` | One vote each, changeable until ratified |
+| `POST /decisions/:id/ratify` | `research.ic.decide` + step-up | Not the proposer; needs quorum (409 `no_quorum`); outcome is the tally (FOR > AGAINST, a tie is rejected) |
+| `POST /decisions/:id/orders` | `research.edit` + `orders.create` | APPROVED BUY/SELL only; creates a DRAFT order (`ORD-`), linked in `ic_decision_orders`; one live order per decision and portfolio |
+
+### Private Markets (`/api/v1/private-markets`, next to the unchanged company-reporting hub)
+
+Tables: `pm_funds`, `pm_commitments`, `pm_cashflows`, `pm_marks`, `pm_evidence`. Refs `PMF-`, `PMC-`, `PMX-`, `PMM-`.
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /summary?portfolioId=`, `/funds`, `/funds/:id`, `/commitments`, `/commitments/:id`, `/marks` | `portfolio.view` | Paid-in, distributed, NAV, DPI, RVPI, TVPI and XIRR derived from PAID cashflows and the latest APPROVED mark; stale-mark flag after 120 days |
+| `POST /funds`, `PATCH /funds/:id`, `POST /funds/:id/commitments`, `POST /commitments/:id/cancel` | `portfolio.manage` | One commitment per fund and portfolio |
+| `POST /commitments/:id/cashflows` | `portfolio.manage` | CALL or DISTRIBUTION; a call cannot exceed the unfunded commitment (409 `exceeds_commitment`, checked in the transaction) |
+| `POST /cashflows/:id/pay`, `/cancel` | `portfolio.manage` | Settlement cannot be in the future |
+| `POST /commitments/:id/marks`, `/marks/:id/evidence`, `/marks/:id/submit` | `portfolio.manage` (maker only) | Submit needs evidence (409 `evidence_required`); a NAV move over 30% needs a note |
+| `POST /marks/:id/approve` | `private.mark.approve` + step-up | Not the maker; evidence re-checked; `/return` and `/reject` take a reason |
+
+### Portfolio Construction (`/api/v1/portfolio-lab`)
+
+Tables: `model_portfolios`, `model_weights`, `pl_rebalances`, `pl_rebalance_lines`. Refs `MDL-`, `RBL-`.
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /models`, `/models/:id`, `/rebalances`, `/rebalances/:id`; `POST /whatif` | `portfolio.view` | What-if saves nothing |
+| `POST /models`, `PATCH /models/:id` (DRAFT), `/clone`, `/retire` | `portfolio.manage` | Weights plus the cash target must not exceed 100% |
+| `POST /models/:id/activate` | `portfolio.manage` | Not the author (maker-checker); must total exactly 100%; securities must be active |
+| `POST /rebalances` | `portfolio.manage` | Sizes trades in board lots, skips drift under the threshold, scales buys to cash plus sale proceeds above the reserve, runs the orders pre-trade checks and the risk-limit check per line and the mandate checks on the whole after-trade book |
+| `POST /rebalances/:id/orders` | `portfolio.manage` + `orders.create` | DRAFT orders for lines that did not fail; 409 when the mandate is breached after the trades, the proposal is over a day old, or nothing is left; `/discard` takes a reason |
+
+### Collateral & Financing (`/api/v1/financing`)
+
+Tables: `fin_facilities`, `fin_movements`, `fin_pools`, `fin_collateral_items`, `fin_eligibility_rules`, `fin_margin_calls`. Refs `FAC-`, `POOL-`, `MC-`.
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /summary`, `/facilities`, `/facilities/:id`, `/pools`, `/pools/:id`, `/rules`, `/calls`, `/calls/:id` | `risk.view` | Drawn balance, collateral value, coverage and margin state are derived on every read |
+| `POST /facilities`, `PATCH` (DRAFT, maker), `/submit`, `/suspend`, `/close` | `financing.manage` | Initial ratio at or above maintenance, maintenance at or above 1; a pool must be linked to submit; close needs zero balance and no open calls |
+| `POST /facilities/:id/approve`, `/return`, `/reactivate` | `financing.approve` (+ step-up on approve and reactivate) | Not the maker |
+| `POST /facilities/:id/draw` (step-up), `/repay` | `financing.manage` | Row-locked; a draw cannot pass the limit, an open margin call, or leave coverage under the initial ratio (409 `insufficient_collateral`) |
+| `POST /pools`, `/pools/:id/collateral`, `/pools/:id/collateral/:itemId/release` | `financing.manage` | Only eligible assets the portfolio holds and has not pledged elsewhere; release (step-up) is refused if a linked facility would fall below its initial ratio |
+| `PUT /rules` | `financing.manage` + step-up | Haircut, eligibility and optional pool cap by asset class and market; most specific rule wins; no rule means ineligible |
+| `POST /facilities/:id/check`, `/monitor` | `financing.manage` | Raises a margin call when coverage is below maintenance and none is open; the call restores the initial ratio |
+| `POST /calls/:id/acknowledge`, `/dispute`, `/resolve` (step-up), `/cancel` | `financing.manage` | Resolve needs live coverage at the initial ratio (409 `call_not_met`); only the issuer cancels, and only when no longer in deficit |
+| `POST /calls/:id/waive` | `financing.approve` + step-up | Not the issuer |
+
+Every mutation writes an audit event (`research.*`, `pm.*`, `lab.*`, `fin.*`); creates take `Idempotency-Key`.
 
 ### Running the test
 
@@ -1003,3 +1076,14 @@ E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exi
 - Money values in the return maths use floating point (returns are fractions; stored money is rounded to 4 dp). No multi-period linking (Carino) of attribution, no currency or trading-implementation effects, no composites across portfolios.
 - External flows come only from posted CLIENT_DEPOSIT / CLIENT_WITHDRAWAL cash journals; the portfolio cash record is not updated by those journals, so a deposit that was not also written to `portfolio_cash` would distort a period (the cash control compares ledger and book cash to catch this).
 - The refresh is a manual action, not a job or event stream; accrued income covers confirmed, unpaid corporate-action cash only (no bond coupons); settlement days are a constant, not a calendar; no ISIN search; "Historical snapshot" re-values positions as of a date but does not replay lots.
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exists=../../.env scripts/test-research-privates.ts
+```
+
+The engine checks were run (IRR, TVPI/DPI, rebalance sizing, haircut and margin maths); the API flow script was typechecked but **not run** (no local database was started). Role-catalogue changes need `prisma/seed.ts` to be re-run.
+
+### Not done
+
+- Research: no market-data or earnings feed, no document attachments on cases, no IC attendance list (voters are any `research.edit` holder), no scheduled reminders. Orders still do not show the decision that created them on the order ticket (read it via `GET /research/orders/:orderId/decision`).
+- Private markets: capital calls and distributions are not posted to the cash ledger or accounting; no FX for non-USD funds in the pooled totals; no look-through to underlying companies or J-curve forecast; evidence is a vault reference, not an uploaded file.
+- Portfolio Construction: no optimiser, tax or transaction-cost model, no model drift monitor or scheduled rebalance; per-line checks run against today's book, so one line's effect on another is only caught by the whole-book mandate check.
+- Financing: no interest accrual or fee postings, no lender-side margin feed, no FX conversion of pool value beyond the latest `fx_rates`, no intraday revaluation (coverage is computed on demand and by the monitor button); `financing.*` codes are not in the system-admin SoD blocklist in `admin.routes.ts`.

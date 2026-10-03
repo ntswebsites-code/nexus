@@ -33,7 +33,13 @@ const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/ops/securities', label: 'Securities & prices', perms: ['portfolio.view', 'research.view', 'orders.view'] },
       { href: '/ops/ibor', label: 'IBOR & Positions', perms: ['portfolio.view'] },
       { href: '/ops/performance', label: 'Performance & Attribution', perms: ['reports.view'] },
+      { href: '/ops/portfolio-lab', label: 'Portfolio construction', perms: ['portfolio.view'] },
+      { href: '/ops/private-markets', label: 'Private markets', perms: ['portfolio.view'] },
     ],
+  },
+  {
+    section: 'Research',
+    items: [{ href: '/ops/research', label: 'Research & IC', perms: ['research.view'] }],
   },
   {
     section: 'Trading',
@@ -53,7 +59,10 @@ const NAV: { section: string; items: NavItem[] }[] = [
   },
   {
     section: 'Risk & compliance',
-    items: [{ href: '/ops/risk', label: 'Risk & compliance', perms: ['risk.view', 'risk.manage'] }],
+    items: [
+      { href: '/ops/risk', label: 'Risk & compliance', perms: ['risk.view', 'risk.manage'] },
+      { href: '/ops/financing', label: 'Collateral & financing', perms: ['risk.view'] },
+    ],
   },
   {
     section: 'Operations',

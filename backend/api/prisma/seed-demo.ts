@@ -429,4 +429,5 @@ export async function seedDemo() {
   await (await import('./seed-cash')).seedCash();
   await (await import('./seed-wiring')).seedWiring();
   await (await import('./seed-ibor-performance')).seedIborPerformance();
+  await (await import('./seed-research-privates')).seedResearchPrivates();
 }
