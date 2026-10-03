@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 import { assertModelUsable, logModelUse } from '../model-governance/mg.usage';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -385,18 +386,18 @@ const breachQuery = z.object({
 
 riskRoutes.get('/breaches', ...canView, validateQuery(breachQuery), async (req, res) => {
   const f = query<z.infer<typeof breachQuery>>(req);
-  const rows = await prisma.riskBreach.findMany({
-    where: {
-      status: f.status,
-      limitId: f.limitId,
-      portfolioId: f.portfolioId,
-      detectedOn: { gte: f.from ? toDate(f.from) : undefined, lte: f.to ? toDate(f.to) : undefined },
-    },
-    include: { limit: true },
-    orderBy: [{ detectedOn: 'desc' }, { createdAt: 'desc' }],
-    take: f.limit,
-  });
-  res.json({ data: await breachViews(rows), total: rows.length });
+  const pg = sqlPage(req, f.limit);
+  const where: Prisma.RiskBreachWhereInput = {
+    status: f.status,
+    limitId: f.limitId,
+    portfolioId: f.portfolioId,
+    detectedOn: { gte: f.from ? toDate(f.from) : undefined, lte: f.to ? toDate(f.to) : undefined },
+  };
+  const [rows, total] = await Promise.all([
+    prisma.riskBreach.findMany({ where, include: { limit: true }, orderBy: [{ detectedOn: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.riskBreach.count({ where }),
+  ]);
+  res.json(pageEnvelope(pg, await breachViews(rows), total));
 });
 
 const ackBody = z.object({ note: z.string().trim().max(500).optional() }).strict();
@@ -575,13 +576,13 @@ const runQuery = z.object({ scenarioId: id36.optional(), portfolioId: id36.optio
 
 riskRoutes.get('/runs', ...canView, validateQuery(runQuery), async (req, res) => {
   const f = query<z.infer<typeof runQuery>>(req);
-  const rows = await prisma.riskScenarioRun.findMany({
-    where: { scenarioId: f.scenarioId, portfolioId: f.portfolioId },
-    include: { scenario: true },
-    orderBy: { createdAt: 'desc' },
-    take: f.limit,
-  });
-  res.json({ data: await runViews(rows), total: rows.length });
+  const pg = sqlPage(req, f.limit);
+  const where: Prisma.RiskScenarioRunWhereInput = { scenarioId: f.scenarioId, portfolioId: f.portfolioId };
+  const [rows, total] = await Promise.all([
+    prisma.riskScenarioRun.findMany({ where, include: { scenario: true }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.riskScenarioRun.count({ where }),
+  ]);
+  res.json(pageEnvelope(pg, await runViews(rows), total));
 });
 
 riskRoutes.get('/runs/:id', ...canView, async (req, res) => {
@@ -647,8 +648,9 @@ riskRoutes.get('/cases', ...canView, validateQuery(caseQuery), async (req, res) 
   if (f.status) where.status = f.status;
   else if (f.open) where.status = { in: ['OPEN', 'INVESTIGATING'] };
   if (f.q) where.OR = [{ ref: { contains: f.q } }, { description: { contains: f.q } }, { type: { contains: f.q } }];
-  const rows = await prisma.riskCase.findMany({ where, orderBy: [{ createdAt: 'desc' }], take: f.limit });
-  res.json({ data: await caseViews(rows), total: rows.length });
+  const pg = sqlPage(req, f.limit);
+  const [rows, total] = await Promise.all([prisma.riskCase.findMany({ where, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }), prisma.riskCase.count({ where })]);
+  res.json(pageEnvelope(pg, await caseViews(rows), total));
 });
 
 riskRoutes.get('/cases/:id', ...canView, async (req, res) => {

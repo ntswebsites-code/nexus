@@ -7,7 +7,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission, seqRef } from '../ops/ops.common';
@@ -270,6 +270,7 @@ const isAuthor = (c: CaseRow, req: Request) => c.analystId === req.user!.id;
 
 researchRoutes.patch('/cases/:id', ...canEdit, validateBody(casePatch), idempotent('research.patch.cases_id', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
+  expectVersion(req, c.version);
   if (c.status !== 'DRAFT') throw invalidState(`${c.ref} is ${c.status}; only a DRAFT can be edited. Use Revise on a published case.`);
   if (!isAuthor(c, req)) throw HttpError.forbidden('Only the case author can edit a draft', 'not_maker');
   const { version, ...b } = req.body as z.infer<typeof casePatch>;

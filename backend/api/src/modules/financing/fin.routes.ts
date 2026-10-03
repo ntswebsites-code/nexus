@@ -7,7 +7,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
@@ -151,6 +151,7 @@ financingRoutes.get('/facilities/:id', ...canView, async (req, res) => {
 
 financingRoutes.patch('/facilities/:id', ...canManage, validateBody(facilityPatch), idempotent('financing.patch.facilities_id', { required: false }), async (req, res) => {
   const f = await loadFacility(param(req, 'id'));
+  expectVersion(req, f.version);
   if (f.status !== 'DRAFT') throw invalidState(`${f.ref} is ${f.status}; only a DRAFT facility can be edited`);
   if (f.makerId !== req.user!.id) throw HttpError.forbidden('Only the person who prepared this facility can change it', 'not_maker');
   const { version, ...b } = req.body as z.infer<typeof facilityPatch>;

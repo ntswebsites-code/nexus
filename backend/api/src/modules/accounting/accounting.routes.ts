@@ -7,7 +7,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
@@ -240,6 +240,7 @@ accountingRoutes.post('/journals', ...canView, validateBody(createJournal), idem
 
 accountingRoutes.patch('/journals/:id', ...canView, validateBody(patchJournal), idempotent('accounting.patch.journals_id', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
+  expectVersion(req, r.version);
   if (r.status !== 'DRAFT') throw new HttpError(409, 'journal_immutable', `${r.ref} is ${r.status}; only a DRAFT can be edited. Posted journals are corrected by reversal.`);
   assertMaker(r, req);
   const b = req.body as z.infer<typeof patchJournal>;

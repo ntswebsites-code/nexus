@@ -3,7 +3,7 @@ import type { LpNotice, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
-import { ctx, param } from '../../lib/http';
+import { ctx, expectVersion, param } from '../../lib/http';
 import { writeAudit } from '../../lib/audit';
 import { enqueue } from '../../lib/outbox';
 import { requirePermission } from '../../middleware/requireAuth';
@@ -148,6 +148,7 @@ opsNoticesRoutes.post('/', requirePermission('notices.create'), validateBody(cre
 opsNoticesRoutes.post('/:id/submit', requirePermission('notices.create'), idempotent('ops.post.id_submit', { required: false }), async (req, res) => {
   const n = await findNotice(param(req, 'id'));
   const updated = await prisma.$transaction(async (tx) => {
+    expectVersion(req, n.version);
     const u = await transition(tx, n, ['DRAFT'], 'PENDING_APPROVAL');
     await writeAudit(tx, audit(req), { action: 'lp_notice.submitted', objectType: 'lp_notice', objectId: n.id, before: { status: n.status }, after: { status: u.status } });
     await enqueue(tx, 'notify.permission', {
@@ -168,6 +169,7 @@ opsNoticesRoutes.post('/:id/approve', requirePermission('notices.publish'), idem
     throw HttpError.forbidden('Segregation of duties: a different person must approve this notice', 'segregation_of_duties');
   }
   const updated = await prisma.$transaction(async (tx) => {
+    expectVersion(req, n.version);
     const u = await transition(tx, n, ['PENDING_APPROVAL'], 'APPROVED', { approvedById: req.user!.id });
     await writeAudit(tx, audit(req), { action: 'lp_notice.approved', objectType: 'lp_notice', objectId: n.id, before: { status: n.status }, after: { status: u.status, approvedById: req.user!.id } });
     return u;
@@ -180,6 +182,7 @@ opsNoticesRoutes.post('/:id/publish', requirePermission('notices.publish'), idem
   if (n.expiresAt && n.expiresAt.getTime() <= Date.now()) throw HttpError.conflict('Notice has already expired', 'invalid_state');
   const out = await prisma.$transaction(async (tx) => {
     const now = new Date();
+    expectVersion(req, n.version);
     const u = await transition(tx, n, ['APPROVED'], 'PUBLISHED', { publishedAt: now, publishedById: req.user!.id });
     const recipients = await noticeRecipients(tx, u);
     if (recipients.length) {
@@ -212,6 +215,7 @@ opsNoticesRoutes.post('/:id/withdraw', requirePermission('notices.publish'), val
   const n = await findNotice(param(req, 'id'));
   const { reason } = req.body as z.infer<typeof reasonSchema>;
   const updated = await prisma.$transaction(async (tx) => {
+    expectVersion(req, n.version);
     const u = await transition(tx, n, ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'PUBLISHED'], 'WITHDRAWN');
     await writeAudit(tx, audit(req), { action: 'lp_notice.withdrawn', objectType: 'lp_notice', objectId: n.id, before: { status: n.status }, after: { status: u.status }, reason });
     return u;

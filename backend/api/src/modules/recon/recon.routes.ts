@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { sqlPage } from '../../middleware/paginate';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -779,14 +780,18 @@ const signoffsQuery = z.object({ family: familySchema.optional(), from: dateStr.
 reconRoutes.get('/signoffs', ...canView, validateQuery(signoffsQuery), async (req, res) => {
   const q = query<z.infer<typeof signoffsQuery>>(req);
   const cp = q.counterpartyId ? await resolveCounterparty(q.counterpartyId) : null;
+  const pg = sqlPage(req, q.limit);
+  const soWhere: Prisma.ReconSignoffWhereInput = {
+    ...(q.family ? { family: q.family } : {}),
+    ...(cp ? { counterpartyId: cp.id } : {}),
+    ...(q.from || q.to ? { asOfDate: { ...(q.from ? { gte: dayStart(q.from) } : {}), ...(q.to ? { lte: dayStart(q.to) } : {}) } } : {}),
+  };
+  const soTotal = await prisma.reconSignoff.count({ where: soWhere });
   const rows = await prisma.reconSignoff.findMany({
-    where: {
-      ...(q.family ? { family: q.family } : {}),
-      ...(cp ? { counterpartyId: cp.id } : {}),
-      ...(q.from || q.to ? { asOfDate: { ...(q.from ? { gte: dayStart(q.from) } : {}), ...(q.to ? { lte: dayStart(q.to) } : {}) } } : {}),
-    },
-    orderBy: [{ asOfDate: 'desc' }, { signedAt: 'desc' }],
-    take: q.limit,
+    where: soWhere,
+    orderBy: [{ asOfDate: 'desc' }, { signedAt: 'desc' }, { id: 'asc' }],
+    skip: pg.skip,
+    take: pg.take,
   });
   const names = await userNames(rows.map((r) => r.signedBy));
   const cps = await counterpartyMap(rows.map((r) => r.counterpartyId));
@@ -803,7 +808,9 @@ reconRoutes.get('/signoffs', ...canView, validateQuery(signoffsQuery), async (re
       note: r.note,
       summary: r.summary,
     })),
-    total: rows.length,
+    page: pg.page,
+    pageSize: pg.pageSize,
+    total: soTotal,
   });
 });
 

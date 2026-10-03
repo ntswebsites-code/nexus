@@ -6,7 +6,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
-import { actorName, param, query } from '../../lib/http';
+import { actorName, expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requirePermission } from '../../middleware/requireAuth';
 import { audit } from '../ops/ops.common';
@@ -185,6 +185,7 @@ const statusSchema = z
 
 coServicesRoutes.post('/services/requests/:ref/status', requirePermission('clients.edit'), validateBody(statusSchema), idempotent('clients-onboarding.post.services_requests_ref_status', { required: false }), async (req, res) => {
   const r = await findRequest(param(req, 'ref'));
+  expectVersion(req, r.version);
   const b = req.body as z.infer<typeof statusSchema>;
   if (r.status === b.status) throw HttpError.conflict(`The request is already ${b.status}`, 'invalid_state');
   if (r.status === 'Closed') throw HttpError.conflict('A closed request cannot be reopened; log a new request', 'invalid_state');

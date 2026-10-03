@@ -5,7 +5,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
-import { param } from '../../lib/http';
+import { expectVersion, param } from '../../lib/http';
 import { validateBody } from '../../middleware/validate';
 import { requireAnyPermission, requirePermission, requireStepUp } from '../../middleware/requireAuth';
 import { D, ZERO, assertSegregation, assertUpdated, audit, badState, isoDay, money, notifyClientMembers, optionalMoneyInput } from './ops.common';
@@ -93,6 +93,7 @@ async function transition(
   extra?: (tx: Prisma.TransactionClient) => Promise<void>,
 ) {
   if (!from.includes(r.status)) badState('The request', r.status, `moved to ${to}`);
+  expectVersion(auditEntry.actorReq, r.version);
   await prisma.$transaction(async (tx) => {
     assertUpdated((await tx.lpDealingRequest.updateMany({ where: { id: r.id, status: r.status, version: r.version }, data: { ...data, status: to, version: { increment: 1 } } })).count);
     if (extra) await extra(tx);

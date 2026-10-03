@@ -5106,3 +5106,49 @@ model CustodianFeedHolding {
   @@map("custodian_feed_holdings")
 }
 // ---- end MarketData ----
+
+// ---- OpsHealth ----
+
+/// One row per running worker process: refreshed every tick so staff can see that the outbox is being drained (R4-1, GAP-023).
+model WorkerHeartbeat {
+  instanceId  String   @id @map("instance_id") @db.VarChar(64)
+  host        String?  @db.VarChar(120)
+  startedAt   DateTime @map("started_at") @db.DateTime(3)
+  lastBeatAt  DateTime @map("last_beat_at") @db.DateTime(3)
+  /// Duration of the most recent tick, in milliseconds.
+  lastTickMs  Int      @default(0) @map("last_tick_ms")
+  ticks       Int      @default(0)
+  /// Outbox events handled by the most recent tick.
+  lastHandled Int      @default(0) @map("last_handled")
+  lastError   String?  @map("last_error") @db.VarChar(500)
+
+  @@index([lastBeatAt])
+  @@map("worker_heartbeats")
+}
+
+/// Operational alert raised by the health evaluator: one open row per `alertKey`, reopened when the condition returns.
+model OpsAlert {
+  id          String    @id @default(uuid()) @db.Char(36)
+  /// worker.down | outbox.backlog | outbox.dead | job.stale (+ detail, e.g. job.stale:reports.schedules)
+  alertKey    String    @unique @map("alert_key") @db.VarChar(100)
+  source      String    @db.VarChar(16)
+  /// WARNING | CRITICAL
+  severity    String    @db.VarChar(10)
+  title       String    @db.VarChar(200)
+  detail      String?   @db.VarChar(500)
+  /// OPEN | ACKNOWLEDGED | RESOLVED
+  status      String    @default("OPEN") @db.VarChar(14)
+  occurrences Int       @default(1)
+  firstSeenAt DateTime  @default(now()) @map("first_seen_at") @db.DateTime(3)
+  lastSeenAt  DateTime  @default(now()) @map("last_seen_at") @db.DateTime(3)
+  resolvedAt  DateTime? @map("resolved_at") @db.DateTime(3)
+  ackedBy     String?   @map("acked_by") @db.Char(36)
+  ackedAt     DateTime? @map("acked_at") @db.DateTime(3)
+  ackNote     String?   @map("ack_note") @db.VarChar(500)
+  notifiedAt  DateTime? @map("notified_at") @db.DateTime(3)
+  version     Int       @default(1)
+
+  @@index([status, severity])
+  @@map("ops_alerts")
+}
+// ---- end OpsHealth ----

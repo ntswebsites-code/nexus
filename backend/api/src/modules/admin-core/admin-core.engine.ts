@@ -36,12 +36,19 @@ export const MONETARY = [
   'reports.approve',
   'reports.submit',
   'model.approve',
+  // Round 4 (R4-1): newer approve / sign-off / publish codes.
+  'dealing.approve',
+  'recon.signoff',
+  'term_sheets.approve',
+  'onboarding.approve',
+  'documents.approve',
+  'notices.publish',
 ];
 
 /** Permissions whose grant needs an independent checker. */
 export const PRIVILEGED_PERMISSIONS = new Set<string>([...MONETARY, 'admin.rbac', 'admin.settings', 'risk.manage']);
 
-export type ChangeKind = 'USER_ROLES' | 'ROLE_PERMISSIONS' | 'USER_DISABLE';
+export type ChangeKind = 'USER_ROLES' | 'ROLE_PERMISSIONS' | 'USER_DISABLE' | 'ROLE_CREATE' | 'STAFF_INVITE';
 
 export const isPrivilegedPermission = (p: string) => PRIVILEGED_PERMISSIONS.has(p);
 
@@ -98,6 +105,19 @@ export const SOD_RULES: { id: string; a: string; b: string; why: string }[] = [
   { id: 'rbac-models', a: 'admin.rbac', b: 'model.approve', why: 'Grant access and use it to approve models' },
   { id: 'rbac-nav', a: 'admin.rbac', b: 'valuation.release', why: 'Grant access and use it to release NAV' },
   { id: 'rbac-settings', a: 'admin.rbac', b: 'admin.settings', why: 'Change access and the controls that police it' },
+  // R4-1: access control versus every newer approve / sign-off code, and the term-sheet maker-checker.
+  { id: 'term-sheets-maker-checker', a: 'term_sheets.create', b: 'term_sheets.approve', why: 'Draft a term sheet and approve it' },
+  { id: 'rbac-dealing', a: 'admin.rbac', b: 'dealing.approve', why: 'Grant access and use it to approve dealing requests' },
+  { id: 'rbac-onboarding', a: 'admin.rbac', b: 'onboarding.approve', why: 'Grant access and use it to approve client onboarding' },
+  { id: 'rbac-recon', a: 'admin.rbac', b: 'recon.signoff', why: 'Grant access and use it to sign off reconciliations' },
+  { id: 'rbac-term-sheets', a: 'admin.rbac', b: 'term_sheets.approve', why: 'Grant access and use it to approve term sheets' },
+  { id: 'rbac-performance', a: 'admin.rbac', b: 'performance.lock', why: 'Grant access and use it to lock performance periods' },
+  { id: 'rbac-capital', a: 'admin.rbac', b: 'capital.approve', why: 'Grant access and use it to approve capital calls' },
+  { id: 'rbac-distributions', a: 'admin.rbac', b: 'distributions.approve', why: 'Grant access and use it to approve distributions' },
+  { id: 'rbac-cash-close', a: 'admin.rbac', b: 'cash.close', why: 'Grant access and use it to close cash periods' },
+  { id: 'rbac-accounting-close', a: 'admin.rbac', b: 'accounting.close', why: 'Grant access and use it to close accounting periods' },
+  { id: 'rbac-notices', a: 'admin.rbac', b: 'notices.publish', why: 'Grant access and use it to publish client notices' },
+  { id: 'rbac-documents', a: 'admin.rbac', b: 'documents.approve', why: 'Grant access and use it to approve client documents' },
 ];
 
 export interface SodHit {

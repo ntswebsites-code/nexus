@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
@@ -371,8 +372,13 @@ const reviewsQuery = z.object({ status: z.string().trim().max(60).optional(), mo
 modelRoutes.get('/reviews', ...canView, validateQuery(reviewsQuery), async (req, res) => {
   const f = query<z.infer<typeof reviewsQuery>>(req);
   const statuses = f.status?.split(',').map((s) => s.trim().toUpperCase()).filter(Boolean);
-  const rows = await prisma.govModelReview.findMany({ where: { ...(statuses?.length ? { status: { in: statuses } } : {}), ...(f.modelId ? { modelId: f.modelId } : {}) }, orderBy: [{ status: 'asc' }, { dueOn: 'asc' }], take: f.limit });
-  res.json({ data: await reviewViews(rows) });
+  const pg = sqlPage(req, f.limit);
+  const where: Prisma.GovModelReviewWhereInput = { ...(statuses?.length ? { status: { in: statuses } } : {}), ...(f.modelId ? { modelId: f.modelId } : {}) };
+  const [rows, total] = await Promise.all([
+    prisma.govModelReview.findMany({ where, orderBy: [{ status: 'asc' }, { dueOn: 'asc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.govModelReview.count({ where }),
+  ]);
+  res.json(pageEnvelope(pg, await reviewViews(rows), total));
 });
 
 /** Opens reviews for every approved model due within 30 days that has none open. */

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -7,7 +8,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAnyPermission, requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
@@ -331,6 +332,7 @@ cashRoutes.post('/journals', ...canCreate, validateBody(createJournal), idempote
 
 cashRoutes.patch('/journals/:id', ...canCreate, validateBody(patchJournal), idempotent('cash.patch.journals_id', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
+  expectVersion(req, r.version);
   if (r.status !== 'DRAFT') throw new HttpError(409, 'journal_immutable', `${r.ref} is ${r.status}; only a DRAFT can be edited. Posted journals are corrected by reversal.`);
   assertMaker(r, req);
   const b = req.body as z.infer<typeof patchJournal>;
@@ -571,6 +573,7 @@ cashRoutes.post('/reservations/:id/release', ...canHold, validateBody(reasonSche
 const consumeSchema = z.object({ amount, reason: z.string().trim().max(500).optional() }).strict();
 cashRoutes.post('/reservations/:id/consume', ...canCreate, validateBody(consumeSchema), idempotent('cash.reservation_consume', { required: false }), async (req, res) => {
   const r = await loadReservation(param(req, 'id'));
+  expectVersion(req, r.version);
   const b = req.body as z.infer<typeof consumeSchema>;
   const remaining = r.amount.sub(r.consumed);
   if (!LIVE_RESERVATION.includes(r.status)) throw HttpError.conflict(`${r.ref} is ${r.status}`, 'invalid_state');
@@ -685,8 +688,10 @@ const importQuery = z.object({ portfolioId: z.string().trim().max(36).optional()
 cashRoutes.get('/statement-imports', ...canView, validateQuery(importQuery), async (req, res) => {
   const f = query<z.infer<typeof importQuery>>(req);
   const pid = await portfolioFilter(f.portfolioId);
-  const rows = await prisma.cashStatementImport.findMany({ where: { ...(pid ? { portfolioId: pid } : {}), ...(f.ledgerId ? { ledgerId: f.ledgerId } : {}), ...(f.status ? { status: statusIn(f.status) } : {}) }, orderBy: [{ createdAt: 'desc' }], take: f.limit });
-  res.json({ data: await importViews(rows), total: rows.length });
+  const pg = sqlPage(req, f.limit);
+  const where: Prisma.CashStatementImportWhereInput = { ...(pid ? { portfolioId: pid } : {}), ...(f.ledgerId ? { ledgerId: f.ledgerId } : {}), ...(f.status ? { status: statusIn(f.status) } : {}) };
+  const [rows, total] = await Promise.all([prisma.cashStatementImport.findMany({ where, orderBy: [{ createdAt: 'desc' }], skip: pg.skip, take: pg.take }), prisma.cashStatementImport.count({ where })]);
+  res.json(pageEnvelope(pg, await importViews(rows), total));
 });
 
 cashRoutes.get('/statement-imports/:id', ...canView, async (req, res) => {
@@ -791,14 +796,14 @@ const lineQuery = z.object({ ledgerId: z.string().trim().max(36).optional(), por
 cashRoutes.get('/statement-lines', ...canView, validateQuery(lineQuery), async (req, res) => {
   const f = query<z.infer<typeof lineQuery>>(req);
   const pid = await portfolioFilter(f.portfolioId);
-  const rows = await prisma.cashStatementLine.findMany({
-    where: { ...(f.ledgerId ? { ledgerId: f.ledgerId } : {}), status: statusIn(f.status), import: { status: 'COMMITTED', ...(pid ? { portfolioId: pid } : {}) } },
-    include: { import: { select: { ref: true, ledgerId: true } } },
-    orderBy: [{ valueDate: 'asc' }],
-    take: f.limit,
-  });
+  const pg = sqlPage(req, f.limit, 500);
+  const lineWhere: Prisma.CashStatementLineWhereInput = { ...(f.ledgerId ? { ledgerId: f.ledgerId } : {}), status: statusIn(f.status), import: { status: 'COMMITTED', ...(pid ? { portfolioId: pid } : {}) } };
+  const [rows, lineTotal] = await Promise.all([
+    prisma.cashStatementLine.findMany({ where: lineWhere, include: { import: { select: { ref: true, ledgerId: true } } }, orderBy: [{ valueDate: 'asc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.cashStatementLine.count({ where: lineWhere }),
+  ]);
   const led = new Map((await prisma.cashLedger.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.ledgerId))] } }, select: { id: true, ref: true, name: true, currency: true } })).map((l) => [l.id, l]));
-  res.json({ data: rows.map((l) => ({ id: l.id, importRef: l.import.ref, ledgerId: l.ledgerId, ledgerRef: led.get(l.ledgerId)?.ref ?? null, ledgerName: led.get(l.ledgerId)?.name ?? null, currency: led.get(l.ledgerId)?.currency ?? null, valueDate: isoDay(l.valueDate), amount: l.amount.toFixed(2), reference: l.reference, description: l.description, status: l.status, matchedJournalId: l.matchedJournalId, note: l.note })), total: rows.length });
+  res.json({ data: rows.map((l) => ({ id: l.id, importRef: l.import.ref, ledgerId: l.ledgerId, ledgerRef: led.get(l.ledgerId)?.ref ?? null, ledgerName: led.get(l.ledgerId)?.name ?? null, currency: led.get(l.ledgerId)?.currency ?? null, valueDate: isoDay(l.valueDate), amount: l.amount.toFixed(2), reference: l.reference, description: l.description, status: l.status, matchedJournalId: l.matchedJournalId, note: l.note })), page: pg.page, pageSize: pg.pageSize, total: lineTotal });
 });
 
 const matchBody = z.object({ journalId: z.string().trim().min(1).max(36) }).strict();

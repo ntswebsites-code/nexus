@@ -257,10 +257,15 @@ async function main() {
     check('duplicate code is refused', errCode(await admin.post(`${A}/permissions`, { code: customCode, label: 'again' }, { 'Idempotency-Key': key('p2') })) === 'permission_exists');
     check('reserved code is refused', (await admin.post(`${A}/permissions`, { code: 'admin.root', label: 'nope' }, { 'Idempotency-Key': key('p3') })).status === 400);
     check('permission catalogue includes the custom code', (await admin.get(`${A}/permissions`)).body.custom.some((c: any) => c.code === customCode));
-    const newRole = await admin.post(`${A}/roles`, { label: `Shell Role ${run}`, template: 'investment_director' });
-    check('role from a privileged template is created without the privileged codes', newRole.status === 201 && newRole.body.deferredPrivileged.includes('valuation.release') && !newRole.body.role.permissions.includes('valuation.release'), newRole.body);
-    const rk = newRole.body.role?.key as string;
+    // R4-1: role creation is a maker-checker change request now; the direct endpoint refuses. The role is seeded directly for the checks below.
+    const direct = await admin.post(`${A}/roles`, { label: `Shell Role ${run}`, template: 'investment_director' });
+    check('direct role creation needs an independent checker (change request)', direct.status === 409 && errCode(direct) === 'approval_required', direct.body);
+    const tpl = await prisma.role.findUniqueOrThrow({ where: { portal_key: { portal: 'admin', key: 'investment_director' } }, include: { permissions: true } });
+    const rk = `shell_role_${run}`;
+    const baseSet = tpl.permissions.map((p) => p.permission).filter((p) => !PRIVILEGED_PERMISSIONS.has(p));
+    await prisma.role.create({ data: { portal: 'admin', key: rk, label: `Shell Role ${run}`, custom: true, permissions: { create: baseSet.map((permission) => ({ permission })) } } });
     roleKeys.push(rk);
+    const newRole = { body: { role: { key: rk, permissions: baseSet } } };
     const perms = newRole.body.role.permissions as string[];
     const grant = await admin.put(`${A}/roles/${rk}/permissions`, { permissions: [...perms, customCode] });
     check('custom code can be attached to a role', grant.status === 200 && grant.body.role.permissions.includes(customCode), grant.body);
@@ -271,7 +276,7 @@ async function main() {
     const unk = await admin.put(`${A}/roles/${rk}/permissions`, { permissions: [...perms, 'made.up_code'] });
     check('unknown permission codes are refused', unk.status === 400, unk.body);
     const inv = await admin.post(`${A}/users`, { name: 'Shell Invitee', email: `sh-${run}-inv@example.test`, role: 'investment_director' }, { 'Idempotency-Key': key('inv') });
-    check('inviting straight into a privileged role needs a checker', inv.status === 409 && errCode(inv) === 'approval_required', inv.body);
+    check('direct staff invitation needs a checker (change request)', inv.status === 409 && errCode(inv) === 'approval_required', inv.body);
     const del = await admin.del(`${A}/permissions/${customCode}`);
     check('a custom code still on a role cannot be deleted', del.status === 409 && errCode(del) === 'permission_in_use', del.body);
     await admin.put(`${A}/roles/${rk}/permissions`, { permissions: perms });
