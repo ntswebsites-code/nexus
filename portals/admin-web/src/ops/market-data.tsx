@@ -41,7 +41,7 @@ interface MdStatus {
   scheduler: boolean;
   staleAfterBusinessDays: number;
   sources: SourceRow[];
-  runs: { id: string; trigger: string; scope: string; status: string; startedAt: string; accepted: number; rejected: number; errors: number; skipped: number }[];
+  runs: { revertible: boolean; id: string; trigger: string; scope: string; status: string; startedAt: string; accepted: number; rejected: number; errors: number; skipped: number }[];
   securities: SecurityFresh[];
   fx: { pair: string; rate: string; rateDate: string; source: string; ageBusinessDays: number }[];
   exceptions: { id: string; refType: string; ticker: string; source: string; status: string; reason: string | null; url: string; fetchedAt: string; seenCount: number; rawValue: string | null }[];
@@ -121,6 +121,11 @@ export function MarketDataSection({ onChanged }: { onChanged?: () => void }) {
                 {s.provider === 'fake' && ' (test data only: set INTEGRATION_MARKET_DATA=public in production)'}
                 {s.provider === 'live' && ' (paid feed not configured yet)'}. Scheduler {s.scheduler ? 'on: intraday during exchange hours, end of day after 15:00 Harare, FX daily' : 'off'}. A manual price (Set price above) always wins over a feed price for the same date. Prices older than {s.staleAfterBusinessDays} business days are flagged stale.
               </p>
+              {s.securities.some((x) => x.stale) && (
+                <Alert kind="warn">
+                  {s.securities.filter((x) => x.stale).length} of {s.securities.length} securities have a stale or missing price (older than {s.staleAfterBusinessDays} business days). Portfolio, NAV and risk figures that use them are valued on old prices.
+                </Alert>
+              )}
               {result && (
                 <Alert kind={result.status === 'OK' ? 'ok' : result.status === 'PARTIAL' ? 'warn' : 'error'}>
                   Refresh {result.status.toLowerCase()}: {result.accepted} updated, {result.unchanged} unchanged, {result.rejected} rejected, {result.errors} errors, {result.skipped} skipped (no public source), {result.overridden} kept manual
@@ -321,6 +326,7 @@ export function MarketDataSection({ onChanged }: { onChanged?: () => void }) {
                         <th className="r">Rejected</th>
                         <th className="r">Errors</th>
                         <th className="r">Skipped</th>
+                        <th />
                       </tr>
                     </thead>
                     <tbody>
@@ -332,12 +338,13 @@ export function MarketDataSection({ onChanged }: { onChanged?: () => void }) {
                           <td>{r.trigger.toLowerCase()}</td>
                           <td>{r.scope}</td>
                           <td>
-                            <Pill s={r.status === 'FAILED' ? 'ERROR' : r.status} label={r.status} />
+                            <Pill s={r.status === 'FAILED' ? 'ERROR' : r.status === 'REVERTED' ? 'OVERRIDDEN' : r.status} label={r.status} />
                           </td>
                           <td className="r">{r.accepted}</td>
                           <td className="r">{r.rejected}</td>
                           <td className="r">{r.errors}</td>
                           <td className="r">{r.skipped}</td>
+                          <td>{canManage && r.revertible && <ActionButton label="Undo run" danger confirm="Reverse this run? Prices and FX rates it wrote are removed or restored to their previous values." onRun={() => api.post(v1(`/market-data/runs/${r.id}/undo`), {})} onDone={() => { status.reload(); onChanged?.(); }} />}</td>
                         </tr>
                       ))}
                     </tbody>

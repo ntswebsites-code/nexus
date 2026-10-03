@@ -15,6 +15,13 @@ export function fakeClose(ticker: string, dateIso: string): string {
   return level.toFixed(6);
 }
 
+/** Anchored close: the last stored level moved by a deterministic step of at most +-2% for the day. */
+export function anchoredStep(anchor: string, key: string, dateIso: string, decimals = 6): string | null {
+  const a = Number(anchor);
+  if (!Number.isFinite(a) || a <= 0) return null;
+  return (a * (1 + (hashUnit(`anchor:${key}:${dateIso}`) - 0.5) * 0.04)).toFixed(decimals);
+}
+
 export function fakeFxRate(from: string, to: string, dateIso: string): string {
   const usd = (c: string) => (c === 'USD' ? 1 : c === 'ZWG' ? 26.5 * (1 + (hashUnit(`fx:${dateIso}`) - 0.5) * 0.01) : 0.5 + hashUnit(`ccy:${c}`) * 30);
   return (usd(to) / usd(from)).toFixed(10);
@@ -60,7 +67,8 @@ export class FakeMarketDataProvider implements MarketDataAdapter {
     const now = ctx.now ?? new Date();
     const day = lastWeekdayOnOrBefore(isoDay(now));
     const items = tickers.map<Quote>((ticker) => {
-      const price = fakeClose(ticker, day);
+      const anchor = ctx.anchors?.get(ticker);
+      const price = (anchor ? anchoredStep(anchor, ticker, day) : null) ?? fakeClose(ticker, day);
       return { ticker, price, priceDate: day, volume: String(Math.floor(hashUnit(`vol:${ticker}:${day}`) * 50_000)), rawValue: price, source: SOURCE, url: URL_, fetchedAt: now, rawHash: sha256(`${ticker}|${day}|${price}`) };
     });
     return { items, issues: [], sources: [{ source: SOURCE, label: 'Deterministic fake generator', url: URL_, status: 'OK', count: items.length, fetchedAt: now, note: 'Test data only; never use in production' }] };
@@ -82,7 +90,8 @@ export class FakeMarketDataProvider implements MarketDataAdapter {
     const now = ctx.now ?? new Date();
     const day = lastWeekdayOnOrBefore(isoDay(now));
     const items = pairs.map<FxQuote>((p) => {
-      const rate = fakeFxRate(p.from, p.to, day);
+      const anchor = ctx.anchors?.get(`${p.from}/${p.to}`);
+      const rate = (anchor ? anchoredStep(anchor, `${p.from}/${p.to}`, day, 10) : null) ?? fakeFxRate(p.from, p.to, day);
       return { from: p.from, to: p.to, rate, rateDate: day, rawValue: rate, source: SOURCE, url: URL_, fetchedAt: now, rawHash: sha256(`${p.from}${p.to}|${day}|${rate}`) };
     });
     return { items, issues: [], sources: [] };

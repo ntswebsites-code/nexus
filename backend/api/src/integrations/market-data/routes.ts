@@ -9,7 +9,7 @@ import { requireAnyPermission, requireAuth, requirePermission, requirePortalAcce
 import { audit } from '../../modules/ops/ops.common';
 import { IntegrationNotConfiguredError } from '../common';
 import { getMarketDataAdapter } from './index';
-import { getMarketDataStatus, refreshMarketData, securityProvenance } from './service';
+import { getMarketDataStatus, refreshMarketData, securityProvenance, undoRefreshRun } from './service';
 
 /**
  * Market-data ops API (`/api/v1/market-data`). Admin staff only. Reads: `portfolio.view` or `operations.view`.
@@ -21,6 +21,7 @@ export const marketDataRoutes = Router();
 const staff = [requireAuth, requirePortalAccess('admin')];
 const canRead = [...staff, requireAnyPermission('portfolio.view', 'operations.view')];
 const canManage = [...staff, requirePermission('portfolio.manage')];
+const canSimulate = [...staff, requireAnyPermission('portfolio.manage', 'admin.settings')];
 
 const notConfigured = (e: unknown): never => {
   if (e instanceof IntegrationNotConfiguredError) throw new HttpError(503, e.code, e.message, { requiredEnv: e.requiredEnv });
@@ -66,4 +67,27 @@ marketDataRoutes.post('/exceptions/:id/acknowledge', ...canManage, async (req, r
     await writeAudit(tx, audit(req), { action: 'market_data.exception.acknowledged', objectType: 'market_data_exception', objectId: row.id, after: { ticker: row.ticker, source: row.source, reason: row.reason } });
   });
   res.json({ data: { id: row.id, acknowledged: true } });
+});
+
+const simulateSchema = z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD').optional(), tickers: z.array(z.string().trim().min(1).max(24)).max(200).optional() }).strict();
+
+/**
+ * 'Run feed' on the Integrations screen. Goes through the same refresh as the scheduler, so every value is checked against
+ * the sanity bounds (rejections become exceptions), gets a run record and provenance, and the run can be reversed.
+ */
+marketDataRoutes.post('/simulate', ...canSimulate, validateBody(simulateSchema), async (req, res) => {
+  const b = req.body as z.infer<typeof simulateSchema>;
+  const now = b.date ? new Date(`${b.date}T12:00:00.000Z`) : new Date();
+  if (now.getTime() - 86_400_000 > Date.now()) throw HttpError.badRequest('Validation failed', [{ path: 'date', message: 'A feed date cannot be in the future' }]);
+  try {
+    const summary = await refreshMarketData({ trigger: 'MANUAL', scope: 'ALL', tickers: b.tickers, force: true, now, userId: req.user!.id, audit: audit(req) });
+    res.status(201).json({ data: summary });
+  } catch (e) {
+    notConfigured(e);
+  }
+});
+
+/** Reverse one finished refresh run (created rows are removed, changed rows restored). */
+marketDataRoutes.post('/runs/:id/undo', ...canSimulate, async (req, res) => {
+  res.json({ data: await undoRefreshRun(param(req, 'id'), audit(req)) });
 });

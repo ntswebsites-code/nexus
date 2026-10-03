@@ -29,6 +29,7 @@
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
+import { businessDaysBetween } from '../../integrations/common';
 
 const D = Prisma.Decimal;
 type Dec = Prisma.Decimal;
@@ -135,7 +136,12 @@ export interface PortfolioSnapshot {
     byAssetClass: Breakdown[];
   };
   warnings: string[];
+  /** Positions valued on a price older than STALE_PRICE_BUSINESS_DAYS business days (still valued; informational). */
+  staleWarnings: string[];
 }
+
+/** Same threshold the market-data panel uses to flag a price stale. */
+export const STALE_PRICE_BUSINESS_DAYS = 3;
 
 export interface PortfolioSummary extends PortfolioHeader {
   asOf: string;
@@ -147,6 +153,7 @@ export interface PortfolioSummary extends PortfolioHeader {
   largestPositionTicker: string | null;
   largestPositionPct: string;
   warnings: number;
+  stalePrices: number;
 }
 
 export interface SecurityView {
@@ -301,6 +308,7 @@ async function buildSnapshot(p: PortfolioRow, asOf: Date): Promise<PortfolioSnap
   };
 
   const warnings: string[] = [];
+  const staleWarnings: string[] = [];
   interface Work {
     line: SnapshotLine;
     valueBase: Dec | null;
@@ -315,6 +323,10 @@ async function buildSnapshot(p: PortfolioRow, asOf: Date): Promise<PortfolioSnap
     const costBase = rate ? r.quantity.mul(r.avgCost).mul(rate) : null;
     if (!price) warnings.push(`${s.ticker}: no price on or before ${isoDay(day)}`);
     else if (!rate) warnings.push(`${s.ticker}: no ${s.currency}/${p.baseCurrency} FX rate`);
+    if (price) {
+      const age = businessDaysBetween(price.latest.priceDate, isoDay(day)!);
+      if (age > STALE_PRICE_BUSINESS_DAYS) staleWarnings.push(`${s.ticker}: priced ${price.latest.priceDate} (${age} business days old)`);
+    }
     work.push({
       valueBase: mvBase,
       line: {
@@ -400,6 +412,7 @@ async function buildSnapshot(p: PortfolioRow, asOf: Date): Promise<PortfolioSnap
       byAssetClass: group((w) => w.line.assetClass, 'Cash'),
     },
     warnings,
+    staleWarnings,
   };
 }
 
@@ -448,6 +461,7 @@ export async function getPortfolioSummaries(filters: PortfolioFilters = {}, opts
       largestPositionTicker: s.concentration.largestPositionTicker,
       largestPositionPct: s.concentration.largestPositionPct,
       warnings: s.warnings.length,
+      stalePrices: s.staleWarnings.length,
     });
   }
   return out;

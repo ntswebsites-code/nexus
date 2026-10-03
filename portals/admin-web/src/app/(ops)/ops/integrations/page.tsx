@@ -230,7 +230,7 @@ function AdaptersTab({ onCalls }: { onCalls: (adapter: string) => void }) {
             </Card>
             <Card title="Simulated feeds">
               <p className="ops-muted">
-                Pull data through a fake adapter into the platform, as the vendor feed would. Prices and FX use source VENDOR and never overwrite an existing price; bank statements are staged for a different person to commit; day-end packages arrive as Received.
+                Pull data through a fake adapter into the platform, as the vendor feed would. Prices and FX run through the same checks as the scheduled feed: a value that moves more than the tolerance against the last price is rejected and raised as an exception, every accepted value has a run record and provenance, and a run can be reversed (Securities page, Recent refreshes, Undo run). A manual price always wins; bank statements are staged for a different person to commit; day-end packages arrive as Received.
               </p>
               <div className="ops-actions">
                 <button className="ops-btn" type="button" onClick={() => setFeed('market-data')}>
@@ -279,7 +279,7 @@ function DetailModal({ a, onClose, onChanged }: { a: AdapterRow; onClose: () => 
         {a.mode === 'fake' ? (
           <>
             <h4>Failure simulation</h4>
-            <p className="ops-muted">Make the next calls fail so callers and retries can be exercised. 0 means every call fails until cleared.</p>
+            <p className="ops-muted">Make the next calls fail so callers and retries can be exercised. Enter 0 to fail every call until you press Clear, which restores normal service.</p>
             <Field label="Number of calls to fail">
               <input className="ops-input" type="number" min={0} max={1000} value={count} onChange={(e) => setCount(e.target.value)} />
             </Field>
@@ -296,6 +296,18 @@ function DetailModal({ a, onClose, onChanged }: { a: AdapterRow; onClose: () => 
   );
 }
 
+const WORDS: Record<string, string> = { pricesCreated: 'prices created', pricesSkipped: 'prices skipped', fxCreated: 'FX rates created', accepted: 'accepted', unchanged: 'unchanged', rejected: 'rejected', errors: 'errors', skipped: 'skipped', overridden: 'overridden by manual', stale: 'stale' };
+function describeResult(r: unknown): string {
+  if (!r || typeof r !== 'object') return 'done';
+  const parts = Object.entries(r as Record<string, unknown>).filter(([, v]) => typeof v === 'string' || typeof v === 'number').map(([k, v]) => `${WORDS[k] ?? k.replace(/([A-Z])/g, ' $1').toLowerCase()}: ${v}`);
+  return parts.length ? parts.join(', ') : 'done';
+}
+function describeMarketRun(r: unknown): string {
+  const x = (r ?? {}) as Record<string, number | string>;
+  const rejected = Number(x.rejected ?? 0);
+  return `Market data feed ${String(x.status ?? '').toLowerCase()}: ${x.accepted ?? 0} price/FX values accepted, ${x.unchanged ?? 0} unchanged, ${rejected} rejected by the sanity bounds${rejected ? ' (see Securities, Market data feed, Open exceptions)' : ''}. The run can be reversed with Undo run under Recent refreshes on the Securities page.`;
+}
+
 function FeedModal({ feed, onClose, onDone }: { feed: Feed; onClose: () => void; onDone: (note: string) => void }) {
   const ledgers = useResource<Ledger[]>(() => (feed === 'bank-statement' ? api.get<Ledger[]>(v1('/cash/ledgers?kind=BANK')) : Promise.resolve([])), [feed]);
   const cps = useResource<{ items: Counterparty[] }>(() => (feed === 'custodian-feed' ? api.get<{ items: Counterparty[] }>(v1('/ops/counterparties')) : Promise.resolve({ items: [] })), [feed]);
@@ -308,10 +320,10 @@ function FeedModal({ feed, onClose, onDone }: { feed: Feed; onClose: () => void;
       kicker="Integrations"
       submitLabel="Run feed"
       onClose={onClose}
-      onDone={(r) => onDone(`${title}: ${JSON.stringify(r)}`)}
+      onDone={(r) => onDone(feed === 'market-data' ? describeMarketRun(r) : `${title}: ${describeResult(r)}`)}
       onSubmit={(fd, key) => {
         const date = optStr(fd, 'date');
-        if (feed === 'market-data') return api.post(IC('/market-data/sync'), { ...(date ? { date } : {}) }, { idempotencyKey: key });
+        if (feed === 'market-data') return api.post(v1('/market-data/simulate'), { ...(date ? { date } : {}) }, { idempotencyKey: key });
         if (feed === 'bank-statement') {
           return api.post(IC('/bank-statement/simulate'), { ledgerId: str(fd, 'ledgerId'), ...(optStr(fd, 'from') ? { from: optStr(fd, 'from') } : {}), ...(date ? { to: date } : {}), openingBalance: optStr(fd, 'openingBalance') ?? '0.00' }, { idempotencyKey: key });
         }
