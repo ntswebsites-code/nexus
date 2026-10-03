@@ -4,6 +4,7 @@ import { sendMail } from './lib/mailer';
 import type { EmailPayload, NotifyPermissionPayload, NotifyUsersPayload } from './lib/outbox';
 import { runScreening } from './modules/kyc/screening';
 import { scanReportingReminders } from './modules/company/reminders';
+import { runDueSchedules } from './modules/reports';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -49,8 +50,19 @@ const handlers: Record<string, (payload: unknown) => Promise<void>> = {
 };
 
 let lastReminderScan = 0;
+let lastReportScan = 0;
 
 async function tick() {
+  if (Date.now() - lastReportScan > 60 * 60 * 1000) {
+    lastReportScan = Date.now();
+    try {
+      const ran = await runDueSchedules();
+      if (ran) console.log(`[worker] scheduled reports generated: ${ran}`);
+    } catch (error) {
+      console.error('[worker] scheduled report run failed', error);
+      lastReportScan = 0;
+    }
+  }
   if (Date.now() - lastReminderScan > 60 * 60 * 1000) {
     lastReminderScan = Date.now();
     try {

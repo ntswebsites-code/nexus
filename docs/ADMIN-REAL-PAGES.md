@@ -1057,6 +1057,41 @@ Tables: `fin_facilities`, `fin_movements`, `fin_pools`, `fin_collateral_items`, 
 | `POST /calls/:id/waive` | `financing.approve` + step-up | Not the issuer |
 
 Every mutation writes an audit event (`research.*`, `pm.*`, `lab.*`, `fin.*`); creates take `Idempotency-Key`.
+## Reports, Regulatory, Data Fabric and Model Governance
+
+Four pages (SRD 5.A `reports`, `regulatory`, `data`, `model-governance`), all real: persisted in MySQL, permission-gated, audited, idempotent, with seed data and consoles wired to the live API.
+
+### Tables (migration `20261010100000_reports_regulatory`, additive)
+
+`report_definitions`, `report_runs`, `report_schedules`; `reg_templates`, `reg_filings`, `reg_evidence`; `data_sources`, `data_ingestion_jobs`, `data_quality_rules`, `data_quality_runs`, `data_quality_exceptions`; `gov_models`, `gov_model_versions`, `gov_model_validations`, `gov_model_usage`. Reference numbers `RPT-`, `REG-`, `JOB-`, `DQR-`, `MDL-`.
+
+### Permissions
+
+Pages: Reports and Regulatory `reports.view`; Data `operations.view`; Model governance `risk.view`. New codes in the role catalogue: `reports.approve` (approve or return a filing, distribute a report to the LP portal; step-up MFA), `reports.submit` (record a filing submission; step-up MFA), `data.manage` (register sources, run jobs and rules, work exceptions), `model.approve` (validate, approve, reject and retire models). Existing `reports.create` prepares reports and filings; `risk.manage` registers models and drafts versions.
+
+### Reports & BI (`/api/v1/reports`)
+
+Catalogue of five reports (fund fact sheet, holdings, transactions, NAV pack, cash) generated from live data (NAV valuation, order fills, cash journals and balances) to CSV, JSON or print-ready HTML, stored as an encrypted file with a SHA-256 and downloaded by a 2-minute signed link. Schedules (daily to quarterly) run hourly in the worker as the schedule's creator, or on demand (`run-now`, `run-due`). A fact sheet or NAV pack for a fund-linked portfolio can be sent to the LP portal by an approver: it creates a published Document and a Publication for each investor with an active commitment (once only). Endpoints: `GET catalogue|lookups|runs|runs/:id|runs/:id/link|schedules`, `POST runs`, `runs/:id/distribute`, `schedules`, `schedules/:id/run-now`, `schedules/run-due`, `PATCH schedules/:id`.
+
+### Regulatory Reporting (`/api/v1/regulatory`)
+
+Four templates (SECZ quarterly return, SECZ annual funds under management, FIU large cash transaction report, FIU client risk and screening summary) populated from NAV runs, clients, KYC cases, screening results, orders, fills, cash journals and risk breaches. Filing calendar with derived OVERDUE and due-date counts; `calendar/generate` opens the current periods (idempotent). A filing is DRAFT, then IN_REVIEW (needs evidence; the payload hash is locked), APPROVED (a different person, step-up MFA, hash re-checked), SUBMITTED (a person other than the preparer, step-up MFA, regulator reference), with RETURNED and WAIVED side exits. Evidence upload and signed download, CSV export, audit timeline. The FIU threshold is the policy `reg.fiu_ctr_threshold` (default 10,000, no FX conversion). Form codes are internal working codes, not regulator-issued.
+
+### Data Fabric & Studio (`/api/v1/data`)
+
+Source registry (table, file feed, API, manual), ingestion jobs (table sources are profiled live: row count and newest record; other kinds record the feed run), data-quality rules (NOT_NULL, UNIQUE, RANGE, FRESHNESS, ORPHAN) compiled to parameterised SQL over a whitelist of nine datasets, run results, and an exceptions list (acknowledge, resolve or waive with a reason). A re-run raises new failures, keeps open ones and clears those that now pass. No SQL, table or column name from the client is ever executed unless it is in the registry (`data.engine.ts`).
+
+### Model Governance (`/api/v1/model-governance`)
+
+Model inventory (type, tier, owner, review date), versions DRAFT, SUBMITTED, VALIDATED, APPROVED (or REJECTED, RETIRED), validation records, and a usage log. Author, validator and approver must be three different people; approval and retirement need step-up MFA; a failed validation rejects the version; the usage log refuses a model with no approved version and warns when its review is overdue.
+
+### Console
+
+`/ops/reports`, `/ops/regulatory`, `/ops/data`, `/ops/model-governance`, navigation under "Risk & compliance" and "Reporting & data".
+
+### Demo seed
+
+`prisma/seed-reports.ts` (called by `seed-uat.ts` and `seed-demo.ts`, also standalone, idempotent): report catalogue and sample schedules, regulator templates and the current calendar filings (unpopulated drafts), nine table sources plus feed/API/manual sources, 19 quality rules (never run), and three models (one legacy-attested approved model, one awaiting validation, one draft). The approved model is labelled as seed data, not a live approval.
 
 ### Running the test
 
@@ -1109,3 +1144,15 @@ Tests: `npx tsx scripts/test-clients-onboarding.ts` runs the pure rules (risk sc
 - No document upload or deletion in the vault screen (upload and lifecycle stay on the existing `/documents` API); retention only flags disposal eligibility, nothing is destroyed.
 - Screening is still the existing stub provider; checks are recorded manually. Risk factors are fixed rules, not configurable.
 - Client dealing-hold and mandate changes are audited but single-step (no checker).
+cd backend/api
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exists=../../.env scripts/test-reports.ts
+```
+
+Covers the engine maths, permissions, generation in every format with hash and signed download, idempotency, scheduling, LP distribution, the filing maker-checker with hash lock and step-up, data-quality rules over live tables with exceptions, ingestion, and model version separation and the usage gate. Typechecked but **not run** (no local database was started).
+
+### Not done
+
+- No PDF binary output (HTML is print-ready); no email delivery of scheduled reports; date-range report schedules repeat fixed dates.
+- Filing payloads are internal working layouts, not the regulators' official XML or portal formats; no direct upload to SECZ or FIU; the FIU report has no FX conversion.
+- No streaming or file-based ingestion engine: table sources are profiled, feed runs are recorded by an operator. Rules cover single-column checks, not cross-table reconciliations.
+- Models are not yet called automatically by NAV or risk; `POST models/:id/usage` is available to callers. No periodic-review workflow beyond the review date.

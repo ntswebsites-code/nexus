@@ -32,6 +32,10 @@ import { privateMarketsRoutes } from '../modules/private-markets';
 import { portfolioLabRoutes } from '../modules/portfolio-lab';
 import { financingRoutes } from '../modules/financing';
 import { clientOpsRoutes } from '../modules/clients-onboarding';
+import { reportsRoutes } from '../modules/reports';
+import { regulatoryRoutes } from '../modules/regulatory';
+import { dataRoutes } from '../modules/data-fabric';
+import { modelRoutes } from '../modules/model-governance';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -74,6 +78,11 @@ v1Router.use('/portfolio-lab', portfolioLabRoutes);
 v1Router.use('/financing', financingRoutes);
 // Clients, Investor Services, Onboarding & KYC, Document Vault: /client-ops/*.
 v1Router.use('/client-ops', clientOpsRoutes);
+// Reports & BI, Regulatory Reporting, Data Fabric & Studio, Model Governance.
+v1Router.use('/reports', reportsRoutes);
+v1Router.use('/regulatory', regulatoryRoutes);
+v1Router.use('/data', dataRoutes);
+v1Router.use('/model-governance', modelRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

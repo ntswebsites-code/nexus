@@ -3088,6 +3088,226 @@ model PmFund {
   /// ACTIVE | REALISED | CLOSED
   status    String   @default("ACTIVE") @db.VarChar(12)
   notes     String?  @db.VarChar(500)
+// ---- Reports & Regulatory ----
+
+/// Catalogue entry for a parameterised report that is generated from live data.
+model ReportDefinition {
+  id          String   @id @default(uuid()) @db.Char(36)
+  /// FACT_SHEET | HOLDINGS | TRANSACTIONS | NAV_PACK | CASH
+  key         String   @unique @db.VarChar(24)
+  name        String   @db.VarChar(160)
+  description String   @db.VarChar(500)
+  category    String   @db.VarChar(24)
+  /// Parameter descriptors rendered by the run form: [{ name, label, type, required }]
+  paramSpec   Json     @map("param_spec")
+  /// Formats this report can be produced in.
+  formats     Json
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  runs      ReportRun[]
+  schedules ReportSchedule[]
+
+  @@map("report_definitions")
+}
+
+/// One generated report. The output is stored as an encrypted file object; the hash proves it was not altered.
+model ReportRun {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// RPT-00001 ...
+  ref           String    @unique @db.VarChar(16)
+  definitionId  String    @map("definition_id") @db.Char(36)
+  scheduleId    String?   @map("schedule_id") @db.Char(36)
+  params        Json
+  /// CSV | JSON | HTML
+  format        String    @db.VarChar(8)
+  /// COMPLETED | FAILED
+  status        String    @default("COMPLETED") @db.VarChar(12)
+  fileId        String?   @map("file_id") @db.Char(36)
+  sha256        String?   @db.Char(64)
+  rowCount      Int       @default(0) @map("row_count")
+  title         String    @db.VarChar(200)
+  error         String?   @db.VarChar(500)
+  requestedBy   String    @map("requested_by") @db.Char(36)
+  distributedAt DateTime? @map("distributed_at")
+  distributedBy String?   @map("distributed_by") @db.Char(36)
+  /// Documents row created when the run was distributed to the LP portal.
+  documentId    String?   @map("document_id") @db.Char(36)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  definition ReportDefinition @relation(fields: [definitionId], references: [id])
+
+  @@index([definitionId, createdAt])
+  @@index([createdAt])
+  @@map("report_runs")
+}
+
+model ReportSchedule {
+  id           String    @id @default(uuid()) @db.Char(36)
+  definitionId String    @map("definition_id") @db.Char(36)
+  name         String    @db.VarChar(160)
+  params       Json
+  format       String    @db.VarChar(8)
+  /// DAILY | WEEKLY | MONTHLY | QUARTERLY
+  frequency    String    @db.VarChar(12)
+  nextRunOn    DateTime  @map("next_run_on") @db.Date
+  lastRunAt    DateTime? @map("last_run_at")
+  lastRunId    String?   @map("last_run_id") @db.Char(36)
+  active       Boolean   @default(true)
+  createdBy    String    @map("created_by") @db.Char(36)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  definition ReportDefinition @relation(fields: [definitionId], references: [id])
+
+  @@index([active, nextRunOn])
+  @@map("report_schedules")
+}
+
+/// A regulator form template. The payload for a filing is built from live data by the template's builder (by key).
+model RegTemplate {
+  id           String   @id @default(uuid()) @db.Char(36)
+  /// SECZ_QUARTERLY | SECZ_ANNUAL_AUM | FIU_CTR | FIU_KYC_RISK
+  key          String   @unique @db.VarChar(32)
+  regulator    String   @db.VarChar(16)
+  formCode     String   @map("form_code") @db.VarChar(32)
+  name         String   @db.VarChar(200)
+  description  String   @db.VarChar(500)
+  /// MONTHLY | QUARTERLY | ANNUAL
+  frequency    String   @db.VarChar(12)
+  /// Days after the period end that the filing is due.
+  dueAfterDays Int      @default(30) @map("due_after_days")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  filings RegFiling[]
+
+  @@map("reg_templates")
+}
+
+/// A filing for one period. DRAFT -> IN_REVIEW -> APPROVED -> SUBMITTED (or RETURNED to the preparer).
+model RegFiling {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// REG-00001 ...
+  ref           String    @unique @db.VarChar(16)
+  templateId    String    @map("template_id") @db.Char(36)
+  periodStart   DateTime  @map("period_start") @db.Date
+  periodEnd     DateTime  @map("period_end") @db.Date
+  dueDate       DateTime  @map("due_date") @db.Date
+  /// DRAFT | IN_REVIEW | APPROVED | SUBMITTED | RETURNED | WAIVED
+  status        String    @default("DRAFT") @db.VarChar(12)
+  /// Figures populated from live data (re-built while DRAFT or RETURNED).
+  payload       Json?
+  populatedAt   DateTime? @map("populated_at")
+  notes         String?   @db.VarChar(1000)
+  returnReason  String?   @map("return_reason") @db.VarChar(500)
+  makerId       String?   @map("maker_id") @db.Char(36)
+  reviewedBy    String?   @map("reviewed_by") @db.Char(36)
+  reviewedAt    DateTime? @map("reviewed_at")
+  approvedBy    String?   @map("approved_by") @db.Char(36)
+  approvedAt    DateTime? @map("approved_at")
+  submittedBy   String?   @map("submitted_by") @db.Char(36)
+  submittedAt   DateTime? @map("submitted_at")
+  /// Regulator acknowledgement or portal reference, entered at submission.
+  submissionRef String?   @map("submission_ref") @db.VarChar(80)
+  payloadSha256 String?   @map("payload_sha256") @db.Char(64)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  version       Int       @default(1)
+
+  template RegTemplate   @relation(fields: [templateId], references: [id])
+  evidence RegEvidence[]
+
+  @@unique([templateId, periodEnd])
+  @@index([status, dueDate])
+  @@map("reg_filings")
+}
+
+model RegEvidence {
+  id          String   @id @default(uuid()) @db.Char(36)
+  filingId    String   @map("filing_id") @db.Char(36)
+  fileId      String   @map("file_id") @db.Char(36)
+  name        String   @db.VarChar(255)
+  description String?  @db.VarChar(300)
+  sha256      String   @db.Char(64)
+  uploadedBy  String   @map("uploaded_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  filing RegFiling @relation(fields: [filingId], references: [id], onDelete: Cascade)
+
+  @@index([filingId])
+  @@map("reg_evidence")
+}
+
+// ---- end Reports & Regulatory ----
+
+// ---- Data Fabric ----
+
+model DataSource {
+  id           String    @id @default(uuid()) @db.Char(36)
+  key          String    @unique @db.VarChar(40)
+  name         String    @db.VarChar(160)
+  /// TABLE | FILE_FEED | API | MANUAL
+  kind         String    @db.VarChar(12)
+  /// For TABLE sources: a dataset from the registry whitelist.
+  dataset      String?   @db.VarChar(40)
+  system       String    @db.VarChar(80)
+  owner        String    @db.VarChar(120)
+  /// MANUAL | DAILY | WEEKLY | MONTHLY | REALTIME
+  cadence      String    @default("DAILY") @db.VarChar(12)
+  description  String?   @db.VarChar(500)
+  /// ACTIVE | PAUSED | ERROR
+  status       String    @default("ACTIVE") @db.VarChar(8)
+  lastSyncAt   DateTime? @map("last_sync_at")
+  lastRowCount Int?      @map("last_row_count")
+  createdBy    String    @map("created_by") @db.Char(36)
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  jobs  DataIngestionJob[]
+  rules DataQualityRule[]
+
+  @@map("data_sources")
+}
+
+model DataIngestionJob {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// JOB-00001 ...
+  ref            String    @unique @db.VarChar(16)
+  sourceId       String    @map("source_id") @db.Char(36)
+  /// SUCCEEDED | FAILED
+  status         String    @db.VarChar(10)
+  rowsRead       Int       @default(0) @map("rows_read")
+  rowsRejected   Int       @default(0) @map("rows_rejected")
+  /// Newest record timestamp seen in the dataset (freshness).
+  latestRecordAt DateTime? @map("latest_record_at")
+  note           String?   @db.VarChar(500)
+  error          String?   @db.VarChar(500)
+  triggeredBy    String    @map("triggered_by") @db.Char(36)
+  startedAt      DateTime  @default(now()) @map("started_at")
+  finishedAt     DateTime? @map("finished_at")
+
+  source DataSource @relation(fields: [sourceId], references: [id])
+
+  @@index([sourceId, startedAt])
+  @@map("data_ingestion_jobs")
+}
+
+model DataQualityRule {
+  id        String   @id @default(uuid()) @db.Char(36)
+  key       String   @unique @db.VarChar(60)
+  name      String   @db.VarChar(200)
+  sourceId  String?  @map("source_id") @db.Char(36)
+  dataset   String   @db.VarChar(40)
+  /// NOT_NULL | UNIQUE | RANGE | FRESHNESS | ORPHAN
+  checkType String   @map("check_type") @db.VarChar(12)
+  col       String   @db.VarChar(60)
+  /// RANGE: { min, max }. FRESHNESS: { maxAgeDays }. ORPHAN: { relation }.
+  params    Json?
+  /// LOW | MEDIUM | HIGH
+  severity  String   @default("MEDIUM") @db.VarChar(8)
+  active    Boolean  @default(true)
   createdBy String   @map("created_by") @db.Char(36)
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -3517,3 +3737,141 @@ model DocumentHold {
   @@map("document_holds")
 }
 // ---- end ClientsOnboarding ----
+  source DataSource?      @relation(fields: [sourceId], references: [id])
+  runs   DataQualityRun[]
+
+  @@index([dataset])
+  @@map("data_quality_rules")
+}
+
+model DataQualityRun {
+  id          String   @id @default(uuid()) @db.Char(36)
+  /// DQR-00001 ...
+  ref         String   @unique @db.VarChar(16)
+  ruleId      String   @map("rule_id") @db.Char(36)
+  /// PASS | FAIL | ERROR
+  status      String   @db.VarChar(6)
+  rowsChecked Int      @default(0) @map("rows_checked")
+  failures    Int      @default(0)
+  summary     String?  @db.VarChar(500)
+  ranBy       String   @map("ran_by") @db.Char(36)
+  ranAt       DateTime @default(now()) @map("ran_at")
+
+  rule       DataQualityRule        @relation(fields: [ruleId], references: [id])
+  exceptions DataQualityException[]
+
+  @@index([ruleId, ranAt])
+  @@map("data_quality_runs")
+}
+
+model DataQualityException {
+  id         String    @id @default(uuid()) @db.Char(36)
+  runId      String    @map("run_id") @db.Char(36)
+  ruleId     String    @map("rule_id") @db.Char(36)
+  /// Business key of the failing record (id, ticker, ref ...).
+  recordKey  String    @map("record_key") @db.VarChar(80)
+  detail     String    @db.VarChar(300)
+  /// OPEN | ACKNOWLEDGED | RESOLVED | WAIVED | SUPERSEDED
+  status     String    @default("OPEN") @db.VarChar(12)
+  resolution String?   @db.VarChar(500)
+  resolvedBy String?   @map("resolved_by") @db.Char(36)
+  resolvedAt DateTime? @map("resolved_at")
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  run DataQualityRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([ruleId, status])
+  @@index([runId])
+  @@map("data_quality_exceptions")
+}
+
+// ---- end Data Fabric ----
+
+// ---- Model Governance ----
+
+model GovModel {
+  id               String    @id @default(uuid()) @db.Char(36)
+  /// MDL-1001 ...
+  ref              String    @unique @db.VarChar(16)
+  name             String    @db.VarChar(160)
+  purpose          String    @db.VarChar(600)
+  /// PRICING | RISK | CREDIT | SCORING | FORECAST | OTHER
+  modelType        String    @map("model_type") @db.VarChar(12)
+  /// 1 (high materiality) .. 3 (low)
+  tier             Int       @default(2)
+  ownerName        String    @map("owner_name") @db.VarChar(120)
+  /// DRAFT | IN_VALIDATION | APPROVED | RETIRED
+  status           String    @default("DRAFT") @db.VarChar(14)
+  /// Latest APPROVED version.
+  currentVersionId String?   @map("current_version_id") @db.Char(36)
+  nextReviewOn     DateTime? @map("next_review_on") @db.Date
+  createdBy        String    @map("created_by") @db.Char(36)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  versions GovModelVersion[]
+  usage    GovModelUsage[]
+
+  @@index([status])
+  @@map("gov_models")
+}
+
+/// DRAFT -> SUBMITTED -> VALIDATED -> APPROVED (or REJECTED / RETIRED). Author, validator and approver are different people.
+model GovModelVersion {
+  id            String    @id @default(uuid()) @db.Char(36)
+  modelId       String    @map("model_id") @db.Char(36)
+  version       String    @db.VarChar(20)
+  changeNote    String    @map("change_note") @db.VarChar(1000)
+  documentation String?   @db.VarChar(300)
+  /// DRAFT | SUBMITTED | VALIDATED | APPROVED | REJECTED | RETIRED
+  status        String    @default("DRAFT") @db.VarChar(12)
+  authorId      String    @map("author_id") @db.Char(36)
+  submittedAt   DateTime? @map("submitted_at")
+  approvedBy    String?   @map("approved_by") @db.Char(36)
+  approvedAt    DateTime? @map("approved_at")
+  decisionNote  String?   @map("decision_note") @db.VarChar(500)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  model       GovModel             @relation(fields: [modelId], references: [id], onDelete: Cascade)
+  validations GovModelValidation[]
+
+  @@unique([modelId, version])
+  @@map("gov_model_versions")
+}
+
+model GovModelValidation {
+  id          String   @id @default(uuid()) @db.Char(36)
+  versionId   String   @map("version_id") @db.Char(36)
+  validatorId String   @map("validator_id") @db.Char(36)
+  /// PASS | PASS_WITH_FINDINGS | FAIL
+  outcome     String   @db.VarChar(20)
+  scope       String   @db.VarChar(300)
+  findings    String?  @db.VarChar(2000)
+  evidenceRef String?  @map("evidence_ref") @db.VarChar(200)
+  performedOn DateTime @map("performed_on") @db.Date
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  version GovModelVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([versionId])
+  @@map("gov_model_validations")
+}
+
+model GovModelUsage {
+  id        String   @id @default(uuid()) @db.Char(36)
+  modelId   String   @map("model_id") @db.Char(36)
+  versionId String   @map("version_id") @db.Char(36)
+  context   String   @db.VarChar(200)
+  /// Business object the model result was used for, e.g. NAV-00012.
+  objectRef String?  @map("object_ref") @db.VarChar(60)
+  note      String?  @db.VarChar(500)
+  usedBy    String   @map("used_by") @db.Char(36)
+  usedAt    DateTime @default(now()) @map("used_at")
+
+  model GovModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@index([modelId, usedAt])
+  @@map("gov_model_usage")
+}
+
+// ---- end Model Governance ----

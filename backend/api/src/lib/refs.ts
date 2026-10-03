@@ -39,6 +39,11 @@ const FORMATS = {
   finFacility: { prefix: 'FAC-', pad: 4, start: 1001 },
   finPool: { prefix: 'POOL-', pad: 4, start: 1001 },
   finMarginCall: { prefix: 'MC-', pad: 4, start: 1 },
+  reportRun: { prefix: 'RPT-', pad: 5, start: 1 },
+  regFiling: { prefix: 'REG-', pad: 5, start: 1 },
+  dataJob: { prefix: 'JOB-', pad: 5, start: 1 },
+  dqRun: { prefix: 'DQR-', pad: 5, start: 1 },
+  govModel: { prefix: 'MDL-', pad: 4, start: 1001 },
 } as const;
 
 export type RefKind = keyof typeof FORMATS;

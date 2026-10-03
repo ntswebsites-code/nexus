@@ -47,6 +47,8 @@
         "private.mark.approve",
         "financing.manage",
         "financing.approve"
+        "reports.approve",
+        "model.approve"
       ]
     },
     {
@@ -163,6 +165,9 @@
         "financing.approve"
         "onboarding.approve",
         "documents.approve"
+        "reports.approve",
+        "reports.submit",
+        "model.approve"
       ]
     },
     {
@@ -204,6 +209,7 @@
         "custodian.view",
         "custodian.review",
         "financing.manage"
+        "data.manage"
       ]
     },
     {
@@ -246,6 +252,8 @@
         "custodian.view",
         "custodian.review",
         "private.mark.approve"
+        "data.manage",
+        "reports.submit"
       ]
     },
     {
@@ -326,7 +334,8 @@
         "notices.view",
         "dealing.view",
         "term_sheets.view",
-        "custodian.view"
+        "custodian.view",
+        "data.manage"
       ]
     },
     {

@@ -793,6 +793,7 @@ try {
   await (await import('./seed-ibor-performance')).seedIborPerformance();
   await (await import('./seed-research-privates')).seedResearchPrivates();
   await (await import('./seed-clients-onboarding')).seedClientsOnboarding();
+  await (await import('./seed-reports')).seedReports();
 
   if (process.env.SEED_UAT_MFA_REQUIRED === '1') {
     await prisma.policy.upsert({ where: { key: 'mfa_required' }, update: { value: true }, create: { key: 'mfa_required', value: true } });
