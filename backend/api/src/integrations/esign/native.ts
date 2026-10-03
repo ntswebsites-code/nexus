@@ -1,5 +1,6 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from 'pdf-lib';
 import { sha256, walkChain } from './chain';
+import { stampFonts, stampSignedFields } from './stamp';
 import type { ChainCheck, ESignAdapter, SealInput, SealResult, SealSigner } from './types';
 
 /**
@@ -187,6 +188,10 @@ function drawCertificate(w: Writer, i: SealInput) {
   w.kv('Completed', utc(i.completedAt));
   w.kv('Original SHA-256', i.originalSha256, { mono: true });
   w.kv('Signature chain head', i.chainHead, { mono: true });
+  if (i.fields?.length) {
+    w.kv('Signature fields', `${i.fields.length} placed on the document page${new Set(i.fields.map((f) => f.page)).size === 1 ? '' : 's'}`);
+    if (i.fieldsSha256) w.kv('Field layout SHA-256', i.fieldsSha256, { mono: true });
+  }
   w.kv('Verification', i.verifyUrl);
   w.gap(4);
   w.rule();
@@ -233,6 +238,7 @@ async function sealNative(input: SealInput): Promise<SealResult> {
   }
   const fonts = await loadFonts(doc);
   const originalPages = doc.getPages();
+  if (input.fields?.length) await stampSignedFields(doc, await stampFonts(doc), input.fields, input.signers);
   const footer = clean(`Sealed ${input.ref}  |  original SHA-256 ${input.originalSha256.slice(0, 32)}...  |  ${input.verifyUrl}`);
   originalPages.forEach((p, idx) => {
     p.drawText(`${footer}  |  page ${idx + 1}/${originalPages.length}`, {

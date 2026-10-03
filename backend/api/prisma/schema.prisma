@@ -4883,15 +4883,22 @@ model EsignRequest {
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
   version           Int       @default(1)
+  /// Reminder cadence override (null = platform default of every 3 days, up to 3 reminders).
+  reminderIntervalDays Int?   @map("reminder_interval_days")
+  reminderMax          Int?   @map("reminder_max")
+  /// Bulk send batch this request belongs to (see EsignBatch).
+  bulkBatchId          String? @map("bulk_batch_id") @db.Char(36)
 
   signers EsignSigner[]
   events  EsignEvent[]
+  fields  EsignField[]
 
   @@index([status, expiresAt])
   @@index([subjectType, subjectId])
   @@index([clientId])
   @@index([companyId])
   @@index([documentId])
+  @@index([bulkBatchId])
   @@map("esign_requests")
 }
 
@@ -4941,6 +4948,7 @@ model EsignSigner {
   updatedAt          DateTime  @updatedAt @map("updated_at")
 
   request EsignRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fields  EsignField[]
 
   @@unique([requestId, email])
   @@index([userId, status])
@@ -5358,3 +5366,46 @@ model InvesteeMailLog {
 }
 
 // ---- end Investee Remainders ----
+
+// ---- EsignDepth ----
+/// A signature field placed on a PDF page for one signer. Coordinates are fractions (0..1) of the page,
+/// origin top-left. Locked once the request leaves DRAFT; the layout hash is recorded in the CREATED/FIELDS_SET event.
+model EsignField {
+  id        String   @id @default(uuid()) @db.Char(36)
+  requestId String   @map("request_id") @db.Char(36)
+  signerId  String   @map("signer_id") @db.Char(36)
+  /// SIGNATURE | INITIALS | DATE | NAME
+  kind      String   @default("SIGNATURE") @db.VarChar(12)
+  /// 1-based page number.
+  page      Int
+  x         Float
+  y         Float
+  width     Float
+  height    Float
+  label     String?  @db.VarChar(80)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  request EsignRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  signer  EsignSigner  @relation(fields: [signerId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, page])
+  @@index([signerId])
+  @@map("esign_fields")
+}
+
+/// One bulk send (one request per recipient). `idempotencyKey` makes a repeated submit return the same batch.
+model EsignBatch {
+  id             String   @id @default(uuid()) @db.Char(36)
+  title          String   @db.VarChar(200)
+  idempotencyKey String   @unique @map("idempotency_key") @db.VarChar(120)
+  total          Int
+  created        Int      @default(0)
+  failed         Int      @default(0)
+  /// Per-recipient failures: [{ name, email, error }]
+  failures       Json?
+  createdById    String?  @map("created_by_id") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("esign_batches")
+}
+// ---- end EsignDepth ----

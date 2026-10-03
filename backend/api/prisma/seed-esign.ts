@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import { prisma } from '../src/lib/prisma';
 import { storeFile } from '../src/lib/storage';
-import { createRequest, requestCapitalCallAckSignature, signRequest, voidRequest, type EsignActor } from '../src/modules/esign';
+import { bulkSend, createRequest, requestCapitalCallAckSignature, requestCommitmentPack, requestStaffApproval, requestTermSheetCountersign, signRequest, voidRequest, type EsignActor } from '../src/modules/esign';
 
 const log = (m: string) => console.log(`[seed:esign] ${m}`);
 
@@ -27,6 +27,7 @@ async function pdf(title: string, body: string[]): Promise<Buffer> {
 export async function seedEsign() {
   if (await prisma.esignRequest.findFirst()) {
     log('already seeded: skipped');
+    await seedEsignDepth();
     return;
   }
   const admin = await prisma.user.findFirst({ where: { roles: { some: { role: { portal: 'admin', key: 'system_admin' } } } }, orderBy: { createdAt: 'asc' } });
@@ -87,6 +88,80 @@ export async function seedEsign() {
       log(`capital call acknowledgement skipped: ${(e as Error).message}`);
     }
   } else log('no issued capital call allocation: acknowledgement flow not seeded');
+  await seedEsignDepth();
+}
+
+// ---- R4-4 depth: positioned fields, reminder cadence, bulk send, staff approval, subscription pack, term sheet countersign ----
+export async function seedEsignDepth() {
+  if (await prisma.esignRequest.findFirst({ where: { subjectId: 'seed-fields-nda' } })) {
+    log('depth demo already seeded: skipped');
+    return;
+  }
+  const admin = await prisma.user.findFirst({ where: { roles: { some: { role: { portal: 'admin', key: 'system_admin' } } } }, orderBy: { createdAt: 'asc' } });
+  if (!admin) return;
+  const staff: EsignActor = { userId: admin.id, name: admin.name ?? admin.email, role: 'System Administrator', portal: 'admin', ip: '127.0.0.1', userAgent: 'seed' };
+  const other = await prisma.user.findFirst({ where: { id: { not: admin.id }, isActive: true, roles: { some: { role: { portal: 'admin' } } } }, orderBy: { createdAt: 'asc' } });
+  const upload = async (name: string, lines: string[]) => (await storeFile({ name, mime: 'application/pdf', data: await pdf(name.replace(/\.pdf$/, ''), lines), uploadedById: admin.id })).id;
+  const attempt = async (label: string, fn: () => Promise<{ ref: string }>) => {
+    try {
+      log(`${label}: ${(await fn()).ref}`);
+    } catch (e) {
+      log(`${label} skipped: ${(e as Error).message}`);
+    }
+  };
+
+  // 1. Positioned signature + date boxes for an external signer, custom reminder cadence (every 2 days, up to 5).
+  await attempt('placed-fields request', async () => {
+    const r = await createRequest(staff, {
+      title: 'Consulting agreement - positioned signature boxes',
+      message: 'Please sign where indicated on page 1.',
+      fileId: await upload('Consulting agreement.pdf', ['Consulting agreement between Matanho and the Consultant.', 'Fees and scope are set out in the statement of work.', '', 'Signed for the Consultant:']),
+      signers: [{ kind: 'EXTERNAL', name: 'Consultant Signer', email: 'consultant@example.com', roleLabel: 'Sole proprietor' }],
+      fields: [
+        { signerEmail: 'consultant@example.com', kind: 'SIGNATURE', page: 1, x: 0.1, y: 0.32, width: 0.3, height: 0.06 },
+        { signerEmail: 'consultant@example.com', kind: 'DATE', page: 1, x: 0.45, y: 0.34, width: 0.14, height: 0.03 },
+      ],
+      reminderIntervalDays: 2,
+      reminderMax: 5,
+      subjectType: 'GENERIC',
+      subjectId: 'seed-fields-nda',
+    });
+    return r;
+  });
+
+  // 2. Bulk send (idempotent on the key).
+  try {
+    const out = await bulkSend(staff, {
+      title: 'Annual stewardship declaration',
+      message: 'Please confirm your annual stewardship declaration.',
+      fileId: await upload('Stewardship declaration.pdf', ['Annual stewardship declaration.', 'I confirm the information on file is current.', '', 'Signature:']),
+      recipients: [1, 2, 3].map((n) => ({ kind: 'EXTERNAL' as const, name: `Declarant ${n}`, email: `declarant${n}@example.com` })),
+      fieldTemplate: [{ kind: 'SIGNATURE', page: 1, x: 0.1, y: 0.4, width: 0.3, height: 0.06 }],
+      reminderIntervalDays: 3,
+      idempotencyKey: 'seed-bulk-stewardship-2026',
+    });
+    log(`bulk batch ${out.batch.id} (${out.batch.created} created${out.replayed ? ', replayed' : ''})`);
+  } catch (e) {
+    log(`bulk send skipped: ${(e as Error).message}`);
+  }
+
+  // 3. Staff approval (maker-checker: another staff member approves).
+  if (other) {
+    await attempt('staff approval', () =>
+      requestStaffApproval(staff, { title: 'Approve revised dealing cut-off policy', summary: 'Moves the dealing cut-off from 11:00 to 10:30 UTC for all open-ended funds from 1 November.', reference: 'seed-policy-cutoff-2026', approverUserIds: [other.id] }),
+    );
+  } else log('no second staff user: staff approval not seeded');
+
+  // 4. Subscription pack for a pending commitment.
+  const commitment = await prisma.fundCommitment.findFirst({ where: { status: 'PENDING' }, orderBy: { createdAt: 'asc' } });
+  if (commitment) await attempt('subscription pack', () => requestCommitmentPack(staff, commitment.id, { countersignerUserId: other?.id }));
+  else log('no pending commitment: subscription pack not seeded');
+
+  // 5. Term sheet the company signed, waiting for the fund countersignature (not the issuer or author).
+  const ts = await prisma.termSheet.findFirst({ where: { status: 'SIGNED_BY_COMPANY' }, orderBy: { createdAt: 'asc' } });
+  const counter = other && other.id !== ts?.issuedById && other.id !== ts?.createdById ? other : null;
+  if (ts && counter) await attempt('term sheet countersignature', () => requestTermSheetCountersign(staff, ts.id, { countersignerUserId: counter.id }));
+  else log('no company-signed term sheet or eligible countersigner: countersignature not seeded');
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {

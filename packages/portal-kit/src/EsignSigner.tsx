@@ -131,6 +131,15 @@ export interface SignPanelProps {
   onSign: (p: { mode: 'TYPED' | 'DRAWN'; typedName?: string; drawnPng?: string; consent: boolean }) => Promise<void>;
   onDecline: (reason: string) => Promise<void>;
   onDone: (outcome: 'signed' | 'declined') => void;
+  /** Where the signature will be placed (from positioned fields), shown above the document. */
+  placement?: string;
+}
+
+/** "Your signature goes on page 2 (highlighted below)." from the signer's placed fields, or undefined when none. */
+function describePlacement(fields?: { kind: string; page: number }[] | null): string | undefined {
+  if (!fields?.length) return undefined;
+  const pages = [...new Set(fields.map((f) => f.page))].sort((a, b) => a - b);
+  return `Your ${fields.length === 1 ? 'signature box is' : `${fields.length} boxes (signature and details) are`} on page${pages.length === 1 ? '' : 's'} ${pages.join(', ')}, highlighted in the document below. Signing fills them in.`;
 }
 
 function SignPanel(p: SignPanelProps) {
@@ -177,6 +186,7 @@ function SignPanel(p: SignPanelProps) {
 
   return (
     <div>
+      {p.placement && <div style={{ ...S.card, background: C.soft }}>{p.placement}</div>}
       <div style={{ ...S.card, padding: 0, overflow: 'hidden' }}>
         {url ? <iframe title={p.title} src={url} style={{ width: '100%', height: 520, border: 0 }} /> : <div style={{ padding: 18 }} className="muted">Loading document…</div>}
         {url && (
@@ -250,6 +260,7 @@ interface MyRequest {
   actionable: boolean;
   me: { id: string; status: string; name: string; roleLabel: string | null; signedAt: string | null };
   signers: { name: string; roleLabel: string | null; status: string; signedAt: string | null }[];
+  myFields?: { kind: string; page: number; label: string | null }[];
 }
 interface MyDetail {
   request: MyRequest & { consent: { text: string } };
@@ -328,6 +339,7 @@ export function EsignInbox({ heading = 'Documents to sign' }: { heading?: string
         {open.actionable ? (
           <SignPanel
             title={r.title}
+            placement={describePlacement(r.myFields)}
             signerName={r.me.name}
             consentText={r.consent.text}
             loadPdf={() => call<Blob>(`/esign/me/requests/${r.id}/document`, { blob: true })}
@@ -435,6 +447,7 @@ interface PublicSummary {
   request: { ref: string; title: string; message: string | null; status: string; expiresAt: string | null };
   signer: { name: string; email: string; roleLabel: string | null; status: string };
   canSign: boolean;
+  myFields?: { kind: string; page: number }[];
 }
 
 export function EsignPublicSigner({ token }: { token: string }) {
@@ -522,6 +535,7 @@ export function EsignPublicSigner({ token }: { token: string }) {
       {sum && stage === 'sign' && (
         <SignPanel
           title={sum.request.title}
+          placement={describePlacement(sum.myFields)}
           signerName={sum.signer.name}
           consentText={`I, ${sum.signer.name}, agree to sign document ${sum.request.ref} electronically. I understand that my typed or drawn signature has the same legal effect as a handwritten signature, that my name, e-mail address, IP address and the time of signing are recorded in a tamper-evident audit trail, and that I may decline to sign instead.`}
           loadPdf={() => call<Blob>(`/esign/public/${t}/document`, { blob: true, headers: { 'x-esign-proof': proof } })}
@@ -549,9 +563,13 @@ interface VerifyResult {
   ref?: string;
   status?: string;
   completedAt?: string | null;
-  signers?: { name: string; roleLabel: string | null; signedAt: string | null }[];
+  signers?: { name: string; roleLabel: string | null; signedAt: string | null; identity?: string | null }[];
   chainIntact?: boolean | null;
   note?: string;
+  checks?: { name: string; ok: boolean }[];
+  signaturesPlaced?: number;
+  sealedSha256?: string | null;
+  originalSha256?: string;
 }
 
 export function EsignVerifier() {
@@ -596,15 +614,42 @@ export function EsignVerifier() {
             <strong>{result.ref}</strong> · {result.status?.toLowerCase()} · {result.note}
             {result.chainIntact === false && ' The recorded signature chain no longer verifies.'}
             {result.signers && (
-              <ul>
-                {result.signers.map((s, i) => (
-                  <li key={i}>
-                    {s.name}
-                    {s.roleLabel ? `, ${s.roleLabel}` : ''} - {when(s.signedAt)}
-                  </li>
-                ))}
-              </ul>
+              <>
+                <div style={{ marginTop: 10 }}>
+                  <strong>Signed by</strong>
+                </div>
+                <ul style={{ marginTop: 4 }}>
+                  {result.signers.map((s, i) => (
+                    <li key={i}>
+                      {s.name}
+                      {s.roleLabel ? `, ${s.roleLabel}` : ''} - {when(s.signedAt)}
+                      {s.identity ? ` (identity: ${s.identity.toLowerCase()})` : ''}
+                    </li>
+                  ))}
+                </ul>
+              </>
             )}
+            {result.signaturesPlaced ? <div style={{ marginTop: 6 }}>{result.signaturesPlaced} signature field{result.signaturesPlaced === 1 ? '' : 's'} placed on the document pages.</div> : null}
+            {result.checks && (
+              <>
+                <div style={{ marginTop: 10 }}>
+                  <strong>Integrity checks recomputed just now</strong>
+                </div>
+                <ul style={{ marginTop: 4 }}>
+                  {result.checks.map((c) => (
+                    <li key={c.name}>
+                      {c.ok ? 'Passed' : 'FAILED'}: {c.name}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {result.completedAt && <div style={{ marginTop: 6 }}>Completed {when(result.completedAt)}.</div>}
+            <div style={{ marginTop: 8, fontSize: 12, wordBreak: 'break-all', fontFamily: 'monospace' }}>
+              {result.sealedSha256 && <div>Sealed SHA-256: {result.sealedSha256}</div>}
+              {result.originalSha256 && <div>Original SHA-256: {result.originalSha256}</div>}
+              <div>Checked SHA-256: {result.sha256}</div>
+            </div>
           </div>
         ))}
     </div>

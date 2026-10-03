@@ -15,6 +15,8 @@ import {
   consentHash as makeConsentHash,
   consentText as makeConsentText,
   getESignAdapter,
+  esignMode,
+  stampPlaceholders,
   genesisHash,
   nextLink,
   sha256,
@@ -38,6 +40,7 @@ import {
   type SignerKind,
 } from './esign.logic';
 import { runCompletionHooks } from './esign.hooks';
+import { layoutCanonical, nextReminderAt, reminderDue, reminderPolicy, validateLayout, type FieldKind, MAX_REMINDER_CAP, MAX_REMINDER_INTERVAL_DAYS } from './esign.fields';
 
 const GENESIS_EVENT = '0'.repeat(64);
 const TX = { timeout: 45_000, maxWait: 10_000 } as const;
@@ -56,7 +59,7 @@ const auditCtx = (a: EsignActor): AuditContext => ({ actorId: a.userId, actorRol
 const ua = (a: EsignActor) => a.userAgent?.slice(0, 255) ?? null;
 
 type Tx = Prisma.TransactionClient;
-const requestInclude = { signers: { orderBy: [{ orderNo: 'asc' }, { createdAt: 'asc' }] } } satisfies Prisma.EsignRequestInclude;
+const requestInclude = { signers: { orderBy: [{ orderNo: 'asc' }, { createdAt: 'asc' }] }, fields: { orderBy: [{ page: 'asc' }, { y: 'asc' }, { x: 'asc' }] } } satisfies Prisma.EsignRequestInclude;
 type RequestFull = Prisma.EsignRequestGetPayload<{ include: typeof requestInclude }>;
 type SignerRow = RequestFull['signers'][number];
 
@@ -169,6 +172,49 @@ export interface CreateRequestInput {
   clientId?: string;
   companyId?: string;
   send?: boolean;
+  /** Positioned signature fields; signers are matched by (lower-cased) e-mail. Omit for the appended signature page only. */
+  fields?: FieldInput[];
+  reminderIntervalDays?: number;
+  reminderMax?: number;
+  bulkBatchId?: string;
+}
+
+export interface FieldInput {
+  signerEmail: string;
+  kind: FieldKind;
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  label?: string | null;
+}
+
+/** Validates inputs against the resolved signers and page count; returns rows ready to store. */
+function layoutFor(fields: FieldInput[] | undefined, signers: { email: string }[], pageCount: number) {
+  if (!fields?.length) return [];
+  try {
+    // `*` addresses "the only signer" (used by bulk templates, where each request has exactly one signer).
+    const only = signers.length === 1 ? signers[0]!.email.toLowerCase() : null;
+    return validateLayout(
+      fields.map((f) => ({ ...f, signerKey: f.signerEmail.trim() === '*' && only ? only : f.signerEmail.trim().toLowerCase() })),
+      pageCount,
+      signers.map((s) => s.email.toLowerCase()),
+    );
+  } catch (e) {
+    throw HttpError.badRequest((e as Error).message);
+  }
+}
+
+const layoutHashOf = (rows: { signerKey: string; kind: string; page: number; x: number; y: number; width: number; height: number }[]) =>
+  rows.length ? sha256(layoutCanonical(rows.map((r) => ({ ...r, signerEmail: r.signerKey })))) : null;
+
+function cadence(input: { reminderIntervalDays?: number | null; reminderMax?: number | null }) {
+  const iv = input.reminderIntervalDays;
+  const mx = input.reminderMax;
+  if (iv != null && (!Number.isInteger(iv) || iv < 1 || iv > MAX_REMINDER_INTERVAL_DAYS)) throw HttpError.badRequest(`Reminder interval must be 1 to ${MAX_REMINDER_INTERVAL_DAYS} days`);
+  if (mx != null && (!Number.isInteger(mx) || mx < 0 || mx > MAX_REMINDER_CAP)) throw HttpError.badRequest(`Reminders per signer must be 0 to ${MAX_REMINDER_CAP}`);
+  return { reminderIntervalDays: iv ?? null, reminderMax: mx ?? null };
 }
 
 interface ResolvedSigner {
@@ -244,7 +290,13 @@ async function loadPdfFile(fileId: string) {
     throw HttpError.badRequest('This PDF is encrypted or damaged and cannot be signed');
   }
   if (pages > 400) throw HttpError.badRequest('PDF has too many pages to sign');
-  return { file, data };
+  return { file, data, pages };
+}
+
+/** Page count + size of each page of a stored PDF (points). */
+export async function pageSizes(data: Buffer): Promise<{ page: number; width: number; height: number }[]> {
+  const doc = await PDFDocument.load(data, { ignoreEncryption: false, updateMetadata: false });
+  return doc.getPages().map((p, i) => ({ page: i + 1, width: Math.round(p.getWidth() * 100) / 100, height: Math.round(p.getHeight() * 100) / 100 }));
 }
 
 export async function createRequest(actor: EsignActor, input: CreateRequestInput, upload?: { name: string; data: Buffer }) {
@@ -264,8 +316,11 @@ export async function createRequest(actor: EsignActor, input: CreateRequestInput
     fileId = doc.versions[0].fileId;
   }
   if (!fileId) throw HttpError.badRequest('Choose a document from the document store or upload a PDF');
-  const { file, data } = await loadPdfFile(fileId);
+  const { file, data, pages } = await loadPdfFile(fileId);
   const signers = await resolveSigners(input);
+  const layout = layoutFor(input.fields, signers, pages);
+  const layoutHash = layoutHashOf(layout);
+  const cad = cadence(input);
 
   if (input.subjectType && input.subjectId) {
     const open = await prisma.esignRequest.findFirst({
@@ -296,10 +351,17 @@ export async function createRequest(actor: EsignActor, input: CreateRequestInput
         chainHead: genesisHash(ref, originalSha256),
         expiresAt: new Date(Date.now() + days * 86_400_000),
         createdById: actor.userId,
+        ...cad,
+        bulkBatchId: input.bulkBatchId ?? null,
         signers: { create: signers.map((s) => ({ kind: s.kind, userId: s.userId, name: s.name, email: s.email, roleLabel: s.roleLabel, orderNo: s.orderNo })) },
       },
+      include: { signers: true },
     });
-    await appendEvent(tx, req.id, 'CREATED', actor, { detail: { fileSha256: originalSha256, signers: signers.length, order: req.signingOrder } });
+    if (layout.length) {
+      const idByEmail = new Map(req.signers.map((s) => [s.email.toLowerCase(), s.id]));
+      await tx.esignField.createMany({ data: layout.map((f) => ({ requestId: req.id, signerId: idByEmail.get(f.signerKey)!, kind: f.kind, page: f.page, x: f.x, y: f.y, width: f.width, height: f.height, label: f.label ?? null })) });
+    }
+    await appendEvent(tx, req.id, 'CREATED', actor, { detail: { fileSha256: originalSha256, signers: signers.length, order: req.signingOrder, ...(layoutHash ? { fields: layout.length, fieldsSha256: layoutHash } : {}) } });
     await writeAudit(tx, auditCtx(actor), { action: 'esign.request.created', objectType: 'esign_request', objectId: req.id, after: { ref, title: req.title, subjectType: req.subjectType, subjectId: req.subjectId, signers: signers.map((s) => s.email) } });
     if (input.send !== false) await startTx(tx, req.id, actor);
     return req.id;
@@ -322,6 +384,43 @@ export async function sendRequest(actor: EsignActor, idOrRef: string) {
   const req = await loadFull(prisma, idOrRef);
   await prisma.$transaction((tx) => startTx(tx, req.id, actor), TX);
   return getRequestView(req.id);
+}
+
+/** Replaces the placed fields of a DRAFT request (fields are locked once the request is sent). Idempotent for the same layout. */
+export async function setFields(actor: EsignActor, idOrRef: string, fields: FieldInput[]) {
+  const found = await loadFull(prisma, idOrRef);
+  const { pages } = await loadPdfFile(found.fileId);
+  const layout = layoutFor(fields, found.signers, pages);
+  const hash = layoutHashOf(layout);
+  await prisma.$transaction(async (tx) => {
+    await lockRequest(tx, found.id);
+    const req = await loadFull(tx, found.id);
+    if (req.status !== 'DRAFT') throw HttpError.conflict('Signature fields can only be changed before the request is sent', 'esign_fields_locked');
+    const idByEmail = new Map(req.signers.map((s) => [s.email.toLowerCase(), s.id]));
+    await tx.esignField.deleteMany({ where: { requestId: req.id } });
+    if (layout.length) {
+      await tx.esignField.createMany({ data: layout.map((f) => ({ requestId: req.id, signerId: idByEmail.get(f.signerKey)!, kind: f.kind, page: f.page, x: f.x, y: f.y, width: f.width, height: f.height, label: f.label ?? null })) });
+    }
+    await tx.esignRequest.update({ where: { id: req.id }, data: { version: { increment: 1 } } });
+    await appendEvent(tx, req.id, 'FIELDS_SET', actor, { detail: { fields: layout.length, fieldsSha256: hash } });
+    await writeAudit(tx, auditCtx(actor), { action: 'esign.request.fields_set', objectType: 'esign_request', objectId: req.id, after: { ref: req.ref, fields: layout.length, fieldsSha256: hash } });
+  }, TX);
+  return getRequestView(found.id);
+}
+
+/** Changes the reminder cadence of a request that is still open. */
+export async function setReminderCadence(actor: EsignActor, idOrRef: string, input: { reminderIntervalDays?: number | null; reminderMax?: number | null }) {
+  const cad = cadence(input);
+  const found = await loadFull(prisma, idOrRef);
+  await prisma.$transaction(async (tx) => {
+    await lockRequest(tx, found.id);
+    const req = await loadFull(tx, found.id);
+    if (!['DRAFT', 'PENDING'].includes(req.status)) throw HttpError.conflict('Reminders can only be changed on a draft or open request', 'esign_not_open');
+    await tx.esignRequest.update({ where: { id: req.id }, data: { ...cad, version: { increment: 1 } } });
+    await appendEvent(tx, req.id, 'CADENCE_CHANGED', actor, { detail: cad });
+    await writeAudit(tx, auditCtx(actor), { action: 'esign.request.cadence_changed', objectType: 'esign_request', objectId: req.id, before: { reminderIntervalDays: req.reminderIntervalDays, reminderMax: req.reminderMax }, after: cad });
+  }, TX);
+  return getRequestView(found.id);
 }
 
 // ------------------------------------------------------------------ resend / void / expire
@@ -392,17 +491,20 @@ export async function scanEsign(): Promise<{ expired: number; reminded: number }
     }, TX);
     expired += 1;
   }
-  const due = await prisma.esignSigner.findMany({
-    where: { status: 'PENDING', reminderCount: { lt: MAX_REMINDERS }, notifiedAt: { lt: new Date(now.getTime() - REMINDER_AFTER_MS) }, request: { status: 'PENDING', expiresAt: { gt: now } } },
-    select: { id: true, requestId: true },
-    take: 100,
+  // Per-request cadence (interval + cap); candidates are pre-filtered by the shortest interval and the global cap.
+  const candidates = await prisma.esignSigner.findMany({
+    where: { status: 'PENDING', reminderCount: { lt: MAX_REMINDER_CAP }, notifiedAt: { lt: new Date(now.getTime() - 86_400_000) }, request: { status: 'PENDING', expiresAt: { gt: now } } },
+    select: { id: true, requestId: true, reminderCount: true, notifiedAt: true, request: { select: { reminderIntervalDays: true, reminderMax: true } } },
+    take: 400,
   });
+  const due = candidates.filter((c) => reminderDue(c, reminderPolicy(c.request), now)).slice(0, 100);
   for (const d of due) {
     await prisma.$transaction(async (tx) => {
       await lockRequest(tx, d.requestId);
       const req = await loadFull(tx, d.requestId);
       const s = req.signers.find((x) => x.id === d.id);
       if (!s || s.status !== 'PENDING' || req.status !== 'PENDING') return;
+      if (!reminderDue(s, reminderPolicy(req), new Date())) return;
       const token = s.kind === 'EXTERNAL' ? await issueToken(tx, s, req.expiresAt) : null;
       await notifySigner(tx, req, s, token, 'REMINDER');
       await tx.esignSigner.update({ where: { id: s.id }, data: { reminderCount: { increment: 1 } } });
@@ -570,6 +672,8 @@ async function completeTx(tx: Tx, req: RequestFull, signersIn: SignerRow[], acto
     completedAt,
     chainHead,
     signers: signers.map((s) => toSealSigner(s, req.ref)),
+    fields: req.fields.map((f) => ({ signerId: f.signerId, kind: f.kind as FieldKind, page: f.page, x: f.x, y: f.y, width: f.width, height: f.height })),
+    fieldsSha256: layoutHashOf(req.fields.map((f) => ({ signerKey: req.signers.find((s) => s.id === f.signerId)?.email ?? '', kind: f.kind, page: f.page, x: f.x, y: f.y, width: f.width, height: f.height }))),
     events: [
       ...events.map((e) => ({ at: e.occurredAt, type: e.type, who: e.signerId ? (nameById.get(e.signerId) ?? null) : null, ip: e.ip })),
       { at: completedAt, type: 'COMPLETED', who: null, ip: null },
@@ -709,15 +813,26 @@ export function signerSideView(r: RequestFull, me: SignerRow) {
     hasSealed: !!r.sealedFileId,
     me: { id: me.id, status: me.status, name: me.name, roleLabel: me.roleLabel, signedAt: me.signedAt },
     signers: r.signers.map((s) => ({ name: s.name, roleLabel: s.roleLabel, status: s.status, signedAt: s.signedAt, orderNo: s.orderNo })),
+    myFields: r.fields.filter((f) => f.signerId === me.id).map((f) => ({ kind: f.kind, page: f.page, label: f.label })),
     consent: { version: CONSENT_VERSION, text: makeConsentText(me.name, r.ref, r.originalSha256) },
   };
 }
 
 /** Bytes the signer may see: sealed copy once completed, otherwise the original. */
-export async function fileForSigner(req: RequestFull, variant: 'document' | 'certificate' = 'document') {
+export async function fileForSigner(req: RequestFull, variant: 'document' | 'certificate' = 'document', signer?: SignerRow) {
   const id = variant === 'certificate' ? req.certificateFileId : (req.sealedFileId ?? req.fileId);
   if (!id) throw HttpError.notFound('Not available yet');
-  return readFileObject(id);
+  const out = await readFileObject(id);
+  // While the request is open the signer sees their own boxes highlighted where the signature will be placed.
+  const mine = signer && variant === 'document' && !req.sealedFileId && signer.status === 'PENDING' ? req.fields.filter((f) => f.signerId === signer.id) : [];
+  if (!mine.length) return out;
+  try {
+    const doc = await PDFDocument.load(out.data, { updateMetadata: false });
+    await stampPlaceholders(doc, mine.map((f) => ({ signerId: signer!.id, kind: f.kind as FieldKind, page: f.page, x: f.x, y: f.y, width: f.width, height: f.height, label: 'you' })));
+    return { ...out, data: Buffer.from(await doc.save()) };
+  } catch {
+    return out;
+  }
 }
 
 // ------------------------------------------------------------------ staff views / verification
@@ -734,6 +849,8 @@ const signerView = (s: SignerRow) => ({
   identityMethod: s.identityMethod,
   notifiedAt: s.notifiedAt,
   reminderCount: s.reminderCount,
+  fieldCount: 0,
+  nextReminderAt: null as Date | null,
   viewedAt: s.viewedAt,
   signedAt: s.signedAt,
   declinedAt: s.declinedAt,
@@ -771,7 +888,14 @@ export function requestView(r: RequestFull) {
     createdAt: r.createdAt,
     createdById: r.createdById,
     progress: { signed, total: r.signers.length },
-    signers: r.signers.map(signerView),
+    reminder: { ...reminderPolicy(r), custom: r.reminderIntervalDays !== null || r.reminderMax !== null },
+    bulkBatchId: r.bulkBatchId,
+    fields: r.fields.map((f) => ({ id: f.id, signerId: f.signerId, kind: f.kind, page: f.page, x: f.x, y: f.y, width: f.width, height: f.height, label: f.label })),
+    signers: r.signers.map((s) => ({
+      ...signerView(s),
+      fieldCount: r.fields.filter((f) => f.signerId === s.id).length,
+      nextReminderAt: r.status === 'PENDING' && s.status === 'PENDING' ? nextReminderAt(s, reminderPolicy(r)) : null,
+    })),
   };
 }
 
@@ -838,6 +962,22 @@ export async function integrityReport(idOrRef: string) {
     prev = e.hash;
   }
   checks.push({ name: 'Audit event chain', ok: evOk });
+  const layoutEvent = [...events].reverse().find((e) => e.type === 'FIELDS_SET') ?? events.find((e) => e.type === 'CREATED');
+  const recordedLayout = ((layoutEvent?.detail ?? null) as { fieldsSha256?: string | null } | null)?.fieldsSha256 ?? null;
+  if (r.fields.length || recordedLayout) {
+    const current = layoutHashOf(r.fields.map((f) => ({ signerKey: r.signers.find((s) => s.id === f.signerId)?.email ?? '', kind: f.kind, page: f.page, x: f.x, y: f.y, width: f.width, height: f.height })));
+    checks.push({ name: 'Signature field layout', ok: !!recordedLayout && current === recordedLayout, detail: recordedLayout ? undefined : 'layout was not recorded' });
+  }
+  if (r.status === 'COMPLETED' && r.sealedFileId && esignMode() === 'native') {
+    try {
+      const { data } = await readFileObject(r.sealedFileId);
+      const kw = (await PDFDocument.load(data, { updateMetadata: false })).getKeywords() ?? '';
+      const ok = kw.includes(`esign:${r.ref}`) && kw.includes(`orig:${r.originalSha256}`) && (!r.chainHead || kw.includes(`chain:${r.chainHead}`));
+      checks.push({ name: 'Sealed PDF embeds reference, original hash and chain head', ok });
+    } catch {
+      checks.push({ name: 'Sealed PDF embeds reference, original hash and chain head', ok: false, detail: 'sealed file unreadable' });
+    }
+  }
   if (r.status === 'COMPLETED') {
     for (const [label, id, expected] of [
       ['Sealed PDF hash', r.sealedFileId, r.sealedSha256],
@@ -870,8 +1010,12 @@ export async function verifyByHash(hash: string) {
     ref: r.ref,
     status: r.status,
     completedAt: r.completedAt,
-    signers: r.status === 'COMPLETED' ? r.signers.map((s) => ({ name: s.name, roleLabel: s.roleLabel, signedAt: s.signedAt })) : undefined,
+    signers: r.status === 'COMPLETED' ? r.signers.map((s) => ({ name: s.name, roleLabel: s.roleLabel, signedAt: s.signedAt, identity: s.identityMethod === 'SESSION' ? 'Authenticated session' : s.identityMethod === 'EMAIL_OTP' ? 'E-mail one-time code' : null })) : undefined,
     chainIntact: report?.ok ?? null,
+    checks: report ? report.checks.map((c) => ({ name: c.name, ok: c.ok })) : undefined,
+    signaturesPlaced: r.status === 'COMPLETED' ? r.fields.length : undefined,
+    sealedSha256: r.status === 'COMPLETED' ? r.sealedSha256 : undefined,
+    originalSha256: r.originalSha256,
     note: sealed
       ? 'This is the sealed document exactly as completed.'
       : r.status === 'COMPLETED'
