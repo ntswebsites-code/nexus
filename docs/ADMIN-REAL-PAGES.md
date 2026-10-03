@@ -952,3 +952,54 @@ The system actor (`lib/system.ts`, shown as "System") is the maker, so a human w
 - The hold is kept through fills until the settlement journal posts, so "consume on fill" is deliberately "consume on settlement posting": consuming earlier would free cash that has not left the ledger.
 - Operations: no calendar, no workload or cash-deadline charts, no per-task comments, no CSV button in the UI (the endpoint exists). Cash readiness uses the previous month end for the first 25 portfolios.
 - Command Centre has the KPI and queue panels only; performance chart, allocation and scenario panels are not built.
+## IBOR & Positions and Performance & Attribution
+
+SRD 5.A.14 (`ibor`, `portfolio.view`) and 5.A.8 (`performance`, `reports.view`), BR-030, FR-PERF-001..003. Migration `20261007100000_ibor_performance`; modules `backend/api/src/modules/ibor` and `.../performance`; Prisma block `// ---- IborPerformance ----`.
+
+### What is real
+
+- **IBOR book.** Positions, prices, FX, orders, fills, cash and reconciliations stay in their modules; IBOR reads them (`getPortfolioSnapshot`) and adds `ibor_lots` (tax lots, FIFO), `ibor_events` (sequenced lineage, refs `IBE-000001`) and `ibor_snapshots` (refresh runs, `IBR-1001`). A **refresh** books each unprocessed order fill (idempotent on the fill id) into lots, consumes lots first in first out on sells, opens an OPENING lot from the position record where none exists, and books any remaining difference between lots and the position record as an ADJUSTMENT event (corporate actions, manual corrections).
+- **Unsettled activity and available-to-trade.** Fills on orders not yet Settled are unsettled; settlement date is trade date + 3 business days (`SETTLEMENT_DAYS` in `ibor.engine.ts`). Settled = held - unsettled buys + unsettled sells; available = settled - unsettled sells - remaining open sell orders; private assets are Restricted. The **ladder** buckets unsettled fills Overdue / Today / T+1 / T+2 / T+3 / Later with net cash per currency. Available cash is the portfolio cash record less live cash reservations.
+- **Book health.** Lots agree with positions, all fills ingested, positions priced, and holdings reconciled. The reconciliation **hook** runs the Reconciliations module's HOLDINGS family for the portfolio (`executeRun`) and records a RECON event; open HOLDINGS breaks mark positions Review.
+- **Performance.** Daily time-weighted return from position history, price history, FX and cash, with posted client deposits and withdrawals (cash journals) neutralised at the start of the day. Benchmarks are `perf_benchmarks` with target-weight constituents (by security, plus an optional cash sleeve), held constant-mix. **Brinson-Fachler** attribution by sector (allocation, selection, interaction on average start-of-day weights and linked sector returns) with an explicit "linking, trading and timing" line, and a contribution table by security whose rows (with residual and compounding lines) sum to the return. Charts and tables drill to IBOR positions and orders.
+- **Official periods (BR-030).** `perf_periods` (`PRF-1001`) stores the return, series, attribution, contributions and the five controls as evidence. DRAFT is prepared by `reports.create`; **lock** needs `performance.lock` + step-up, a different person from the preparer, all five controls done (IBOR positions reconciled, cash reconciled, valuation sources approved, composite membership review, fees and flows validated, each computed live) and an unchanged data hash. A locked period is immutable; a **correction** is a new version with a reason, and locking it marks the earlier version SUPERSEDED.
+
+### Endpoints
+
+| Route | Permission |
+| --- | --- |
+| `GET /ibor/overview`, `/ledger`, `/settlement-ladder`, `/health`, `/lots`, `/events`, `/snapshots`, `/position` | `portfolio.view` (existing `GET /ibor/positions` is unchanged) |
+| `POST /ibor/refresh` | `portfolio.view` + `portfolio.manage`, idempotent |
+| `POST /ibor/reconcile` | `portfolio.view` + `recon.manage`, idempotent |
+| `GET /performance/returns`, `/attribution`, `/summary`, `/benchmarks`, `/periods`, `/periods/:id` | `reports.view` |
+| `POST /performance/periods`, `/periods/:id/recompute`, `/periods/:id/correct`, `POST /benchmarks`, `PUT /benchmarks/:id/constituents` | `reports.view` + `reports.create` |
+| `POST /performance/periods/:id/lock` | `reports.view` + `performance.lock` + step-up (not the preparer) |
+
+New permission code `performance.lock` (added to `investment_director`, `compliance` and `fund_accountant`, the roles that hold `valuation.release`; also in the admin protected list). All other codes already exist.
+
+### Console
+
+`/ops/ibor` (nav "Portfolio", `portfolio.view`): control bar tiles, six KPI tiles, filterable Position ledger with Open, Position & cash ladder, Authoritative-data controls, Book events & lineage, header actions Refresh IBOR and Reconcile positions. `/ops/ibor/position?portfolioId=&securityId=` is the Position second layer (Position ledger, Lots & settlement, Reconciliation, History). `/ops/performance` (`reports.view`): returns by portfolio, cumulative return chart, Allocation & selection, Contributions, Official-return controls, Periods, Benchmarks (create, edit composition); `Prepare official period`. `/ops/performance/[id]` shows the stored evidence, live controls for a draft, Recompute, Lock official return and Start correction. Typecheck only; no browser verification was done.
+
+### Demo seed
+
+`prisma/seed-ibor-performance.ts` (called by `seed-uat.ts` and `seed-demo.ts`, also standalone, idempotent): about 60 weekdays of deterministic price and FX history before the earliest seeded price, one backdated position and cash row per portfolio at the start of that history, opening lots and OPENING events for every current position, and benchmark compositions for the benchmark names the seeded portfolios carry (the "USD LIBOR + 3%" portfolio has none, so its composite control stays open). Seeded prices end in August 2026, so a period ending later shows a stale-price warning.
+
+### Running the test
+
+```
+# disposable DB only; same steps as the other modules
+cd backend/api
+npx prisma migrate deploy --schema prisma/schema.prisma
+npx tsx --env-file-if-exists=../../.env prisma/seed.ts
+API_PORT=4181 npx tsx --env-file-if-exists=../../.env src/server.ts      # another terminal; FILE_ENCRYPTION_KEY must be set
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exists=../../.env scripts/test-ibor-performance.ts
+```
+
+`scripts/test-ibor-performance.ts` covers the pure rules, permissions, lots from fills, idempotent refresh, drift, the ladder, the reconciliation hook, returns against a hand calculation, attribution sums, benchmarks, the lock (step-up, segregation, controls, immutability) and corrections. It was typechecked but **not run** (no local database was started).
+
+### Not done
+
+- Money values in the return maths use floating point (returns are fractions; stored money is rounded to 4 dp). No multi-period linking (Carino) of attribution, no currency or trading-implementation effects, no composites across portfolios.
+- External flows come only from posted CLIENT_DEPOSIT / CLIENT_WITHDRAWAL cash journals; the portfolio cash record is not updated by those journals, so a deposit that was not also written to `portfolio_cash` would distort a period (the cash control compares ledger and book cash to catch this).
+- The refresh is a manual action, not a job or event stream; accrued income covers confirmed, unpaid corporate-action cash only (no bond coupons); settlement days are a constant, not a calendar; no ISIN search; "Historical snapshot" re-values positions as of a date but does not replay lots.
