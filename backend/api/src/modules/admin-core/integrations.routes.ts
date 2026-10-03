@@ -189,21 +189,6 @@ const todayStr = () => new Date().toISOString().slice(0, 10);
 const marketBody = z.object({ date: day.optional(), tickers: z.array(z.string().trim().min(1).max(24)).max(500).optional() }).strict();
 
 /**
- * Legacy entry points kept for old clients. They no longer write prices themselves: they delegate to the same
- * refresh the scheduler and the market-data API use, so every value goes through the sanity bounds, produces
- * a run record with provenance and exceptions, and can be undone (ISS-ADA-019).
- */
-async function marketDataSync(req: Request, res: Response) {
-  const b = req.body as z.infer<typeof marketBody>;
-  const now = b.date ? new Date(`${b.date}T12:00:00.000Z`) : new Date();
-  if (now.getTime() - DAY_MS > Date.now()) throw HttpError.badRequest('Validation failed', [{ path: 'date', message: 'A feed date cannot be in the future' }]);
-  try {
-    const summary = await refreshMarketData({ trigger: 'MANUAL', scope: 'ALL', tickers: b.tickers, force: true, now, userId: req.user!.id, audit: audit(req) });
-    res.status(201).json({ data: summary });
-  } catch (e) {
-    if (e instanceof IntegrationNotConfiguredError) throw new HttpError(503, e.code, e.message, { requiredEnv: e.requiredEnv });
-    throw e;
-  }
  * Legacy entry point for the simulated market-data feed. It no longer writes prices itself: it delegates to the
  * validated refresh (sanity bounds, exception records, run record, provenance, undo) and only runs while the provider is the fake one.
  */
