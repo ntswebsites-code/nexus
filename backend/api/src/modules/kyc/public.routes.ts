@@ -49,6 +49,18 @@ const CONSENT_VERSION = 'v65-2026-10';
 // No `.default()` on these: zod 4 applies defaults even under `.optional()`, which would turn
 // a bare `{ consent: true }` submit into an empty form that overwrites the draft.
 const formFields = z.record(z.string(), z.string().max(4000));
+/** Value checks applied on submit only: autosave must accept half-typed values. */
+const formChecked = formFields.superRefine((f, ctx) => {
+  const bad = (key: string, message: string) => ctx.addIssue({ code: 'custom', path: [key], message });
+  for (const k of ['annualVolume', 'initialInvestment']) {
+    const v = (f[k] ?? '').trim();
+    if (v && (!/^\d+(\.\d+)?$/.test(v) || Number(v) < 0)) bad(k, 'Enter an amount of zero or more');
+  }
+  const swift = (f.swift ?? '').trim();
+  if (swift && !/^[A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}([A-Za-z0-9]{3})?$/.test(swift)) bad('swift', 'SWIFT / BIC must be 8 or 11 characters');
+  const acct = (f.bankAccount ?? '').trim();
+  if (acct && !/^(?=.*\d)[A-Za-z0-9 -]{4,40}$/.test(acct)) bad('bankAccount', 'Enter a valid account number or IBAN');
+});
 const ownerObject = z.object({
   name: z.string().max(200).default(''),
   nationality: z.string().max(80).optional(),
@@ -242,6 +254,26 @@ publicOnboardingRoutes.patch('/applications/:id', validateBody(patchSchema), asy
   res.json({ ok: true, savedAt: new Date().toISOString() });
 });
 
+/** Content sniffing: the declared name / MIME is not trusted. Executables are always refused; known types must carry their signature. */
+function assertContentMatches(name: string, data: Buffer) {
+  const head = data.subarray(0, 12);
+  const starts = (sig: number[]) => sig.every((b, i) => head[i] === b);
+  const executable = starts([0x4d, 0x5a]) || starts([0x7f, 0x45, 0x4c, 0x46]) || starts([0x23, 0x21]) || starts([0xca, 0xfe, 0xba, 0xbe]) || starts([0xcf, 0xfa, 0xed, 0xfe]);
+  if (executable) throw HttpError.badRequest('This file looks like a program, not a document, and was not accepted', { reason: 'content_not_allowed' });
+  const ext = name.toLowerCase().split('.').pop() ?? '';
+  const sigs: Record<string, number[][]> = {
+    pdf: [[0x25, 0x50, 0x44, 0x46]],
+    png: [[0x89, 0x50, 0x4e, 0x47]],
+    jpg: [[0xff, 0xd8, 0xff]],
+    jpeg: [[0xff, 0xd8, 0xff]],
+    docx: [[0x50, 0x4b, 0x03, 0x04]],
+    xlsx: [[0x50, 0x4b, 0x03, 0x04]],
+    zip: [[0x50, 0x4b, 0x03, 0x04]],
+  };
+  const want = sigs[ext];
+  if (want && !want.some(starts)) throw HttpError.badRequest(`The content of this file does not match its .${ext} type`, { reason: 'content_type_mismatch' });
+}
+
 /** Evidence upload for one slot (replaces any earlier file for the slot). V65 card keys are accepted. */
 publicOnboardingRoutes.post('/applications/:id/evidence', uploadFiles('file', 1), async (req, res) => {
   const app = await draftFor(req, { allowSubmitted: true });
@@ -253,6 +285,7 @@ publicOnboardingRoutes.post('/applications/:id/evidence', uploadFiles('file', 1)
   }
   const [file] = uploadedFiles(req);
   if (!file) throw HttpError.badRequest('Attach a file');
+  assertContentMatches(file.originalname, file.buffer);
   let stored: Awaited<ReturnType<typeof storeFile>>;
   try {
     stored = await storeFile({ name: file.originalname, mime: file.mimetype, data: file.buffer, applicationId: app.id });
@@ -305,7 +338,7 @@ publicOnboardingRoutes.post('/applications/:id/evidence', uploadFiles('file', 1)
 
 const submitSchema = z.object({
   consent: z.literal(true),
-  form: formFields.optional(),
+  form: formChecked.optional(),
   owners: ownersSchema.optional(),
   signatories: signatoriesSchema.optional(),
   directors: signatoriesSchema.optional(),

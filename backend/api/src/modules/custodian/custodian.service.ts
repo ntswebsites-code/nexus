@@ -174,9 +174,9 @@ export function tradeControlFor(p: Pick<CounterpartyDayEndPackage, 'counterparty
   });
 }
 
-/** Declared control totals that disagree with the executions received (count mismatch alone is reported, not blocking). */
+/** Declared control totals (trade count, and quantity / notional when declared) that disagree with the executions received. */
 export function totalsMismatch(c: Awaited<ReturnType<typeof tradeControl>>): string | null {
-  const bad = [c.quantity && !c.quantity.matches ? `quantity declared ${c.quantity.declared}, received ${c.quantity.received}` : null, c.notional && !c.notional.matches ? `notional declared ${c.notional.declared}, received ${c.notional.received}` : null].filter(Boolean);
+  const bad = [!c.matches ? `trade count declared ${c.tradeCount}, received ${c.executionsReceived}` : null, c.quantity && !c.quantity.matches ? `quantity declared ${c.quantity.declared}, received ${c.quantity.received}` : null, c.notional && !c.notional.matches ? `notional declared ${c.notional.declared}, received ${c.notional.received}` : null].filter(Boolean);
   return bad.length ? bad.join('; ') : null;
 }
 

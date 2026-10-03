@@ -159,6 +159,9 @@ export function Wizard() {
         const stored = (f.key === 'taxId' && onFile.taxId) || (f.key === 'bankAccount' && onFile.bankAccount);
         if (f.required && !v && !stored) e[f.key] = `${f.label} is required`;
         if (f.type === 'email' && v && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) e[f.key] = 'Enter a valid email address';
+        if (f.type === 'number' && v && (!/^\d+(\.\d+)?$/.test(v) || Number(v) < 0)) e[f.key] = 'Enter an amount of zero or more';
+        if (f.key === 'swift' && v && !/^[A-Za-z]{4}[A-Za-z]{2}[A-Za-z0-9]{2}([A-Za-z0-9]{3})?$/.test(v)) e[f.key] = 'SWIFT / BIC must be 8 or 11 characters';
+        if (f.key === 'bankAccount' && v && !/^(?=.*\d)[A-Za-z0-9 -]{4,40}$/.test(v)) e[f.key] = 'Enter a valid account number or IBAN';
         if (f.type === 'url' && v && !/^https?:\/\//i.test(v)) e[f.key] = 'Start with http:// or https://';
       });
     if (stepKey === 'investor') need(INVESTOR_FIELDS);

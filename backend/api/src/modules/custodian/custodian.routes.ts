@@ -291,7 +291,13 @@ custodianRoutes.post(
       });
       return row;
     });
-    res.status(201).json({ package: dayEndView(pkg, stored) });
+    // BR-194 early warning: another Draft for the same key will fail on submit with package_exists once one is active.
+    const otherDrafts = await prisma.counterpartyDayEndPackage.findMany({
+      where: { counterpartyId: c.id, accountRef: b.accountRef, currency: b.currency, statementDate, status: 'Draft', id: { not: pkg.id } },
+      select: { ref: true },
+    });
+    const warnings = otherDrafts.map((d) => `Draft ${d.ref} already exists for this account, date and currency`);
+    res.status(201).json({ package: dayEndView(pkg, stored), warnings });
   },
 );
 
