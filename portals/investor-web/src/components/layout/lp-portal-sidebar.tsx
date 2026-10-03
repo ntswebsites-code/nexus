@@ -16,6 +16,7 @@ import {
   Mail,
   MessageSquareText,
   ReceiptText,
+  PenLine,
   Repeat2,
   Settings,
   TrendingUp,
@@ -43,6 +44,7 @@ const baseNavigation = [
   { label: "Requests", href: "/lp-portal/requests", icon: Mail, countKey: "requests" as const },
   { label: "Messages", href: "/lp-portal/requests?tab=messages", icon: MessageSquareText, countKey: "messages" as const },
   { label: "Notices", href: "/lp-portal/notices", icon: BellRing, countKey: "notices" as const },
+  { label: "Signatures", href: "/lp-portal/signatures", icon: PenLine },
   { label: "My Organisation", href: "/lp-portal/organisation", icon: Building2 },
   { label: "Settings", href: "/lp-portal/settings", icon: Settings },
 ]

@@ -37,6 +37,7 @@ import { regulatoryRoutes } from '../modules/regulatory';
 import { dataRoutes } from '../modules/data-fabric';
 import { modelRoutes } from '../modules/model-governance';
 import { adminCoreRoutes } from '../modules/admin-core';
+import { esignRoutes } from '../modules/esign';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
@@ -86,6 +87,8 @@ v1Router.use('/data', dataRoutes);
 v1Router.use('/model-governance', modelRoutes);
 // Admin Core: /admin-core/* (RBAC change requests, access reviews, SoD, platform settings, audit facets, Copilot).
 v1Router.use('/admin-core', adminCoreRoutes);
+// Native e-signature: /esign/* (staff requests, signed-in signers at /me, external token signers + verifier at /public).
+v1Router.use('/esign', esignRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

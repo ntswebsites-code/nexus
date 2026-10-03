@@ -5,6 +5,7 @@ import type { EmailPayload, NotifyPermissionPayload, NotifyUsersPayload } from '
 import { runScreening } from './modules/kyc/screening';
 import { scanReportingReminders } from './modules/company/reminders';
 import { runDueSchedules } from './modules/reports';
+import { scanEsign } from './modules/esign';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -51,6 +52,7 @@ const handlers: Record<string, (payload: unknown) => Promise<void>> = {
 
 let lastReminderScan = 0;
 let lastReportScan = 0;
+let lastEsignScan = 0;
 
 async function tick() {
   if (Date.now() - lastReportScan > 60 * 60 * 1000) {
@@ -71,6 +73,16 @@ async function tick() {
     } catch (error) {
       console.error('[worker] reporting reminder scan failed', error);
       lastReminderScan = 0;
+    }
+  }
+  if (Date.now() - lastEsignScan > 15 * 60 * 1000) {
+    lastEsignScan = Date.now();
+    try {
+      const r = await scanEsign();
+      if (r.expired || r.reminded) console.log(`[worker] esign: expired ${r.expired}, reminders ${r.reminded}`);
+    } catch (error) {
+      console.error('[worker] esign scan failed', error);
+      lastEsignScan = 0;
     }
   }
   const events = await prisma.outboxEvent.findMany({

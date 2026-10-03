@@ -433,4 +433,5 @@ export async function seedDemo() {
   await (await import('./seed-clients-onboarding')).seedClientsOnboarding();
   await (await import('./seed-reports')).seedReports();
   await (await import('./seed-admin-core')).seedAdminCore();
+  await (await import('./seed-esign')).seedEsign();
 }

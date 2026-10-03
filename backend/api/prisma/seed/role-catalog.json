@@ -48,7 +48,10 @@
         "financing.manage",
         "financing.approve",
         "reports.approve",
-        "model.approve"
+        "model.approve",
+        "esign.view",
+        "esign.manage",
+        "esign.void"
       ]
     },
     {
@@ -167,7 +170,10 @@
         "documents.approve",
         "reports.approve",
         "reports.submit",
-        "model.approve"
+        "model.approve",
+        "esign.view",
+        "esign.manage",
+        "esign.void"
       ]
     },
     {
@@ -209,7 +215,9 @@
         "custodian.view",
         "custodian.review",
         "financing.manage",
-        "data.manage"
+        "data.manage",
+        "esign.view",
+        "esign.manage"
       ]
     },
     {
@@ -253,7 +261,8 @@
         "performance.lock",
         "private.mark.approve",
         "data.manage",
-        "reports.submit"
+        "reports.submit",
+        "esign.view"
       ]
     },
     {
@@ -277,7 +286,9 @@
         "notices.view",
         "notices.create",
         "notices.publish",
-        "dealing.view"
+        "dealing.view",
+        "esign.view",
+        "esign.manage"
       ]
     },
     {
@@ -301,7 +312,8 @@
         "notices.view",
         "dealing.view",
         "term_sheets.view",
-        "custodian.view"
+        "custodian.view",
+        "esign.view"
       ]
     },
     {
@@ -335,7 +347,10 @@
         "dealing.view",
         "term_sheets.view",
         "custodian.view",
-        "data.manage"
+        "data.manage",
+        "esign.view",
+        "esign.manage",
+        "esign.void"
       ]
     },
     {

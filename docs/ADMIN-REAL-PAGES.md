@@ -1172,3 +1172,26 @@ Test: `npx tsx scripts/test-admin-core.ts` (engine rules, no database needed). T
 - No LLM; unrecognised questions get a help message. Copilot does not add values across currencies.
 - Retention, notification and most feature-flag settings are recorded but not yet read by other modules. No scheduled purge.
 - Custom permission codes cannot be created; role creation and staff invitation still use the direct `/admin` endpoints.
+
+## E-signatures (`/ops/esign`)
+
+Migration `20261030100000_esign` (tables `esign_requests`, `esign_signers`, `esign_events`; no columns added to existing tables). API `/api/v1/esign/*` (module `backend/api/src/modules/esign`), adapter `backend/api/src/integrations/esign` (`INTEGRATION_ESIGN=native|live`; `live` is a `NotConfiguredError` stub for a future vendor). Native sealing uses `pdf-lib` (MIT); there is no paid vendor. Files use the existing `lib/storage.ts` (no object-storage adapter exists yet).
+
+- **Requests** run on a PDF from the document store or an uploaded PDF. Signers can be staff, LP signatories (signatory or manager role), investee users with signing authority, or external e-mail signers. Order is parallel or sequential (signers sharing an order number sign together). Statuses: draft, pending, completed, declined, voided, expired.
+- **Identity**: signed-in signers sign from their portal under the existing step-up (authenticator code if enrolled); external signers open a one-time link (`ONBOARDING_PORTAL_URL/sign/<token>`), then confirm a 6-digit e-mail code sent through the outbox mailer (10 minutes, 5 attempts). Signature is typed or drawn, with a versioned consent text that is hashed.
+- **Seal**: every signature joins a SHA-256 chain (`genesis = ref + original hash`, each link covers signer, time, IP, method, signature, consent and document hash). On the last signature the original pages get a seal footer, a signature page with stamped signatures and an audit block is appended, followed by a certificate of completion (signers, IPs, timestamps, hashes, consent text, event trail). The sealed PDF and a stand-alone certificate are stored; the sealed hash is recorded; if the request came from a document, the sealed copy becomes its next version. A completed request cannot be changed or voided. Each request also has its own hash-chained event log, and every action writes the platform audit log.
+- **Verify**: staff `GET /esign/requests/:id/verify` recomputes file hashes, signature chain and event chain; public `POST /esign/public/verify` (upload or SHA-256) answers sealed / original / none at `/sign/verify` in the onboarding portal.
+- **Lifecycle**: resend (new link for external signers), void with reason, decline with reason, expiry and up to three reminders every three days (worker scan, every 15 minutes).
+- **Flows** (generic `POST /esign/requests` plus two concrete): `POST /esign/flows/commitment/:commitmentId` generates the subscription and commitment agreement, files it in the vault and asks the investor's signatories (optional staff countersigner next); completion activates a PENDING commitment. `POST /esign/flows/capital-call-ack/:allocationId` generates an acknowledgement for an issued call; completion sets `acknowledged_at/by` on the allocation. New flows register a completion hook keyed by `subjectType`.
+- **Signer pages**: LP portal `/lp-portal/signatures`, investee portal `/esign`, public token page `/sign/<token>` and `/sign/verify` (onboarding portal); one shared component in `packages/portal-kit`.
+- **Permissions** (appended to `role-catalog.json`): `esign.view`, `esign.manage`, `esign.void`.
+
+Seed: `prisma/seed-esign.ts` (called by `seed-demo.ts` and `seed-uat.ts`, idempotent): one completed and sealed request, one waiting on an external signer, one voided, plus a capital call acknowledgement when an issued call exists.
+
+Test: `npx tsx scripts/test-esign.ts` (hash chain, tamper detection, ordering, PNG validation, real PDF sealing; no database or SMTP). The API flows and pages were typechecked but **not run** (no database started, no browser).
+
+### Not done
+
+- No in-document signature field placement: signatures are stamped on an appended signature page, not at positions chosen on the PDF. Not a qualified or PAdES cryptographic signature; tamper evidence is the hash chain plus the recorded sealed hash.
+- No vendor integration (`live` is a stub); external signer e-mails go through the console transport until SMTP is configured; the OTP and link sit in outbox payloads until sent.
+- The flows screen takes a commitment or allocation id by hand; a capital call acknowledgement waits for one signatory. The legacy investee prototype's "signatures" page is untouched (the real inbox is `/esign`); LP acknowledgement through the old button still works and is not blocked by an open request.
