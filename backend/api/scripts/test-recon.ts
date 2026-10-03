@@ -148,13 +148,13 @@ async function main() {
   const lp = client('investor');
   const anon = client('admin');
 
-  const D0 = dayStr(-1); // the reconciliation date
+  const D0 = dayStr(-9); // the reconciliation date (not yesterday, so UAT demo records never mix in)
   const mkSecurity = async (suffix: string, price: number) => {
     const s = await prisma.security.create({
       data: { ticker: `R${run}${suffix}`.toUpperCase(), name: `Recon ${suffix} ${run}`, market: 'ZSE', assetClass: 'Equity', currency: 'USD', boardLot: 1, sector: `S-${suffix}`, status: 'Active' },
     });
     securityIds.push(s.id);
-    await prisma.securityPrice.create({ data: { securityId: s.id, priceDate: day(dayStr(-3)), price: D(price), source: 'TEST' } });
+    await prisma.securityPrice.create({ data: { securityId: s.id, priceDate: day(dayStr(-12)), price: D(price), source: 'TEST' } });
     return s;
   };
   const secA = await mkSecurity('A', 10);
@@ -164,10 +164,10 @@ async function main() {
   const pf2 = await prisma.portfolio.create({ data: { ref: `RC-${run}-2`, name: `RC Portfolio 2 ${run}`, type: 'Mutual fund', baseCurrency: 'USD', status: 'Active' } });
   portfolioIds.push(pf1.id, pf2.id);
   // PF1: cash 100,000.00; 1,000 A @ 10 + 500 B @ 5 = 12,500.00 securities.
-  await prisma.portfolioCash.create({ data: { portfolioId: pf1.id, currency: 'USD', available: D(100000), asOf: day(dayStr(-3)) } });
-  await prisma.portfolioPosition.create({ data: { portfolioId: pf1.id, securityId: secA.id, quantity: D(1000), avgCost: D(9), asOf: day(dayStr(-3)) } });
-  await prisma.portfolioPosition.create({ data: { portfolioId: pf1.id, securityId: secB.id, quantity: D(500), avgCost: D(4), asOf: day(dayStr(-3)) } });
-  await prisma.portfolioCash.create({ data: { portfolioId: pf2.id, currency: 'USD', available: D(5000), asOf: day(dayStr(-3)) } });
+  await prisma.portfolioCash.create({ data: { portfolioId: pf1.id, currency: 'USD', available: D(100000), asOf: day(dayStr(-12)) } });
+  await prisma.portfolioPosition.create({ data: { portfolioId: pf1.id, securityId: secA.id, quantity: D(1000), avgCost: D(9), asOf: day(dayStr(-12)) } });
+  await prisma.portfolioPosition.create({ data: { portfolioId: pf1.id, securityId: secB.id, quantity: D(500), avgCost: D(4), asOf: day(dayStr(-12)) } });
+  await prisma.portfolioCash.create({ data: { portfolioId: pf2.id, currency: 'USD', available: D(5000), asOf: day(dayStr(-12)) } });
 
   const acc1 = `ACC1-${run}`;
   const acc2 = `ACC2-${run}`;
@@ -221,14 +221,14 @@ async function main() {
   const f3 = await mkFill(pf1.id, secB, 'BUY', 200, '5.00', null); // matches E3 by attributes, price +0.02 (break, LOW)
   await mkFill(pf1.id, secA, 'BUY', 10, '10.00', 'CN-4'); //    reference match, custodian says 11 (break, HIGH)
   await mkFill(pf1.id, secB, 'BUY', 33, '5.00', null); //       nothing at the custodian (break, HIGH)
-  await mkFill(pf1.id, secA, 'BUY', 999, '10.00', null, dayStr(-5)); // outside the date: ignored
+  await mkFill(pf1.id, secA, 'BUY', 999, '10.00', null, dayStr(-14)); // outside the date: ignored
   await mkExec('CN-1', { ticker: secA.ticker, side: 'BUY', qty: 100, price: '10.00' });
   await mkExec('X-2', { ticker: secA.ticker, side: 'SELL', qty: 50, price: '10.51' });
   await mkExec('X-3', { ticker: secB.ticker, side: 'BUY', qty: 200, price: '5.02' });
   await mkExec('CN-4', { ticker: secA.ticker, side: 'BUY', qty: 11, price: '10.00' });
   const e5 = await mkExec('X-5', { ticker: secB.ticker, side: 'SELL', qty: 70, price: '5.00' }); // not in the internal book (break, CRITICAL)
   await mkExec('OLD-1', { ticker: secA.ticker, side: 'BUY', qty: 1, price: '1', status: 'Superseded' }); // ignored
-  await mkExec('PAST-1', { ticker: secA.ticker, side: 'BUY', qty: 1, price: '1', date: dayStr(-6) }); // other date: ignored
+  await mkExec('PAST-1', { ticker: secA.ticker, side: 'BUY', qty: 1, price: '1', date: dayStr(-15) }); // other date: ignored
   const dayEnd = await prisma.counterpartyDayEndPackage.create({
     data: { ref: `D${run}1`, counterpartyId: cp1.id, accountRef: acc1, statementDate: day(D0), currency: 'USD', closingCash: D('100000.00'), holdingsMv: D('12500.00'), tradeCount: 5, sha256: 'a'.repeat(64), submittedById: opsU.id },
   });
@@ -453,7 +453,7 @@ async function main() {
     check('readiness lists the open Critical/High breaks and is not ready', rd.status === 200 && rd.body.data.ready === false && rd.body.data.openMaterial.length === 3 && rd.body.data.openOther === 1, rd.body?.data);
     const so0 = await comp.post(`${R}/signoffs`, { family: 'TRADES', asOfDate: D0 });
     check('sign-off blocked while Critical/High breaks are open -> 409 open_material_breaks', so0.status === 409 && errCode(so0) === 'open_material_breaks' && so0.body.error.details.breaks.length >= 2, so0.body);
-    const noRun = await comp.post(`${R}/signoffs`, { family: 'TRADES', asOfDate: dayStr(-20) });
+    const noRun = await comp.post(`${R}/signoffs`, { family: 'TRADES', asOfDate: dayStr(-30) });
     check('sign-off for a date with no run -> 409 no_run', noRun.status === 409 && errCode(noRun) === 'no_run', noRun.body);
     const results = [await closeBreak(findBreak(await breaksOf(ops, tradesRunId), ':CN-4')), await closeBreak((await breaksOf(ops, tradesRunId)).data.find((b: any) => b.kind === 'MISSING_EXTERNAL')), await closeBreak(findBreak(await breaksOf(ops, tradesRunId), ':X-5'))];
     check('the remaining Critical/High breaks close through resolve and approve', results.every((r) => r[0] === 200 && r[1] === 200 && r[2] === 'CLOSED'), results);
