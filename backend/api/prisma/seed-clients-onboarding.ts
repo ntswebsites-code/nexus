@@ -81,26 +81,23 @@ export async function seedClientsOnboarding() {
   }
   if (clients.length) log(`${clients.length} client review date(s) set`);
 
-  // Make the denormalised list fields (accounts counter, mandate label) agree with the real rows the 360 view shows (ADB-013).
+  // Legacy seeded clients carry only a mandate label and no Mandate row. Lists and the 360 view now read rows,
+  // so give exactly those clients (label set, zero rows) the row the label describes (ADB-013). Clients created
+  // through the API always have rows, so they are never touched; the account counter is no longer read for display.
   const labelled = await prisma.client.findMany({
-    where: { archivedAt: null },
-    select: { id: true, ref: true, mandateLabel: true, accountsCount: true, _count: { select: { mandates: true, cashAccounts: true } } },
+    where: { archivedAt: null, mandateLabel: { not: null }, mandates: { none: {} } },
+    select: { id: true, mandateLabel: true },
   });
   let reconciled = 0;
   for (const c of labelled) {
-    if (c.mandateLabel && c.mandateLabel !== 'Mandate shell' && c._count.mandates === 0) {
-      await prisma.$transaction(async (tx) => {
-        const ref = await nextRef(tx, 'mandate');
-        await tx.mandate.create({ data: { ref, clientId: c.id, name: c.mandateLabel!, type: 'discretionary', status: 'Active', createdBy: actor } });
-      });
-      reconciled++;
-    }
-    if (c.accountsCount !== c._count.cashAccounts) {
-      await prisma.client.update({ where: { id: c.id }, data: { accountsCount: c._count.cashAccounts } });
-      reconciled++;
-    }
+    if (!c.mandateLabel || c.mandateLabel === 'Mandate shell') continue;
+    await prisma.$transaction(async (tx) => {
+      const ref = await nextRef(tx, 'mandate');
+      await tx.mandate.create({ data: { ref, clientId: c.id, name: c.mandateLabel!, type: 'discretionary', status: 'Active', createdBy: actor } });
+    });
+    reconciled++;
   }
-  if (reconciled) log(`${reconciled} client list field(s) reconciled with mandate/account rows`);
+  if (reconciled) log(`${reconciled} legacy client mandate label(s) given a mandate row`);
 
   // KYC checks and a proposed risk assessment on open cases that have none.
   const cases = await prisma.kycCase.findMany({

@@ -572,6 +572,8 @@ function assertSignable(req: RequestFull, signer: SignerRow | undefined): assert
   if (signer.status !== 'PENDING') throw HttpError.conflict('It is not your turn to sign yet', 'esign_not_your_turn');
 }
 
+const normName = (n: string) => n.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+
 export async function signRequest(actor: EsignActor, requestId: string, signerId: string, identity: Identity, payload: SignPayload) {
   if (!payload.consent) throw HttpError.badRequest('You must accept the electronic signature consent');
   let png: Buffer | null = null;
@@ -591,6 +593,9 @@ export async function signRequest(actor: EsignActor, requestId: string, signerId
     const req = await loadFull(tx, requestId);
     const signer = req.signers.find((s) => s.id === signerId);
     assertSignable(req, signer);
+    if (payload.mode !== 'DRAWN' && typed !== null && normName(typed) !== normName(signer.name)) {
+      throw HttpError.badRequest(`The typed name must match your registered name (${signer.name})`);
+    }
 
     // The file must still be byte-identical to what the request was created with.
     const { data } = await readFileObject(req.fileId);
