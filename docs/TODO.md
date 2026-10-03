@@ -14,8 +14,8 @@ Deep detail lives in: `docs/GAP-ANALYSIS.md` (GAP-xxx, WP-x), `docs/ADMIN-REAL-P
 | M4 | Admin `/ops` real pages: Orders, Risk, Portfolios/Securities, Reconciliations, NAV | [x] deployed (uat-rc4) |
 | M5 | Admin `/ops` real pages: Accounting, Corporate Actions, Cash & Ledgers | [x] deployed (uat-rc5) |
 | M6 | Admin `/ops` real pages: IBOR, Performance, Research, Private Markets, Portfolio Lab, Financing, Clients, Investor Services, Onboarding, Vault, Reports, Regulatory, Data, Models, RBAC, Settings, Audit, Copilot, Operations, Today | [x] deployed (uat-rc7), flow tests not yet run |
-| M7 | Close gaps WP-1..WP-8 (verification, wiring, security, investee tables, custodian/onboarding, integrations) | [~] agents running |
-| M8 | Native e-sign, MinIO object storage, public-site market data, custodian file-drop feed | [~] agents running |
+| M7 | Close gaps WP-1..WP-8 (verification, wiring, security, investee tables, custodian/onboarding, integrations) | [x] merged, deployed (uat-rc9), smoke 50/0 |
+| M8 | Native e-sign, MinIO object storage, public-site market data, custodian file-drop feed | [x] deployed; MinIO switch still on local mode |
 | M9 | Turn live data on for all portals (LP_LIVE_DOMAINS, INVESTEE_LIVE_ACTIONS=all, CUSTODIAN_LIVE, ONBOARDING_LIVE) and run full UAT | [ ] |
 | M10 | Real vendors behind adapters (market data feed, custodian SWIFT/API, KYC, payments, email/SMS, SSO, LLM) | [ ] owner supplies accounts later |
 
@@ -30,23 +30,24 @@ Deep detail lives in: `docs/GAP-ANALYSIS.md` (GAP-xxx, WP-x), `docs/ADMIN-REAL-P
 | uat-rc5 | Accounting, Corporate Actions, Cash | 27/0 |
 | uat-rc6 | failed in seed (IBOR source_id too short) | – |
 | uat-rc7 | all remaining admin pages + wiring, widened IBOR source_id | 27/0 |
-| uat-rc8 | gap packages WP-1..8 + e-sign + MinIO + market data (planned) | [ ] |
+| uat-rc8 | failed at image build (merge left next.config.ts unclosed; nothing changed on server) | - |
+| uat-rc9 | WP-1..8 + e-sign + MinIO + market data; api needed ALLOW_FAKE_INTEGRATIONS=1 on UAT | 50/0 (S13 sweep included) |
 
 ## 3. Work packages (from GAP-ANALYSIS)
 
 | WP | Scope | GAP ids | State |
 |---|---|---|---|
-| WP-1 | Run the never-run flow scripts on UAT, fix bugs, CI workflow, live-data flags prepared | 001 002 003 022 023 024 026 | [~] |
-| WP-2 | Orders reserve cash, PM calls/distributions post to ledgers, CA depth | 004 005 007 010 | [~] |
-| WP-3 | More recon families, operations control depth | 006 010 | [~] |
-| WP-4 | Admin shell (search, palette, notifications), enforcement of settings, security headers/rate limits, idempotency audit, notification prefs | 008 009 011 014 015 | [~] |
-| WP-5 | Investee cap table/forecast/governance real tables | 016 017 | [~] |
-| WP-6 | Reports, regulatory, data fabric, models, vault, clients depth | 005 010 012 013 | [~] |
-| WP-7 | Custodian bulk/amend, onboarding, retire legacy admin, shared types | 017 018 019 021 025 | [~] |
-| WP-8 | Integrations layer (fake/live flags, call log, /ops/integrations) | A01..A13 | [~] |
-| E-sign | Native e-sign (pdf-lib, hash chain, certificate, signer flows, /ops/esign) | A07 | [~] |
-| Storage | MinIO on UAT box, S3 adapter, migrate existing files | A11 | [~] |
-| Market data | Public-site scrapers with provenance, worker refresh, securities screen; custodian file-drop feed | A04 A05 | [~] |
+| WP-1 | Run the never-run flow scripts on UAT, fix bugs, CI workflow, live-data flags prepared | 001 002 003 022 023 024 026 | [x] deployed, remainders in section 5 |
+| WP-2 | Orders reserve cash, PM calls/distributions post to ledgers, CA depth | 004 005 007 010 | [x] deployed, remainders in section 5 |
+| WP-3 | More recon families, operations control depth | 006 010 | [x] deployed, remainders in section 5 |
+| WP-4 | Admin shell (search, palette, notifications), enforcement of settings, security headers/rate limits, idempotency audit, notification prefs | 008 009 011 014 015 | [x] deployed, remainders in section 5 |
+| WP-5 | Investee cap table/forecast/governance real tables | 016 017 | [x] deployed, remainders in section 5 |
+| WP-6 | Reports, regulatory, data fabric, models, vault, clients depth | 005 010 012 013 | [x] deployed, remainders in section 5 |
+| WP-7 | Custodian bulk/amend, onboarding, retire legacy admin, shared types | 017 018 019 021 025 | [x] deployed, remainders in section 5 |
+| WP-8 | Integrations layer (fake/live flags, call log, /ops/integrations) | A01..A13 | [x] deployed, remainders in section 5 |
+| E-sign | Native e-sign (pdf-lib, hash chain, certificate, signer flows, /ops/esign) | A07 | [x] deployed, remainders in section 5 |
+| Storage | MinIO on UAT box, S3 adapter, migrate existing files | A11 | [x] deployed, remainders in section 5 |
+| Market data | Public-site scrapers with provenance, worker refresh, securities screen; custodian file-drop feed | A04 A05 | [x] deployed, remainders in section 5 |
 
 ## 4. Adapters (placeholder now, replace later)
 
@@ -61,6 +62,9 @@ Deep detail lives in: `docs/GAP-ANALYSIS.md` (GAP-xxx, WP-x), `docs/ADMIN-REAL-P
 
 ## 5. Known gaps and risks (deep level)
 
+Round 3 (in progress): browser QA of every portal (issues logged only, not fixed) in `docs/issues/ISSUES-*.md`; then fix round. Outstanding feature work is split in round 4 (see section 7).
+
+
 - New module flow scripts (`backend/api/scripts/test-*.ts`) were written but never executed against a database; WP-1 runs them on UAT.
 - Live-data flags still default off, so portals may show demo data until M9.
 - Prisma migration hygiene: generate SQL with stdout only and grep for `Update available|pris.ly|npm i` (a banner corrupted uat-rc3). Check VARCHAR widths for composite keys (broke uat-rc6).
@@ -72,3 +76,18 @@ Deep detail lives in: `docs/GAP-ANALYSIS.md` (GAP-xxx, WP-x), `docs/ADMIN-REAL-P
 ## 6. Working rules
 
 No browser testing (typecheck, builds and API scripts only) · long tasks on their own branch · never push or force-push without approval · never commit secrets · UAT credentials only in the local credentials file and server secrets · unusual free ports · do not touch other projects on the UAT server · `nginx -t` before any host nginx restart.
+
+## 7. Round 4 outstanding feature packages (delegated)
+
+| Pkg | Scope | State |
+|---|---|---|
+| R4-1 | Admin platform remainders: real SQL paging, If-Match everywhere, role-create and staff-invite maker-checker | [ ] |
+| R4-2 | Period-close NAV gate on cash/accounting, positions-vs-custody recon, custodian feed to recon via adapter, payments reconciliation | [ ] |
+| R4-3 | Investee: staff-side cap-table screen, watermarking, e-sign sign-off, email adapter delivery | [ ] |
+| R4-4 | E-sign: positioned signature fields, pickers instead of raw ids, term sheet and subscription flows | [ ] |
+| R4-5 | LP portal remainder: realtime push, performance PDF, notification preferences end to end | [ ] |
+| R4-6 | Onboarding portal native React (retire legacy HTML) | [ ] |
+| R4-7 | Custodian portal native React (retire legacy HTML) | [ ] |
+| R4-8 | Copilot via LLM adapter with live stub, onboarding triage panel, report email attachments, regulator filing placeholders | [ ] |
+| R4-9 | Settings enforcement, models called by NAV/risk, data-fabric depth | [ ] |
+| R4-10 | Broker contract-note ingestion and order fills, corporate-action announcements from market data | [ ] |
