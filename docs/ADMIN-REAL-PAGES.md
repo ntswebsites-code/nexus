@@ -1357,3 +1357,14 @@ Test: `cd backend/api && npx tsx scripts/test-market-data.ts` (offline, no datab
 - No free public source for VFEX or OTC prices; the AFX list price is the last traded price stamped with the page date, so a counter that did not trade carries its previous close under today's date (the per-counter history page has the true last-trade date but costs one request per counter).
 - FX: stored and read by NAV and the portfolio snapshot through existing `fx_rates`; no new conversion logic was added. Only USD-base pairs plus pairs already in `fx_rates` are refreshed.
 - Corporate actions and benchmark series are not fed. Custodian: no MT535/536 or CAMT.053 proper, no SWIFT or API connectivity (stub), no automatic mapping of unmapped accounts (a warning points to the Reconciliation account map).
+
+## Onboarding portal, native (R4-6)
+
+The public onboarding portal (`portals/onboarding-web`) is now native React; the legacy injected-script page (`legacy-runtime`, `public/live/onboarding-live.js`) is removed from it.
+
+- Routes: `/` six-step wizard (entity types, UBOs, directors, signatories, KYC/AML declarations, tax + bank, evidence, review/submit), `/resume` magic-link exchange and request, `/status` tracker with the admin loop-back (upload requested documents, reply). Legacy `/?resume=<id>.<token>` links still work.
+- API (all under `/api/v1/public`): existing `applications` endpoints plus `directors` on PATCH/submit/GET, `scanStatus` on evidence; new `GET /onboarding/meta`, `POST /onboarding/resume-link` (always 202, rate limited), `POST /onboarding/resume` (single use, rotates the draft token), `GET /applications/:id/status`, `POST /applications/:id/reply` (idempotent).
+- Uploads go through `storeFile`, which calls the av-scan adapter; infected files are refused 422 and audited (`kyc.evidence.rejected_malware`). Magic-link and loop-back emails go through the outbox/email adapter.
+- Admin side is unchanged: `POST /kyc/cases/:id/request-evidence` moves the case to Client action; the applicant's upload returns it to Compliance review.
+- Migration `20261106100000_onboarding_resume` (table `onboarding_resume_links`). Seed: `prisma/seed-onboarding.ts`. Test: `npx tsx scripts/test-onboarding.ts` (flow part with `E2E_CONFIRM=throwaway-db`).
+- Remaining: no browser run was done; OCR assist from the prototype is not ported; admin case view does not yet render `directors` beyond the staff form view JSON.

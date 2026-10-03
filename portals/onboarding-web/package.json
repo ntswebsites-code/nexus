@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@matanho/legacy-runtime": "*",
     "@matanho/portal-kit": "*",
     "@matanho/shared": "*",
     "next": "^16.0.0",
