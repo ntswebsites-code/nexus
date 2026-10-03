@@ -3,6 +3,7 @@ import { idempotent } from '../../../lib/idempotency';
 import { param } from '../../../lib/http';
 import { lp, requireLp } from '../lp.context';
 import { lpList, lpOk, pageOf } from '../lp.http';
+import { enumQuery } from '../services/common';
 import { acknowledgeNotice, getNotice, listNotices } from '../services/notices';
 
 /** Domain `notices` (WS1). */
@@ -10,7 +11,8 @@ export const lpNoticesRoutes = Router();
 
 lpNoticesRoutes.get('/notices', requireLp('lp.notices.view'), async (req, res) => {
   const { page, pageSize } = pageOf(req);
-  const { items, total } = await listNotices(lp(req), page, pageSize);
+  const status = enumQuery(req.query.status, 'status', ['PUBLISHED', 'OPENED', 'ACKNOWLEDGED'] as const);
+  const { items, total } = await listNotices(lp(req), page, pageSize, status);
   lpOk(req, res, lpList(items, page, pageSize, total));
 });
 

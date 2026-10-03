@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { lp, requireLp } from '../lp.context';
 import { lpOk } from '../lp.http';
-import { str } from '../services/common';
+import { dateQuery, str } from '../services/common';
 import { getActions, getDashboard, getRecentActivity } from '../services/dashboard';
 
 /** Domain `dashboard` (WS1). */
@@ -9,6 +9,7 @@ export const lpDashboardRoutes = Router();
 
 lpDashboardRoutes.get('/dashboard', requireLp('lp.dashboard.view'), async (req, res) => {
   const fundId = str(req.query.fundId);
+  dateQuery(req.query.asOfDate, 'asOfDate');
   lpOk(req, res, await getDashboard(lp(req), fundId === 'all' ? undefined : fundId));
 });
 

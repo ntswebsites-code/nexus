@@ -49,8 +49,17 @@ function noticeView(n: NoticeWithReceipt, names: Map<string, string>): LpNotice 
   };
 }
 
-export async function listNotices(ctx: LpContext, page: number, pageSize: number) {
-  const where = visibleNoticeWhere(ctx);
+export async function listNotices(ctx: LpContext, page: number, pageSize: number, status?: 'PUBLISHED' | 'OPENED' | 'ACKNOWLEDGED') {
+  const receiptNone = { receipts: { none: { userId: ctx.userId } } };
+  const statusWhere: Prisma.LpNoticeWhereInput =
+    status === 'ACKNOWLEDGED'
+      ? { receipts: { some: { userId: ctx.userId, acknowledgedAt: { not: null } } } }
+      : status === 'OPENED'
+        ? { receipts: { some: { userId: ctx.userId, openedAt: { not: null }, acknowledgedAt: null } } }
+        : status === 'PUBLISHED'
+          ? { OR: [receiptNone, { receipts: { some: { userId: ctx.userId, openedAt: null, acknowledgedAt: null } } }] }
+          : {};
+  const where: Prisma.LpNoticeWhereInput = { AND: [visibleNoticeWhere(ctx), statusWhere] };
   const [rows, total] = await Promise.all([
     prisma.lpNotice.findMany({
       where,

@@ -85,3 +85,12 @@ Verification: `npx tsc --noEmit` in `backend/api` and `portals/investor-web`, `n
 ## Verification
 - `npx tsc --noEmit` clean in `backend/api` and `portals/investor-web`. No schema, seed or shared-package changes.
 - `next build --webpack` for investor-web passes. Default Turbopack build could not run in the worktree only because node_modules there is a junction to the main checkout; re-run `npm run build -w @matanho/investor-web` after merge.
+
+## Rework round
+- Stack leak: removed details.stack from lp.http.ts error handler (ADA-025 remainder). Fixed.
+- LPC-003: amountClaimed format validated (digits, up to 2dp) before Decimal construction, so non-numeric input is a 400 field error not a 500. Fixed.
+- LPC-008: removed the label-name filter in services/documents.ts. Root cause: fund-less documents naming their fund only in free text. seed-demo.ts (unowned, done here) now links them to the fund of that exact name via fundId (idempotent backfill linkDemoDocumentsToFunds, also on existing DBs), so standard fund scope applies. Fixed.
+- LPC-006: dateQuery/enumQuery helpers in services/common.ts; invalid period/range, asOfDate (dashboard, benchmarks, statement), notices status (now filters), earliestDealingDate (estimate and submit) return 400 with field errors. Unknown lpRole and display currency already returned 400. Fixed.
+- Minor: payment-confirmation success clears only its own idempotency key.
+- LPC-004: not mine (F6 API check, F3 hint). Colleague pickers: getColleagues only used by manager Organisation page. replyRequest uses findRequest (verified). lp_b_signatory seed membership and legacy Signature-required actions: other groups.
+- Verification: tsc clean in investor-web; backend tsc only reports pre-existing nextRef errors in seed-research-privates.ts (F5 file); next build --webpack investor-web passes. Not browser-verified.

@@ -6,6 +6,7 @@ import { uploadFiles } from '../../../middleware/upload';
 import { lp, requireLp, requireLpRole } from '../lp.context';
 import { LpError, lpOk, lpPaginate, pageOf } from '../lp.http';
 import { acknowledge, callSummary, getCall, listCallDocuments, listCalls, noticeFile, uploadPaymentConfirmation } from '../services/capital';
+import { dateQuery } from '../services/common';
 import { distributionFile, getDistribution, listDistributions, statementFile } from '../services/distributions';
 
 /** Domain `capital`: capital calls and distributions (WS2). */
@@ -80,7 +81,7 @@ lpCapitalRoutes.get('/distributions', requireLp('lp.distributions.view'), async 
 });
 
 lpCapitalRoutes.get('/distributions/statement/download', requireLp('lp.distributions.download'), async (req, res) => {
-  sendFile(res, await statementFile(req, lp(req), { fundId: str(req.query.fundId), asOfDate: str(req.query.asOfDate) }));
+  sendFile(res, await statementFile(req, lp(req), { fundId: str(req.query.fundId), asOfDate: dateQuery(req.query.asOfDate, 'asOfDate') }));
 });
 
 lpCapitalRoutes.get('/distributions/:id', requireLp('lp.distributions.view'), async (req, res) => {

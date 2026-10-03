@@ -51,14 +51,6 @@ export function docCategory(d: { category: string | null; type: string; name?: s
   return CATEGORY_BY_TYPE[d.type] ?? 'MANUAL';
 }
 
-/** Fund-less documents carry a free-text label; hide those that name a fund outside the caller's scope. */
-async function dropOutOfScopeLabelled<T extends { fundId: string | null; relatedLabel: string | null }>(ctx: LpContext, docs: T[]): Promise<T[]> {
-  if (!docs.some((d) => !d.fundId && d.relatedLabel)) return docs;
-  const outside = await prisma.fund.findMany({ where: { id: { notIn: ctx.fundIds } }, select: { name: true } });
-  const names = new Set(outside.map((f) => f.name.toLowerCase()));
-  return docs.filter((d) => d.fundId || !d.relatedLabel || !names.has(d.relatedLabel.toLowerCase()));
-}
-
 function publishedAt(d: DocRow): Date {
   return d.publications[0]?.publishedAt ?? d.approvedAt ?? d.createdAt;
 }
@@ -106,7 +98,7 @@ export async function listDocuments(ctx: LpContext, q: { fundId?: string; catego
     },
     include: lpDocInclude(ctx),
   });
-  let docs = await dropOutOfScopeLabelled(ctx, rows);
+  let docs = rows;
   if (q.category) {
     const cat = q.category.toUpperCase();
     docs = docs.filter((d) => docCategory(d) === cat);
@@ -117,7 +109,7 @@ export async function listDocuments(ctx: LpContext, q: { fundId?: string; catego
 }
 
 export async function documentsSummary(ctx: LpContext): Promise<LpDocumentsSummary> {
-  const rows = await dropOutOfScopeLabelled(ctx, await prisma.document.findMany({ where: lpDocWhere(ctx), include: lpDocInclude(ctx) }));
+  const rows = await prisma.document.findMany({ where: lpDocWhere(ctx), include: lpDocInclude(ctx) });
   const weekAgo = Date.now() - 7 * 24 * 3600 * 1000;
   const byCategory = new Map<string, number>();
   for (const d of rows) byCategory.set(docCategory(d), (byCategory.get(docCategory(d)) ?? 0) + 1);

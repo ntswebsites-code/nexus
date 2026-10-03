@@ -412,7 +412,11 @@ function redemptionMaths(f: FundCtx, p: Position, input: RedInput) {
 function redInput(f: FundCtx, p: Position, body: { mode?: string; amount?: string; units?: string; full?: boolean; earliestDealingDate?: string }): RedInput {
   const mode = body.full || body.mode === 'FULL' ? 'FULL' : body.mode === 'UNITS' ? 'UNITS' : 'AMOUNT';
   if (!f.rules.modes.includes(mode)) throw LpError.validation(`${mode} redemptions are not offered by this fund`, { mode: 'Not available' });
-  const earliest = body.earliestDealingDate && /^\d{4}-\d{2}-\d{2}$/.test(body.earliestDealingDate) ? body.earliestDealingDate : dayStr(earliestEligible(f.rules));
+  const given = body.earliestDealingDate?.trim();
+  if (given && !(/^\d{4}-\d{2}-\d{2}$/.test(given) && new Date(`${given}T00:00:00Z`).toISOString().slice(0, 10) === given)) {
+    throw LpError.validation('earliestDealingDate must be a date (YYYY-MM-DD)', { earliestDealingDate: 'Use the format YYYY-MM-DD' });
+  }
+  const earliest = given || dayStr(earliestEligible(f.rules));
   return {
     fundId: f.fund.id,
     shareClass: p.shareClass,

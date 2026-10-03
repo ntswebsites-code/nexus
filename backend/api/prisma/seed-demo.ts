@@ -417,6 +417,21 @@ async function seedCompany() {
   console.log(`[seed:demo] company demo ${ref} (${c.name}) created`);
 }
 
+/**
+ * LPC-008: demo documents name their fund only in the free-text `relatedLabel`, so fund scoping could not see them.
+ * Link fund-less documents to the fund of that exact name (idempotent: only rows still without a fundId).
+ */
+async function linkDemoDocumentsToFunds() {
+  const docs = await prisma.document.findMany({ where: { fundId: null, relatedLabel: { not: null }, clientId: { not: null } }, select: { id: true, relatedLabel: true } });
+  if (!docs.length) return;
+  const funds = await prisma.fund.findMany({ select: { id: true, name: true } });
+  const byName = new Map(funds.map((f) => [f.name.toLowerCase(), f.id]));
+  for (const d of docs) {
+    const fundId = byName.get((d.relatedLabel ?? '').toLowerCase());
+    if (fundId) await prisma.document.update({ where: { id: d.id }, data: { fundId } });
+  }
+}
+
 export async function seedDemo() {
   await seedInvestor();
   await seedCompany();
@@ -445,4 +460,5 @@ export async function seedDemo() {
   await (await import('./seed-esign')).seedEsign();
   await (await import('./seed-investee-remainders')).seedInvesteeRemainders();
   await (await import('./seed-onboarding')).seedOnboarding();
+  await linkDemoDocumentsToFunds();
 }
