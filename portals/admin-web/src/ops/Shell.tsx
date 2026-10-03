@@ -37,6 +37,10 @@ const NAV: { section: string; items: NavItem[] }[] = [
     items: [{ href: '/ops/orders', label: 'Orders', perms: ['orders.view'] }],
   },
   {
+    section: 'Valuation',
+    items: [{ href: '/ops/nav', label: 'NAV & valuation', perms: ['valuation.view'] }],
+  },
+  {
     section: 'Risk & compliance',
     items: [{ href: '/ops/risk', label: 'Risk & compliance', perms: ['risk.view', 'risk.manage'] }],
   },
