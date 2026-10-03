@@ -88,6 +88,7 @@ export const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/ops/term-sheets', label: 'Term sheets', perms: ['term_sheets.view'] },
       { href: '/ops/investee-requests', label: 'Investee requests', perms: ['research.edit'] },
       { href: '/ops/reporting', label: 'Reporting packs', perms: ['portfolio.view', 'research.edit'] },
+      { href: '/ops/esign', label: 'E-signatures', perms: ['esign.view'] },
     ],
   },
   {
@@ -100,6 +101,7 @@ export const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/ops/rbac', label: 'RBAC & Controls', perms: ['admin.rbac'] },
       { href: '/ops/settings', label: 'Settings', perms: ['admin.settings'] },
       { href: '/ops/security', label: 'Security controls', perms: ['admin.rbac', 'admin.settings'] },
+      { href: '/ops/integrations', label: 'Integrations', perms: ['admin.settings'] },
       { href: '/ops/audit', label: 'Audit Trail', perms: ['audit.view'] },
       { href: '/ops/copilot', label: 'Investment Copilot', perms: ['dashboard.view'] },
     ],

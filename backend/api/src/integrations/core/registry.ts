@@ -16,21 +16,21 @@ import { live as screeningLive } from '../screening/live';
 import { meta as idvMeta, type IdentityVerificationAdapter } from '../identity-verification/types';
 import { FakeIdentityVerification } from '../identity-verification/fake';
 import { live as idvLive } from '../identity-verification/live';
-import { meta as marketMeta, type MarketDataAdapter } from '../market-data/types';
-import { FakeMarketData } from '../market-data/fake';
-import { live as marketLive } from '../market-data/live';
-import { meta as custodianMeta, type CustodianFeedAdapter } from '../custodian-feed/types';
-import { FakeCustodianFeed } from '../custodian-feed/fake';
-import { live as custodianLive } from '../custodian-feed/live';
+import { meta as marketMeta } from '../market-data/meta';
+import { getMarketDataAdapter } from '../market-data';
+import type { MarketDataAdapter } from '../market-data/types';
+import { meta as custodianMeta } from '../custodian-feed/meta';
+import { getCustodianFeedAdapter } from '../custodian-feed';
+import type { CustodianFeedAdapter } from '../custodian-feed/types';
 import { meta as bankMeta, type BankStatementAdapter } from '../bank-statement/types';
 import { FakeBankStatement } from '../bank-statement/fake';
 import { live as bankLive } from '../bank-statement/live';
 import { meta as paymentMeta, type PaymentAdapter } from '../payment/types';
 import { FakePayment, settlePendingPayments } from '../payment/fake';
 import { live as paymentLive } from '../payment/live';
-import { meta as esignMeta, type EsignAdapter } from '../esign/types';
-import { FakeEsign } from '../esign/fake';
-import { live as esignLive } from '../esign/live';
+import { meta as esignMeta } from '../esign/meta';
+import { getESignAdapter } from '../esign';
+import type { ESignAdapter } from '../esign/types';
 import { meta as avMeta, type AvScanAdapter } from '../av-scan/types';
 import { FakeAvScan, EICAR } from '../av-scan/fake';
 import { live as avLive } from '../av-scan/live';
@@ -40,9 +40,9 @@ import { live as llmLive } from '../llm/live';
 import { meta as ssoMeta, type SsoAdapter } from '../sso/types';
 import { FakeSso } from '../sso/fake';
 import { live as ssoLive } from '../sso/live';
-import { meta as storageMeta, type ObjectStorageAdapter } from '../object-storage/types';
-import { FakeObjectStorage } from '../object-storage/fake';
-import { live as storageLive } from '../object-storage/live';
+import { meta as storageMeta } from '../object-storage/meta';
+import { objectStorageAdapter } from '../object-storage';
+import type { ObjectStorage } from '../object-storage/types';
 import { meta as filingMeta, type RegulatorFilingAdapter } from '../regulator-filing/types';
 import { FakeRegulatorFiling } from '../regulator-filing/fake';
 import { live as filingLive } from '../regulator-filing/live';
@@ -55,15 +55,15 @@ export interface AdapterMap {
   sms: SmsAdapter;
   screening: ScreeningAdapter;
   'identity-verification': IdentityVerificationAdapter;
-  'market-data': MarketDataAdapter;
-  'custodian-feed': CustodianFeedAdapter;
+  'market-data': MarketDataAdapter & AdapterBase;
+  'custodian-feed': CustodianFeedAdapter & AdapterBase;
   'bank-statement': BankStatementAdapter;
   payment: PaymentAdapter;
-  esign: EsignAdapter;
+  esign: ESignAdapter & AdapterBase;
   'av-scan': AvScanAdapter;
   llm: LlmAdapter;
   sso: SsoAdapter;
-  'object-storage': ObjectStorageAdapter;
+  'object-storage': ObjectStorage & AdapterBase;
   'regulator-filing': RegulatorFilingAdapter;
   'broker-routing': BrokerRoutingAdapter;
 }
@@ -73,8 +73,10 @@ export interface TestContext {
 }
 interface Entry<T extends AdapterBase> {
   meta: AdapterMeta;
-  fake: () => T;
-  live: T;
+  fake?: () => T;
+  live?: T;
+  /** Adapters with real modes beyond fake|live (esign native, market-data public, ...) build their own (already logged) instance. */
+  build?: () => T;
   /** The admin "test call": exercises the adapter end to end and returns a short summary. */
   test: (a: T, ctx: TestContext, mode: IntegrationMode) => Promise<unknown>;
 }
@@ -102,13 +104,19 @@ const CATALOG: { [K in IntegrationName]: Entry<AdapterMap[K]> } = {
     live: idvLive,
     test: (a) => a.verify({ subjectName: 'Test Person', documentType: 'passport', documentNumber: 'TEST123', country: 'ZW' }),
   }),
-  'market-data': entry<MarketDataAdapter>({
+  'market-data': entry<AdapterMap['market-data']>({
     meta: marketMeta,
-    fake: () => new FakeMarketData(),
-    live: marketLive,
-    test: (a) => a.getPrices({ tickers: ['TEST.ZW'], date: today() }),
+    build: () => getMarketDataAdapter() as AdapterMap['market-data'],
+    test: async (a) => {
+      const q = await a.fetchQuotes(['TEST.ZW']);
+      return { quotes: q.items.length, issues: q.issues.length };
+    },
   }),
-  'custodian-feed': entry<CustodianFeedAdapter>({ meta: custodianMeta, fake: () => new FakeCustodianFeed(), live: custodianLive, test: (a) => a.fetchDayEnd({ accountRef: 'TEST-ACCOUNT', date: today(), currency: 'USD' }) }),
+  'custodian-feed': entry<AdapterMap['custodian-feed']>({
+    meta: custodianMeta,
+    build: () => getCustodianFeedAdapter() as AdapterMap['custodian-feed'],
+    test: async (a) => ({ statements: (await a.listStatements({ limit: 5 })).length }),
+  }),
   'bank-statement': entry<BankStatementAdapter>({
     meta: bankMeta,
     fake: () => new FakeBankStatement(),
@@ -125,14 +133,10 @@ const CATALOG: { [K in IntegrationName]: Entry<AdapterMap[K]> } = {
       return { initial: first.status, after: (await a.getStatus({ paymentRef: first.paymentRef })).status };
     },
   }),
-  esign: entry<EsignAdapter>({
+  esign: entry<AdapterMap['esign']>({
     meta: esignMeta,
-    fake: () => new FakeEsign(),
-    live: esignLive,
-    test: async (a) => {
-      const env = await a.createEnvelope({ documentName: 'Integration test document', documentSha256: '0'.repeat(64), signers: [{ name: 'Test Signer', email: 'signer@example.invalid' }] });
-      return { created: env.status, completed: (await a.getEnvelope({ envelopeId: env.envelopeId })).status };
-    },
+    build: () => getESignAdapter() as AdapterMap['esign'],
+    test: async (a) => ({ mode: a.mode, chain: a.verifyChain('TEST-REF', '0'.repeat(64), [], null).ok }),
   }),
   'av-scan': entry<AvScanAdapter>({
     meta: avMeta,
@@ -147,14 +151,15 @@ const CATALOG: { [K in IntegrationName]: Entry<AdapterMap[K]> } = {
   }),
   llm: entry<LlmAdapter>({ meta: llmMeta, fake: () => new FakeLlm(), live: llmLive, test: (a) => a.complete({ prompt: 'Reply with the single word OK.', maxTokens: 8 }) }),
   sso: entry<SsoAdapter>({ meta: ssoMeta, fake: () => new FakeSso(), live: ssoLive, test: (a) => a.beginLogin({ state: 'integration-test', redirectUri: `${config.publicApiUrl}/sso/callback` }) }),
-  'object-storage': entry<ObjectStorageAdapter>({
+  'object-storage': entry<AdapterMap['object-storage']>({
     meta: storageMeta,
-    fake: () => new FakeObjectStorage(),
-    live: storageLive,
+    build: () => objectStorageAdapter() as AdapterMap['object-storage'],
     test: async (a) => {
       const key = `zz${Date.now().toString(16)}integrationtest`;
       await a.put(key, Buffer.from('integration-test'));
-      return { roundTrip: (await a.get(key)).toString() === 'integration-test' };
+      const ok = (await a.get(key)).toString() === 'integration-test';
+      await a.delete(key);
+      return { roundTrip: ok };
     },
   }),
   'regulator-filing': entry<RegulatorFilingAdapter>({
@@ -184,7 +189,7 @@ export function getAdapter<K extends IntegrationName>(name: K): AdapterMap[K] {
   if (hit) return hit as AdapterMap[K];
   const e = CATALOG[name] as unknown as Entry<AdapterBase>;
   const mode = config.integrations[name];
-  const wrapped = instrument(name, mode, mode === 'live' ? e.live : e.fake());
+  const wrapped = e.build ? e.build() : instrument(name, mode, mode === 'live' ? e.live! : e.fake!());
   cache.set(name, wrapped);
   return wrapped as AdapterMap[K];
 }
@@ -193,7 +198,8 @@ export const adapterMode = (name: IntegrationName): IntegrationMode => config.in
 export const adapterMeta = (name: IntegrationName): AdapterMeta => CATALOG[name].meta;
 
 /** Env vars `live` needs that are currently empty. */
-export const missingEnv = (name: IntegrationName, env: NodeJS.ProcessEnv = process.env) => CATALOG[name].meta.requiredEnv.filter((k) => !env[k]);
+const requiredEnvFor = (name: IntegrationName, mode: IntegrationMode) => (mode === 'live' ? CATALOG[name].meta.requiredEnv : (CATALOG[name].meta.modeRequiredEnv?.[mode] ?? []));
+export const missingEnv = (name: IntegrationName, env: NodeJS.ProcessEnv = process.env) => requiredEnvFor(name, config.integrations[name]).filter((k) => !env[k]);
 
 export async function adapterHealth(name: IntegrationName): Promise<HealthResult> {
   try {
@@ -238,9 +244,11 @@ export function validateIntegrationConfig(input: ValidationInput): string[] {
   for (const name of INTEGRATION_NAMES) {
     const { meta } = CATALOG[name];
     const mode = input.modes[name];
-    if (mode === 'live') {
-      const missing = meta.requiredEnv.filter((k) => !input.env[k]);
-      if (missing.length) problems.push(`${integrationEnvKey(name)}=live requires ${missing.join(', ')}`);
+    if (mode === 'live' || mode === 's3') {
+      const missing = (mode === 'live' ? meta.requiredEnv : (meta.modeRequiredEnv?.[mode] ?? [])).filter((k) => !input.env[k]);
+      if (missing.length) problems.push(`${integrationEnvKey(name)}=${mode} requires ${missing.join(', ')}`);
+    } else if (mode !== 'fake') {
+      // Real modes (native, local, public, file-drop) are supported deployments.
     } else if (input.isProduction && !input.allowFake && !meta.productionSafeFake?.(input.env)) {
       problems.push(`${integrationEnvKey(name)}=fake is not allowed in production (set it to live with credentials, or set ALLOW_FAKE_INTEGRATIONS=1)`);
     }

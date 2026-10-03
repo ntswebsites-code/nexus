@@ -103,11 +103,11 @@ export async function recordCall<R>(name: IntegrationName, mode: IntegrationMode
 }
 
 /** Wraps an adapter so every operation (except `health`) is timed, logged and subject to failure simulation. */
-export function instrument<T extends AdapterBase>(name: IntegrationName, mode: IntegrationMode, impl: T): T {
+export function instrument<T extends AdapterBase>(name: IntegrationName, mode: IntegrationMode, impl: T, only?: readonly string[]): T {
   return new Proxy(impl, {
     get(target, prop, receiver) {
       const value = Reflect.get(target, prop, receiver);
-      if (typeof prop !== 'string' || typeof value !== 'function' || prop === 'health' || prop === 'then') return value;
+      if (typeof prop !== 'string' || typeof value !== 'function' || prop === 'health' || prop === 'then' || (only && !only.includes(prop))) return value;
       return (...args: unknown[]) => recordCall(name, mode, prop, args, () => value.apply(target, args));
     },
   });

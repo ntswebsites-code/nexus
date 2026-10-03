@@ -64,7 +64,7 @@ export interface ChainCheck {
 }
 
 export interface ESignAdapter {
-  readonly mode: 'native' | 'live';
+  readonly mode: 'native' | 'live' | 'fake';
   /** Stamps signatures + audit block, appends the certificate and returns the sealed bytes. */
   seal(input: SealInput): Promise<SealResult>;
   /** Recomputes the signature hash chain from the recorded signers. */

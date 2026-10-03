@@ -1,10 +1,13 @@
 import { config } from '../../config';
+import { instrument } from '../core/calls';
+import { withHealth } from '../core/adapt';
 import { FakeObjectStorage } from './fake';
 import { LocalObjectStorage } from './local';
 import { S3ObjectStorage } from './s3';
 import type { ObjectStorage, StorageBucket } from './types';
 
 export * from './types';
+export { meta } from './meta';
 export { FakeObjectStorage, LocalObjectStorage, S3ObjectStorage };
 
 let instance: ObjectStorage | undefined;
@@ -26,6 +29,20 @@ export function objectStorage(): ObjectStorage {
     }
   }
   return instance;
+}
+
+/** Registry-ready view of the active store (adds `health()`); writes and deletes are logged to `integration_calls`. */
+export function objectStorageAdapter() {
+  const store = objectStorage();
+  return instrument(
+    'object-storage',
+    config.storage.backend,
+    withHealth(store, async () => {
+      const r = await store.ping();
+      return { ok: r.ok, detail: r.detail ?? `${store.kind} object store reachable` };
+    }),
+    ['put', 'delete'],
+  );
 }
 
 /** Filesystem store under STORAGE_DIR; the read fallback and migration source while moving to s3. */

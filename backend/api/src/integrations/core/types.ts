@@ -39,6 +39,8 @@ export interface AdapterMeta {
   description: string;
   /** Environment variables `live` mode needs. Startup refuses `live` while any is empty. */
   requiredEnv: string[];
+  /** Extra variables a non-live real mode needs (for example `s3`). */
+  modeRequiredEnv?: Partial<Record<IntegrationMode, string[]>>;
   /** One line per operation naming the vendor call the live class has to make. */
   vendorCalls: Record<string, string>;
   /** True when `fake` is an acceptable production setting (for example email with SMTP, local encrypted storage). */

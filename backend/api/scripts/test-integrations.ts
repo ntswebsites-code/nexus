@@ -27,7 +27,7 @@ async function main() {
   const { liveStub } = await import('../src/integrations/core/live');
   const { meta: smsMeta } = await import('../src/integrations/sms/types');
   const { EICAR, FakeAvScan } = await import('../src/integrations/av-scan/fake');
-  const { FakeMarketData } = await import('../src/integrations/market-data/fake');
+  const { FakeMarketDataProvider } = await import('../src/integrations/market-data/fake');
   const { FakeScreening } = await import('../src/integrations/screening/fake');
   const { FakeBankStatement } = await import('../src/integrations/bank-statement/fake');
   const { FakeSso, fakeSsoCode } = await import('../src/integrations/sso/fake');
@@ -63,12 +63,13 @@ async function main() {
   const av = new FakeAvScan();
   check('av-scan flags EICAR', (await av.scan({ name: 'e.txt', mime: 'text/plain', data: Buffer.from(`prefix ${EICAR} suffix`, 'latin1') })).verdict === 'infected');
   check('av-scan passes clean data', (await av.scan({ name: 'a.txt', mime: 'text/plain', data: Buffer.from('hello') })).verdict === 'clean');
-  const md = new FakeMarketData();
-  const p1 = await md.getPrices({ tickers: ['AAA.ZW'], date: '2026-10-01' });
-  const p2 = await md.getPrices({ tickers: ['AAA.ZW'], date: '2026-10-01' });
-  const p3 = await md.getPrices({ tickers: ['AAA.ZW'], date: '2026-10-02' });
+  const md = new FakeMarketDataProvider();
+  const ctx = (iso: string) => ({ now: new Date(`${iso}T10:00:00Z`) });
+  const p1 = (await md.fetchQuotes(['AAA.ZW'], ctx('2026-10-01'))).items;
+  const p2 = (await md.fetchQuotes(['AAA.ZW'], ctx('2026-10-01'))).items;
+  const p3 = (await md.fetchQuotes(['AAA.ZW'], ctx('2026-10-02'))).items;
   check('market data is deterministic per ticker and date', p1[0]!.price === p2[0]!.price && p1[0]!.price !== p3[0]!.price);
-  const fx = await md.getFxRates({ date: '2026-10-01', pairs: [{ from: 'ZWG', to: 'USD' }, { from: 'USD', to: 'ZWG' }] });
+  const fx = (await md.fetchFx([{ from: 'ZWG', to: 'USD' }, { from: 'USD', to: 'ZWG' }], ctx('2026-10-01'))).items;
   check('fx cross rates are roughly consistent', Math.abs(Number(fx[0]!.rate) * Number(fx[1]!.rate) - 1) < 0.05, fx);
   const scr = new FakeScreening();
   const base = { caseRef: 'KYC-1001', legalName: 'Clean Ltd', ownerNames: ['Jane Doe'], pep: false, declaredSanctions: false, declaredAdverseMedia: false, country: 'Zimbabwe', taxResidence: 'Zimbabwe', expectedInvestment: 100, documentsPresent: 3 };
@@ -122,9 +123,9 @@ async function main() {
   check('payment to a FAIL account ends FAILED', (await pay.getStatus({ paymentRef: bad.paymentRef })).status === 'FAILED');
 
   const sign = getAdapter('esign');
-  const env = await sign.createEnvelope({ documentName: 'Doc', documentSha256: 'a'.repeat(64), signers: [{ name: 'S', email: 's@example.invalid' }] });
-  const done = await sign.getEnvelope({ envelopeId: env.envelopeId });
-  check('esign completes with a stored certificate file', done.status === 'COMPLETED' && !!done.certificateFileId);
+  const chain = sign.verifyChain('REF-1', 'a'.repeat(64), [], null);
+  check('esign adapter verifies an empty chain and reports its mode', chain.ok && ['native', 'fake', 'live'].includes(sign.mode));
+  check('esign adapter health is available', typeof (await sign.health()).ok === 'boolean');
 
   const store = getAdapter('object-storage');
   const key = `zz${tag.replace(/\W/g, '')}`;
@@ -140,7 +141,7 @@ async function main() {
   check('regulator filing returns a receipt', filing.status === 'ACKNOWLEDGED' && filing.receiptRef.startsWith('FAKE-SECZ-'));
 
   await getAdapter('llm').complete({ prompt: 'hello' });
-  check('every adapter call is logged to integration_calls', (await calls('payment', 'instruct')) >= 2 && (await calls('esign', 'createEnvelope')) >= 1 && (await calls('llm', 'complete')) >= 1);
+  check('every adapter call is logged to integration_calls', (await calls('payment', 'instruct')) >= 2 && (await calls('object-storage', 'put')) >= 1 && (await calls('llm', 'complete')) >= 1);
 
   console.log('upload scanning');
   let rejected = '';

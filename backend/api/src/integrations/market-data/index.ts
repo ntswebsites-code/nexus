@@ -1,4 +1,6 @@
 import { integrationMode } from '../common';
+import { instrument } from '../core/calls';
+import { withHealth } from '../core/adapt';
 import { FakeMarketDataProvider } from './fake';
 import { LiveMarketDataProvider } from './live';
 import { PublicMarketDataProvider } from './public/provider';
@@ -6,16 +8,25 @@ import type { MarketDataAdapter, MarketDataMode } from './types';
 
 export type { MarketDataAdapter, MarketDataMode } from './types';
 export * from './types';
+export { meta } from './meta';
 
 export const marketDataMode = (env: NodeJS.ProcessEnv = process.env): MarketDataMode => integrationMode<MarketDataMode>('INTEGRATION_MARKET_DATA', ['public', 'fake', 'live'], 'fake', env);
 
 let cached: { mode: MarketDataMode; adapter: MarketDataAdapter } | null = null;
 
+export function marketDataFor(mode: MarketDataMode) {
+  const raw: MarketDataAdapter = mode === 'public' ? new PublicMarketDataProvider() : mode === 'live' ? new LiveMarketDataProvider() : new FakeMarketDataProvider();
+  return withHealth(raw, async () => {
+    const h = await raw.healthCheck();
+    return { ok: h.ok, detail: h.detail };
+  });
+}
+
 /** `INTEGRATION_MARKET_DATA=public|fake|live` (default fake: nothing touches the internet unless production opts in). */
 export function getMarketDataAdapter(env: NodeJS.ProcessEnv = process.env): MarketDataAdapter {
   const mode = marketDataMode(env);
   if (cached?.mode === mode) return cached.adapter;
-  const adapter = mode === 'public' ? new PublicMarketDataProvider() : mode === 'live' ? new LiveMarketDataProvider() : new FakeMarketDataProvider();
+  const adapter = instrument('market-data', mode, marketDataFor(mode), ['fetchQuotes', 'fetchHistory', 'fetchFx']);
   cached = { mode, adapter };
   return adapter;
 }

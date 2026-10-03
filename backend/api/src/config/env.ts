@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { PORTALS, PORTAL_IDS } from '@matanho/shared';
-import { INTEGRATION_NAMES, integrationEnvKey, type IntegrationMode, type IntegrationName } from '../integrations/core/names';
+import { INTEGRATION_NAMES, integrationEnvKey, integrationModes, type IntegrationMode, type IntegrationName } from '../integrations/core/names';
 
 const boolFromString = z
   .enum(['true', 'false', '1', '0'])
@@ -10,7 +10,10 @@ const boolFromString = z
 const emptyToUndefined = (v: unknown) => (typeof v === 'string' && v.trim() === '' ? undefined : v);
 
 const integrationFlags = Object.fromEntries(
-  INTEGRATION_NAMES.map((n) => [integrationEnvKey(n), z.preprocess(emptyToUndefined, z.enum(['fake', 'live']).default('fake'))]),
+  INTEGRATION_NAMES.map((n) => {
+    const [first, ...rest] = integrationModes(n);
+    return [integrationEnvKey(n), z.preprocess(emptyToUndefined, z.enum([first, ...rest]).default(first))];
+  }),
 );
 
 const schema = z.object({
@@ -50,8 +53,7 @@ const schema = z.object({
 
   PUBLIC_API_URL: z.preprocess(emptyToUndefined, z.string().url().optional()),
   STORAGE_DIR: z.string().default('./storage'),
-  /// Object-store backend: local (filesystem under STORAGE_DIR), s3 (MinIO / S3), fake (in-memory, tests).
-  INTEGRATION_OBJECT_STORAGE: z.preprocess(emptyToUndefined, z.enum(['local', 's3', 'fake']).default('local')),
+  /// Object-store backend is INTEGRATION_OBJECT_STORAGE=local|s3|fake (one of the generated integration flags above).
   STORAGE_S3_ENDPOINT: z.preprocess(emptyToUndefined, z.string().url().optional()),
   STORAGE_S3_REGION: z.string().default('us-east-1'),
   STORAGE_S3_ACCESS_KEY: z.preprocess(emptyToUndefined, z.string().optional()),
@@ -189,7 +191,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     storage: {
       dir: e.STORAGE_DIR,
       maxUploadBytes: e.MAX_UPLOAD_MB * 1024 * 1024,
-      backend: e.INTEGRATION_OBJECT_STORAGE,
+      backend: (e as Record<string, unknown>).INTEGRATION_OBJECT_STORAGE as 'local' | 's3' | 'fake',
       s3: {
         endpoint: e.STORAGE_S3_ENDPOINT,
         region: e.STORAGE_S3_REGION,

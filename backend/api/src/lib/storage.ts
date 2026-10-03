@@ -6,23 +6,21 @@ import {
   legacyLocalStorage,
   makeStorageKey,
   objectStorage,
+  objectStorageAdapter,
   resolveStorageKey,
   type StorageBucket,
 } from '../integrations/object-storage';
 import { prisma } from './prisma';
-import { hmacHex, safeEqualHex, sha256Hex } from './crypto';
+import { decryptBuffer, encryptBuffer, hmacHex, safeEqualHex, sha256Hex } from './crypto';
 import { getAvScanAdapter } from '../integrations/av-scan';
-import { getObjectStorageAdapter } from '../integrations/object-storage';
 import { HttpError } from './errors';
 
 /**
- * Encrypted object store (SRD 10.3 "S3-compatible, encrypted"). Bytes go through the object-storage adapter
- * (fake = local AES-256-GCM files under STORAGE_DIR) and every upload is scanned by the av-scan adapter first.
  * Encrypted object store (SRD 10.3 "S3-compatible, encrypted"). Files are AES-256-GCM
  * encrypted by the app before they reach the backend chosen by INTEGRATION_OBJECT_STORAGE
  * (local filesystem under STORAGE_DIR, or S3 / MinIO). Every document, upload, vault, report
  * and export write goes through `storeFile`, which records size, content type and sha256 of
- * the plaintext on the `files` row.
+ * the plaintext on the `files` row. Every upload is scanned by the av-scan adapter first.
  */
 const ALLOWED_MIME = new Set([
   'application/pdf',
@@ -39,11 +37,9 @@ const ALLOWED_MIME = new Set([
   'application/octet-stream',
 ]);
 
-const putObject = (key: string, data: Buffer) => getObjectStorageAdapter().put(key, data);
-const getObject = (key: string): Promise<Buffer> => getObjectStorageAdapter().get(key);
 async function putObject(storageKey: string, data: Buffer, mime: string, sha256: string) {
   const { bucket, key } = resolveStorageKey(storageKey);
-  await objectStorage().put(key, encryptBuffer(data), { bucket, contentType: mime, sha256 });
+  await objectStorageAdapter().put(key, encryptBuffer(data), { bucket, contentType: mime, sha256 });
 }
 
 /** Raw (still encrypted) stored bytes. With s3 active, objects not yet migrated are read from disk. */
@@ -86,8 +82,6 @@ export async function storeFile(input: StoredFileInput, db: Prisma.TransactionCl
   if (scan.verdict !== 'clean') {
     throw new HttpError(422, 'malware_detected', `The file was rejected by the malware scan${scan.signature ? ` (${scan.signature})` : ''}`);
   }
-  const storageKey = randomUUID().replace(/-/g, '');
-  await putObject(storageKey, input.data);
   const storageKey = makeStorageKey(input.bucket ?? 'documents', randomUUID().replace(/-/g, ''));
   const sha256 = sha256Hex(input.data);
   await putObject(storageKey, input.data, mime, sha256);

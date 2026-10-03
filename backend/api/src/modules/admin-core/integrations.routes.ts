@@ -27,6 +27,8 @@ import {
 } from '../../integrations';
 import { clearStateCache } from '../../integrations/core/calls';
 import { fakeSsoCode } from '../../integrations/sso/fake';
+import { fakeStatement } from '../../integrations/custodian-feed/fake';
+import { marketDataMode } from '../../integrations/market-data';
 
 /**
  * Integrations ops API (WP-8), mounted under `/api/v1/admin-core/integrations` (admin portal session required by the
@@ -37,6 +39,8 @@ import { fakeSsoCode } from '../../integrations/sso/fake';
 export const integrationsRoutes = Router();
 const SETTINGS = requirePermission('admin.settings');
 const DAY_MS = 86_400_000;
+/** The fake generator returns the latest weekday whatever the requested date; real providers must match the date. */
+const isRealMarketMode = () => marketDataMode() !== 'fake';
 
 async function stepUp(req: Request, res: Response) {
   await requireStepUp(req, res, (err?: unknown) => {
@@ -196,11 +200,12 @@ async function marketDataSync(req: Request, res: Response) {
   const have = new Set((await prisma.securityPrice.findMany({ where: { priceDate: toDate(date), securityId: { in: securities.map((s) => s.id) } }, select: { securityId: true } })).map((p) => p.securityId));
   const todo = securities.filter((s) => !have.has(s.id));
   const adapter = getAdapter('market-data');
-  const quotes = todo.length ? await adapter.getPrices({ tickers: todo.map((s) => s.ticker), date }) : [];
+  const quoteBatch = todo.length ? await adapter.fetchQuotes(todo.map((s) => s.ticker)) : { items: [] };
+  const quotes = quoteBatch.items.filter((q) => q.priceDate === date || !isRealMarketMode());
   const currencies = [...new Set(securities.map((s) => s.currency).filter((c) => c !== 'USD'))];
   const fxExisting = await prisma.fxRate.findMany({ where: { rateDate: toDate(date) } });
   const fxTodo = currencies.filter((c) => !fxExisting.some((r) => (r.fromCurrency === c && r.toCurrency === 'USD') || (r.fromCurrency === 'USD' && r.toCurrency === c)));
-  const fx = fxTodo.length ? await adapter.getFxRates({ date, pairs: fxTodo.map((c) => ({ from: c, to: 'USD' })) }) : [];
+  const fx = (fxTodo.length ? await adapter.fetchFx(fxTodo.map((c) => ({ from: c, to: 'USD' }))) : { items: [] }).items;
   const byTicker = new Map(todo.map((s) => [s.ticker, s.id]));
   const result = await prisma.$transaction(async (tx) => {
     const created = await tx.securityPrice.createMany({
@@ -279,7 +284,16 @@ integrationsRoutes.post('/custodian-feed/simulate', SETTINGS, validateBody(dayEn
   const active = await prisma.counterpartyDayEndPackage.findFirst({ where: { counterpartyId: cp.id, accountRef: b.accountRef, statementDate: toDate(date), currency: b.currency, status: { not: 'Superseded' } }, select: { ref: true } });
   if (active) throw HttpError.conflict(`Package ${active.ref} already covers this account, date and currency`, 'package_exists');
   const adapter = getAdapter('custodian-feed');
-  const dayEnd = await adapter.fetchDayEnd({ accountRef: b.accountRef, date, currency: b.currency });
+  // Day-end totals come from the feed when it holds a statement for the account and date, else from the deterministic fake.
+  const feedStatement = (await adapter.listStatements({ accountRef: b.accountRef, from: date, to: date, limit: 1 }))[0];
+  const stmt = feedStatement ?? { closingCash: fakeStatement(cp.id, b.accountRef, date, b.currency).closingCash, holdingsMv: null, tradeCount: 0 };
+  const synthetic = fakeStatement(cp.id, b.accountRef, date, b.currency);
+  const dayEnd = {
+    closingCash: stmt.closingCash ?? '0.00',
+    holdingsMv: stmt.holdingsMv ?? synthetic.holdings.reduce((n, h) => n + Number(h.marketValue ?? 0), 0).toFixed(2),
+    tradeCount: feedStatement ? stmt.tradeCount : synthetic.transactions.length,
+    sha256: sha256(`${cp.id}|${b.accountRef}|${date}|${b.currency}|${stmt.closingCash}`),
+  };
   const pkg = await prisma.$transaction(async (tx) => {
     const row = await tx.counterpartyDayEndPackage.create({
       data: {
