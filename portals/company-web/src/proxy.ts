@@ -6,5 +6,5 @@ import { createPortalProxy } from '@matanho/portal-kit/proxy';
 export const proxy = createPortalProxy('company', { requirePortalRole: false, turnAwayPortals: ['investor'] });
 
 export const config = {
-  matcher: ['/((?!_next/|assets/|investee-portal-v8/|login|invite|reset-password|access-denied|favicon.ico).*)'],
+  matcher: ['/((?!_next/|assets/|investee-portal-v8/|login|invite|reset-password|access-denied|sign/|favicon.ico).*)'],
 };

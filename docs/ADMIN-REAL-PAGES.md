@@ -1263,3 +1263,12 @@ Migration `20261023100000_admin_shell_security`; API `/api/v1/shell/*` (`modules
 - Create-role and staff-invite still use the direct `/admin` endpoints (now guarded against privileged grants) rather than change requests.
 - Role focus changes the menu only. The session list shows the user agent string, not a parsed device name.
 - Nothing here was run against a database or browser; typechecked only.
+=======
+## Investee workspace tables (WP-5, GAP-016)
+
+Migration `20261024100000_investee_workspace` (16 tables, no change to existing tables). Cap table, forecast, governance consents, requisitions are tables now; old `settings` JSON (`workspace.cap|governance|forecast|requests`) is copied once per company on first use (`ensureWorkspace`) and then ignored.
+
+- Cap table: transactions (issue, transfer, cancel) need a second company user with the sign capability and step-up; certificates carry a SHA-256 and can be re-verified; issue and cancel with a price post a PENDING_APPROVAL journal (`CAP:<ref>`) into a per-company ledger portfolio; exit waterfall (1x or n x preference, participating or not, seniority, conversion); register readable as of a date. `PUT /cap-table` is now baseline-only and refused once transactions exist.
+- Forecast cells are rows with month locks (approver locks, administrator unlocks). Board meetings, pack (frozen and hashed on publish), board actions. Company-initiated signature requests with tokened public signer page (`/sign/<token>` on company-web, `/api/v1/investee-public/sign/*`), remind (rotates link, 1 per hour, 5 max) and void. Share links (max 7 days, hash-only storage, access count, text watermark, revoke). Global search, derived KPI history with CSV/xlsx export, MFA coverage and access review.
+- Company-web: `/workspace` page (needs `workspace` in `INVESTEE_LIVE_ACTIONS` or `all`).
+- Not done: cap-table GL journals still need approval in accounting; non-text share files are not watermarked; signature e-mail goes through the existing outbox mailer (adapter comes from WP-8); no staff-side screen for cap-table data.

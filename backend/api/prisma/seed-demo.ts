@@ -433,6 +433,8 @@ export async function seedDemo() {
   await (await import('./seed-clients-onboarding')).seedClientsOnboarding();
   await (await import('./seed-reports')).seedReports();
   await (await import('./seed-orders-pm')).seedOrdersPm();
+=======
+  await (await import('./seed-investee-workspace')).seedInvesteeWorkspace();
   await (await import('./seed-admin-core')).seedAdminCore();
   await (await import('./seed-admin-shell')).seedAdminShell();
 }

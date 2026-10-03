@@ -157,6 +157,14 @@ export function InvesteePortal() {
     <div style={{ height: '100dvh', overflow: 'hidden', background: '#f3f6fb' }}>
       <div ref={rootRef} className="investee-portal-v8-root" data-theme="light" data-live-pages={livePages?.join(' ') ?? ''} style={{ height: '100%' }} />
       {showRibbon && <DemoRibbon note={flagsNote} />}
+      {livePages !== null && (
+        <a
+          href="/workspace"
+          style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 50, background: '#4f46e5', color: '#fff', padding: '9px 14px', borderRadius: 999, fontSize: 13, textDecoration: 'none', boxShadow: '0 6px 18px rgba(79,70,229,.35)' }}
+        >
+          Workspace tools
+        </a>
+      )}
       {stepUp && (
         <StepUpDialog
           reason={stepUp.reason}

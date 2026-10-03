@@ -100,6 +100,7 @@ import {
   uploadVaultFile,
   vaultDocuments,
 } from './investee-workspace';
+import { workspaceRoutes } from './workspace/workspace.routes';
 
 /**
  * `/api/v1/investee-portal` - Investee contract facade (SRD 5D; contract: ./investee.contract.ts, D-08).
@@ -990,7 +991,8 @@ investeePortalRoutes.post('/procurement', requireProfile('edit_draft'), validate
 });
 
 investeePortalRoutes.get('/cap-table', async (req, res) => {
-  ok(res, await capTableView(inv(req).company));
+  const asOf = typeof req.query.asOf === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.asOf) ? req.query.asOf : undefined;
+  ok(res, await capTableView(inv(req).company, asOf));
 });
 
 investeePortalRoutes.put('/cap-table', requireProfile('edit_draft'), validateBody(capTableSchema), async (req, res) => {
@@ -1042,6 +1044,9 @@ investeePortalRoutes.get('/signatures', async (req, res) => {
 });
 
 // ---------------------------------------------------------------- fallback + errors
+
+// Workspace tables: cap-table transactions, certificates, waterfall, board, signature requests, share links, search, access.
+investeePortalRoutes.use(workspaceRoutes);
 
 investeePortalRoutes.use(notBuilt('This Investee endpoint'));
 investeePortalRoutes.use(investeeErrorHandler);

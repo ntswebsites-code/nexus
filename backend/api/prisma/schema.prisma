@@ -4291,3 +4291,317 @@ model PurgeRun {
 }
 
 // ---- end Admin Shell & Security ----
+
+// ---- Investee Workspace ----
+
+/// One row per portfolio company: ledger entity for share-capital journals, forecast scenario, and the one-time move of the old Setting JSON.
+model InvesteeWorkspace {
+  companyId         String    @id @map("company_id") @db.Char(36)
+  ledgerPortfolioId String?   @map("ledger_portfolio_id") @db.Char(36)
+  forecastScenario  String    @default("Base case") @map("forecast_scenario") @db.VarChar(16)
+  legacyMigratedAt  DateTime? @map("legacy_migrated_at")
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@map("investee_workspaces")
+}
+
+model InvesteeShareClass {
+  id                 String   @id @default(uuid()) @db.Char(36)
+  companyId          String   @map("company_id") @db.Char(36)
+  name               String   @db.VarChar(80)
+  voting             String   @default("1 vote / share") @db.VarChar(60)
+  /// Liquidation preference as a multiple of the amount invested (0 = none).
+  preferenceMultiple Decimal  @default(0) @map("preference_multiple") @db.Decimal(6, 2)
+  participating      Boolean  @default(false)
+  /// Higher is paid first.
+  seniority          Int      @default(0)
+  /// Ordinary shares received per share on conversion.
+  conversionRatio    Decimal  @default(1) @map("conversion_ratio") @db.Decimal(10, 4)
+  status             String   @default("Active") @db.VarChar(12)
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@unique([companyId, name])
+  @@map("investee_share_classes")
+}
+
+model InvesteeShareholder {
+  id        String   @id @default(uuid()) @db.Char(36)
+  companyId String   @map("company_id") @db.Char(36)
+  name      String   @db.VarChar(160)
+  color     String   @default("#6654e8") @db.VarChar(9)
+  status    String   @default("Active") @db.VarChar(12)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([companyId, name])
+  @@map("investee_shareholders")
+}
+
+/// Cap-table transaction. The register is the sum of APPROVED rows. PENDING_APPROVAL -> APPROVED | REJECTED (checker is not the maker); OPENING rows are approved baselines.
+model InvesteeCapTx {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// CTX-0001
+  ref           String    @unique @db.VarChar(16)
+  companyId     String    @map("company_id") @db.Char(36)
+  /// OPENING | ISSUANCE | TRANSFER | CANCELLATION
+  kind          String    @db.VarChar(14)
+  status        String    @default("PENDING_APPROVAL") @db.VarChar(18)
+  holderId      String    @map("holder_id") @db.Char(36)
+  fromHolderId  String?   @map("from_holder_id") @db.Char(36)
+  classId       String    @map("class_id") @db.Char(36)
+  shares        Decimal   @db.Decimal(20, 0)
+  pricePerShare Decimal?  @map("price_per_share") @db.Decimal(20, 6)
+  consideration Decimal   @default(0) @db.Decimal(20, 4)
+  currency      String    @default("USD") @db.Char(3)
+  effectiveDate DateTime  @map("effective_date") @db.Date
+  note          String?   @db.VarChar(500)
+  makerId       String    @map("maker_id") @db.Char(36)
+  makerName     String    @map("maker_name") @db.VarChar(120)
+  checkerId     String?   @map("checker_id") @db.Char(36)
+  decidedAt     DateTime? @map("decided_at")
+  decisionNote  String?   @map("decision_note") @db.VarChar(500)
+  /// PENDING_GL (journal in gl_ref awaits accounting approval) | SKIPPED (reason in gl_note) | NONE
+  glStatus      String    @default("NONE") @map("gl_status") @db.VarChar(10)
+  glRef         String?   @map("gl_ref") @db.VarChar(16)
+  glNote        String?   @map("gl_note") @db.VarChar(300)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([companyId, status])
+  @@index([companyId, effectiveDate])
+  @@map("investee_cap_tx")
+}
+
+model InvesteeCertificate {
+  id        String   @id @default(uuid()) @db.Char(36)
+  /// SC-00001
+  certNo    String   @unique @map("cert_no") @db.VarChar(16)
+  companyId String   @map("company_id") @db.Char(36)
+  txId      String   @unique @map("tx_id") @db.Char(36)
+  holderId  String   @map("holder_id") @db.Char(36)
+  classId   String   @map("class_id") @db.Char(36)
+  shares    Decimal  @db.Decimal(20, 0)
+  issuedOn  DateTime @map("issued_on") @db.Date
+  /// SHA-256 of the stored certificate text.
+  sha256    String   @db.Char(64)
+  fileId    String?  @map("file_id") @db.Char(36)
+  /// ISSUED | VOIDED
+  status    String   @default("ISSUED") @db.VarChar(8)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([companyId, holderId])
+  @@map("investee_certificates")
+}
+
+model InvesteeForecastCell {
+  id        String    @id @default(uuid()) @db.Char(36)
+  companyId String    @map("company_id") @db.Char(36)
+  /// YYYY-MM
+  period    String    @db.VarChar(7)
+  metric    String    @default("revenue") @db.VarChar(24)
+  value     Decimal   @db.Decimal(20, 4)
+  updatedBy String?   @map("updated_by") @db.Char(36)
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  @@unique([companyId, period, metric])
+  @@map("investee_forecast_cells")
+}
+
+/// A locked month rejects forecast edits for every metric.
+model InvesteeForecastLock {
+  companyId String   @map("company_id") @db.Char(36)
+  period    String   @db.VarChar(7)
+  lockedBy  String   @map("locked_by") @db.Char(36)
+  lockedAt  DateTime @default(now()) @map("locked_at")
+
+  @@id([companyId, period])
+  @@map("investee_forecast_locks")
+}
+
+model InvesteeConsent {
+  id          String    @id @default(uuid()) @db.Char(36)
+  /// GOV-0001
+  ref         String    @unique @db.VarChar(16)
+  companyId   String    @map("company_id") @db.Char(36)
+  title       String    @db.VarChar(200)
+  basis       String    @db.VarChar(160)
+  submittedOn DateTime  @map("submitted_on") @db.Date
+  dueOn       DateTime  @map("due_on") @db.Date
+  ownerId     String?   @map("owner_id") @db.Char(36)
+  ownerName   String    @map("owner_name") @db.VarChar(120)
+  /// Investor review | Approved | Declined
+  status      String    @default("Investor review") @db.VarChar(16)
+  note        String?   @db.VarChar(2000)
+  decidedBy   String?   @map("decided_by") @db.Char(36)
+  decidedAt   DateTime? @map("decided_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([companyId, status])
+  @@map("investee_consents")
+}
+
+model InvesteeBoardMeeting {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// BRD-0001
+  ref           String    @unique @db.VarChar(16)
+  companyId     String    @map("company_id") @db.Char(36)
+  title         String    @db.VarChar(200)
+  meetingAt     DateTime  @map("meeting_at")
+  location      String?   @db.VarChar(200)
+  /// SCHEDULED | HELD | CANCELLED
+  status        String    @default("SCHEDULED") @db.VarChar(10)
+  agenda        String?   @db.Text
+  minutes       String?   @db.Text
+  /// DRAFT | PUBLISHED. Publishing freezes the pack and records its hash.
+  packStatus    String    @default("DRAFT") @map("pack_status") @db.VarChar(10)
+  packSha256    String?   @map("pack_sha256") @db.Char(64)
+  packPublished DateTime? @map("pack_published_at")
+  createdBy     String    @map("created_by") @db.Char(36)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  items InvesteeBoardPackItem[]
+
+  @@index([companyId, meetingAt])
+  @@map("investee_board_meetings")
+}
+
+model InvesteeBoardPackItem {
+  id         String @id @default(uuid()) @db.Char(36)
+  meetingId  String @map("meeting_id") @db.Char(36)
+  /// Logical reference to documents.id
+  documentId String @map("document_id") @db.Char(36)
+  label      String @db.VarChar(200)
+  sortOrder  Int    @default(0) @map("sort_order")
+
+  meeting InvesteeBoardMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@unique([meetingId, documentId])
+  @@map("investee_board_pack_items")
+}
+
+model InvesteeBoardAction {
+  id        String    @id @default(uuid()) @db.Char(36)
+  companyId String    @map("company_id") @db.Char(36)
+  meetingId String?   @map("meeting_id") @db.Char(36)
+  title     String    @db.VarChar(200)
+  ownerName String    @map("owner_name") @db.VarChar(120)
+  dueOn     DateTime? @map("due_on") @db.Date
+  evidence  String?   @db.VarChar(300)
+  /// OPEN | COMPLETE
+  status    String    @default("OPEN") @db.VarChar(10)
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  @@index([companyId, status])
+  @@map("investee_board_actions")
+}
+
+model InvesteeRequisition {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// REQ-2052 (shared "request" sequence)
+  ref           String    @unique @db.VarChar(16)
+  companyId     String    @map("company_id") @db.Char(36)
+  title         String    @db.VarChar(200)
+  description   String?   @db.Text
+  /// "<type>: <category>"
+  category      String    @db.VarChar(180)
+  currency      String    @db.Char(3)
+  amount        Decimal   @default(0) @db.Decimal(20, 2)
+  needBy        DateTime? @map("need_by") @db.Date
+  priority      String    @default("Medium") @db.VarChar(8)
+  /// DRAFT | SUBMITTED | APPROVED | REJECTED | FULFILLED
+  status        String    @default("SUBMITTED") @db.VarChar(10)
+  note          String?   @db.VarChar(2000)
+  createdById   String    @map("created_by_id") @db.Char(36)
+  createdByName String    @map("created_by_name") @db.VarChar(120)
+  decidedBy     String?   @map("decided_by") @db.Char(36)
+  decidedAt     DateTime? @map("decided_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([companyId, status])
+  @@map("investee_requisitions")
+}
+
+model InvesteeSignRequest {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// SIG-0001
+  ref           String    @unique @db.VarChar(16)
+  companyId     String    @map("company_id") @db.Char(36)
+  /// Logical reference to documents.id
+  documentId    String    @map("document_id") @db.Char(36)
+  title         String    @db.VarChar(200)
+  message       String?   @db.VarChar(1000)
+  /// SHA-256 of the document file at the time of the request.
+  docSha256     String    @map("doc_sha256") @db.Char(64)
+  /// PENDING | COMPLETED | VOIDED | EXPIRED
+  status        String    @default("PENDING") @db.VarChar(10)
+  expiresAt     DateTime  @map("expires_at")
+  createdById   String    @map("created_by_id") @db.Char(36)
+  createdByName String    @map("created_by_name") @db.VarChar(120)
+  voidedAt      DateTime? @map("voided_at")
+  voidReason    String?   @map("void_reason") @db.VarChar(300)
+  completedAt   DateTime? @map("completed_at")
+  remindedAt    DateTime? @map("reminded_at")
+  reminderCount Int       @default(0) @map("reminder_count")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  signers InvesteeSigner[]
+
+  @@index([companyId, status])
+  @@map("investee_sign_requests")
+}
+
+model InvesteeSigner {
+  id          String    @id @default(uuid()) @db.Char(36)
+  requestId   String    @map("request_id") @db.Char(36)
+  name        String    @db.VarChar(120)
+  email       String    @db.VarChar(254)
+  /// SHA-256 of the signing token (the token itself is only in the e-mailed link).
+  tokenHash   String    @unique @map("token_hash") @db.Char(64)
+  /// PENDING | SIGNED | DECLINED
+  status      String    @default("PENDING") @db.VarChar(9)
+  signedName  String?   @map("signed_name") @db.VarChar(120)
+  signedAt    DateTime? @map("signed_at")
+  signedIp    String?   @map("signed_ip") @db.VarChar(64)
+  /// SHA-256 over document hash, signer e-mail, typed name and time.
+  evidenceSha String?   @map("evidence_sha") @db.Char(64)
+
+  request InvesteeSignRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("investee_signers")
+}
+
+model InvesteeShareLink {
+  id          String    @id @default(uuid()) @db.Char(36)
+  companyId   String    @map("company_id") @db.Char(36)
+  /// Logical reference to documents.id
+  documentId  String    @map("document_id") @db.Char(36)
+  tokenHash   String    @unique @map("token_hash") @db.Char(64)
+  recipient   String    @db.VarChar(160)
+  expiresAt   DateTime  @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  accessCount Int       @default(0) @map("access_count")
+  lastAccess  DateTime? @map("last_access_at")
+  createdBy   String    @map("created_by") @db.Char(36)
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@index([companyId, documentId])
+  @@map("investee_share_links")
+}
+
+/// Periodic review of who can open the company workspace, with a snapshot of MFA coverage at the time.
+model InvesteeAccessReview {
+  id         String   @id @default(uuid()) @db.Char(36)
+  companyId  String   @map("company_id") @db.Char(36)
+  reviewerId String   @map("reviewer_id") @db.Char(36)
+  reviewedAt DateTime @default(now()) @map("reviewed_at")
+  note       String?  @db.VarChar(500)
+  /// [{ userId, email, profile, mfa, decision: CERTIFIED | REVOKED }]
+  items      Json
+  mfaCovered Int      @map("mfa_covered")
+  mfaTotal   Int      @map("mfa_total")
+
+  @@index([companyId, reviewedAt])
+  @@map("investee_access_reviews")
+}
+
+// ---- end Investee Workspace ----
