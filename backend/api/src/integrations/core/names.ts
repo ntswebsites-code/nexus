@@ -26,6 +26,7 @@ const SPECS: Partial<Record<IntegrationName, readonly [IntegrationMode, ...Integ
   'object-storage': ['local', 's3', 'fake'],
   'market-data': ['fake', 'public', 'live'],
   'custodian-feed': ['file-drop', 'fake', 'live'],
+  'broker-routing': ['fake', 'file-drop', 'live'],
 };
 export const integrationModes = (name: IntegrationName): readonly [IntegrationMode, ...IntegrationMode[]] => SPECS[name] ?? ['fake', 'live'];
 /** True for modes that are real, supported deployments (not simulations, not vendor stubs). */

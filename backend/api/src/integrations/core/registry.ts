@@ -47,8 +47,7 @@ import { meta as filingMeta, type RegulatorFilingAdapter } from '../regulator-fi
 import { FakeRegulatorFiling } from '../regulator-filing/fake';
 import { live as filingLive } from '../regulator-filing/live';
 import { meta as brokerMeta, type BrokerRoutingAdapter } from '../broker-routing/types';
-import { FakeBrokerRouting } from '../broker-routing/fake';
-import { live as brokerLive } from '../broker-routing/live';
+import { buildBrokerRoutingAdapter } from '../broker-routing/factory';
 
 export interface AdapterMap {
   email: EmailAdapter;
@@ -170,8 +169,7 @@ const CATALOG: { [K in IntegrationName]: Entry<AdapterMap[K]> } = {
   }),
   'broker-routing': entry<BrokerRoutingAdapter>({
     meta: brokerMeta,
-    fake: () => new FakeBrokerRouting(),
-    live: brokerLive,
+    build: () => buildBrokerRoutingAdapter(),
     test: async (a) => {
       const ack = await a.routeOrder({ orderRef: `TEST-${Date.now()}`, brokerCode: 'TEST', ticker: 'TEST.ZW', side: 'BUY', quantity: '100', limitPrice: '1.000000' });
       return { ack: ack.status, fills: (await a.fetchFills({ brokerOrderRef: ack.brokerOrderRef })).fills.length };

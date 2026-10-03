@@ -93,10 +93,37 @@ export interface HealthReport {
   sources: { source: string; label: string; url: string; ok: boolean; detail: string }[];
 }
 
+// ---- corporate-action announcements (R4-10) ----
+
+export type CaAnnouncementType = 'CASH_DIVIDEND' | 'STOCK_SPLIT' | 'BONUS_ISSUE' | 'SCRIP_DIVIDEND' | 'RIGHTS_ISSUE' | 'MERGER';
+
+/** An announced corporate action as the feed reports it. Dates are YYYY-MM-DD; amounts are fixed-point decimal strings. */
+export interface CorporateActionAnnouncement extends Provenance {
+  ticker: string;
+  type: CaAnnouncementType;
+  /** The provider's own identifier for the announcement, when it has one. */
+  sourceRef?: string;
+  currency?: string;
+  exDate: string;
+  recordDate: string;
+  payDate: string;
+  electionDeadline?: string | null;
+  /** Cash per share (dividend), subscription price (rights) or merger cash. */
+  rate?: string | null;
+  /** New shares per old share is ratioNew : ratioOld. */
+  ratioNew?: string | null;
+  ratioOld?: string | null;
+  targetTicker?: string | null;
+  withholdingPct?: string | null;
+  description?: string | null;
+}
+
 export interface MarketDataAdapter {
   readonly name: MarketDataMode;
   fetchQuotes(tickers: string[], ctx?: FetchContext): Promise<Batch<Quote>>;
   fetchHistory(ticker: string, from: string, to: string, ctx?: FetchContext): Promise<Batch<HistoryPoint>>;
   fetchFx(pairs: FxPair[], ctx?: FetchContext): Promise<Batch<FxQuote>>;
   healthCheck(): Promise<HealthReport>;
+  /** Announced corporate actions for the tickers. Optional: providers without a source (public) omit it. */
+  fetchCorporateActions?(tickers: string[], ctx?: FetchContext): Promise<Batch<CorporateActionAnnouncement>>;
 }

@@ -28,6 +28,7 @@ import { reconRoutes } from '../modules/recon/recon.routes';
 import { marketDataRoutes } from '../integrations/market-data/routes';
 import { custodianFeedRoutes } from '../integrations/custodian-feed/routes';
 import { opsctlRoutes } from '../modules/opsctl/opsctl.routes';
+import { tradingFeedsRoutes } from '../modules/trading-feeds';
 import { operationsRoutes, dashboardRoutes } from '../modules/wiring';
 import { iborRoutes } from '../modules/ibor';
 import { performanceRoutes } from '../modules/performance';
@@ -80,6 +81,8 @@ v1Router.use('/market-data', marketDataRoutes);
 v1Router.use('/custodian-feed', custodianFeedRoutes);
 // Operations & finance controls (R4-2): close gates, payments reconciliation, settlement fails, custody position pull.
 v1Router.use('/ops-controls', opsctlRoutes);
+// Trading feeds (R4-10): broker contract notes, FIX fills, breaks, settlement instructions, corporate-action feed.
+v1Router.use('/trading-feeds', tradingFeedsRoutes);
 // Operations Control (runbook tasks, live status) and Command Centre (today KPIs).
 v1Router.use('/operations', operationsRoutes);
 v1Router.use('/dashboard', dashboardRoutes);

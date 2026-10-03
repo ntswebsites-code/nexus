@@ -1,5 +1,5 @@
 import { dayFromIso, hashUnit, isoDay, lastWeekdayOnOrBefore, sha256 } from '../common';
-import type { Batch, FetchContext, FxPair, FxQuote, HealthReport, HistoryPoint, MarketDataAdapter, Quote } from './types';
+import type { Batch, CorporateActionAnnouncement, FetchContext, FxPair, FxQuote, HealthReport, HistoryPoint, MarketDataAdapter, Quote } from './types';
 
 const SOURCE = 'FAKE';
 const URL_ = 'fake://market-data';
@@ -18,6 +18,39 @@ export function fakeClose(ticker: string, dateIso: string): string {
 export function fakeFxRate(from: string, to: string, dateIso: string): string {
   const usd = (c: string) => (c === 'USD' ? 1 : c === 'ZWG' ? 26.5 * (1 + (hashUnit(`fx:${dateIso}`) - 0.5) * 0.01) : 0.5 + hashUnit(`ccy:${c}`) * 30);
   return (usd(to) / usd(from)).toFixed(10);
+}
+
+const weekdayOnOrAfter = (iso: string) => {
+  const d = dayFromIso(iso);
+  while (d.getUTCDay() === 0 || d.getUTCDay() === 6) d.setUTCDate(d.getUTCDate() + 1);
+  return isoDay(d);
+};
+const addDays = (iso: string, n: number) => isoDay(new Date(dayFromIso(iso).getTime() + n * 86_400_000));
+
+/**
+ * Deterministic announcements: per ticker and calendar month, about 40 percent announce a cash dividend and 10 percent a
+ * 2-for-1 split, with dates and amounts fixed for the month so a daily sync sees the same announcement again
+ * (this is what the duplicate suppression is tested with).
+ */
+export function fakeAnnouncements(tickers: string[], now: Date): CorporateActionAnnouncement[] {
+  const today = isoDay(now);
+  const anchorMonth = today.slice(8, 10) <= '20' ? today.slice(0, 7) : isoDay(new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))).slice(0, 7);
+  const exDate = weekdayOnOrAfter(`${anchorMonth}-20`);
+  const recordDate = weekdayOnOrAfter(addDays(exDate, 2));
+  const payDate = weekdayOnOrAfter(addDays(recordDate, 14));
+  const out: CorporateActionAnnouncement[] = [];
+  for (const ticker of tickers) {
+    const u = hashUnit(`ca:${ticker}:${anchorMonth}`);
+    if (u >= 0.5) continue;
+    const base = { ticker, source: SOURCE, url: URL_, fetchedAt: now, exDate, recordDate, payDate };
+    if (u < 0.4) {
+      const rate = (0.001 + hashUnit(`rate:${ticker}`) * 0.05).toFixed(4);
+      out.push({ ...base, type: 'CASH_DIVIDEND', rate, withholdingPct: '10', sourceRef: `FAKE-${ticker}-${anchorMonth}-DIV`, description: `Fake interim dividend of ${rate} per share`, rawHash: sha256(`${ticker}|DIV|${exDate}|${rate}`) });
+    } else {
+      out.push({ ...base, type: 'STOCK_SPLIT', ratioNew: '2', ratioOld: '1', sourceRef: `FAKE-${ticker}-${anchorMonth}-SPL`, description: 'Fake 2-for-1 share split', rawHash: sha256(`${ticker}|SPL|${exDate}`) });
+    }
+  }
+  return out;
 }
 
 export class FakeMarketDataProvider implements MarketDataAdapter {
@@ -53,6 +86,12 @@ export class FakeMarketDataProvider implements MarketDataAdapter {
       return { from: p.from, to: p.to, rate, rateDate: day, rawValue: rate, source: SOURCE, url: URL_, fetchedAt: now, rawHash: sha256(`${p.from}${p.to}|${day}|${rate}`) };
     });
     return { items, issues: [], sources: [] };
+  }
+
+  async fetchCorporateActions(tickers: string[], ctx: FetchContext = {}): Promise<Batch<CorporateActionAnnouncement>> {
+    const now = ctx.now ?? new Date();
+    const items = fakeAnnouncements(tickers, now);
+    return { items, issues: [], sources: [{ source: SOURCE, label: 'Deterministic fake generator', url: URL_, status: 'OK', count: items.length, fetchedAt: now, note: 'Test data only; never use in production' }] };
   }
 
   async healthCheck(): Promise<HealthReport> {

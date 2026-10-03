@@ -48,6 +48,8 @@ const FORMATS = {
   accessRequest: { prefix: 'ACR-', pad: 4, start: 1001 },
   accessReview: { prefix: 'REV-', pad: 4, start: 1001 },
   esign: { prefix: 'ESG-', pad: 5, start: 1 },
+  tradeFeedLine: { prefix: 'TFL-', pad: 6, start: 1 },
+  settleInstruction: { prefix: 'SIN-', pad: 5, start: 1 },
 } as const;
 
 /** Reference formats for the Settings numbering view. */

@@ -14,6 +14,7 @@ import { D, ZERO, assertSegregation, assertUpdated, audit, notifyPermission, seq
 import { getBrokerList, latestPrices, loadPortfolio } from '../portfolio/portfolio.service';
 import { ensureOrderReservation, orderCashView, releaseOrderCash, reserveOrderCash, syncOrderReservation } from '../cash/cash.orders';
 import { settleOrder } from './orders.settle';
+import { applyFillTx } from './orders.fill';
 import { RESERVING_STATUSES, estimateFee, runPreTradeChecks, type PreTradeResult } from './orders.checks';
 import {
   CANCELLABLE,
@@ -648,83 +649,9 @@ ordersRoutes.post('/:id/fills', ...staff, requirePermission('orders.route'), val
   const executedAt = b.executedAt ? new Date(b.executedAt) : new Date();
   if (executedAt.getTime() > Date.now() + 60_000) throw HttpError.badRequest('Validation failed', [{ path: 'executedAt', message: 'The execution time cannot be in the future' }]);
 
-  await prisma.$transaction(async (tx) => {
-    await lockPortfolio(tx, first.portfolioId);
-    const o = await loadOrderRow(first.id, tx); // fresh, under the lock
-    if (!['Routing', 'PartiallyFilled'].includes(o.status)) throw new HttpError(409, 'invalid_transition', `A fill cannot be recorded on an order that is ${o.status}`);
-    const remaining = o.quantity.sub(o.filledQty);
-    if (qty.gt(remaining)) throw new HttpError(409, 'overfill', `Fill of ${qty.toString()} exceeds the remaining ${remaining.toString()} on this order`);
-    if (o.orderType === 'LIMIT' && o.limitPrice) {
-      const breach = o.side === 'BUY' ? price.gt(o.limitPrice) : price.lt(o.limitPrice);
-      if (breach) throw new HttpError(409, 'limit_breach', `A ${o.side} fill at ${price.toString()} is outside the ${o.limitPrice.toString()} limit`);
-    }
-    const buy = o.side === 'BUY';
-    const day = today();
-
-    // ---- position (append-by-date: today's row is created or updated, history is never edited)
-    const pos = await tx.portfolioPosition.findFirst({
-      where: { portfolioId: o.portfolioId, securityId: o.securityId, asOf: { lte: day } },
-      orderBy: [{ asOf: 'desc' }, { createdAt: 'desc' }],
-    });
-    const heldQty = pos?.quantity ?? ZERO;
-    if (!buy && qty.gt(heldQty)) throw new HttpError(409, 'insufficient_position', `The portfolio holds ${heldQty.toString()}; it cannot sell ${qty.toString()}`);
-    const newQty = buy ? heldQty.add(qty) : heldQty.sub(qty);
-    const newAvgCost = buy
-      ? heldQty.mul(pos?.avgCost ?? ZERO).add(qty.mul(price)).div(newQty).toDecimalPlaces(6, D.ROUND_HALF_UP)
-      : (pos?.avgCost ?? price);
-    await tx.portfolioPosition.upsert({
-      where: { portfolioId_securityId_asOf: { portfolioId: o.portfolioId, securityId: o.securityId, asOf: day } },
-      create: { portfolioId: o.portfolioId, securityId: o.securityId, quantity: newQty, avgCost: newAvgCost, asOf: day },
-      update: { quantity: newQty, avgCost: newAvgCost },
-    });
-
-    // ---- cash in the security currency
-    const cashRow = await tx.portfolioCash.findFirst({ where: { portfolioId: o.portfolioId, currency: o.currency, asOf: { lte: day } }, orderBy: [{ asOf: 'desc' }, { createdAt: 'desc' }] });
-    const cashBefore = cashRow?.available ?? ZERO;
-    const gross = qty.mul(price);
-    const cashAfter = (buy ? cashBefore.sub(gross).sub(fees) : cashBefore.add(gross).sub(fees)).toDecimalPlaces(4, D.ROUND_HALF_UP);
-    await tx.portfolioCash.upsert({
-      where: { portfolioId_currency_asOf: { portfolioId: o.portfolioId, currency: o.currency, asOf: day } },
-      create: { portfolioId: o.portfolioId, currency: o.currency, available: cashAfter, asOf: day },
-      update: { available: cashAfter },
-    });
-
-    // ---- fill, order totals, status
-    const fill = await tx.orderFill.create({
-      data: { orderId: o.id, quantity: qty, price, fees, executedAt, source: b.source, sourceRef: b.sourceRef ?? null, recordedBy: req.user!.id },
-    });
-    // A sell realises a gain or loss against the position's average cost (average-cost method); fees are booked separately as trade costs.
-    if (!buy) {
-      const unitCost = pos?.avgCost ?? price;
-      const proceeds = qty.mul(price).toDecimalPlaces(4, D.ROUND_HALF_UP);
-      const costBasis = qty.mul(unitCost).toDecimalPlaces(4, D.ROUND_HALF_UP);
-      await tx.orderRealisedGain.create({
-        data: { orderId: o.id, fillId: fill.id, portfolioId: o.portfolioId, securityId: o.securityId, quantity: qty, unitCost, proceeds, costBasis, fees, realisedGain: proceeds.sub(costBasis), currency: o.currency },
-      });
-    }
-    const filledQty = o.filledQty.add(qty);
-    const avgPrice =o.filledQty.mul(o.avgPrice ?? ZERO).add(qty.mul(price)).div(filledQty).toDecimalPlaces(6, D.ROUND_HALF_UP);
-    const complete = filledQty.eq(o.quantity);
-    const reservedAmount = buy && !complete && o.reserveUnit ? o.quantity.sub(filledQty).mul(o.reserveUnit).toDecimalPlaces(4, D.ROUND_HALF_UP) : ZERO;
-    await move(tx, req, o, complete ? 'Filled' : 'PartiallyFilled', {
-      data: { filledQty, avgPrice, reservedAmount },
-      action: 'order.fill_recorded',
-      after: {
-        fillId: fill.id,
-        fillQuantity: qty.toString(),
-        fillPrice: price.toString(),
-        fees: fees.toString(),
-        filledQty: filledQty.toString(),
-        avgPrice: avgPrice.toString(),
-        positionAfter: newQty.toString(),
-        cashAfter: cashAfter.toString(),
-        currency: o.currency,
-        source: b.source,
-      },
-    });
-    // The cash hold now covers what was filled plus the unfilled remainder; it is consumed when the settlement journal posts.
-    if (buy) await syncOrderReservation(tx, audit(req), { id: o.id, ref: o.ref, portfolioId: o.portfolioId, currency: o.currency }, { quantity: o.quantity, filledQty, reserveUnit: o.reserveUnit });
-  });
+  await prisma.$transaction((tx) =>
+    applyFillTx(tx, audit(req), first, { quantity: qty, price, fees, executedAt, source: b.source, sourceRef: b.sourceRef ?? null, recordedBy: req.user!.id }),
+  );
   await respond(res, req, first.id, 201);
 });
 
