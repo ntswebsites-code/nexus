@@ -1172,3 +1172,37 @@ Test: `npx tsx scripts/test-admin-core.ts` (engine rules, no database needed). T
 - No LLM; unrecognised questions get a help message. Copilot does not add values across currencies.
 - Retention, notification and most feature-flag settings are recorded but not yet read by other modules. No scheduled purge.
 - Custom permission codes cannot be created; role creation and staff invitation still use the direct `/admin` endpoints.
+
+## Integrations: Market Data and Custodian Feed (`backend/api/src/integrations`)
+
+Migration `20261032100000_market_data` (models between `// ---- MarketData ----` markers at the end of `schema.prisma`: `md_source_status`, `md_provenance`, `md_refresh_runs`, `custodian_feed_files`, `custodian_feed_holdings`). APIs: `/api/v1/market-data/*` and `/api/v1/custodian-feed/*`. Screens: a "Market data feed" section on `/ops/securities` and a "Custodian feed" tab on `/ops/reconciliation`. Seed: `prisma/seed-market-data.ts` (registers the sources; called by `seed-demo.ts` and `seed-uat.ts`).
+
+### Market data (GAP-A04)
+
+`INTEGRATION_MARKET_DATA=public|fake|live` (default `fake`, so nothing reaches the internet unless production opts in). Interface `fetchQuotes / fetchHistory / fetchFx / healthCheck` in `integrations/market-data/types.ts`.
+
+- **public** reads free pages. Vetted 2026-10-03, selectors and notes in the one file `public/sources.config.ts`:
+  - `ZSE_AFX` (afx.kwayisi.org/zse): ZSE counters in ZWG, list page plus per-counter history. robots.txt allows crawling with `Crawl-delay: 60`, which the fetcher enforces; no restriction on automated reading found. Maps `XXX.ZW` to `XXX`.
+  - `ER_API` (open.er-api.com): documented free USD-base endpoint with ZWG, updated daily, attribution "Rates By Exchange Rate API" shown on the screen.
+  - Not usable: zse.co.zw and vfex.exchange (market data is a JavaScript app behind the login-only Data Direct portal; no public page), rbz.co.zw and africanfinancials.com (HTTP 403 to automated clients, not worked around). So **VFEX (`.VX`) and OTC securities have no free public source**: they are skipped and reported, and need the paid feed, a file drop or manual prices.
+  - Polite by design: host allow-list, https only, `MatanhoNexusBot/1.0 (+mailto:...)` User-Agent, one request per host per interval, response cache, no off-host redirects, size cap and timeout; repeated failures back a source off (after 3 failures, 1 minute doubling to 6 hours).
+- **Validation** (`validate.ts`, applied to every provider): plain positive number, valid and not-future date, move vs the previous stored price within 40 percent (FX 25 percent) else rejected, stale after 3 business days (flagged, not rejected). Layout drift (missing table or columns, no valid rows) raises a parse exception instead of writing anything.
+- **Writes** go to `security_prices` (source `ZSE_AFX`/`FAKE`) and `fx_rates` (`ER_API`/`FAKE`), the tables Orders, NAV, IBOR and Performance already read. A `MANUAL` price or rate for the same date always wins; the feed value is then recorded as OVERRIDDEN. Existing manual override stays the `Set price` action (`POST /securities/:id/prices`, `portfolio.manage`, audited).
+- **Provenance** (`md_provenance`): per accepted price source, page URL, fetched-at and a sha-256 of the raw row; rejected and failed values form the exception list (acknowledge with `portfolio.manage`).
+- **Worker**: `marketDataTick()` from `worker.ts`, clock Harare UTC+2, Mon-Fri: FX once after 07:30, intraday every 30 minutes 09:30-14:00, end of day after 15:00 (retried up to 3 times). State is in `md_refresh_runs`. On by default only for `public`; override with `MARKET_DATA_SCHEDULER=on|off`. Scheduled runs allow up to 5 per-counter fallback page fetches; **Refresh now** (`POST /market-data/refresh`, `portfolio.manage`) does not, to stay fast, and honours back-off and the crawl delay.
+- **fake**: deterministic generator for tests and demos. **live**: `NotConfigured` stub naming `MARKET_DATA_LIVE_BASE_URL` and `MARKET_DATA_LIVE_API_KEY`.
+
+### Custodian feed (GAP-A05)
+
+`INTEGRATION_CUSTODIAN_FEED=file-drop|fake|live` (default `file-drop`). Interface `listStatements / fetchStatement / fetchHoldings / fetchTransactions`.
+
+- **file-drop**: staff upload CSV, MT940-like or JSON text (`POST /custodian-feed/upload`, `recon.manage`, 1 MB, idempotent). Parsing is strict (any bad row rejects the file with the first problems listed). Trades become `counterparty_executions` (known trade references are skipped), cash and holdings value a `counterparty_day_end_packages` row (an earlier package for the same account and date is superseded), holdings lines go to `custodian_feed_holdings`. Identical content per counterparty is refused (sha-256). Reconciliation matches the loaded rows with no change. Format templates download from the screen (`GET /custodian-feed/templates/:format`); format notes are at the top of `custodian-feed/parsers.ts`.
+- **fake**: deterministic statements and a "Generate fake statement" action that goes through the same ingest path. **live**: `NotConfigured` stub naming `CUSTODIAN_FEED_SWIFT_BIC`, `CUSTODIAN_FEED_SWIFT_ENDPOINT`, `CUSTODIAN_FEED_SWIFT_CERT`, `CUSTODIAN_FEED_API_BASE_URL`, `CUSTODIAN_FEED_API_KEY`.
+
+Test: `cd backend/api && npx tsx scripts/test-market-data.ts` (offline, no database or network; parsers run against `backend/api/test-fixtures/market-data`). Typechecked; the API flows and screens were **not run** (no database, no browser).
+
+### Not done
+
+- No free public source for VFEX or OTC prices; the AFX list price is the last traded price stamped with the page date, so a counter that did not trade carries its previous close under today's date (the per-counter history page has the true last-trade date but costs one request per counter).
+- FX: stored and read by NAV and the portfolio snapshot through existing `fx_rates`; no new conversion logic was added. Only USD-base pairs plus pairs already in `fx_rates` are refreshed.
+- Corporate actions and benchmark series are not fed. Custodian: no MT535/536 or CAMT.053 proper, no SWIFT or API connectivity (stub), no automatic mapping of unmapped accounts (a warning points to the Reconciliation account map).

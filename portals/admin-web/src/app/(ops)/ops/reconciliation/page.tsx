@@ -9,8 +9,9 @@ import { TabBar } from '@/ops/recon/common';
 import { OverviewTab } from '@/ops/recon/OverviewTab';
 import { RunTab } from '@/ops/recon/RunTab';
 import { SignoffTab } from '@/ops/recon/SignoffTab';
+import { CustodianFeedSection } from '@/ops/market-data';
 
-type Tab = 'overview' | 'breaks' | 'run' | 'signoff';
+type Tab = 'overview' | 'breaks' | 'run' | 'signoff' | 'feed';
 
 export default function ReconciliationPage() {
   const canView = useCan('operations.view');
@@ -57,6 +58,7 @@ export default function ReconciliationPage() {
           { key: 'breaks', label: 'Breaks' },
           { key: 'run', label: 'Run matching' },
           { key: 'signoff', label: 'Daily sign-off' },
+          { key: 'feed', label: 'Custodian feed' },
         ]}
       />
       {tab === 'overview' && (
@@ -71,6 +73,7 @@ export default function ReconciliationPage() {
       {tab === 'breaks' && <BreaksTab key={`${filter.family ?? ''}${filter.severity ?? ''}`} initial={filter} stamp={stamp} onOpen={setOpenId} />}
       {tab === 'run' && <RunTab canManage={canManage} onOpenBreak={setOpenId} onChanged={bump} />}
       {tab === 'signoff' && <SignoffTab stamp={stamp} canSign={canSign} onOpenBreak={setOpenId} onChanged={bump} />}
+      {tab === 'feed' && <CustodianFeedSection canManage={canManage} onChanged={bump} />}
       {openId && <BreakDetail id={openId} onClose={() => setOpenId(null)} onChanged={bump} />}
     </>
   );

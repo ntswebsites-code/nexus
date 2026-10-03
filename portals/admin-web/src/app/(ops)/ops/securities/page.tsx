@@ -5,6 +5,7 @@ import { api, qs, v1 } from '@/ops/api';
 import { formatDecimal } from '@/ops/money';
 import { useCan } from '@/ops/session';
 import type { SecurityRow } from '@/ops/types';
+import { MarketDataSection } from '@/ops/market-data';
 import { Card, DateText, Empty, Field, FieldGrid, FormModal, Loaded, Modal, PageHeader, StatusBadge, str, useResource } from '@/ops/ui';
 
 export default function SecuritiesPage() {
@@ -82,6 +83,7 @@ export default function SecuritiesPage() {
           }
         </Loaded>
       </Card>
+      <MarketDataSection onChanged={() => rows.reload()} />
       {viewing && (
         <Modal title={viewing} kicker="Price history" onClose={() => setViewing(null)}>
           <div className="ops-modal-body">
