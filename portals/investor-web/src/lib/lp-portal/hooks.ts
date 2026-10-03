@@ -118,7 +118,7 @@ export function useLpDealingOverview(fundIdOverride?: string) {
   const { selectedFundId, funds, refreshKeys } = useLpPortal()
   const fundId =
     fundIdOverride ??
-    (selectedFundId && selectedFundId !== "all"
+    (selectedFundId && selectedFundId !== "all" && funds.find((f) => f.id === selectedFundId)?.operatingModel === "OPEN_ENDED"
       ? selectedFundId
       : funds.find((f) => f.operatingModel === "OPEN_ENDED")?.id)
   const fundLookup = React.useMemo(

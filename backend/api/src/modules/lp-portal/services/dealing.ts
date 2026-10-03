@@ -253,6 +253,7 @@ async function assertDealingAllowed(lp: LpContext, f: FundCtx) {
 
 export async function overview(lp: LpContext, fundId: string | undefined): Promise<LpDealingOverview> {
   const f = await loadFund(lp, fundId);
+  if (f.fund.operatingModel !== 'OPEN_ENDED') throw LpError.validation('Dealing is not available for private capital funds', { fundId: 'Dealing is not available for this fund' });
   const p = await position(lp, f).catch((e) => {
     if (e instanceof LpError && e.code === 'LP_VALIDATION') return null;
     throw e;

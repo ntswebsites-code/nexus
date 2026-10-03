@@ -2,7 +2,7 @@ import { Prisma } from '@prisma/client';
 import type { LpDashboardAction, LpDashboardData, LpRecentActivity } from '@matanho/shared';
 import { prisma } from '../../../lib/prisma';
 import { day } from '../lp.http';
-import type { LpContext } from '../lp.context';
+import { assertFund, type LpContext } from '../lp.context';
 import { VISIBLE_CALL_STATUSES, VISIBLE_DISTRIBUTION_STATUSES, callStatus, fundNames, fundScopeWhere } from './common';
 import { lpDocWhere } from './documents';
 import { visibleNoticeWhere } from './notices';
@@ -12,7 +12,8 @@ const ZERO = new Prisma.Decimal(0);
 const maxZero = (v: Prisma.Decimal) => (v.lt(0) ? ZERO : v);
 
 export async function getDashboard(ctx: LpContext, fundId?: string): Promise<LpDashboardData> {
-  const positions = await loadPositions(ctx, fundId && ctx.fundIds.includes(fundId) ? fundId : undefined);
+  assertFund(ctx, fundId);
+  const positions = await loadPositions(ctx, fundId);
   const c = consolidate(positions);
   const { asOfDate, valuationStatus } = latestAsOf(positions);
   const pcFunds = positions.filter((p) => !p.isOpenEnded).map((p) => p.fund.id);
@@ -64,7 +65,7 @@ export async function getActions(ctx: LpContext): Promise<LpDashboardAction[]> {
       take: 30,
     }),
     prisma.lpDealingRequest.findMany({
-      where: { clientId: ctx.client.id, fundId: { in: ctx.fundIds }, status: { in: ['SUBMITTED', 'COMPLIANCE_REVIEW', 'AWAITING_FUNDS', 'UNDER_REVIEW'] } },
+      where: { clientId: ctx.client.id, fundId: { in: ctx.fundIds }, status: 'AWAITING_FUNDS' },
       orderBy: { createdAt: 'desc' },
       take: 20,
     }),

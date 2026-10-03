@@ -234,8 +234,7 @@ export function LpPortalDashboardScreen() {
       {
         label: "Total Commitment",
         value: formatMoneyCompact(kpis.totalCommitment, presentationCurrency),
-        helper: `${kpis.investmentCount} ${kpis.investmentCount === 1 ? "Commitment" : "Commitments"}`,
-        href: "/lp-portal/investments",
+        helper: `Private capital funds · ${kpis.investmentCount} ${kpis.investmentCount === 1 ? "investment" : "investments"} in view`,
         icon: Gauge,
         iconBg: "bg-[#eaf2ff]",
         iconColor: "text-[#2563eb]",
@@ -294,7 +293,8 @@ export function LpPortalDashboardScreen() {
     const outstanding = parseDecimal(kpis.outstandingCalled ?? "0") / 1_000_000
     const unfunded = parseDecimal(kpis.unfunded) / 1_000_000
     const distributed = parseDecimal(kpis.distributions) / 1_000_000
-    const remaining = Math.max(parseDecimal(kpis.currentNav) / 1_000_000 - distributed, 0)
+    // Remaining value is the current NAV itself; distributions are already out of the fund.
+    const remaining = Math.max(parseDecimal(kpis.currentNav) / 1_000_000, 0)
     const commitment = parseDecimal(kpis.totalCommitment)
     // Takes the RAW amount, in the same units as `commitment` (which is not scaled down).
     // The `* 1_000_000` that used to be here was applied on top of call sites that already
@@ -357,7 +357,7 @@ export function LpPortalDashboardScreen() {
           id: item.id,
           type: item.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
           fund: fundNameById.get(item.fundId) ?? item.fundId,
-          amount: formatMoney(row.amount, presentationCurrency),
+          amount: parseDecimal(row.amount) === 0 ? "-" : formatMoney(row.amount, presentationCurrency),
           date: row.at,
           direction: upper.includes("DISTRIBUTION") ? ("up" as const) : ("down" as const),
         }
@@ -725,11 +725,11 @@ export function LpPortalDashboardScreen() {
               </div>
             ) : (
               <div className="flex h-[168px] items-center justify-center px-3.5 text-[12px] text-[#94a3b8]">
-                YTD Return: {formatPercent(openEnded.ytdReturn)}
+                YTD Return: {openEnded.ytdReturn == null ? "Not available" : formatPercent(openEnded.ytdReturn)}
               </div>
             )}
             <p className="px-3.5 pb-1 text-[10px] text-[#94a3b8]">
-              YTD Return: {formatPercent(openEnded.ytdReturn)}
+              YTD Return: {openEnded.ytdReturn == null ? "Not available" : formatPercent(openEnded.ytdReturn)}
             </p>
             <div className="px-3.5 pb-3">
               <SmallLink href="/lp-portal/account-activity?structure=open-ended">View Account Details</SmallLink>

@@ -198,7 +198,7 @@ export async function listRequests(ctx: LpContext, q: { status?: string; fundId?
 
 async function findRequest(ctx: LpContext, reference: string) {
   const r = await prisma.serviceRequest.findFirst({
-    where: { clientId: ctx.client.id, OR: [{ ref: reference }, { id: reference }], ...fundScopeWhere(ctx) },
+    where: { AND: [{ clientId: ctx.client.id }, { OR: [{ ref: reference }, { id: reference }] }, fundScopeWhere(ctx)] },
     include: requestInclude,
   });
   if (!r) throw LpError.notFound('Service request');

@@ -68,7 +68,7 @@ const openEndedItems = [
 export function LpPortalSidebar({ mobile = false, onNavigate }: LpPortalSidebarProps) {
   const pathname = usePathname()
   const searchParams = useSearchParams()
-  const { operatingModel, unreadCounts } = useLpPortal()
+  const { operatingModel, unreadCounts, funds } = useLpPortal()
   const [collapsed, setCollapsed] = React.useState(false)
   const [investmentsOpen, setInvestmentsOpen] = React.useState(false)
   const isCollapsed = mobile ? false : collapsed
@@ -155,6 +155,7 @@ export function LpPortalSidebar({ mobile = false, onNavigate }: LpPortalSidebarP
           {!isCollapsed && <span>Dashboard</span>}
         </Link>
 
+        {funds.length > 0 && (
         <div>
           <button
             type="button"
@@ -204,6 +205,7 @@ export function LpPortalSidebar({ mobile = false, onNavigate }: LpPortalSidebarP
             </div>
           )}
         </div>
+        )}
 
         {baseNavigation.slice(1).map((item) => {
           const Icon = item.icon

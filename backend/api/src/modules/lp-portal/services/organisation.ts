@@ -130,7 +130,11 @@ async function colleagueRows(ctx: LpContext): Promise<LpColleague[]> {
   ];
 }
 
-export const listColleagues = colleagueRows;
+/** Managers see the full directory; other roles only see their own entry (no colleague emails or activity). */
+export async function listColleagues(ctx: LpContext): Promise<LpColleague[]> {
+  const rows = await colleagueRows(ctx);
+  return ctx.lpRole === 'MANAGER' ? rows : rows.filter((r) => r.membershipId === ctx.membershipId);
+}
 
 export async function getOrganisation(ctx: LpContext): Promise<LpOrganisation> {
   const c = await prisma.client.findUniqueOrThrow({ where: { id: ctx.client.id } });
@@ -214,7 +218,42 @@ async function findMembership(ctx: LpContext, membershipId: string) {
   return m;
 }
 
+/** A pending invitation keeps its role and fund scope until accepted; managers may edit both (ISS-LPC-010). */
+async function updatePendingInvite(req: Request, ctx: LpContext, membershipId: string) {
+  const invitation = await prisma.invitation.findFirst({
+    where: { id: membershipId, clientId: ctx.client.id, portal: 'investor', acceptedAt: null, revokedAt: null, expiresAt: { gt: new Date() } },
+  });
+  if (!invitation) return null;
+  const b = asRecord(req.body);
+  const currentRole = ((invitation.roleKeys as string[]) ?? [])[0] ?? 'investment';
+  const role = b.role !== undefined ? normaliseRole(b.role, 'promote') : ((LP_ROLE_BY_INVESTOR_ROLE[currentRole] ?? 'VIEWER') as 'VIEWER' | 'SIGNATORY');
+  const key = inviteKey(invitation.email);
+  const existing = await prisma.setting.findUnique({ where: { ownerId_key: { ownerId: ctx.client.id, key } } });
+  const priorFunds = existing && Array.isArray(asRecord(existing.value).fundIds) ? (asRecord(existing.value).fundIds as string[]) : null;
+  const fundIds = b.fundIds !== undefined ? await normaliseFunds(ctx, b.fundIds) : priorFunds;
+  await prisma.$transaction(async (tx) => {
+    await tx.invitation.update({ where: { id: invitation.id }, data: { roleKeys: [INVESTOR_ROLE_FOR[role]] } });
+    await saveInviteGrant(tx, invitation.id, { kind: 'lp', fundIds, lpRole: role, invitedById: ctx.userId });
+    if (fundIds) {
+      const value = { fundIds, lpRole: role, invitationId: invitation.id, invitedById: ctx.userId };
+      await tx.setting.upsert({ where: { ownerId_key: { ownerId: ctx.client.id, key } }, create: { ownerId: ctx.client.id, key, value }, update: { value } });
+    } else {
+      await tx.setting.deleteMany({ where: { ownerId: ctx.client.id, key } });
+    }
+    await writeAudit(tx, lpAudit(req), {
+      action: 'lp_colleague.invitation_updated',
+      objectType: 'invitation',
+      objectId: invitation.id,
+      before: { lpRole: LP_ROLE_BY_INVESTOR_ROLE[currentRole] ?? 'VIEWER', fundIds: priorFunds },
+      after: { lpRole: role, fundIds },
+    });
+  });
+  return { id: invitation.id, userId: '', clientId: ctx.client.id, lpRole: role, fundIds: fundIds ?? [], isActive: false };
+}
+
 export async function updateColleague(req: Request, ctx: LpContext, membershipId: string) {
+  const pending = await updatePendingInvite(req, ctx, membershipId);
+  if (pending) return pending;
   const m = await findMembership(ctx, membershipId);
   if (m.userId === ctx.userId) throw LpError.forbidden('You cannot change your own access');
   if (lpRoleOf(m) === 'MANAGER') throw LpError.forbidden('Cannot change a manager via colleague API');

@@ -256,7 +256,12 @@ export async function uploadPaymentConfirmation(req: Request, lp: LpContext, id:
   if (!file) throw LpError.validation('file is required', { file: 'Attach the payment confirmation' });
   const a = await findAllocation(lp, id);
   const outstanding = D.max(ZERO, a.callAmount.sub(a.amountPaid));
+  if (outstanding.lte(0)) throw LpError.validation('This capital call is already fully paid', { amountClaimed: 'Nothing is outstanding on this call' });
   const amountClaimed = body.amountClaimed ? new D(body.amountClaimed) : outstanding;
+  if (amountClaimed.lte(0)) throw LpError.validation('Amount must be greater than zero', { amountClaimed: 'Enter an amount greater than zero' });
+  if (amountClaimed.gt(outstanding)) {
+    throw LpError.validation('Amount exceeds the outstanding balance', { amountClaimed: `Cannot exceed the outstanding ${money(outstanding)} ${a.call.currency}` });
+  }
   const result = await prisma.$transaction(
     async (tx) => {
       const stored = await storeFile({ name: file.originalname || 'payment-confirmation', mime: file.mimetype, data: file.buffer, uploadedById: lp.userId }, tx);

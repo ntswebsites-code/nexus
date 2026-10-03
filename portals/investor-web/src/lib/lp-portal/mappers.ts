@@ -61,10 +61,11 @@ export function mapCapitalCallRow(call: LpCapitalCall) {
   }
 }
 
-export function mapDistributionType(type: string): "Return of Capital" | "Income" {
-  const t = type.toUpperCase()
-  if (t.includes("INCOME") || t.includes("DIVIDEND")) return "Income"
-  return "Return of Capital"
+/** Show the type exactly as the API reports it (e.g. "Exit Proceeds", "Dividend"); never re-bucket it. */
+export function mapDistributionType(type: string): string {
+  const t = (type ?? "").trim()
+  if (!t) return "Distribution"
+  return t === t.toUpperCase() ? t.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : t
 }
 
 export function mapDistributionRow(dist: LpDistribution) {
