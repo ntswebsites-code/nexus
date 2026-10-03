@@ -11,7 +11,7 @@ import { param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAnyPermission, requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
-import { BINDING_PURPOSES, REVIEW_MONTHS, addMonths, openDueReviews } from './mg.usage';
+import { BINDING_PURPOSES, REVIEW_MONTHS, addMonths, openDueReviews, recordUsageIo, sendReviewReminders } from './mg.usage';
 
 /**
  * Model Governance (SRD 5.A page `model-governance`, permission `risk.view`). Admin-portal staff only, mounted at
@@ -289,7 +289,7 @@ modelRoutes.post('/versions/:vid/reject', ...canValidate, validateBody(reasonSch
 
 // ================================================================ usage log
 
-const usageBody = z.object({ context: z.string().trim().min(3).max(200), objectRef: z.string().trim().max(60).optional(), note: z.string().trim().max(500).optional(), versionId: z.string().trim().max(36).optional() }).strict();
+const usageBody = z.object({ context: z.string().trim().min(3).max(200), objectRef: z.string().trim().max(60).optional(), note: z.string().trim().max(500).optional(), versionId: z.string().trim().max(36).optional(), inputs: z.record(z.string(), z.unknown()).optional(), outputs: z.record(z.string(), z.unknown()).optional() }).strict();
 modelRoutes.post('/models/:id/usage', ...canLogUsage, validateBody(usageBody), idempotent('model.usage_log', { required: false }), async (req, res) => {
   const m = await loadModel(param(req, 'id'));
   const b = req.body as z.infer<typeof usageBody>;
@@ -301,6 +301,7 @@ modelRoutes.post('/models/:id/usage', ...canLogUsage, validateBody(usageBody), i
   const overdue = !!m.nextReviewOn && m.nextReviewOn.getTime() < startOfDay(new Date()).getTime();
   const row = await prisma.$transaction(async (tx) => {
     const u = await tx.govModelUsage.create({ data: { modelId: m.id, versionId, context: b.context, objectRef: b.objectRef ?? null, note: b.note ?? null, usedBy: req.user!.id } });
+    await recordUsageIo(tx, u.id, m.id, 'MANUAL', b.inputs, b.outputs);
     await writeAudit(tx, audit(req), { action: 'model.used', objectType: 'gov_model', objectId: m.id, after: { version: v.version, context: b.context, objectRef: b.objectRef ?? null } });
     return u;
   });
@@ -313,7 +314,8 @@ modelRoutes.get('/usage', ...canView, validateQuery(usageQuery), async (req, res
   const where: Prisma.GovModelUsageWhereInput = f.modelId ? { modelId: f.modelId } : {};
   const [rows, total] = await Promise.all([prisma.govModelUsage.findMany({ where, include: { model: { select: { ref: true, name: true, versions: { select: { id: true, version: true } } } } }, orderBy: { usedAt: 'desc' }, take: f.limit, skip: f.offset }), prisma.govModelUsage.count({ where })]);
   const n = await names(rows.map((r) => r.usedBy));
-  res.json({ data: rows.map((u) => ({ id: u.id, modelId: u.modelId, modelRef: u.model.ref, modelName: u.model.name, version: u.model.versions.find((x) => x.id === u.versionId)?.version ?? null, context: u.context, objectRef: u.objectRef, note: u.note, usedBy: n.get(u.usedBy) ?? null, usedAt: u.usedAt.toISOString() })), total });
+  const io = new Map((await prisma.govModelUsageIo.findMany({ where: { usageId: { in: rows.map((r) => r.id) } } })).map((x) => [x.usageId, x]));
+  res.json({ data: rows.map((u) => ({ inputs: io.get(u.id)?.inputs ?? null, outputs: io.get(u.id)?.outputs ?? null, purpose: io.get(u.id)?.purpose ?? null, id: u.id, modelId: u.modelId, modelRef: u.model.ref, modelName: u.model.name, version: u.model.versions.find((x) => x.id === u.versionId)?.version ?? null, context: u.context, objectRef: u.objectRef, note: u.note, usedBy: n.get(u.usedBy) ?? null, usedAt: u.usedAt.toISOString() })), total });
 });
 
 // ================================================================ summary
@@ -386,6 +388,13 @@ modelRoutes.post('/reviews/sweep', ...canAuthor, async (req, res) => {
   const opened = await openDueReviews(req.user!.id);
   if (opened) await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'model.reviews_opened', objectType: 'gov_model', objectId: 'register', after: { opened } }));
   res.json({ data: { opened } });
+});
+
+/** Sends the due-soon and overdue review reminders now (the worker does the same once a day). */
+modelRoutes.post('/reviews/remind', ...canAuthor, async (req, res) => {
+  const sent = await sendReviewReminders();
+  if (sent) await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'model.review_reminders_sent', objectType: 'gov_model', objectId: 'register', after: { sent } }));
+  res.json({ data: { sent } });
 });
 
 const reviewStart = z.object({ dueOn: dateStr.optional() }).strict();

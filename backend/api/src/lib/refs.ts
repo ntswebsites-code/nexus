@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { prisma } from './prisma';
 
 /** Human reference formats (SRD 10.1). `start` is the first value ever issued. */
 const FORMATS = {
@@ -54,11 +55,37 @@ export const refFormats = () => Object.entries(FORMATS).map(([kind, f]) => ({ ki
 
 export type RefKind = keyof typeof FORMATS;
 
+/** Widest padding an admin may set: reference columns are VarChar(16). */
+export const maxPad = (kind: RefKind) => Math.min(10, 16 - FORMATS[kind].prefix.length);
+
+let padLoadedAt = 0;
+let pads = new Map<string, number>();
+/** Admin-set padding overrides (`numbering_overrides`), cached for 30 seconds per process. */
+async function padOverrides(): Promise<Map<string, number>> {
+  if (Date.now() - padLoadedAt < 30_000) return pads;
+  try {
+    pads = new Map((await prisma.numberingOverride.findMany()).map((r) => [r.kind, r.pad]));
+    padLoadedAt = Date.now();
+  } catch {
+    // table missing or DB hiccup: keep the built-in format
+  }
+  return pads;
+}
+export function clearNumberingCache() {
+  padLoadedAt = 0;
+}
+/** Formats with any admin override applied (Settings numbering view). */
+export async function effectiveFormats() {
+  const o = await padOverrides();
+  return refFormats().map((f) => ({ ...f, pad: Math.min(Math.max(o.get(f.kind) ?? f.pad, f.pad), maxPad(f.kind as RefKind)), basePad: f.pad, maxPad: maxPad(f.kind as RefKind) }));
+}
+
 /** Atomically allocates the next reference inside the caller's transaction. */
 export async function nextRef(tx: Prisma.TransactionClient, kind: RefKind): Promise<string> {
   const f = FORMATS[kind];
   await tx.$executeRaw`INSERT INTO sequences (name, value) VALUES (${kind}, ${f.start - 1}) ON DUPLICATE KEY UPDATE value = value`;
   await tx.$executeRaw`UPDATE sequences SET value = LAST_INSERT_ID(value + 1) WHERE name = ${kind}`;
   const rows = await tx.$queryRaw<{ v: bigint }[]>`SELECT LAST_INSERT_ID() AS v`;
-  return `${f.prefix}${String(Number(rows[0]!.v)).padStart(f.pad, '0')}`;
+  const pad = Math.min(Math.max((await padOverrides()).get(kind) ?? f.pad, f.pad), maxPad(kind));
+  return `${f.prefix}${String(Number(rows[0]!.v)).padStart(pad, '0')}`;
 }

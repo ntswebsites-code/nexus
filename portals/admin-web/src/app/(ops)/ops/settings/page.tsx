@@ -146,6 +146,7 @@ function SettingsTab() {
 
 function NumberingTab() {
   const res = useResource<NumberingRow[]>(() => api.get<NumberingRow[]>(AC('/settings/numbering')), []);
+  const [edit, setEdit] = useState<NumberingRow | null>(null);
   return (
     <Card title="Reference numbering">
       <p className="ops-muted">Numbers are issued atomically by the database and never reused. Formats are fixed by the platform; the counters only advance.</p>
@@ -160,6 +161,7 @@ function NumberingTab() {
                   <th>First</th>
                   <th>Next number</th>
                   <th className="r">Issued</th>
+                  <th />
                 </tr>
               </thead>
               <tbody>
@@ -175,6 +177,11 @@ function NumberingTab() {
                     <td>{r.first}</td>
                     <td>{r.next}</td>
                     <td className="r">{r.issued}</td>
+                    <td>
+                      <button className="ops-btn" onClick={() => setEdit(r)}>
+                        Padding
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -182,6 +189,23 @@ function NumberingTab() {
           </div>
         )}
       </Loaded>
+      {edit && (
+        <FormModal
+          title={`Padding for ${edit.prefix}`}
+          subtitle="Widens the zero padding of numbers issued from now on. Existing references are not renumbered."
+          submitLabel="Save"
+          onClose={() => setEdit(null)}
+          onSubmit={(fd, k) => api.put(AC(`/settings/numbering/${edit.kind}`), { pad: Number(str(fd, 'pad')), reason: str(fd, 'reason') }, { idempotencyKey: k })}
+          onDone={res.reload}
+        >
+          <Field label="Digits" hint={`${edit.basePad ?? edit.pad} to ${edit.maxPad ?? 10}`}>
+            <input className="ops-input" name="pad" type="number" required min={edit.basePad ?? edit.pad} max={edit.maxPad ?? 10} defaultValue={edit.pad} />
+          </Field>
+          <Field label="Reason">
+            <input className="ops-input" name="reason" required minLength={3} maxLength={500} />
+          </Field>
+        </FormModal>
+      )}
     </Card>
   );
 }

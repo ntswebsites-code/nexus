@@ -17,6 +17,8 @@ import { scanEsign } from './modules/esign';
 import { marketDataTick } from './integrations/market-data/scheduler';
 import { pruneHeartbeats, recordHeartbeat, syncAlerts } from './modules/admin-core/ops-health';
 import { deliverInvesteeMail } from './modules/investee-portal/remainders/mail';
+import { dqTick } from './modules/data-fabric';
+import { sendReviewReminders } from './modules/model-governance';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -101,6 +103,8 @@ async function tick() {
   // R4-1 (GAP-023): raise alerts for a stalled outbox, dead letters and overdue jobs; tidy old heartbeat rows daily.
   await scheduled('ops.health', 60_000, async () => (await syncAlerts()).opened);
   await scheduled('ops.heartbeat_prune', 24 * HOUR, () => pruneHeartbeats());
+  await scheduled('data.quality', 5 * 60_000, () => dqTick());
+  await scheduled('models.review_reminders', 6 * HOUR, () => sendReviewReminders());
   try {
     const purged = await runScheduledPurge(); // self-locking: once per day across workers
     if (purged) console.log(`[worker] retention purge: ${JSON.stringify(purged)}`);

@@ -169,6 +169,9 @@ navRoutes.get('/runs/:id/pack', ...canView, async (req, res) => {
 
 // ================================================================ create / recalculate
 
+const navIo = (i: Record<string, unknown>) => i;
+const navOut = (r: { ref: string; version: number; nav: unknown; units: unknown; navPerUnit: unknown; marketValue: unknown; cash: unknown; fees: unknown; priceCoverage: unknown; positionCount: number; status: string }) => ({ ref: r.ref, version: r.version, nav: r.nav, units: r.units, navPerUnit: r.navPerUnit, marketValue: r.marketValue, cash: r.cash, fees: r.fees, priceCoverage: r.priceCoverage, positionCount: r.positionCount, status: r.status });
+
 navRoutes.post('/runs', ...canView, validateBody(createSchema), idempotent('nav.create'), async (req, res) => {
   const b = req.body as z.infer<typeof createSchema>;
   const navDate = toDate(b.navDate);
@@ -180,7 +183,7 @@ navRoutes.post('/runs', ...canView, validateBody(createSchema), idempotent('nav.
   void _d;
   await assertModelUsable('NAV_VALUATION');
   const run = await createVersion(req, { portfolioId, navDate, inputs, action: 'nav.run_created' });
-  await logModelUse('NAV_VALUATION', { context: 'NAV run calculation', objectRef: run.ref, userId: req.user!.id, audit: audit(req) });
+  await logModelUse('NAV_VALUATION', { context: 'NAV run calculation', objectRef: run.ref, userId: req.user!.id, audit: audit(req), inputs: { portfolioId, navDate: b.navDate, ...navIo(inputs) }, outputs: navOut(run) });
   await respond(res, req, run.id, 201);
 });
 
@@ -189,7 +192,7 @@ navRoutes.post('/runs/:id/recalculate', ...canView, idempotent('nav.recalculate'
   assertNotImmutable(r, 'recalculated');
   await assertModelUsable('NAV_VALUATION');
   const run = await createVersion(req, { portfolioId: r.portfolioId, navDate: r.navDate, inputs: {}, from: r, action: 'nav.run_recalculated' });
-  await logModelUse('NAV_VALUATION', { context: 'NAV run recalculation', objectRef: run.ref, userId: req.user!.id, audit: audit(req) });
+  await logModelUse('NAV_VALUATION', { context: 'NAV run recalculation', objectRef: run.ref, userId: req.user!.id, audit: audit(req), inputs: { portfolioId: r.portfolioId, navDate: r.navDate, recalculatedFrom: r.ref }, outputs: navOut(run) });
   await respond(res, req, run.id, 201);
 });
 

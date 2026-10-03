@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
-import { writeAudit } from '../../lib/audit';
+import { writeAudit, type AuditContext } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
 import { param, query } from '../../lib/http';
@@ -270,7 +270,7 @@ dataRoutes.get('/jobs/:id/rejected', ...canView, async (req, res) => {
 });
 
 /** The columns a rule dataset offers: feed columns for `feed:<key>`, else null (registry validation applies). */
-async function feedContext(dataset: string): Promise<{ cols: Record<string, ColType>; source: Prisma.DataSourceGetPayload<object> } | null> {
+export async function feedContext(dataset: string): Promise<{ cols: Record<string, ColType>; source: Prisma.DataSourceGetPayload<object> } | null> {
   if (!dataset.startsWith(FEED_PREFIX)) return null;
   const src = await prisma.dataSource.findUnique({ where: { key: dataset.slice(FEED_PREFIX.length) } });
   if (!src || src.kind !== 'FILE_FEED' || !src.schemaSpec) throw HttpError.badRequest('Validation failed', [{ path: 'dataset', message: 'Unknown file feed, or it has no column contract yet' }]);
@@ -354,7 +354,14 @@ dataRoutes.patch('/rules/:id', ...canManage, validateBody(rulePatch), idempotent
 // ================================================================ rule runs
 
 /** Executes one rule against the live table, records the run and reconciles the exceptions list. */
-async function executeRule(req: Request, rule: Prisma.DataQualityRuleGetPayload<object>) {
+export interface RuleActor {
+  userId: string;
+  ctx: AuditContext;
+}
+const executeRule = (req: Request, rule: Prisma.DataQualityRuleGetPayload<object>) => executeRuleAs({ userId: req.user!.id, ctx: audit(req) }, rule);
+
+/** Same run for a person (a request) or the scheduler (the rule's creator, system audit context). */
+export async function executeRuleAs(actor: RuleActor, rule: Prisma.DataQualityRuleGetPayload<object>) {
   let status: 'PASS' | 'FAIL' | 'ERROR' = 'PASS';
   let rowsChecked = 0;
   let failures = 0;
@@ -401,18 +408,18 @@ async function executeRule(req: Request, rule: Prisma.DataQualityRuleGetPayload<
   }
   return prisma.$transaction(async (tx) => {
     const ref = await nextRef(tx, 'dqRun');
-    const run = await tx.dataQualityRun.create({ data: { ref, ruleId: rule.id, status, rowsChecked, failures, summary, ranBy: req.user!.id } });
+    const run = await tx.dataQualityRun.create({ data: { ref, ruleId: rule.id, status, rowsChecked, failures, summary, ranBy: actor.userId } });
     if (status !== 'ERROR') {
       const existing = await tx.dataQualityException.findMany({ where: { ruleId: rule.id, status: { in: ['OPEN', 'ACKNOWLEDGED', 'WAIVED'] } }, select: { id: true, recordKey: true, status: true } });
       const failing = new Set(found.map((f) => f.k));
       const have = new Set(existing.map((e) => e.recordKey));
       // A record that now passes is resolved automatically (waived ones too, so a future failure is raised afresh).
       const cleared = existing.filter((e) => !failing.has(e.recordKey) && found.length < 200).map((e) => e.id);
-      if (cleared.length) await tx.dataQualityException.updateMany({ where: { id: { in: cleared } }, data: { status: 'RESOLVED', resolution: `No longer failing at ${ref}`, resolvedBy: req.user!.id, resolvedAt: new Date() } });
+      if (cleared.length) await tx.dataQualityException.updateMany({ where: { id: { in: cleared } }, data: { status: 'RESOLVED', resolution: `No longer failing at ${ref}`, resolvedBy: actor.userId, resolvedAt: new Date() } });
       const fresh = found.filter((f) => !have.has(f.k));
       if (fresh.length) await tx.dataQualityException.createMany({ data: fresh.map((f) => ({ runId: run.id, ruleId: rule.id, recordKey: f.k.slice(0, 80), detail: f.d.slice(0, 300) })) });
     }
-    await writeAudit(tx, audit(req), { action: 'data.rule_run', objectType: 'dq_rule', objectId: rule.id, after: { run: ref, status, rowsChecked, failures } });
+    await writeAudit(tx, actor.ctx, { action: 'data.rule_run', objectType: 'dq_rule', objectId: rule.id, after: { run: ref, status, rowsChecked, failures } });
     return run;
   });
 }

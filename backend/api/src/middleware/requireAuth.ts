@@ -3,6 +3,7 @@ import type { PortalId } from '@matanho/shared';
 import { HttpError } from '../lib/errors';
 import { prisma } from '../lib/prisma';
 import { policy } from '../lib/policy';
+import { setting } from '../lib/settings';
 import { hashToken, readSessionToken, clearSessionCookie } from '../auth/session';
 import { resolveSession, userHasPortalAccess } from '../services/authService';
 
@@ -69,7 +70,7 @@ export const requireAnyPermission =
     next();
   };
 
-const STEP_UP_WINDOW_MS = 5 * 60 * 1000;
+/** Step-up validity: platform setting `security.step_up_minutes` (default 5). */
 
 /**
  * Step-up for approvals and signatures (SRD 7.1): users with an enrolled factor
@@ -89,7 +90,7 @@ export const requireStepUp: RequestHandler = async (req, _res, next) => {
     return next();
   }
   const verifiedAt = req.authSession.mfaVerifiedAt?.getTime() ?? 0;
-  if (Date.now() - verifiedAt > STEP_UP_WINDOW_MS) {
+  if (Date.now() - verifiedAt > (await setting<number>('security.step_up_minutes')) * 60_000) {
     throw new HttpError(401, 'step_up_required', 'Confirm this action with your authentication code');
   }
   next();

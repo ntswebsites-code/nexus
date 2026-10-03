@@ -5473,3 +5473,97 @@ model OnboardingTriage {
   @@map("onboarding_triages")
 }
 // ---- end AiReporting ----
+
+// ---- Enforcement ----
+/// Inputs and outputs a calculation handed to a governed model (one row per gov_model_usage row that has any).
+model GovModelUsageIo {
+  id        String   @id @default(uuid()) @db.Char(36)
+  usageId   String   @unique @map("usage_id") @db.Char(36)
+  modelId   String   @map("model_id") @db.Char(36)
+  /// NAV_VALUATION | RISK_LIMIT | RISK_VAR | RISK_SCENARIO | MANUAL
+  purpose   String   @db.VarChar(24)
+  inputs    Json?
+  outputs   Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([modelId, createdAt])
+  @@map("gov_model_usage_io")
+}
+
+/// Reminder already sent for a model review (idempotent per review, kind and day).
+model GovReviewReminder {
+  id        String   @id @default(uuid()) @db.Char(36)
+  reviewId  String   @map("review_id") @db.Char(36)
+  /// DUE_SOON | OVERDUE
+  kind      String   @db.VarChar(10)
+  sentOn    DateTime @map("sent_on") @db.Date
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([reviewId, kind, sentOn])
+  @@map("gov_review_reminders")
+}
+
+/// Admin-set widening of a reference number's zero padding (the prefix and counters stay fixed).
+model NumberingOverride {
+  kind      String   @id @db.VarChar(40)
+  pad       Int
+  updatedBy String   @map("updated_by") @db.Char(36)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("numbering_overrides")
+}
+
+/// Scheduled run of one data-quality rule.
+model DqSchedule {
+  id         String    @id @default(uuid()) @db.Char(36)
+  ruleId     String    @unique @map("rule_id") @db.Char(36)
+  /// HOURLY | DAILY | WEEKLY | MONTHLY
+  cadence    String    @db.VarChar(10)
+  enabled    Boolean   @default(true)
+  nextRunAt  DateTime  @map("next_run_at")
+  lastRunAt  DateTime? @map("last_run_at")
+  lastRunRef String?   @map("last_run_ref") @db.VarChar(16)
+  /// PASS | FAIL | ERROR
+  lastStatus String?   @map("last_status") @db.VarChar(6)
+  createdBy  String    @map("created_by") @db.Char(36)
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+
+  @@index([enabled, nextRunAt])
+  @@map("dq_schedules")
+}
+
+/// Ownership, due date and escalation of one data-quality exception.
+model DqExceptionWork {
+  id              String    @id @default(uuid()) @db.Char(36)
+  exceptionId     String    @unique @map("exception_id") @db.Char(36)
+  ownerId         String?   @map("owner_id") @db.Char(36)
+  dueOn           DateTime? @map("due_on") @db.Date
+  escalationLevel Int       @default(0) @map("escalation_level")
+  escalatedAt     DateTime? @map("escalated_at")
+  note            String?   @db.VarChar(500)
+  assignedBy      String    @map("assigned_by") @db.Char(36)
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([ownerId])
+  @@index([dueOn])
+  @@map("dq_exception_work")
+}
+
+/// Directed lineage between two registry datasets (or feed:<key> datasets).
+model DataLineageEdge {
+  id          String   @id @default(uuid()) @db.Char(36)
+  fromDataset String   @map("from_dataset") @db.VarChar(64)
+  toDataset   String   @map("to_dataset") @db.VarChar(64)
+  /// FEEDS | DERIVES | VALIDATES
+  kind        String   @db.VarChar(10)
+  description String?  @db.VarChar(300)
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([fromDataset, toDataset, kind])
+  @@index([toDataset])
+  @@map("data_lineage_edges")
+}
+// ---- end Enforcement ----

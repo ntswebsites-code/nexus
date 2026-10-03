@@ -198,6 +198,8 @@ export interface NumberingRow {
   first: string;
   next: string;
   issued: number;
+  basePad?: number;
+  maxPad?: number;
 }
 
 // ------------------------------------------------------------------ audit

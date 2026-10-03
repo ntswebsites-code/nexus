@@ -15,6 +15,7 @@ import { audit } from '../ops/ops.common';
 import { loadPortfolio } from '../portfolio/portfolio.service';
 import { PRESETS, RISK_METRICS, DEFAULT_SHOCKS, METRIC_LABEL } from './risk.engine';
 import { checkLimitsForPortfolio, computeScenario, runMonitor } from './risk.service';
+import { computeVar } from './risk.var';
 
 /**
  * Risk & Compliance (SRD 11.3 `/risk/*`, 5.A.7, 6.8). Admin-portal staff only: `risk.view` reads, `risk.manage`
@@ -306,7 +307,9 @@ const monitorBody = z.object({ portfolioId: id36.optional() }).strict();
 
 riskRoutes.post('/monitor', ...canManage, validateBody(monitorBody), idempotent('risk.monitor', { required: false }), async (req, res) => {
   const b = req.body as z.infer<typeof monitorBody>;
+  await assertModelUsable('RISK_LIMIT');
   const summary = await runMonitor(audit(req), { portfolioId: b.portfolioId });
+  await logModelUse('RISK_LIMIT', { context: 'Limit monitor run', objectRef: summary.detectedOn, userId: req.user!.id, audit: audit(req), inputs: { portfolioId: b.portfolioId ?? 'all' }, outputs: { portfoliosChecked: summary.portfoliosChecked, limitsEvaluated: summary.limitsEvaluated, newBreaches: summary.newBreaches.length, warnings: summary.warnings } });
   await prisma.$transaction((tx) =>
     writeAudit(tx, audit(req), {
       action: 'risk.monitor_run',
@@ -339,7 +342,23 @@ const checkBody = z
 /** What the ACTIVE limits say about a portfolio now, or after a hypothetical trade. Records nothing. */
 riskRoutes.post('/check', ...canView, validateBody(checkBody), async (req, res) => {
   const b = req.body as z.infer<typeof checkBody>;
-  res.json({ data: await checkLimitsForPortfolio(b.portfolioId, b.hypothetical, { asOf: b.asOf ? toDate(b.asOf) : undefined }) });
+  await assertModelUsable('RISK_LIMIT');
+  const result = await checkLimitsForPortfolio(b.portfolioId, b.hypothetical, { asOf: b.asOf ? toDate(b.asOf) : undefined });
+  await logModelUse('RISK_LIMIT', { context: b.hypothetical ? 'Pre-trade limit check' : 'Limit check', objectRef: b.portfolioId.slice(0, 8), userId: req.user!.id, audit: audit(req), inputs: { portfolioId: b.portfolioId, asOf: b.asOf, hypothetical: b.hypothetical }, outputs: { breaches: result.breaches.length, warnings: result.warnings.length, blocked: result.blocked } });
+  res.json({ data: result });
+});
+
+// ================================================================ value at risk (governed model RISK_VAR)
+
+const varBody = z.object({ portfolioId: id36, confidence: z.union([z.literal(0.95), z.literal(0.99)]).default(0.95), horizonDays: z.number().int().min(1).max(10).default(1), lookbackDays: z.number().int().min(30).max(500).default(250) }).strict();
+
+/** Historical-simulation VaR on the current book from stored daily prices. Read only; logged against the bound RISK_VAR model. */
+riskRoutes.post('/var', ...canView, validateBody(varBody), async (req, res) => {
+  const b = req.body as z.infer<typeof varBody>;
+  await assertModelUsable('RISK_VAR');
+  const result = await computeVar(b.portfolioId, b.confidence, b.horizonDays, b.lookbackDays);
+  const use = await logModelUse('RISK_VAR', { context: `VaR ${b.confidence * 100}% ${b.horizonDays}d`, objectRef: result.portfolioRef, userId: req.user!.id, audit: audit(req), inputs: b, outputs: { observations: result.observations, varAmount: result.varAmount, varPct: result.varPct, coveragePct: result.coveragePct } });
+  res.json({ data: result, ...(use.warning ? { warning: use.warning } : {}) });
 });
 
 // ================================================================ breaches
@@ -568,7 +587,7 @@ riskRoutes.post('/scenarios/:id/run', ...canManage, validateBody(runBody), idemp
     });
     return row;
   });
-  await logModelUse('RISK_SCENARIO', { context: `Scenario run: ${s.name}`, objectRef: run.id.slice(0, 8), userId: req.user!.id, audit: audit(req) });
+  await logModelUse('RISK_SCENARIO', { context: `Scenario run: ${s.name}`, objectRef: run.id.slice(0, 8), userId: req.user!.id, audit: audit(req), inputs: { scenario: s.name, portfolioId, asOf: result.asOf, shocks: result.shocks }, outputs: { nav: result.nav, postShockValue: result.postShockValue, loss: result.loss, lossPct: result.lossPct, status: result.status } });
   res.status(201).json({ data: (await runViews([run]))[0] });
 });
 

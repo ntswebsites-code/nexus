@@ -3,6 +3,7 @@
 import { useRef, useState } from 'react';
 import { api, qs, v1 } from '@/ops/api';
 import { TabBar } from '@/ops/recon/common';
+import { AutomationTab } from '@/ops/enforcement';
 import { useCan } from '@/ops/session';
 import { full, label, Pager, SimpleTable, Tiles, Tone, upload, when } from '@/ops/suite';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, Loaded, Modal, PageHeader, optStr, str, useResource } from '@/ops/ui';
@@ -104,7 +105,7 @@ interface Summary {
   openBySeverity: Record<string, number>;
 }
 
-type Tab = 'overview' | 'sources' | 'jobs' | 'rules' | 'exceptions';
+type Tab = 'overview' | 'sources' | 'jobs' | 'rules' | 'exceptions' | 'automation';
 const PAGE = 25;
 const D = (p: string) => v1(`/data${p}`);
 
@@ -134,6 +135,7 @@ export default function DataPage() {
           { key: 'jobs', label: 'Ingestion jobs' },
           { key: 'rules', label: 'Quality rules' },
           { key: 'exceptions', label: 'Exceptions' },
+          { key: 'automation', label: 'Schedules & lineage' },
         ]}
         value={tab}
         onChange={setTab}
@@ -147,6 +149,7 @@ export default function DataPage() {
           {tab === 'jobs' && <JobsTab />}
           {tab === 'rules' && <RulesTab ds={ds.data} />}
           {tab === 'exceptions' && <ExceptionsTab />}
+          {tab === 'automation' && <AutomationTab />}
         </>
       )}
     </>
