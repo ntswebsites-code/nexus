@@ -10,6 +10,7 @@ import { opsCustodianRoutes } from './custodian.routes';
 import { opsNoticesRoutes } from './notices.routes';
 import { opsBankInstructionRoutes } from './bank-instructions.routes';
 import { opsInvesteeRequestRoutes } from './investee-requests.routes';
+import { opsInvesteeReviewRoutes } from '../investee-portal/remainders/review.routes';
 
 /**
  * `/api/v1/ops` - staff fund operations used by the admin `(ops)` console: funds and
@@ -35,3 +36,4 @@ opsRoutes.use(opsDealingRoutes);
 opsRoutes.use(() => {
   throw new HttpError(501, 'not_implemented', 'This operations endpoint is not available yet');
 });
+opsRoutes.use('/investee-review', opsInvesteeReviewRoutes);

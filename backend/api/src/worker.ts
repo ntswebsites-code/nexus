@@ -16,6 +16,7 @@ import { assertIntegrationsConfig, integrationTick } from './integrations';
 import { scanEsign } from './modules/esign';
 import { marketDataTick } from './integrations/market-data/scheduler';
 import { pruneHeartbeats, recordHeartbeat, syncAlerts } from './modules/admin-core/ops-health';
+import { deliverInvesteeMail } from './modules/investee-portal/remainders/mail';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -76,6 +77,7 @@ const handlers: Record<string, (payload: unknown) => Promise<void>> = {
     await sendMail(e.to, e.subject, e.text);
   },
   'kyc.screening.requested': (p) => runScreening((p as { caseId: string }).caseId),
+  'investee.mail': (p) => deliverInvesteeMail(p),
 };
 
 const HOUR = 60 * 60 * 1000;
