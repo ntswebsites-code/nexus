@@ -344,7 +344,7 @@ export function MarketDataSection({ onChanged }: { onChanged?: () => void }) {
                           <td className="r">{r.rejected}</td>
                           <td className="r">{r.errors}</td>
                           <td className="r">{r.skipped}</td>
-                          <td>{canManage && r.revertible && <ActionButton label="Undo run" danger confirm="Reverse this run? Prices and FX rates it wrote are removed or restored to their previous values." onRun={() => api.post(v1(`/market-data/runs/${r.id}/undo`), {})} onDone={() => { status.reload(); onChanged?.(); }} />}</td>
+                          <td>{canManage && r.revertible && <UndoRunButton runId={r.id} onDone={() => { status.reload(); onChanged?.(); }} />}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -631,5 +631,47 @@ export function CustodianFeedSection({ canManage, onChanged }: { canManage: bool
         )}
       </Loaded>
     </Card>
+  );
+}
+
+/** Reverses one run. Needs a reason (kept in the audit trail); the API also asks for a step-up code and refuses when the prices were overwritten or used by a NAV. */
+function UndoRunButton({ runId, onDone }: { runId: string; onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState('');
+  const action = useAction();
+  const tooShort = reason.trim().length < 5;
+  async function go() {
+    let ok = false;
+    await action.run(async () => {
+      await api.post(v1(`/market-data/runs/${runId}/undo`), { reason: reason.trim() });
+      ok = true;
+    });
+    if (ok) {
+      setOpen(false);
+      setReason('');
+      onDone();
+    }
+  }
+  return (
+    <>
+      <button className="ops-btn danger" type="button" onClick={() => { action.clear(); setOpen(true); }}>
+        Undo run
+      </button>
+      {open && (
+        <Modal title="Undo this run" kicker="Market data" onClose={() => setOpen(false)}>
+          <div className="ops-modal-body">
+            <p>Prices and FX rates this run wrote are removed or restored to their previous values. This is refused if a later run or a manual correction changed them, or a NAV already used them.</p>
+            <Field label="Reason" hint="At least 5 characters; recorded in the audit trail">
+              <textarea className="ops-input" rows={3} value={reason} onChange={(e) => setReason(e.target.value)} />
+            </Field>
+            {action.error && <Alert>{action.error}</Alert>}
+          </div>
+          <footer className="ops-modal-foot">
+            <button className="ops-btn" type="button" onClick={() => setOpen(false)}>Cancel</button>
+            <button className="ops-btn danger" type="button" disabled={tooShort || action.busy} onClick={go}>{action.busy ? 'Reversing...' : 'Undo run'}</button>
+          </footer>
+        </Modal>
+      )}
+    </>
   );
 }

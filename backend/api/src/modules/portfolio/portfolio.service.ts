@@ -30,6 +30,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { businessDaysBetween } from '../../integrations/common';
+import { DEFAULT_POLICY } from '../../integrations/market-data/validate';
 
 const D = Prisma.Decimal;
 type Dec = Prisma.Decimal;
@@ -141,7 +142,7 @@ export interface PortfolioSnapshot {
 }
 
 /** Same threshold the market-data panel uses to flag a price stale. */
-export const STALE_PRICE_BUSINESS_DAYS = 3;
+export const STALE_PRICE_BUSINESS_DAYS = DEFAULT_POLICY.maxAgeBusinessDays;
 
 export interface PortfolioSummary extends PortfolioHeader {
   asOf: string;

@@ -86,8 +86,8 @@ async function skipSet(now: Date, force: boolean): Promise<Set<string>> {
 
 /** Rows a run created or changed, so the whole run can be reversed. `prev` is null for a created row. */
 interface UndoLog {
-  prices: { id: string; prev: string | null }[];
-  fx: { id: string; prev: string | null }[];
+  prices: { id: string; prev: string | null; value?: string }[];
+  fx: { id: string; prev: string | null; value?: string }[];
 }
 
 interface Tally {
@@ -159,7 +159,7 @@ async function refreshPrices(o: RefreshOptions, now: Date, skip: Set<string>, re
         let row = existing;
         if (!existing || !existing.price.eq(value)) {
           row = await tx.securityPrice.upsert({ where, update: { price: value }, create: { securityId: sec.id, priceDate, source: q.source, price: value } });
-          undo.prices.push({ id: row.id, prev: existing ? existing.price.toString() : null });
+          undo.prices.push({ id: row.id, prev: existing ? existing.price.toString() : null, value: value.toString() });
           tally.accepted++;
         } else tally.unchanged++;
         if (v.stale) tally.stale++;
@@ -223,7 +223,7 @@ async function refreshFx(o: RefreshOptions, now: Date, skip: Set<string>, report
         let row = existing;
         if (!existing || !existing.rate.eq(rate)) {
           row = await tx.fxRate.upsert({ where, update: { rate, source: q.source }, create: { fromCurrency: q.from, toCurrency: q.to, rateDate, rate, source: q.source } });
-          undo.fx.push({ id: row.id, prev: existing ? existing.rate.toString() : null });
+          undo.fx.push({ id: row.id, prev: existing ? existing.rate.toString() : null, value: rate.toString() });
           tally.accepted++;
         } else tally.unchanged++;
         const keyHash = sha256(['FX', q.source, label, q.rateDate, 'ACCEPTED'].join('|'));
@@ -281,7 +281,7 @@ export async function refreshMarketData(o: RefreshOptions): Promise<RefreshSumma
  * carrying the run's own value are touched (a later manual correction is left alone). Provenance of the run's accepted
  * values is marked REVERTED so the status screen stops showing it as the current source.
  */
-export async function undoRefreshRun(runId: string, audit: AuditContext) {
+export async function undoRefreshRun(runId: string, audit: AuditContext, reason: string) {
   const run = await prisma.mdRefreshRun.findUnique({ where: { id: runId } });
   if (!run) throw HttpError.notFound('Refresh run not found');
   if (run.status === 'REVERTED') throw HttpError.conflict('This run was already reversed', 'already_reverted');
@@ -291,6 +291,18 @@ export async function undoRefreshRun(runId: string, audit: AuditContext) {
   const out = { pricesRemoved: 0, pricesRestored: 0, fxRemoved: 0, fxRestored: 0 };
   await prisma.$transaction(
     async (tx) => {
+      // Refuse (409) unless every row still carries the value this run wrote and no NAV used it.
+      if ([...undo.prices, ...undo.fx].some((u) => u.value === undefined)) throw HttpError.conflict('This run was recorded without the values it wrote, so it cannot be reversed safely', 'undo_not_verifiable');
+      const priceRows = await tx.securityPrice.findMany({ where: { id: { in: undo.prices.map((u) => u.id) } } });
+      const fxRows = await tx.fxRate.findMany({ where: { id: { in: undo.fx.map((u) => u.id) } } });
+      const priceById = new Map(priceRows.map((r) => [r.id, r]));
+      const fxById = new Map(fxRows.map((r) => [r.id, r]));
+      const changed = undo.prices.filter((u) => { const r = priceById.get(u.id); return !r || !r.price.eq(new Prisma.Decimal(u.value!)); }).length + undo.fx.filter((u) => { const r = fxById.get(u.id); return !r || !r.rate.eq(new Prisma.Decimal(u.value!)); }).length;
+      if (changed) throw HttpError.conflict(`${changed} value(s) written by this run were changed or removed since (a later run or a manual correction). Reverse the later change first.`, 'run_superseded');
+      if (priceRows.length) {
+        const used = await tx.navRunLine.count({ where: { run: { status: { in: ['MAKER_REVIEWED', 'RELEASED'] } }, OR: priceRows.map((r) => ({ securityId: r.securityId, priceDate: r.priceDate })) } });
+        if (used) throw HttpError.conflict(`${used} NAV line(s) in a reviewed or released NAV use prices from this run, so it cannot be reversed`, 'prices_in_use');
+      }
       for (const u of undo.prices) {
         if (u.prev === null) out.pricesRemoved += (await tx.securityPrice.deleteMany({ where: { id: u.id } })).count;
         else out.pricesRestored += (await tx.securityPrice.updateMany({ where: { id: u.id }, data: { price: new Prisma.Decimal(u.prev) } })).count;
@@ -302,7 +314,7 @@ export async function undoRefreshRun(runId: string, audit: AuditContext) {
       const ids = [...undo.prices, ...undo.fx].map((u) => u.id);
       if (ids.length) await tx.mdProvenance.updateMany({ where: { refId: { in: ids }, status: 'ACCEPTED' }, data: { status: 'REVERTED', reason: trunc(`Reversed with run ${runId}`, 300) } });
       await tx.mdRefreshRun.update({ where: { id: runId }, data: { status: 'REVERTED' } });
-      await writeAudit(tx, audit, { action: 'market_data.refresh.reverted', objectType: 'market_data_run', objectId: runId, after: out });
+      await writeAudit(tx, audit, { action: 'market_data.refresh.reverted', objectType: 'market_data_run', objectId: runId, after: { ...out, reason } });
     },
     { timeout: 30_000 },
   );
