@@ -78,6 +78,7 @@ export const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: '/ops/operations', label: 'Operations control', perms: ['operations.view'] },
       { href: '/ops/reconciliation', label: 'Reconciliations', perms: ['operations.view'] },
+      { href: '/ops/payments-recon', label: 'Payments & close controls', perms: ['operations.view'] },
       { href: '/ops/corporate-actions', label: 'Corporate actions', perms: ['operations.view'] },
     ],
   },

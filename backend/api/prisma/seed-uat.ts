@@ -795,6 +795,7 @@ try {
   await (await import('./seed-esign')).seedEsign();
   await (await import('./seed-recon')).seedRecon();
   await (await import('./seed-recon-ops')).seedReconOps();
+  await (await import('./seed-opsctl')).seedOpsctl();
   await (await import('./seed-ibor-performance')).seedIborPerformance();
   await (await import('./seed-research-privates')).seedResearchPrivates();
   await (await import('./seed-clients-onboarding')).seedClientsOnboarding();

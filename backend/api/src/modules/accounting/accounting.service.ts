@@ -1,3 +1,4 @@
+import { accountingCloseGates } from '../opsctl/opsctl.gates';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
@@ -117,7 +118,7 @@ export async function ledger(accountId: string, from: Date | null, to: Date | nu
 // ---------------------------------------------------------------- close checklist
 
 export interface ChecklistItem {
-  key: 'UNPOSTED_JOURNALS' | 'RECON_BREAKS' | 'NAV_RELEASED' | 'TRIAL_BALANCE';
+  key: 'UNPOSTED_JOURNALS' | 'RECON_BREAKS' | 'NAV_RELEASED' | 'TRIAL_BALANCE' | 'RECON_SIGNOFF' | 'RECON_MATERIAL';
   label: string;
   ok: boolean;
   /** Human-readable reasons the item blocks the close; empty when ok. */
@@ -162,6 +163,8 @@ export async function closeChecklist(p: PeriodRow) {
       detail: `Debits ${tb.totalDebit}, credits ${tb.totalCredit}`,
     },
   ];
+  // R4-2: reconciliation sign-off gate for the period end.
+  items.push(...(await accountingCloseGates(p.portfolioId, p.periodEnd)));
   const blockers = items.flatMap((i) => i.blockers);
   return { items, blockers, canClose: blockers.length === 0, trialBalance: { totalDebit: tb.totalDebit, totalCredit: tb.totalCredit, balanced: tb.balanced } };
 }

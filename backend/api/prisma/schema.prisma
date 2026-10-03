@@ -5152,3 +5152,133 @@ model OpsAlert {
   @@map("ops_alerts")
 }
 // ---- end OpsHealth ----
+
+// ---- OpsControls ----
+/// Payments reconciliation run: expected distribution payouts and capital-call receipts against imported bank statement
+/// lines. One row per scope (fund or all, date window); a repeat is a re-run of the same row.
+model PayReconRun {
+  id           String   @id @default(uuid()) @db.Char(36)
+  /// PRR-00001
+  ref          String   @unique @db.VarChar(16)
+  /// fund id or *, from, to
+  scopeKey     String   @unique @map("scope_key") @db.VarChar(120)
+  fundId       String?  @map("fund_id") @db.Char(36)
+  dateFrom     DateTime @map("date_from") @db.Date
+  dateTo       DateTime @map("date_to") @db.Date
+  /// CLEAN | BREAKS | NO_STATEMENTS
+  status       String   @db.VarChar(16)
+  itemCount    Int      @default(0) @map("item_count")
+  matchedCount Int      @default(0) @map("matched_count")
+  breakCount   Int      @default(0) @map("break_count")
+  notDueCount  Int      @default(0) @map("not_due_count")
+  lineCount    Int      @default(0) @map("line_count")
+  params       Json?
+  summary      Json?
+  runCount     Int      @default(1) @map("run_count")
+  runBy        String   @map("run_by") @db.Char(36)
+  createdAt    DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@index([dateTo])
+  @@map("pay_recon_runs")
+}
+
+/// An expected payment: one LP's share of an issued distribution (money out) or capital call (money in).
+model PayReconItem {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// DISTRIBUTION_PAYOUT | CAPITAL_CALL_RECEIPT
+  kind           String    @db.VarChar(24)
+  /// distribution_allocations.id or capital_call_allocations.id
+  sourceId       String    @map("source_id") @db.Char(36)
+  fundId         String    @map("fund_id") @db.Char(36)
+  documentId     String    @map("document_id") @db.Char(36)
+  documentRef    String    @map("document_ref") @db.VarChar(16)
+  clientId       String    @map("client_id") @db.Char(36)
+  payeeName      String    @map("payee_name") @db.VarChar(255)
+  /// IN | OUT
+  direction      String    @db.VarChar(3)
+  expectedAmount Decimal   @map("expected_amount") @db.Decimal(20, 4)
+  currency       String    @db.Char(3)
+  dueDate        DateTime  @map("due_date") @db.Date
+  /// NOT_DUE | MATCHED | BREAK | ACCEPTED | DEFERRED
+  status         String    @default("NOT_DUE") @db.VarChar(12)
+  /// A statement line pairs with at most one item.
+  matchedLineId  String?   @unique @map("matched_line_id") @db.Char(36)
+  matchedAmount  Decimal?  @map("matched_amount") @db.Decimal(20, 4)
+  /// REFERENCE | AMOUNT | MANUAL
+  matchMethod    String?   @map("match_method") @db.VarChar(12)
+  matchedAt      DateTime? @map("matched_at") @db.DateTime(3)
+  deferredUntil  DateTime? @map("deferred_until") @db.Date
+  lastRunId      String?   @map("last_run_id") @db.Char(36)
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  @@unique([kind, sourceId], map: "pay_recon_item_src")
+  @@index([status])
+  @@index([fundId, dueDate])
+  @@map("pay_recon_items")
+}
+
+/// A payments-reconciliation break. OPEN -> INVESTIGATING -> PENDING_CHECKER -> RESOLVED (independent checker), or
+/// AUTO_CLEARED when a re-run finds the item paired.
+model PayReconBreak {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// PRB-00001
+  ref            String    @unique @db.VarChar(16)
+  /// ITEM:<kind>:<source id> or LINE:<line id>; unique so a re-run never duplicates
+  itemKey        String    @unique @map("item_key") @db.VarChar(80)
+  itemId         String?   @map("item_id") @db.Char(36)
+  lineId         String?   @map("line_id") @db.Char(36)
+  fundId         String?   @map("fund_id") @db.Char(36)
+  /// MISSING_PAYMENT | AMOUNT_DIFF | UNPAIRED_LINE
+  kind           String    @db.VarChar(20)
+  label          String    @db.VarChar(400)
+  expected       Json?
+  actual         Json?
+  difference     Decimal?  @db.Decimal(20, 4)
+  currency       String?   @db.Char(3)
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  severity       String    @db.VarChar(10)
+  /// OPEN | INVESTIGATING | PENDING_CHECKER | RESOLVED | AUTO_CLEARED
+  status         String    @default("OPEN") @db.VarChar(16)
+  ownerUserId    String?   @map("owner_user_id") @db.Char(36)
+  /// MANUAL_MATCH | ACCEPT_DIFFERENCE | TIMING | RETURNED_PAYMENT
+  resolution     String?   @db.VarChar(24)
+  rationale      String?   @db.VarChar(1000)
+  evidenceRef    String?   @map("evidence_ref") @db.VarChar(200)
+  /// resolution parameters: line id for MANUAL_MATCH, date for TIMING
+  resolutionData Json?     @map("resolution_data")
+  makerId        String?   @map("maker_id") @db.Char(36)
+  checkerId      String?   @map("checker_id") @db.Char(36)
+  resolvedAt     DateTime? @map("resolved_at") @db.DateTime(3)
+  lastRunId      String?   @map("last_run_id") @db.Char(36)
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at") @db.DateTime(3)
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.DateTime(3)
+
+  events PayReconBreakEvent[]
+
+  @@index([status, severity])
+  @@index([fundId, status])
+  @@map("pay_recon_breaks")
+}
+
+model PayReconBreakEvent {
+  id         String   @id @default(uuid()) @db.Char(36)
+  breakId    String   @map("break_id") @db.Char(36)
+  action     String   @db.VarChar(24)
+  fromStatus String?  @map("from_status") @db.VarChar(16)
+  toStatus   String?  @map("to_status") @db.VarChar(16)
+  actorId    String?  @map("actor_id") @db.Char(36)
+  note       String?  @db.VarChar(1000)
+  detail     Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  break PayReconBreak @relation(fields: [breakId], references: [id], onDelete: Cascade)
+
+  @@index([breakId, createdAt])
+  @@map("pay_recon_break_events")
+}
+// ---- end OpsControls ----

@@ -1368,3 +1368,31 @@ Migration `20261101100000_ops_health` (tables `worker_heartbeats`, `ops_alerts`;
 - **SoD list.** `dealing.approve`, `recon.signoff`, `term_sheets.approve`, `onboarding.approve`, `documents.approve`, `notices.publish` joined the blocklist (so granting them needs a checker); new rules `term-sheets-maker-checker` and `rbac-*` for every newer approve, close and lock code.
 - **Platform health (GAP-023).** The worker writes a heartbeat (10 s) and runs `ops.health` every minute; `/ops/health` (nav Administration, `admin.settings`) shows workers, outbox backlog by type, dead letters (paged, Retry or Discard with reason, row kept), job lateness and alerts (acknowledge with note). Alerts are `ops_alerts` rows (worker.down, outbox.backlog, outbox.dead, job.stale:*), raised by the worker and by the API when the screen opens; each new alert notifies `admin.settings` holders once (critical also by email, link `/ops/health`). Test: `scripts/test-admin-platform.ts`.
 - Remaining: paging for reservations, expectations and tasks needs server-side summary aggregates; service-layer version guards (esign, kyc, company) are not exposed to If-Match.
+## Operations and finance controls (R4-2)
+
+Migration `20261102100000_ops_controls` (models between `// ---- OpsControls ----` and `// ---- end OpsControls ----`; no existing column changed). Code: `backend/api/src/modules/opsctl/` (`payrecon.engine.ts` pure matching, `payrecon.service.ts` run, `opsctl.gates.ts`, `opsctl.routes.ts` mounted at `/api/v1/ops-controls`), UI `/ops/payments-recon` (`portals/admin-web/src/ops/payrecon/`). Permissions reuse `operations.view` (read), `recon.manage` (run, work breaks), `recon.signoff` + step-up (approve). Seed: `prisma/seed-opsctl.ts` (one committed bank statement built from the issued calls and distributions). Flow test: `scripts/test-opsctl.ts`.
+
+### Close gates (cash and accounting period close)
+
+`GET /close-gates?portfolioId&periodEnd&type=cash|accounting` and the close endpoints themselves refuse with `409 close_blocked` and itemised blockers. Cash close adds three checklist items to its pre-check: `NAV_RELEASED` (a RELEASED NAV run at the period end; unreleased runs are named), `RECON_SIGNOFF` (CASH signed off for the date, for every counterparty with an account mapped to the portfolio, or an all-counterparty sign-off) and `RECON_MATERIAL` (no open Critical or High break up to the date). Accounting close already had NAV and open breaks; it gains `RECON_SIGNOFF` for TRADES, CASH and HOLDINGS. A portfolio with no mapped custodian account has nothing to sign off. Policy `close_gates` = false switches the new gates off.
+
+### Payments reconciliation
+
+Expected payments: each investor's share of an ISSUED/PARTIALLY_PAID/PAID distribution (money out, dated by `distribution_date`) and capital call (money in, `due_date`), stored as `pay_recon_items` (unique kind + allocation). Actual: lines of COMMITTED statement imports on BANK cash ledgers (the file-drop feed: `POST /cash/statement-imports`), read-only, never edited. Rules: (1) reference (call or distribution ref, or the call's wire reference) on word boundaries, same direction and currency; a shared reference is narrowed by payee (first two significant words), then exact amount, else the line is AMBIGUOUS; a reference match with an amount outside the tolerance (0.01) is an AMOUNT_DIFF; (2) no reference: unique exact amount within 5 days of the due date, both ways. No line: NOT_DUE until due + 2 days, then MISSING_PAYMENT, but only when a committed statement runs past that date (otherwise it is listed under `awaitingStatement`, not a break, BR-065). Second line for a paired payee is a DUPLICATE; wrong direction or currency is raised too (UNPAIRED_LINE). Severity: difference percent (>=20 critical, >5 high, >1 medium), days overdue (>=10 critical, >=3 high).
+
+| Endpoint | Permission | Notes |
+|---|---|---|
+| `POST /pay-recon/runs` | `recon.manage` | `{fundId?, from, to, tolerance?, graceDays?, dateWindowDays?}`; `Idempotency-Key` required; one run per fund and window, a repeat is a re-run (200) and never duplicates items or breaks; known breaks keep their workflow, paired ones auto-clear |
+| `GET /pay-recon/{summary,runs,runs/:id,items,lines,breaks,breaks/:id,funds}` | `operations.view` | `lines` = unpaired statement lines for manual matching |
+| `POST /pay-recon/breaks/:id/{assign,investigate,resolve}` | `recon.manage` | resolve: MANUAL_MATCH (line or payment), ACCEPT_DIFFERENCE, TIMING (new date), RETURNED_PAYMENT; rationale 10+ chars and an evidence reference; goes to PENDING_CHECKER |
+| `POST /pay-recon/breaks/:id/{approve,reject}` | `recon.signoff` (approve: step-up) | maker cannot approve (403 `segregation_of_duties`); approval applies the resolution to the item |
+
+Tables: `pay_recon_runs`, `pay_recon_items`, `pay_recon_breaks` (unique `item_key` = `ITEM:<kind>:<allocation id>` or `LINE:<line id>`), `pay_recon_break_events`.
+
+### Positions vs custody through the adapter, settlement fails
+
+`POST /ops-controls/custody-positions/pull {asOfDate, counterpartyId?, accountRef?, run?}` (`recon.manage`) reads the custodian's statement holdings through `getCustodianFeedAdapter()` (file-drop, fake or live; live without credentials answers with the usual not-configured error), writes `recon_custody_positions` and a source receipt (hash, version, stored CSV), skips an unchanged file, refuses a signed-off date, and with `run: true` runs POSITIONS_VS_CUSTODY. `GET /ops-controls/settlement-fails?asOf&counterpartyId&portfolioId&status` lists the SETTLEMENT_FAILS breaks with days late, aging buckets, counterparty and security grouping and whether detection is stale; "Refresh detection" in the UI posts a normal `/recon/runs`.
+
+### Not done
+
+Payment items are not tied to a fund bank account (a line is matched by reference, payee and amount across all BANK ledgers); partial payments in several lines are not summed (resolve with a manual match or accept the difference); bank statements are not pulled automatically from the bank-statement adapter (committed file-drop imports only); the existing `test-cash.ts` and `test-accounting.ts` close tests need a released NAV and a CASH sign-off (or policy `close_gates` = false) to reach a successful close.
