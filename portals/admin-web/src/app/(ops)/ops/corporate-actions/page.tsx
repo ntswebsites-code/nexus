@@ -221,6 +221,10 @@ function NewEventModal({ securities, onClose, onDone }: { securities: SecurityRo
           body.defaultOption = optStr(fd, 'defaultOption') ?? null;
         }
         if (type === 'MERGER') body.targetSecurityId = optStr(fd, 'targetSecurityId') ?? null;
+        if (type !== 'CASH_DIVIDEND' && fd.get('cashInLieu') === 'on') {
+          body.cashInLieu = true;
+          body.cilPrice = clean(optStr(fd, 'cilPrice')) ?? null;
+        }
         if (optStr(fd, 'description')) body.description = optStr(fd, 'description');
         return api.post<CaDetail>(v1('/corporate-actions/events'), body, { idempotencyKey: key });
       }}
@@ -311,6 +315,16 @@ function NewEventModal({ securities, onClose, onDone }: { securities: SecurityRo
               )}
             </select>
           </Field>
+        )}
+        {type !== 'CASH_DIVIDEND' && (
+          <>
+            <Field label="Pay cash in lieu of fractions" hint="Off: fractions of a share are only reported">
+              <input type="checkbox" name="cashInLieu" />
+            </Field>
+            <Field label="Cash-in-lieu price per share" hint="Required when cash in lieu is on">
+              <input className="ops-input" name="cilPrice" inputMode="decimal" />
+            </Field>
+          </>
         )}
         <Field label="Notes" span={2}>
           <textarea className="ops-input" name="description" rows={2} maxLength={1000} />

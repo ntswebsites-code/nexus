@@ -149,6 +149,88 @@ function Detail({ order: o, reload }: { order: OrderDetail; reload: () => void }
         )}
       </Card>
 
+      {o.decision && (
+        <Card title="Originating IC decision">
+          <DefinitionList
+            items={[
+              ['Decision', <Link key="d" href={o.decision.link}>{o.decision.ref}</Link>],
+              ['Research case', `${o.decision.caseRef} · ${o.decision.caseTitle}`],
+              ['Action', `${o.decision.action}${o.decision.quantity ? ` ${shares(o.decision.quantity)}` : ''} (${o.decision.status.toLowerCase()})`],
+              ['Votes', `${o.decision.votes.for} for · ${o.decision.votes.against} against · ${o.decision.votes.abstain} abstain`],
+              ['Ratified', o.decision.ratifiedAt ? formatDateTime(o.decision.ratifiedAt) : '—'],
+            ]}
+          />
+          <p style={{ marginTop: 12 }}>
+            <span className="ops-kicker">Committee rationale</span>
+            <br />
+            {o.decision.rationale}
+          </p>
+        </Card>
+      )}
+
+      {(o.cash.holds.length > 0 || o.cash.ledger) && (
+        <Card title="Cash (from the cash ledger)">
+          {o.cash.ledger && (
+            <DefinitionList
+              items={[
+                ['Bank ledger', o.cash.ledger.ref],
+                ['Posted balance', <Money key="p" value={o.cash.ledger.posted} currency={o.currency} />],
+                ['Held for other orders', <Money key="h" value={o.cash.ledger.reservedByOthers} currency={o.currency} />],
+                ['Minimum buffer', <Money key="b" value={o.cash.ledger.minBuffer} currency={o.currency} />],
+                ['Available to this order', <Money key="a" value={o.cash.ledger.available} currency={o.currency} />],
+              ]}
+            />
+          )}
+          {o.cash.holds.length > 0 && (
+            <div className="ops-table-wrap" style={{ marginTop: 10 }}>
+              <table className="ops-table">
+                <thead>
+                  <tr>
+                    <th>Hold</th>
+                    <th>State</th>
+                    <th className="r">Amount</th>
+                    <th className="r">Consumed</th>
+                    <th className="r">Remaining</th>
+                    <th>Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {o.cash.holds.map((h) => (
+                    <tr key={h.id}>
+                      <td>
+                        <Link href={`/ops/cash?tab=reservations&q=${h.ref}`}>{h.ref}</Link>
+                      </td>
+                      <td>{h.status.toLowerCase().replace('_', ' ')}</td>
+                      <td className="r">{formatDecimal(h.amount)}</td>
+                      <td className="r">{formatDecimal(h.consumed)}</td>
+                      <td className="r">{formatDecimal(h.remaining)}</td>
+                      <td>{h.releaseReason ?? ''}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      )}
+
+      {o.realisedGain && (
+        <Card title="Realised gain (average cost)">
+          <DefinitionList
+            items={[
+              ['Proceeds', <Money key="pr" value={o.realisedGain.proceeds} currency={o.currency} />],
+              ['Cost basis', <Money key="cb" value={o.realisedGain.costBasis} currency={o.currency} />],
+              ['Realised gain', <strong key="g" style={{ color: Number(o.realisedGain.gain) >= 0 ? '#0f7a45' : '#b3261e' }}>{formatDecimal(o.realisedGain.gain)} {o.currency}</strong>],
+              ['Fees (booked as trade costs)', <Money key="fe" value={o.realisedGain.fees} currency={o.currency} />],
+              ['Gain after fees', <Money key="nf" value={o.realisedGain.netOfFees} currency={o.currency} />],
+            ]}
+          />
+          <p className="ops-muted" style={{ marginTop: 8 }}>
+            Settlement books investments out at cost and the gain to Realised gains and losses (4300).
+          </p>
+        </Card>
+      )}
+
       <Card title="Pre-trade check">{o.precheck ? <CheckList result={o.precheck} at={o.precheckAt} /> : <Empty>No check has been run on the current ticket.</Empty>}</Card>
 
       <Card title={`Fills (${o.fills.length})`}>

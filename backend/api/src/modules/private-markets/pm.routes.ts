@@ -12,7 +12,12 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
 import { ccy, dateStr, D, type Dec, f2, f4, invalidState, iso, isoDay, listPage, names, portfolioFilter, portfolioMap, positive, reasonSchema, resolvePortfolioId, sod, statusIn, toDate, today, UUID, ZERO } from '../rp-common';
-import { BIG_MOVE_PCT, callProblem, EVIDENCE_KINDS, MARK_METHODS, markMovePct, performance, pooled, STALE_DAYS, STRATEGIES, type Flow, type Perf } from './pm.engine';
+import { BIG_MOVE_PCT, callProblem, EVIDENCE_KINDS, jCurve, MARK_METHODS, markMovePct, performance, pooled, rocProblem, STALE_DAYS, STRATEGIES, type Flow, type Perf } from './pm.engine';
+import { carryingValue, postPmCashflow, postPmMark } from './pm.postings';
+import { actorName } from '../../lib/http';
+import { storeFile } from '../../lib/storage';
+import { uploadFiles, uploadedFiles } from '../../middleware/upload';
+import { resolveFxRate } from '../portfolio/portfolio.service';
 
 /**
  * Private Markets (SRD 5.A.3 `private-markets`). Admin-portal staff only, mounted at `/api/v1/private-markets`
@@ -55,6 +60,52 @@ async function loadMark(v: string): Promise<MarkRow> {
 }
 
 const flowOf = (f: FlowRow): Flow => ({ kind: f.kind, amount: f.amount, date: f.paidOn ?? f.dueDate, status: f.status });
+
+/** Pooled totals are reported in one currency; each fund's amounts are converted at the latest rate. */
+const REPORT_CCY = 'USD';
+
+async function reportRates(ccys: (string | null | undefined)[]) {
+  const out = new Map<string, Dec | null>();
+  for (const c of new Set(ccys.filter((x): x is string => !!x))) out.set(c, await resolveFxRate(c, REPORT_CCY, new Date()));
+  return out;
+}
+
+interface PoolItem {
+  currency: string;
+  committed: Dec;
+  flows: Flow[];
+  mark: { nav: Dec; asOf: Date } | null;
+}
+
+/** Converts every item to the reporting currency; items with no rate are left out and reported in `missing`. */
+function toReport(items: PoolItem[], rates: Map<string, Dec | null>) {
+  const missing = new Set<string>();
+  const out: { committed: Dec; flows: Flow[]; mark: { nav: Dec; asOf: Date } | null }[] = [];
+  for (const i of items) {
+    const r = i.currency === REPORT_CCY ? new D(1) : (rates.get(i.currency) ?? null);
+    if (!r) {
+      missing.add(i.currency);
+      continue;
+    }
+    out.push({ committed: i.committed.mul(r), flows: i.flows.map((f) => ({ ...f, amount: f.amount.mul(r) })), mark: i.mark ? { nav: i.mark.nav.mul(r), asOf: i.mark.asOf } : null });
+  }
+  return { items: out, missing: [...missing] };
+}
+
+/** Booking status of each cashflow / mark (journals created by the system, or why not). */
+type PostingRow = Prisma.PmPostingGetPayload<object> & { accountingJournalId: string | null; cashJournalId: string | null };
+async function postingsBy(key: 'cashflowId' | 'markId', ids: string[]): Promise<Map<string, PostingRow>> {
+  const rows = ids.length ? await prisma.pmPosting.findMany({ where: { [key]: { in: ids } } }) : [];
+  const accRefs = rows.map((r) => r.accountingRef).filter((x): x is string => !!x);
+  const cashRefs = rows.map((r) => r.cashRef).filter((x): x is string => !!x);
+  const [acc, cash] = await Promise.all([
+    accRefs.length ? prisma.accJournal.findMany({ where: { ref: { in: accRefs } }, select: { id: true, ref: true } }) : [],
+    cashRefs.length ? prisma.cashJournal.findMany({ where: { ref: { in: cashRefs } }, select: { id: true, ref: true } }) : [],
+  ]);
+  return new Map(rows.map((r) => [(key === 'cashflowId' ? r.cashflowId : r.markId) as string, { ...r, accountingJournalId: acc.find((a) => a.ref === r.accountingRef)?.id ?? null, cashJournalId: cash.find((c) => c.ref === r.cashRef)?.id ?? null }]));
+}
+const postingView = (p: PostingRow | undefined) =>
+  p ? { accountingJournal: p.accountingRef, accountingJournalId: p.accountingJournalId, cashJournal: p.cashRef, cashJournalId: p.cashJournalId, skipped: p.skipped, fxRate: p.fxRate.toString(), baseCurrency: p.baseCurrency, baseAmount: f2(p.baseAmount), carryingDelta: f2(p.carryingDelta) } : null;
 
 async function latestApproved(commitmentIds: string[]) {
   const out = new Map<string, MarkRow>();
@@ -124,12 +175,14 @@ async function commitmentViews(rows: CommitRow[]) {
   };
 }
 
-const flowView = (f: FlowRow, usr: Map<string, string>) => ({
+const flowView = (f: FlowRow, usr: Map<string, string>, posting?: PostingRow) => ({
   id: f.id,
   ref: f.ref,
   commitmentId: f.commitmentId,
   kind: f.kind,
   amount: f2(f.amount),
+  returnOfCapital: f2(f.returnOfCapital),
+  posting: postingView(posting),
   noticeDate: isoDay(f.noticeDate),
   dueDate: isoDay(f.dueDate),
   paidOn: isoDay(f.paidOn),
@@ -143,6 +196,10 @@ const flowView = (f: FlowRow, usr: Map<string, string>) => ({
 async function markViews(rows: MarkRow[]) {
   const usr = await names(rows.flatMap((r) => [r.makerId, r.approverId]));
   const ev = rows.length ? await prisma.pmEvidence.findMany({ where: { markId: { in: rows.map((r) => r.id) } }, orderBy: { createdAt: 'asc' } }) : [];
+  const posted = await postingsBy('markId', rows.map((r) => r.id));
+  const docIds = [...new Set(ev.map((e) => e.documentId).filter((x): x is string => !!x))];
+  const docs = docIds.length ? await prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, ref: true, name: true } }) : [];
+  const docMap = new Map(docs.map((d) => [d.id, d]));
   const evUsr = await names(ev.map((e) => e.addedBy));
   const cm = rows.length ? await prisma.pmCommitment.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.commitmentId))] } }, include: { fund: true } }) : [];
   const cmm = new Map(cm.map((c) => [c.id, c]));
@@ -164,7 +221,8 @@ async function markViews(rows: MarkRow[]) {
       approverName: m.approverId ? (usr.get(m.approverId) ?? null) : null,
       approvedAt: iso(m.approvedAt),
       rejectReason: m.rejectReason,
-      evidence: ev.filter((e) => e.markId === m.id).map((e) => ({ id: e.id, kind: e.kind, title: e.title, reference: e.reference, note: e.note, addedByName: evUsr.get(e.addedBy) ?? null, createdAt: e.createdAt.toISOString() })),
+      posting: postingView(posted.get(m.id)),
+      evidence: ev.filter((e) => e.markId === m.id).map((e) => ({ id: e.id, kind: e.kind, title: e.title, reference: e.reference, documentId: e.documentId, documentRef: e.documentId ? (docMap.get(e.documentId)?.ref ?? null) : null, note: e.note, addedByName: evUsr.get(e.addedBy) ?? null, createdAt: e.createdAt.toISOString() })),
       version: m.version,
       createdAt: m.createdAt.toISOString(),
     };
@@ -180,7 +238,10 @@ privateMarketsRoutes.get('/summary', ...canView, validateQuery(z.object({ portfo
   const ids = commitments.map((c) => c.id);
   const marks = await latestApproved(ids);
   const flows = ids.length ? await prisma.pmCashflow.findMany({ where: { commitmentId: { in: ids }, status: { not: 'CANCELLED' } } }) : [];
-  const total = pooled(commitments.map((c) => ({ committed: c.amount, flows: flows.filter((f) => f.commitmentId === c.id).map(flowOf), mark: marks.get(c.id) ? { nav: marks.get(c.id)!.nav, asOf: marks.get(c.id)!.asOf } : null })));
+  const ccyOf = new Map(v.rows.map((r) => [r.id, r.currency ?? REPORT_CCY]));
+  const rates = await reportRates([...ccyOf.values()]);
+  const conv = toReport(commitments.map((c) => ({ currency: ccyOf.get(c.id) ?? REPORT_CCY, committed: c.amount, flows: flows.filter((f) => f.commitmentId === c.id).map(flowOf), mark: marks.get(c.id) ? { nav: marks.get(c.id)!.nav, asOf: marks.get(c.id)!.asOf } : null })), rates);
+  const total = pooled(conv.items);
   const horizon = new Date(today().getTime() + 90 * 86_400_000);
   const upcoming = flows.filter((f) => f.status === 'NOTICED' && f.dueDate.getTime() <= horizon.getTime()).sort((a, b) => a.dueDate.getTime() - b.dueDate.getTime());
   const usr = await names(upcoming.map((f) => f.createdBy));
@@ -189,13 +250,17 @@ privateMarketsRoutes.get('/summary', ...canView, validateQuery(z.object({ portfo
   const byStrategy = new Map<string, { nav: Dec; committed: Dec }>();
   for (const r of v.rows) {
     const e = byStrategy.get(r.strategy ?? 'OTHER') ?? { nav: ZERO, committed: ZERO };
-    e.nav = e.nav.add(new D(r.nav ?? 0));
-    e.committed = e.committed.add(new D(r.committed ?? 0));
+    const rt = (r.currency ?? REPORT_CCY) === REPORT_CCY ? new D(1) : (rates.get(r.currency ?? '') ?? ZERO);
+    e.nav = e.nav.add(new D(r.nav ?? 0).mul(rt));
+    e.committed = e.committed.add(new D(r.committed ?? 0).mul(rt));
     byStrategy.set(r.strategy ?? 'OTHER', e);
   }
   res.json({
     data: {
       totals: perfView(total),
+      /** Totals and strategy split are in this currency; fxMissing lists fund currencies with no rate (left out of the totals). */
+      reportCurrency: REPORT_CCY,
+      fxMissing: conv.missing,
       commitments: v.rows,
       pendingMarks,
       staleMarks: v.rows.filter((r) => r.markStale).length,
@@ -250,8 +315,9 @@ privateMarketsRoutes.get('/funds/:id', ...canView, async (req, res) => {
   const flows = cs.length ? await prisma.pmCashflow.findMany({ where: { commitmentId: { in: cs.map((c) => c.id) }, status: { not: 'CANCELLED' } } }) : [];
   const marks = await latestApproved(cs.map((c) => c.id));
   const active = cs.filter((c) => c.status === 'ACTIVE');
+  // A fund has one currency, so its totals stay in that currency (no conversion).
   const total = pooled(active.map((c) => ({ committed: c.amount, flows: flows.filter((x) => x.commitmentId === c.id).map(flowOf), mark: marks.get(c.id) ? { nav: marks.get(c.id)!.nav, asOf: marks.get(c.id)!.asOf } : null })));
-  res.json({ data: { ...fundView(f, active), totals: perfView(total), commitmentList: v.rows } });
+  res.json({ data: { ...fundView(f, active), totals: perfView(total), totalsCurrency: f.currency, commitmentList: v.rows } });
 });
 
 privateMarketsRoutes.patch('/funds/:id', ...canManage, validateBody(fundPatch), async (req, res) => {
@@ -303,7 +369,88 @@ privateMarketsRoutes.get('/commitments/:id', ...canView, async (req, res) => {
   const c = await loadCommitment(param(req, 'id'));
   const [v, flows, marks] = await Promise.all([commitmentViews([c]), prisma.pmCashflow.findMany({ where: { commitmentId: c.id }, orderBy: [{ dueDate: 'desc' }, { ref: 'desc' }] }), prisma.pmMark.findMany({ where: { commitmentId: c.id }, orderBy: [{ asOf: 'desc' }, { createdAt: 'desc' }] })]);
   const usr = await names(flows.flatMap((f) => [f.createdBy, f.settledBy]));
-  res.json({ data: { ...v.rows[0]!, cashflows: flows.map((f) => flowView(f, usr)), marks: await markViews(marks) } });
+  const posted = await postingsBy('cashflowId', flows.map((f) => f.id));
+  const carrying = await carryingValue(prisma as unknown as Prisma.TransactionClient, c.id);
+  res.json({ data: { ...v.rows[0]!, carryingValue: f2(carrying), cashflows: flows.map((f) => flowView(f, usr, posted.get(f.id))), marks: await markViews(marks) } });
+});
+
+/**
+ * Private-market exposure per client: each commitment belongs to a portfolio, each portfolio to a client. Optional
+ * `clientId` (id or ref) narrows to one client and adds the commitment lines. Amounts are pooled in USD (fxMissing lists gaps).
+ */
+privateMarketsRoutes.get('/clients', ...canView, validateQuery(z.object({ clientId: z.string().optional() })), async (req, res) => {
+  const { clientId } = query<{ clientId?: string }>(req);
+  let only: string | null = null;
+  if (clientId) {
+    const c = await prisma.client.findFirst({ where: UUID.test(clientId) ? { id: clientId } : { ref: clientId.toUpperCase() }, select: { id: true } });
+    if (!c) throw HttpError.notFound('Client not found');
+    only = c.id;
+  }
+  const portfolios = await prisma.portfolio.findMany({ where: only ? { clientId: only } : { clientId: { not: null } }, select: { id: true, clientId: true } });
+  const cs = portfolios.length ? await prisma.pmCommitment.findMany({ where: { status: 'ACTIVE', portfolioId: { in: portfolios.map((p) => p.id) } }, orderBy: { ref: 'asc' } }) : [];
+  const v = await commitmentViews(cs);
+  const ids = cs.map((c) => c.id);
+  const [flows, marks] = await Promise.all([ids.length ? prisma.pmCashflow.findMany({ where: { commitmentId: { in: ids }, status: { not: 'CANCELLED' } } }) : [], latestApproved(ids)]);
+  const rates = await reportRates(v.rows.map((r) => r.currency));
+  const clientOf = new Map(portfolios.map((p) => [p.id, p.clientId!]));
+  const clients = await prisma.client.findMany({ where: { id: { in: [...new Set(portfolios.map((p) => p.clientId!))] } }, select: { id: true, ref: true, name: true } });
+  const out = [];
+  for (const cl of clients) {
+    const mine = cs.filter((c) => clientOf.get(c.portfolioId) === cl.id);
+    if (!mine.length) continue;
+    const conv = toReport(
+      mine.map((c) => ({ currency: v.rows.find((r) => r.id === c.id)?.currency ?? REPORT_CCY, committed: c.amount, flows: flows.filter((f) => f.commitmentId === c.id).map(flowOf), mark: marks.get(c.id) ? { nav: marks.get(c.id)!.nav, asOf: marks.get(c.id)!.asOf } : null })),
+      rates,
+    );
+    out.push({ clientId: cl.id, clientRef: cl.ref, clientName: cl.name, commitments: mine.length, currency: REPORT_CCY, fxMissing: conv.missing, ...perfView(pooled(conv.items)), lines: only ? v.rows.filter((r) => mine.some((c) => c.id === r.id)) : undefined });
+  }
+  res.json({ data: out.sort((a, b) => Number(b.nav) - Number(a.nav)) });
+});
+
+/** J-curve for one commitment (`commitmentId`), one portfolio, or all, pooled in the reporting currency (USD). */
+privateMarketsRoutes.get('/jcurve', ...canView, validateQuery(z.object({ portfolioId: z.string().optional(), commitmentId: z.string().optional() })), async (req, res) => {
+  const q = query<{ portfolioId?: string; commitmentId?: string }>(req);
+  const where: Prisma.PmCommitmentWhereInput = { status: 'ACTIVE' };
+  if (q.commitmentId) where.id = (await loadCommitment(q.commitmentId)).id;
+  const pid = await portfolioFilter(q.portfolioId);
+  if (pid) where.portfolioId = pid;
+  const cs = await prisma.pmCommitment.findMany({ where, include: { fund: true } });
+  const ids = cs.map((c) => c.id);
+  const [flows, marks] = await Promise.all([
+    ids.length ? prisma.pmCashflow.findMany({ where: { commitmentId: { in: ids }, status: 'PAID' } }) : [],
+    ids.length ? prisma.pmMark.findMany({ where: { commitmentId: { in: ids }, status: 'APPROVED' }, orderBy: { asOf: 'asc' } }) : [],
+  ]);
+  const rates = await reportRates(cs.map((c) => c.fund.currency));
+  const rateOf = (cid: string) => {
+    const ccy = cs.find((c) => c.id === cid)!.fund.currency;
+    return ccy === REPORT_CCY ? new D(1) : (rates.get(ccy) ?? null);
+  };
+  const missing = [...new Set(cs.filter((c) => !rateOf(c.id)).map((c) => c.fund.currency))];
+  const usable = (cid: string) => !!rateOf(cid);
+  const pf = flows.filter((f) => usable(f.commitmentId)).map((f) => ({ ...flowOf(f), amount: f.amount.mul(rateOf(f.commitmentId)!) }));
+  // NAV at a date is the sum of each commitment's own latest mark at or before it.
+  const pm = marks.filter((m) => usable(m.commitmentId));
+  const dates = [...new Set([...pf.map((f) => f.date.getTime()), ...pm.map((m) => m.asOf.getTime())])].sort((a, b) => a - b);
+  const navAt = (t: number) => {
+    const per = new Map<string, Dec>();
+    for (const m of pm) if (m.asOf.getTime() <= t) per.set(m.commitmentId, m.nav.mul(rateOf(m.commitmentId)!));
+    return per.size ? [...per.values()].reduce((s, v) => s.add(v), ZERO) : null;
+  };
+  const points = jCurve(pf, []).map((p) => {
+    const nav = navAt(p.date.getTime());
+    return { ...p, nav, netValue: nav ? p.netCash.add(nav) : null };
+  });
+  // Mark-only dates (no cashflow that day) need a point too.
+  const have = new Set(points.map((p) => p.date.getTime()));
+  for (const t of dates) {
+    if (have.has(t)) continue;
+    const prior = [...points].filter((p) => p.date.getTime() < t).pop();
+    const nav = navAt(t);
+    const netCash = prior?.netCash ?? ZERO;
+    points.push({ date: new Date(t), calls: prior?.calls ?? ZERO, distributions: prior?.distributions ?? ZERO, netCash, nav, netValue: nav ? netCash.add(nav) : null });
+  }
+  points.sort((a, b) => a.date.getTime() - b.date.getTime());
+  res.json({ data: { currency: REPORT_CCY, fxMissing: missing, points: points.map((p) => ({ date: isoDay(p.date), calls: f2(p.calls), distributions: f2(p.distributions), netCash: f2(p.netCash), nav: f2(p.nav), netValue: f2(p.netValue) })) } });
 });
 
 privateMarketsRoutes.post('/commitments/:id/cancel', ...canManage, validateBody(reasonSchema), async (req, res) => {
@@ -321,7 +468,7 @@ privateMarketsRoutes.post('/commitments/:id/cancel', ...canManage, validateBody(
 
 // ================================================================ capital calls and distributions
 
-const flowBody = z.object({ kind: z.enum(['CALL', 'DISTRIBUTION']), amount: positive, noticeDate: dateStr.optional(), dueDate: dateStr, note: z.string().trim().max(500).optional() }).strict();
+const flowBody = z.object({ kind: z.enum(['CALL', 'DISTRIBUTION']), amount: positive, returnOfCapital: positive.optional(), noticeDate: dateStr.optional(), dueDate: dateStr, note: z.string().trim().max(500).optional() }).strict();
 
 privateMarketsRoutes.post('/commitments/:id/cashflows', ...canManage, validateBody(flowBody), idempotent('pm.cashflow_create'), async (req, res) => {
   const c = await loadCommitment(param(req, 'id'));
@@ -330,6 +477,9 @@ privateMarketsRoutes.post('/commitments/:id/cashflows', ...canManage, validateBo
   const noticeDate = b.noticeDate ? toDate(b.noticeDate) : today();
   const dueDate = toDate(b.dueDate);
   if (dueDate.getTime() < noticeDate.getTime()) throw HttpError.badRequest('Validation failed', [{ path: 'dueDate', message: 'The due date cannot be before the notice date' }]);
+  if (b.returnOfCapital && b.kind !== 'DISTRIBUTION') throw HttpError.badRequest('Validation failed', [{ path: 'returnOfCapital', message: 'Return of capital only applies to a distribution' }]);
+  const rocErr = b.kind === 'DISTRIBUTION' ? rocProblem(b.amount, b.returnOfCapital) : null;
+  if (rocErr) throw HttpError.badRequest('Validation failed', [{ path: 'returnOfCapital', message: rocErr }]);
   const row = await prisma.$transaction(async (tx) => {
     if (b.kind === 'CALL') {
       const g = await tx.pmCashflow.aggregate({ where: { commitmentId: c.id, kind: 'CALL', status: { in: ['NOTICED', 'PAID'] } }, _sum: { amount: true } });
@@ -337,7 +487,7 @@ privateMarketsRoutes.post('/commitments/:id/cashflows', ...canManage, validateBo
       if (problem) throw new HttpError(409, 'exceeds_commitment', problem);
     }
     const ref = await nextRef(tx, 'pmCashflow');
-    const f = await tx.pmCashflow.create({ data: { ref, commitmentId: c.id, kind: b.kind, amount: b.amount, noticeDate, dueDate, note: b.note ?? null, createdBy: req.user!.id } });
+    const f = await tx.pmCashflow.create({ data: { ref, commitmentId: c.id, kind: b.kind, amount: b.amount, returnOfCapital: b.returnOfCapital ?? null, noticeDate, dueDate, note: b.note ?? null, createdBy: req.user!.id } });
     await writeAudit(tx, audit(req), { action: b.kind === 'CALL' ? 'pm.call_noticed' : 'pm.distribution_noticed', objectType: 'pm_cashflow', objectId: f.id, after: { ref, commitment: c.ref, amount: b.amount.toFixed(2), dueDate: b.dueDate } });
     if (b.kind === 'CALL') await notifyPermission(tx, 'portfolio.manage', { type: 'pm.call_noticed', title: `Capital call ${ref}: ${b.amount.toFixed(2)} due ${b.dueDate}`, link: `/ops/private-markets?commitment=${c.id}` });
     return f;
@@ -356,9 +506,13 @@ privateMarketsRoutes.post('/cashflows/:id/pay', ...canManage, validateBody(z.obj
   await prisma.$transaction(async (tx) => {
     assertUpdated((await tx.pmCashflow.updateMany({ where: { id: f.id, status: 'NOTICED' }, data: { status: 'PAID', paidOn, settledBy: req.user!.id } })).count);
     await writeAudit(tx, audit(req), { action: f.kind === 'CALL' ? 'pm.call_paid' : 'pm.distribution_received', objectType: 'pm_cashflow', objectId: f.id, before: { status: 'NOTICED' }, after: { status: 'PAID', paidOn: isoDay(paidOn), amount: f.amount.toFixed(2) } });
+    // Settlement books to Accounting and the cash ledger (PENDING_APPROVAL system journals); a missing FX rate aborts the settlement.
+    const c = await tx.pmCommitment.findUniqueOrThrow({ where: { id: f.commitmentId }, include: { fund: true } });
+    await postPmCashflow(tx, audit(req), { commitment: c, fund: c.fund }, { ...f, paidOn });
   });
   const usr = await names([f.createdBy, req.user!.id]);
-  res.json({ data: flowView(await loadFlow(f.id), usr) });
+  const posted = await postingsBy('cashflowId', [f.id]);
+  res.json({ data: flowView(await loadFlow(f.id), usr, posted.get(f.id)) });
 });
 
 privateMarketsRoutes.post('/cashflows/:id/cancel', ...canManage, validateBody(reasonSchema), async (req, res) => {
@@ -416,17 +570,63 @@ privateMarketsRoutes.get('/marks/:id', ...canView, async (req, res) => {
   await respondMark(res, (await loadMark(param(req, 'id'))).id);
 });
 
-const evidenceBody = z.object({ kind: z.enum(EVIDENCE_KINDS), title: z.string().trim().min(3).max(200), reference: z.string().trim().max(255).optional(), note: z.string().trim().max(500).optional() }).strict();
+const evidenceBody = z.object({ kind: z.enum(EVIDENCE_KINDS), title: z.string().trim().min(3).max(200), reference: z.string().trim().max(255).optional(), documentId: z.string().trim().max(36).optional(), note: z.string().trim().max(500).optional() }).strict();
 
 privateMarketsRoutes.post('/marks/:id/evidence', ...canManage, validateBody(evidenceBody), idempotent('pm.evidence_add', { required: false }), async (req, res) => {
   const m = await loadMark(param(req, 'id'));
   if (m.status !== 'DRAFT') throw invalidState(`${m.ref} is ${m.status}; evidence can only be added to a DRAFT mark`);
   assertMaker(m, req);
   const b = req.body as z.infer<typeof evidenceBody>;
+  // A vault document can be attached by id or reference; the evidence then cites the filed document.
+  const doc = b.documentId ? await prisma.document.findFirst({ where: UUID.test(b.documentId) ? { id: b.documentId } : { ref: b.documentId } }) : null;
+  if (b.documentId && !doc) throw HttpError.badRequest('Validation failed', [{ path: 'documentId', message: 'Unknown document' }]);
   await prisma.$transaction(async (tx) => {
-    const e = await tx.pmEvidence.create({ data: { markId: m.id, kind: b.kind, title: b.title, reference: b.reference ?? null, note: b.note ?? null, addedBy: req.user!.id } });
-    await writeAudit(tx, audit(req), { action: 'pm.evidence_added', objectType: 'pm_mark', objectId: m.id, after: { evidenceId: e.id, kind: b.kind, title: b.title } });
+    const e = await tx.pmEvidence.create({ data: { markId: m.id, kind: b.kind, title: b.title, reference: b.reference ?? doc?.ref ?? null, documentId: doc?.id ?? null, note: b.note ?? null, addedBy: req.user!.id } });
+    if (doc && !doc.relatedId) await tx.document.update({ where: { id: doc.id }, data: { relatedType: 'pm_mark', relatedId: m.id, relatedLabel: `${m.ref} valuation evidence` } });
+    await writeAudit(tx, audit(req), { action: 'pm.evidence_added', objectType: 'pm_mark', objectId: m.id, after: { evidenceId: e.id, kind: b.kind, title: b.title, document: doc?.ref ?? null } });
   });
+  await respondMark(res, m.id, 201);
+});
+
+/** Files the evidence itself: the upload becomes a vault document (type valuations, restricted) linked to the mark. Multipart: file, kind, title, note. */
+privateMarketsRoutes.post('/marks/:id/evidence/upload', ...canManage, uploadFiles('file'), async (req, res) => {
+  const m = await loadMark(param(req, 'id'));
+  if (m.status !== 'DRAFT') throw invalidState(`${m.ref} is ${m.status}; evidence can only be added to a DRAFT mark`);
+  assertMaker(m, req);
+  const parsed = evidenceBody.omit({ documentId: true, reference: true }).safeParse(req.body);
+  if (!parsed.success) throw HttpError.badRequest(parsed.error.issues[0]?.message ?? 'Invalid evidence', parsed.error.issues);
+  const b = parsed.data;
+  const file = uploadedFiles(req)[0];
+  if (!file) throw HttpError.badRequest('Attach the evidence file');
+  const cm = await prisma.pmCommitment.findUniqueOrThrow({ where: { id: m.commitmentId }, include: { fund: true } });
+  const docRef = await prisma.$transaction(async (tx) => {
+    const stored = await storeFile({ name: file.originalname, mime: file.mimetype, data: file.buffer, uploadedById: req.user!.id }, tx);
+    const ref = await nextRef(tx, 'document');
+    const doc = await tx.document.create({
+      data: {
+        ref,
+        name: b.title,
+        type: 'valuations',
+        label: b.kind,
+        classification: 'Restricted',
+        status: 'Draft',
+        ownerName: actorName(req),
+        relatedType: 'pm_mark',
+        relatedId: m.id,
+        relatedLabel: `${m.ref} ${cm.fund.name}`.slice(0, 160),
+        documentDate: m.asOf,
+        year: m.asOf.getUTCFullYear(),
+        makerId: req.user!.id,
+        createdBy: req.user!.id,
+        versions: { create: { version: 1, fileId: stored.id, sha256: stored.sha256, uploadedById: req.user!.id } },
+      },
+    });
+    const e = await tx.pmEvidence.create({ data: { markId: m.id, kind: b.kind, title: b.title, reference: ref, documentId: doc.id, note: b.note ?? null, addedBy: req.user!.id } });
+    await writeAudit(tx, audit(req), { action: 'document.created', objectType: 'document', objectId: doc.id, after: { ref, relatedType: 'pm_mark', relatedId: m.id, sha256: stored.sha256 } });
+    await writeAudit(tx, audit(req), { action: 'pm.evidence_added', objectType: 'pm_mark', objectId: m.id, after: { evidenceId: e.id, kind: b.kind, title: b.title, document: ref, sha256: stored.sha256 } });
+    return ref;
+  });
+  void docRef;
   await respondMark(res, m.id, 201);
 });
 
@@ -480,6 +680,9 @@ privateMarketsRoutes.post('/marks/:id/approve', ...canApprove, requireStepUp, id
   await prisma.$transaction(async (tx) => {
     assertUpdated((await tx.pmMark.updateMany({ where: { id: m.id, status: 'PENDING_APPROVAL' }, data: { status: 'APPROVED', approverId: req.user!.id, approvedAt: new Date() } })).count);
     await writeAudit(tx, audit(req), { action: 'pm.mark_approved', objectType: 'pm_mark', objectId: m.id, before: { status: 'PENDING_APPROVAL' }, after: { status: 'APPROVED', asOf: isoDay(m.asOf), nav: m.nav.toFixed(2), makerId: m.makerId, approverId: req.user!.id, evidence } });
+    // The move from carrying value to the approved NAV is booked as an unrealised gain or loss (system journal, pending approval).
+    const c = await tx.pmCommitment.findUniqueOrThrow({ where: { id: m.commitmentId }, include: { fund: true } });
+    await postPmMark(tx, audit(req), { commitment: c, fund: c.fund }, m);
   });
   await respondMark(res, m.id);
 });

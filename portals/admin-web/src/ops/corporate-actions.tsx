@@ -4,7 +4,7 @@ import { formatDecimal } from './money';
 
 // ------------------------------------------------------------------ types (mirror /api/v1/corporate-actions)
 
-export type CaStatus = 'ANNOUNCED' | 'CONFIRMED' | 'PROCESSED' | 'CANCELLED';
+export type CaStatus = 'ANNOUNCED' | 'CONFIRMED' | 'PROCESSED' | 'REVERSED' | 'CANCELLED';
 export type CaType = 'CASH_DIVIDEND' | 'STOCK_SPLIT' | 'BONUS_ISSUE' | 'SCRIP_DIVIDEND' | 'RIGHTS_ISSUE' | 'MERGER';
 export const CA_TYPES: CaType[] = ['CASH_DIVIDEND', 'STOCK_SPLIT', 'BONUS_ISSUE', 'SCRIP_DIVIDEND', 'RIGHTS_ISSUE', 'MERGER'];
 
@@ -46,7 +46,13 @@ export interface CaEvent {
   processedAt: string | null;
   cancelReason: string | null;
   cancelledAt: string | null;
-  processing: { effectiveDate?: string; applied?: number; clamped?: number; netCash?: string; tax?: string; sharesDelta?: string; targetShares?: string } | null;
+  cashInLieu: boolean;
+  cilPrice: string | null;
+  reversedBy: string | null;
+  reversedByName: string | null;
+  reversedAt: string | null;
+  reverseReason: string | null;
+  processing: { effectiveDate?: string; applied?: number; clamped?: number; cashInLieu?: string; netCash?: string; tax?: string; sharesDelta?: string; targetShares?: string } | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -76,17 +82,18 @@ export interface CaEntitlement {
   grossAmount: string;
   taxAmount: string;
   cashAmount: string;
+  cashInLieu: string;
   sharesDelta: string;
   targetShares: string;
   fraction: string;
-  status: 'PENDING' | 'APPLIED' | 'SKIPPED';
+  status: 'PENDING' | 'APPLIED' | 'REVERSED' | 'SKIPPED';
   defaulted: boolean;
   note: string | null;
 }
 
 export interface CaDetail extends CaEvent {
   entitlements: CaEntitlement[];
-  totals: { quantity: string; gross: string; tax: string; netCash: string; sharesDelta: string; targetShares: string };
+  totals: { quantity: string; gross: string; tax: string; netCash: string; cashInLieu: string; sharesDelta: string; targetShares: string };
   timeline: { at: string; action: string; actor: string; reason: string | null }[];
   allowed: {
     edit: boolean;
@@ -97,7 +104,24 @@ export interface CaDetail extends CaEvent {
     process: boolean;
     processBlocker: string | null;
     cancel: boolean;
+    reverse: boolean;
+    reverseBlocker: string | null;
   };
+}
+
+/** Entitlements rolled up per client (GET /events/:id/clients). */
+export interface CaClientRow {
+  clientId: string | null;
+  clientRef: string | null;
+  clientName: string;
+  portfolios: string[];
+  quantity: string;
+  cash: string;
+  cashInLieu: string;
+  sharesDelta: string;
+  targetShares: string;
+  elected: number;
+  entitlements: number;
 }
 
 // ------------------------------------------------------------------ presentation
@@ -110,8 +134,8 @@ export const TYPE_LABEL: Record<string, string> = {
   RIGHTS_ISSUE: 'Rights issue',
   MERGER: 'Merger',
 };
-export const STATUS_LABEL: Record<string, string> = { ANNOUNCED: 'Announced', CONFIRMED: 'Confirmed', PROCESSED: 'Processed', CANCELLED: 'Cancelled' };
-const TONE: Record<string, string> = { ANNOUNCED: 'amber', CONFIRMED: 'blue', PROCESSED: 'green', CANCELLED: 'grey' };
+export const STATUS_LABEL: Record<string, string> = { ANNOUNCED: 'Announced', CONFIRMED: 'Confirmed', PROCESSED: 'Processed', REVERSED: 'Reversed', CANCELLED: 'Cancelled' };
+const TONE: Record<string, string> = { ANNOUNCED: 'amber', CONFIRMED: 'blue', PROCESSED: 'green', REVERSED: 'red', CANCELLED: 'grey' };
 export const OPTION_LABEL: Record<string, string> = { CASH: 'Take cash', SCRIP: 'Take scrip shares', TAKE_UP: 'Take up rights', LAPSE: 'Let rights lapse' };
 
 export function CaStatusBadge({ status }: { status: string }) {
@@ -130,7 +154,7 @@ export function terms(e: CaEvent): string {
       return `${e.rate} ${e.currency} per share${Number(e.withholdingPct) ? `, ${e.withholdingPct}% withholding tax` : ''}`;
     case 'STOCK_SPLIT':
     case 'BONUS_ISSUE':
-      return ratio ?? '';
+      return `${ratio ?? ''}${e.cashInLieu && e.cilPrice ? `, fractions paid in cash at ${e.cilPrice} ${e.currency}` : ''}`;
     case 'SCRIP_DIVIDEND':
       return `${e.rate} ${e.currency} cash per share or ${ratio}`;
     case 'RIGHTS_ISSUE':

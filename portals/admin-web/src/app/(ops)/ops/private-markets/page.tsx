@@ -25,7 +25,19 @@ interface Perf {
   tvpi: string | null;
   irrPct: string | null;
 }
+interface Posting {
+  accountingJournal: string | null;
+  accountingJournalId: string | null;
+  cashJournal: string | null;
+  cashJournalId: string | null;
+  skipped: string | null;
+  fxRate: string;
+  baseCurrency: string;
+  baseAmount: string | null;
+  carryingDelta: string | null;
+}
 interface Commitment extends Perf {
+  carryingValue?: string | null;
   id: string;
   ref: string;
   fundId: string;
@@ -49,6 +61,8 @@ interface Cashflow {
   ref: string;
   kind: string;
   amount: string;
+  returnOfCapital?: string | null;
+  posting?: Posting | null;
   noticeDate: string;
   dueDate: string;
   paidOn: string | null;
@@ -74,7 +88,8 @@ interface Mark {
   makerName: string | null;
   approverName: string | null;
   rejectReason: string | null;
-  evidence: { id: string; kind: string; title: string; reference: string | null; addedByName: string | null }[];
+  posting?: Posting | null;
+  evidence: { id: string; kind: string; title: string; reference: string | null; documentId: string | null; documentRef: string | null; addedByName: string | null }[];
 }
 interface Fund {
   id: string;
@@ -88,10 +103,30 @@ interface Fund {
   commitments: number;
   committed: string | null;
   totals?: Perf;
+  totalsCurrency?: string;
   commitmentList?: Commitment[];
+}
+interface CurvePoint {
+  date: string;
+  calls: string;
+  distributions: string;
+  netCash: string;
+  nav: string | null;
+  netValue: string | null;
+}
+interface ClientExposure extends Perf {
+  clientId: string;
+  clientRef: string;
+  clientName: string;
+  commitments: number;
+  currency: string;
+  fxMissing: string[];
+  lines?: Commitment[];
 }
 interface Summary {
   totals: Perf;
+  reportCurrency: string;
+  fxMissing: string[];
   commitments: Commitment[];
   pendingMarks: number;
   staleMarks: number;
@@ -99,7 +134,7 @@ interface Summary {
   upcomingCashflows: Cashflow[];
 }
 
-type Tab = 'overview' | 'funds' | 'marks';
+type Tab = 'overview' | 'funds' | 'marks' | 'clients';
 const xr = (v: string | null) => (v === null ? '—' : `${v}x`);
 const irr = (v: string | null) => (v === null ? '—' : `${v}%`);
 
@@ -137,13 +172,14 @@ export default function PrivateMarketsPage() {
         </div>
       </Card>
       <div role="tablist" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        {(['overview', 'funds', 'marks'] as Tab[]).map((t) => (
+        {(['overview', 'funds', 'marks', 'clients'] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`ops-btn${tab === t ? ' primary' : ''}`} type="button" onClick={() => setTab(t)}>
-            {t === 'overview' ? 'Overview' : t === 'funds' ? 'Funds' : 'NAV marks'}
+            {t === 'overview' ? 'Overview' : t === 'funds' ? 'Funds' : t === 'marks' ? 'NAV marks' : 'By client'}
           </button>
         ))}
       </div>
-      {tab === 'overview' && <Overview summary={summary} onOpen={(id) => setOpen({ kind: 'commitment', id })} />}
+      {tab === 'overview' && <Overview summary={summary} portfolioId={portfolioId} onOpen={(id) => setOpen({ kind: 'commitment', id })} />}
+      {tab === 'clients' && <ClientsTab onOpen={(id) => setOpen({ kind: 'commitment', id })} />}
       {tab === 'funds' && <FundsTab onOpen={(id) => setOpen({ kind: 'fund', id })} portfolios={portfolios} onChanged={summary.reload} />}
       {tab === 'marks' && <MarksTab onOpen={(id) => setOpen({ kind: 'mark', id })} />}
       {open?.kind === 'commitment' && <CommitmentModal id={open.id} onClose={() => setOpen(null)} onChanged={summary.reload} onOpenMark={(id) => setOpen({ kind: 'mark', id })} />}
@@ -153,11 +189,13 @@ export default function PrivateMarketsPage() {
   );
 }
 
-function Overview({ summary, onOpen }: { summary: ReturnType<typeof useResource<Summary>>; onOpen: (id: string) => void }) {
+function Overview({ summary, portfolioId, onOpen }: { summary: ReturnType<typeof useResource<Summary>>; portfolioId: string; onOpen: (id: string) => void }) {
   return (
     <Loaded res={summary} what="private markets">
       {(s) => (
         <>
+          {s.fxMissing.length > 0 && <Alert kind="warn">No FX rate to {s.reportCurrency} for {s.fxMissing.join(', ')}: those funds are left out of the pooled totals below. Add the rate under Portfolio FX rates.</Alert>}
+          <p className="ops-muted" style={{ margin: '0 0 8px' }}>Pooled totals are in {s.reportCurrency}; each fund is converted at its latest rate.</p>
           <div className="ops-tiles">
             <Tile label="Committed" value={m2(s.totals.committed)} hint={`${m2(s.totals.unfunded)} unfunded`} />
             <Tile label="NAV" value={m2(s.totals.nav)} hint={s.totals.navAsOf ? `Latest approved mark ${formatDate(s.totals.navAsOf)}` : 'No approved marks'} />
@@ -165,6 +203,7 @@ function Overview({ summary, onOpen }: { summary: ReturnType<typeof useResource<
             <Tile label="IRR" value={irr(s.totals.irrPct)} hint={`Paid-in ${m2(s.totals.paidIn)} · distributed ${m2(s.totals.distributed)}`} />
             <Tile label="Marks awaiting approval" value={String(s.pendingMarks)} hint={`${s.staleMarks} commitment(s) with a stale or missing mark`} />
           </div>
+          <JCurveCard portfolioId={portfolioId} />
           <Card title="Commitments">
             {s.commitments.length === 0 ? (
               <Empty>No active commitments. Add a fund and a commitment under Funds.</Empty>
@@ -209,6 +248,98 @@ function Overview({ summary, onOpen }: { summary: ReturnType<typeof useResource<
         </>
       )}
     </Loaded>
+  );
+}
+
+// ================================================================ J-curve and clients
+
+function JCurveCard({ portfolioId }: { portfolioId: string }) {
+  const res = useResource<{ currency: string; fxMissing: string[]; points: CurvePoint[] }>(() => api.get(P(`/jcurve${qs({ portfolioId })}`)), [portfolioId]);
+  return (
+    <Card title="J-curve: net cash and net value over time">
+      <Loaded res={res} what="the J-curve">
+        {(d) => {
+          if (d.points.length < 2) return <Empty>Not enough settled cashflows yet to draw a curve.</Empty>;
+          const W = 640;
+          const H = 180;
+          const pad = 28;
+          const vals = d.points.flatMap((p) => [Number(p.netCash), p.netValue === null ? Number(p.netCash) : Number(p.netValue)]);
+          const lo = Math.min(0, ...vals);
+          const hi = Math.max(0, ...vals);
+          const t0 = new Date(d.points[0]!.date).getTime();
+          const t1 = new Date(d.points[d.points.length - 1]!.date).getTime();
+          const x = (date: string) => pad + ((new Date(date).getTime() - t0) / Math.max(1, t1 - t0)) * (W - pad * 2);
+          const y = (v: number) => H - pad - ((v - lo) / Math.max(1, hi - lo)) * (H - pad * 2);
+          const line = (f: (p: CurvePoint) => number | null) => d.points.filter((p) => f(p) !== null).map((p, i) => `${i ? 'L' : 'M'}${x(p.date).toFixed(1)},${y(f(p)!).toFixed(1)}`).join(' ');
+          return (
+            <>
+              <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label="J-curve" style={{ width: '100%', maxWidth: W, height: 'auto' }}>
+                <line x1={pad} x2={W - pad} y1={y(0)} y2={y(0)} stroke="currentColor" strokeOpacity={0.3} strokeDasharray="4 3" />
+                <path d={line((p) => Number(p.netCash))} fill="none" stroke="#b3261e" strokeWidth={2} />
+                <path d={line((p) => (p.netValue === null ? null : Number(p.netValue)))} fill="none" stroke="#0f7a45" strokeWidth={2} />
+                <text x={pad} y={14} fontSize={11} fill="currentColor">{d.currency} {m2(String(hi))}</text>
+                <text x={pad} y={H - 6} fontSize={11} fill="currentColor">{d.currency} {m2(String(lo))}</text>
+                <text x={W - pad} y={H - 6} fontSize={11} textAnchor="end" fill="currentColor">{formatDate(d.points[d.points.length - 1]!.date)}</text>
+              </svg>
+              <p className="ops-muted">
+                <span style={{ color: '#b3261e' }}>Net cash</span> (distributions less calls) dips while capital is drawn; <span style={{ color: '#0f7a45' }}>net value</span> adds the latest approved NAV once marks exist. Pooled in {d.currency}.
+                {d.fxMissing.length > 0 && ` Excluded, no FX rate: ${d.fxMissing.join(', ')}.`}
+              </p>
+            </>
+          );
+        }}
+      </Loaded>
+    </Card>
+  );
+}
+
+function ClientsTab({ onOpen }: { onOpen: (id: string) => void }) {
+  const [open, setOpen] = useState('');
+  const res = useResource<ClientExposure[]>(() => api.get<ClientExposure[]>(P(`/clients${qs({ clientId: open })}`)), [open]);
+  return (
+    <Card title="Private-market exposure by client" actions={open ? <button className="ops-btn" type="button" onClick={() => setOpen('')}>All clients</button> : undefined}>
+      <Loaded res={res} what="client exposure">
+        {(rows) =>
+          rows.length === 0 ? (
+            <Empty>No client has an active private-market commitment through a portfolio.</Empty>
+          ) : (
+            <>
+              <DataTable head={['Client', 'Commitments', 'Committed', 'Paid-in', 'Distributed', 'NAV', 'TVPI', 'IRR']}>
+                {rows.map((c) => (
+                  <tr key={c.clientId} className="clickable" onClick={() => setOpen(c.clientId)}>
+                    <td><strong>{c.clientName}</strong><div className="ops-muted">{c.clientRef}</div></td>
+                    <td className="r">{c.commitments}</td>
+                    <td className="r">{c.currency} {m2(c.committed)}</td>
+                    <td className="r">{m2(c.paidIn)}</td>
+                    <td className="r">{m2(c.distributed)}</td>
+                    <td className="r">{m2(c.nav)}</td>
+                    <td className="r">{xr(c.tvpi)}</td>
+                    <td className="r">{irr(c.irrPct)}</td>
+                  </tr>
+                ))}
+              </DataTable>
+              {open && rows[0]?.lines && (
+                <>
+                  <h4>Commitments</h4>
+                  <DataTable head={['Commitment', 'Fund', 'Portfolio', 'Committed', 'Paid-in', 'NAV']}>
+                    {rows[0].lines.map((c) => (
+                      <tr key={c.id} className="clickable" onClick={() => onOpen(c.id)}>
+                        <td>{c.ref}</td>
+                        <td>{c.fundName}</td>
+                        <td>{c.portfolioName}</td>
+                        <td className="r">{c.currency} {m2(c.committed)}</td>
+                        <td className="r">{m2(c.paidIn)}</td>
+                        <td className="r">{m2(c.nav)}</td>
+                      </tr>
+                    ))}
+                  </DataTable>
+                </>
+              )}
+            </>
+          )
+        }
+      </Loaded>
+    </Card>
   );
 }
 
@@ -353,10 +484,11 @@ function CommitmentModal({ id, onClose, onChanged, onOpenMark }: { id: string; o
                 <div><dt>RVPI</dt><dd>{xr(c.rvpi)}</dd></div>
                 <div><dt>TVPI</dt><dd>{xr(c.tvpi)}</dd></div>
                 <div><dt>IRR</dt><dd>{irr(c.irrPct)}</dd></div>
+                <div><dt>Carrying value (books)</dt><dd>{m2(c.carryingValue ?? null)}</dd></div>
               </dl>
               <h4>Capital calls and distributions</h4>
               {c.cashflows && c.cashflows.length ? (
-                <DataTable head={['Notice', 'Kind', 'Amount', 'Notice date', 'Due', 'Paid', 'Status', '']}>
+                <DataTable head={['Notice', 'Kind', 'Amount', 'Notice date', 'Due', 'Paid', 'Status', 'Books', '']}>
                   {c.cashflows.map((f) => (
                     <tr key={f.id}>
                       <td>{f.ref}</td>
@@ -365,7 +497,17 @@ function CommitmentModal({ id, onClose, onChanged, onOpenMark }: { id: string; o
                       <td>{formatDate(f.noticeDate)}</td>
                       <td>{formatDate(f.dueDate)} {f.overdue && <Tag value="Overdue" tone="red" />}</td>
                       <td>{formatDate(f.paidOn)}</td>
-                      <td><Tag value={f.status} /></td>
+                      <td><Tag value={f.status} />{f.kind === 'DISTRIBUTION' && f.returnOfCapital && <div className="ops-muted">{m2(f.returnOfCapital)} return of capital</div>}</td>
+                      <td>
+                        {f.posting ? (
+                          <>
+                            {f.posting.accountingJournal ? <Link href={`/ops/accounting/journals/${f.posting.accountingJournalId ?? ''}`}>{f.posting.accountingJournal}</Link> : '—'}
+                            {f.posting.cashJournal && <div className="ops-muted">cash <Link href={`/ops/cash/journals/${f.posting.cashJournalId ?? ''}`}>{f.posting.cashJournal}</Link></div>}
+                            {f.posting.skipped && <div className="ops-muted">not booked: {f.posting.skipped}</div>}
+                            {f.posting.fxRate !== '1' && <div className="ops-muted">FX {f.posting.fxRate} to {f.posting.baseCurrency}</div>}
+                          </>
+                        ) : f.status === 'PAID' ? 'not booked' : ''}
+                      </td>
                       <td>
                         {canManage && f.status === 'NOTICED' && (
                           <span style={{ display: 'inline-flex', gap: 6 }}>
@@ -404,10 +546,11 @@ function CommitmentModal({ id, onClose, onChanged, onOpenMark }: { id: string; o
                 </div>
               )}
               {sub === 'flow' && (
-                <FormModal title="Notice a capital call or distribution" subtitle={`Unfunded commitment: ${m2(c.unfunded)} (calls cannot exceed it)`} submitLabel="Record notice" onClose={() => setSub(null)} onSubmit={(fd, k) => api.post(P(`/commitments/${c.id}/cashflows`), { kind: str(fd, 'kind'), amount: str(fd, 'amount').replace(/,/g, ''), noticeDate: str(fd, 'noticeDate'), dueDate: str(fd, 'dueDate'), note: optStr(fd, 'note') }, { idempotencyKey: k })} onDone={done}>
+                <FormModal title="Notice a capital call or distribution" subtitle={`Unfunded commitment: ${m2(c.unfunded)} (calls cannot exceed it)`} submitLabel="Record notice" onClose={() => setSub(null)} onSubmit={(fd, k) => api.post(P(`/commitments/${c.id}/cashflows`), { kind: str(fd, 'kind'), amount: str(fd, 'amount').replace(/,/g, ''), noticeDate: str(fd, 'noticeDate'), dueDate: str(fd, 'dueDate'), note: optStr(fd, 'note'), ...(str(fd, 'kind') === 'DISTRIBUTION' && optStr(fd, 'returnOfCapital') ? { returnOfCapital: str(fd, 'returnOfCapital').replace(/,/g, '') } : {}) }, { idempotencyKey: k })} onDone={done}>
                   <FieldGrid>
                     <Field label="Kind"><select className="ops-input" name="kind"><option value="CALL">Capital call</option><option value="DISTRIBUTION">Distribution</option></select></Field>
                     <Field label="Amount"><input className="ops-input" name="amount" inputMode="decimal" required /></Field>
+                    <Field label="Of which return of capital" hint="Distributions only; the rest books as income and gains"><input className="ops-input" name="returnOfCapital" inputMode="decimal" /></Field>
                     <Field label="Notice date"><input className="ops-input" name="noticeDate" type="date" defaultValue={today()} required /></Field>
                     <Field label="Due date"><input className="ops-input" name="dueDate" type="date" defaultValue={today()} required /></Field>
                     <Field label="Note" span={2}><input className="ops-input" name="note" maxLength={500} /></Field>
@@ -479,7 +622,7 @@ function MarkModal({ id, onClose, onChanged }: { id: string; onClose: () => void
   const canManage = useCan('portfolio.manage');
   const canApprove = useCan('private.mark.approve');
   const res = useResource<Mark>(() => api.get<Mark>(P(`/marks/${encodeURIComponent(id)}`)), [id]);
-  const [sub, setSub] = useState<null | 'evidence' | 'reject' | 'return'>(null);
+  const [sub, setSub] = useState<null | 'evidence' | 'upload' | 'reject' | 'return'>(null);
   const done = () => {
     res.reload();
     onChanged();
@@ -501,6 +644,13 @@ function MarkModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                   <div><dt>Approved by</dt><dd>{m.approverName ?? '—'}</dd></div>
                 </dl>
                 {m.note && <p>{m.note}</p>}
+                {m.posting && (
+                  <Alert kind="info">
+                    Booked on approval: {m.posting.carryingDelta && Number(m.posting.carryingDelta) !== 0 ? `${Number(m.posting.carryingDelta) > 0 ? 'unrealised gain' : 'unrealised loss'} of ${m2(String(Math.abs(Number(m.posting.carryingDelta))))} against the carrying value` : 'no change to the carrying value'}
+                    {m.posting.accountingJournal ? `, journal ${m.posting.accountingJournal} (pending approval in Accounting)` : ''}
+                    {m.posting.skipped ? ` (${m.posting.skipped})` : ''}.
+                  </Alert>
+                )}
                 {m.rejectReason && <Alert kind="warn">{m.status === 'REJECTED' ? 'Rejected' : 'Returned'}: {m.rejectReason}</Alert>}
                 <h4>Valuation evidence</h4>
                 {m.evidence.length ? (
@@ -509,7 +659,7 @@ function MarkModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                       <tr key={e.id}>
                         <td>{label(e.kind)}</td>
                         <td>{e.title}</td>
-                        <td>{e.reference ?? '—'}</td>
+                        <td>{e.documentRef ? <Link href="/ops/vault">{e.documentRef}</Link> : (e.reference ?? '—')}</td>
                         <td>{e.addedByName}</td>
                       </tr>
                     ))}
@@ -520,7 +670,8 @@ function MarkModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                 <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
                   {m.status === 'DRAFT' && maker && canManage && (
                     <>
-                      <button className="ops-btn" type="button" onClick={() => setSub('evidence')}>Add evidence</button>
+                      <button className="ops-btn" type="button" onClick={() => setSub('upload')}>Upload evidence file</button>
+                      <button className="ops-btn" type="button" onClick={() => setSub('evidence')}>Link by reference</button>
                       <ActionButton primary label="Submit for approval" onRun={(k) => api.post(P(`/marks/${m.id}/submit`), {}, { idempotencyKey: k })} onDone={done} />
                     </>
                   )}
@@ -534,11 +685,38 @@ function MarkModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                   {m.status === 'PENDING_APPROVAL' && maker && <span className="ops-muted">A different person with private.mark.approve must approve.</span>}
                 </div>
                 {sub === 'evidence' && (
-                  <FormModal title="Add valuation evidence" submitLabel="Add" onClose={() => setSub(null)} onSubmit={(fd) => api.post(P(`/marks/${m.id}/evidence`), { kind: str(fd, 'kind'), title: str(fd, 'title'), reference: optStr(fd, 'reference'), note: optStr(fd, 'note') })} onDone={done}>
+                  <FormModal title="Add valuation evidence" submitLabel="Add" onClose={() => setSub(null)} onSubmit={(fd) => api.post(P(`/marks/${m.id}/evidence`), { kind: str(fd, 'kind'), title: str(fd, 'title'), ...(/^DOC-\d+$/i.test(str(fd, 'reference')) ? { documentId: str(fd, 'reference').toUpperCase() } : { reference: optStr(fd, 'reference') }), note: optStr(fd, 'note') })} onDone={done}>
                     <FieldGrid>
                       <Field label="Kind"><select className="ops-input" name="kind">{EVIDENCE.map((k) => <option key={k} value={k}>{label(k)}</option>)}</select></Field>
                       <Field label="Title"><input className="ops-input" name="title" required minLength={3} /></Field>
-                      <Field label="Vault reference or link" span={2}><input className="ops-input" name="reference" maxLength={255} /></Field>
+                      <Field label="Vault document reference (DOC-####) or link" span={2}><input className="ops-input" name="reference" maxLength={255} /></Field>
+                      <Field label="Note" span={2}><input className="ops-input" name="note" maxLength={500} /></Field>
+                    </FieldGrid>
+                  </FormModal>
+                )}
+                {sub === 'upload' && (
+                  <FormModal
+                    title="Upload valuation evidence"
+                    subtitle="The file is stored in the document vault (restricted) and linked to this mark."
+                    submitLabel="Upload"
+                    onClose={() => setSub(null)}
+                    onSubmit={(fd) => {
+                      const body = new FormData();
+                      body.append('kind', str(fd, 'kind'));
+                      body.append('title', str(fd, 'title'));
+                      const note = optStr(fd, 'note');
+                      if (note) body.append('note', note);
+                      const file = fd.get('file');
+                      if (!(file instanceof File) || file.size === 0) return Promise.reject(new Error('Choose the evidence file.'));
+                      body.append('file', file);
+                      return api.post(P(`/marks/${m.id}/evidence/upload`), body);
+                    }}
+                    onDone={done}
+                  >
+                    <FieldGrid>
+                      <Field label="Kind"><select className="ops-input" name="kind">{EVIDENCE.map((k) => <option key={k} value={k}>{label(k)}</option>)}</select></Field>
+                      <Field label="Title"><input className="ops-input" name="title" required minLength={3} /></Field>
+                      <Field label="File" span={2}><input className="ops-input" name="file" type="file" required /></Field>
                       <Field label="Note" span={2}><input className="ops-input" name="note" maxLength={500} /></Field>
                     </FieldGrid>
                   </FormModal>

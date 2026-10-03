@@ -12,7 +12,7 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { D, ZERO, assertSegregation, assertUpdated, audit, notifyPermission, seqRef } from '../ops/ops.common';
 import { getBrokerList, latestPrices, loadPortfolio } from '../portfolio/portfolio.service';
-import { ensureOrderReservation, releaseOrderCash, reserveOrderCash, syncOrderReservation } from '../cash/cash.orders';
+import { ensureOrderReservation, orderCashView, releaseOrderCash, reserveOrderCash, syncOrderReservation } from '../cash/cash.orders';
 import { settleOrder } from './orders.settle';
 import { RESERVING_STATUSES, estimateFee, runPreTradeChecks, type PreTradeResult } from './orders.checks';
 import {
@@ -209,8 +209,35 @@ async function detail(req: Request, o: OrderRow) {
   const instruction = await prisma.brokerInstruction.findFirst({ where: { orderId: o.id }, orderBy: { createdAt: 'desc' } });
   const l = await lookups([o], fills.map((f) => f.recordedBy));
   const user = req.user!;
+  // The IC decision that produced this order, if any (research module links them in ic_decision_orders).
+  const link = await prisma.icDecisionOrder.findFirst({ where: { orderId: o.id }, orderBy: { createdAt: 'asc' } });
+  const icd = link ? await prisma.icDecision.findUnique({ where: { id: link.decisionId }, include: { researchCase: { select: { ref: true, title: true } } } }) : null;
+  const gains = o.side === 'SELL' ? await prisma.orderRealisedGain.findMany({ where: { orderId: o.id }, orderBy: { createdAt: 'asc' } }) : [];
+  const sum = (f: (g: (typeof gains)[number]) => Prisma.Decimal) => gains.reduce((s, g) => s.add(f(g)), ZERO);
+  // The cash service's view of this order: its holds (all states) and the ledger's availability now, so ticket and Cash page agree.
+  const holds = await prisma.cashReservation.findMany({ where: { orderId: o.id }, orderBy: { createdAt: 'asc' } });
+  const ledgerNow = o.side === 'BUY' ? await orderCashView(o.portfolioId, o.currency, o.id) : null;
   return {
     ...orderView(o, l),
+    cash: {
+      holds: holds.map((h) => ({ id: h.id, ref: h.ref, status: h.status, amount: h.amount.toFixed(2), consumed: h.consumed.toFixed(2), remaining: h.amount.sub(h.consumed).toFixed(2), currency: h.currency, releaseReason: h.releaseReason })),
+      ledger: ledgerNow ? { ref: ledgerNow.ledgerRef, posted: ledgerNow.posted.toFixed(2), reservedByOthers: ledgerNow.reserved.toFixed(2), minBuffer: ledgerNow.minBuffer.toFixed(2), available: ledgerNow.available.toFixed(2) } : null,
+    },
+    decision: icd
+      ? { id: icd.id, ref: icd.ref, action: icd.action, status: icd.status, quantity: icd.quantity?.toString() ?? null, rationale: icd.rationale, ratifiedAt: icd.ratifiedAt, votes: { for: icd.votesFor, against: icd.votesAgainst, abstain: icd.votesAbstain }, caseId: icd.caseId, caseRef: icd.researchCase.ref, caseTitle: icd.researchCase.title, link: `/ops/research?decision=${icd.id}` }
+      : null,
+    realisedGain: o.side === 'SELL' && gains.length
+      ? {
+          method: 'AVG_COST',
+          currency: o.currency,
+          proceeds: sum((g) => g.proceeds).toFixed(2),
+          costBasis: sum((g) => g.costBasis).toFixed(2),
+          fees: sum((g) => g.fees).toFixed(2),
+          gain: sum((g) => g.realisedGain).toFixed(2),
+          netOfFees: sum((g) => g.realisedGain.sub(g.fees)).toFixed(2),
+          fills: gains.map((g) => ({ fillId: g.fillId, quantity: g.quantity.toString(), unitCost: g.unitCost.toString(), proceeds: g.proceeds.toFixed(2), costBasis: g.costBasis.toFixed(2), gain: g.realisedGain.toFixed(2) })),
+        }
+      : null,
     fills: fills.map((f) => fillView(f, l.users)),
     instruction: instruction
       ? { id: instruction.id, channel: instruction.channel, payload: instruction.payload, sentAt: instruction.sentAt, deliveryStatus: instruction.deliveryStatus, createdAt: instruction.createdAt }
@@ -666,8 +693,17 @@ ordersRoutes.post('/:id/fills', ...staff, requirePermission('orders.route'), val
     const fill = await tx.orderFill.create({
       data: { orderId: o.id, quantity: qty, price, fees, executedAt, source: b.source, sourceRef: b.sourceRef ?? null, recordedBy: req.user!.id },
     });
+    // A sell realises a gain or loss against the position's average cost (average-cost method); fees are booked separately as trade costs.
+    if (!buy) {
+      const unitCost = pos?.avgCost ?? price;
+      const proceeds = qty.mul(price).toDecimalPlaces(4, D.ROUND_HALF_UP);
+      const costBasis = qty.mul(unitCost).toDecimalPlaces(4, D.ROUND_HALF_UP);
+      await tx.orderRealisedGain.create({
+        data: { orderId: o.id, fillId: fill.id, portfolioId: o.portfolioId, securityId: o.securityId, quantity: qty, unitCost, proceeds, costBasis, fees, realisedGain: proceeds.sub(costBasis), currency: o.currency },
+      });
+    }
     const filledQty = o.filledQty.add(qty);
-    const avgPrice = o.filledQty.mul(o.avgPrice ?? ZERO).add(qty.mul(price)).div(filledQty).toDecimalPlaces(6, D.ROUND_HALF_UP);
+    const avgPrice =o.filledQty.mul(o.avgPrice ?? ZERO).add(qty.mul(price)).div(filledQty).toDecimalPlaces(6, D.ROUND_HALF_UP);
     const complete = filledQty.eq(o.quantity);
     const reservedAmount = buy && !complete && o.reserveUnit ? o.quantity.sub(filledQty).mul(o.reserveUnit).toDecimalPlaces(4, D.ROUND_HALF_UP) : ZERO;
     await move(tx, req, o, complete ? 'Filled' : 'PartiallyFilled', {

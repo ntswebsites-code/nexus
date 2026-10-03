@@ -2456,6 +2456,13 @@ model CorpActionEvent {
   cancelledAt      DateTime? @map("cancelled_at")
   cancelReason     String?   @map("cancel_reason") @db.VarChar(1000)
   entitlementsAt   DateTime? @map("entitlements_at")
+  /// Pay fractions of a share in cash at cil_price (per share of the security received). Off = fractions are only reported.
+  cashInLieu       Boolean   @default(false) @map("cash_in_lieu")
+  cilPrice         Decimal?  @map("cil_price") @db.Decimal(20, 8)
+  /// PROCESSED events can be reversed by adjustment (history is not rewritten).
+  reversedBy       String?   @map("reversed_by") @db.Char(36)
+  reversedAt       DateTime? @map("reversed_at")
+  reverseReason    String?   @map("reverse_reason") @db.VarChar(1000)
   /// Processing summary (effect date, cash and share totals).
   detail           Json?
   createdAt        DateTime  @default(now()) @map("created_at")
@@ -2484,7 +2491,9 @@ model CorpActionEntitlement {
   cashAmount   Decimal   @default(0) @map("cash_amount") @db.Decimal(20, 4)
   sharesDelta  Decimal   @default(0) @map("shares_delta") @db.Decimal(24, 6)
   targetShares Decimal   @default(0) @map("target_shares") @db.Decimal(24, 6)
-  /// PENDING | APPLIED | SKIPPED
+  /// Cash paid for the fraction of a share (already included in cash_amount).
+  cashInLieu   Decimal   @default(0) @map("cash_in_lieu") @db.Decimal(20, 4)
+  /// PENDING | APPLIED | REVERSED | SKIPPED
   status       String    @default("PENDING") @db.VarChar(10)
   appliedAt    DateTime? @map("applied_at")
   detail       Json?
@@ -3142,6 +3151,8 @@ model PmCashflow {
   paidOn       DateTime? @map("paid_on") @db.Date
   status       String    @default("NOTICED") @db.VarChar(12)
   note         String?   @db.VarChar(500)
+  /// DISTRIBUTION only: the part that returns paid-in capital (the rest is income or gain). Null = all income/gain.
+  returnOfCapital Decimal? @map("return_of_capital") @db.Decimal(20, 4)
   createdBy    String    @map("created_by") @db.Char(36)
   settledBy    String?   @map("settled_by") @db.Char(36)
   createdAt    DateTime  @default(now()) @map("created_at")
@@ -3191,6 +3202,8 @@ model PmEvidence {
   title     String   @db.VarChar(200)
   /// Document reference (vault ref or URL); the file itself lives in the document vault.
   reference String?  @db.VarChar(255)
+  /// Vault document (documents.id, logical reference) holding the evidence file.
+  documentId String? @map("document_id") @db.Char(36)
   note      String?  @db.VarChar(500)
   addedBy   String   @map("added_by") @db.Char(36)
   createdAt DateTime @default(now()) @map("created_at")
@@ -4004,3 +4017,59 @@ model CopilotQuery {
 }
 
 // ---- end Admin Core ----
+
+// ---- OrdersPmWiring ----
+// WP-2: realised gain per sell fill (average-cost method) and the accounting / cash postings of private-market flows.
+// order_id / fill_id / commitment_id / cashflow_id / mark_id are logical references (no FKs, like the other later modules).
+
+/// One row per SELL fill: proceeds less cost at the position's average cost. Feeds the settlement journal split.
+model OrderRealisedGain {
+  id          String   @id @default(uuid()) @db.Char(36)
+  orderId     String   @map("order_id") @db.Char(36)
+  fillId      String   @unique @map("fill_id") @db.Char(36)
+  portfolioId String   @map("portfolio_id") @db.Char(36)
+  securityId  String   @map("security_id") @db.Char(36)
+  quantity    Decimal  @db.Decimal(24, 6)
+  unitCost    Decimal  @map("unit_cost") @db.Decimal(20, 6)
+  proceeds    Decimal  @db.Decimal(20, 4)
+  costBasis   Decimal  @map("cost_basis") @db.Decimal(20, 4)
+  fees        Decimal  @default(0) @db.Decimal(20, 4)
+  /// proceeds - cost_basis (fees are booked separately as trade costs).
+  realisedGain Decimal @map("realised_gain") @db.Decimal(20, 4)
+  currency    String   @db.Char(3)
+  method      String   @default("AVG_COST") @db.VarChar(12)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([orderId])
+  @@index([portfolioId, createdAt])
+  @@map("order_realised_gains")
+}
+
+/// What a private-market flow did to the books. One row per source (PMX:<cashflow>, PMM:<mark>); idempotent.
+/// carrying_delta is the change in the fund-currency carrying value of the commitment, so carrying = sum(delta).
+model PmPosting {
+  id            String   @id @default(uuid()) @db.Char(36)
+  sourceRef     String   @unique @map("source_ref") @db.VarChar(80)
+  /// CALL | DISTRIBUTION | MARK
+  kind          String   @db.VarChar(12)
+  commitmentId  String   @map("commitment_id") @db.Char(36)
+  portfolioId   String   @map("portfolio_id") @db.Char(36)
+  cashflowId    String?  @map("cashflow_id") @db.Char(36)
+  markId        String?  @map("mark_id") @db.Char(36)
+  currency      String   @db.Char(3)
+  amount        Decimal  @db.Decimal(20, 4)
+  fxRate        Decimal  @default(1) @map("fx_rate") @db.Decimal(20, 8)
+  baseCurrency  String   @map("base_currency") @db.Char(3)
+  baseAmount    Decimal  @map("base_amount") @db.Decimal(20, 4)
+  carryingDelta Decimal  @map("carrying_delta") @db.Decimal(20, 4)
+  accountingRef String?  @map("accounting_ref") @db.VarChar(16)
+  cashRef       String?  @map("cash_ref") @db.VarChar(16)
+  /// Why a journal was not created (period_closed, no_ledger, no_fx ...).
+  skipped       String?  @db.VarChar(255)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([commitmentId, createdAt])
+  @@index([portfolioId, createdAt])
+  @@map("pm_postings")
+}
+// ---- end OrdersPmWiring ----

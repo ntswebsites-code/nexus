@@ -8,6 +8,7 @@ import {
   ELECTION_OPTIONS,
   applyToPosition,
   computeEntitlement,
+  fractionCost,
   effectDateField,
   isElective,
   normaliseOption,
@@ -28,7 +29,7 @@ export const isoDay = (d: Date | null | undefined) => (d ? d.toISOString().slice
 const iso = (d: Date | null | undefined) => (d ? d.toISOString() : null);
 const f2 = (v: Dec) => v.toFixed(2);
 
-export const params = (e: EventRow): EventParams => ({ type: e.type, rate: e.rate, ratioNew: e.ratioNew, ratioOld: e.ratioOld, withholdingPct: e.withholdingPct });
+export const params = (e: EventRow): EventParams => ({ type: e.type, rate: e.rate, ratioNew: e.ratioNew, ratioOld: e.ratioOld, withholdingPct: e.withholdingPct, cilPrice: e.cashInLieu ? e.cilPrice : null });
 
 export async function loadEvent(idOrRef: string): Promise<EventRow> {
   const e = await prisma.corpActionEvent.findFirst({ where: UUID.test(idOrRef) ? { id: idOrRef } : { ref: idOrRef.toUpperCase() } });
@@ -98,6 +99,7 @@ export async function calculateEntitlements(req: Request, e: EventRow) {
           cashAmount: c.cash,
           sharesDelta: c.sharesDelta,
           targetShares: c.targetShares,
+          cashInLieu: c.cashInLieu,
           detail: { fraction: c.fraction.toString(), addedCost: c.addedCost.toString() } as Prisma.InputJsonValue,
         },
       });
@@ -123,6 +125,7 @@ export function repriceFor(e: EventRow, qty: Dec, option: string | null) {
     cashAmount: c.cash,
     sharesDelta: c.sharesDelta,
     targetShares: c.targetShares,
+    cashInLieu: c.cashInLieu,
     detail: { fraction: c.fraction.toString(), addedCost: c.addedCost.toString() } as Prisma.InputJsonValue,
   };
 }
@@ -147,6 +150,7 @@ export async function applyEntitlements(tx: Prisma.TransactionClient, e: EventRo
   let tax = ZERO;
   let shares = ZERO;
   let target = ZERO;
+  let cilTotal = ZERO;
   let applied = 0;
   let clamped = 0;
   for (const en of ents) {
@@ -159,10 +163,15 @@ export async function applyEntitlements(tx: Prisma.TransactionClient, e: EventRo
     const cc = computeEntitlement(params(e), c.quantity, c.option);
     const note: Record<string, unknown> = { effectiveDate: isoDay(effective), option: c.option, defaulted: isElective(e.type) && !en.elected };
 
-    if (!cc.sharesDelta.eq(0)) {
+    let cilCost = ZERO;
+    if (!cc.sharesDelta.eq(0) || cc.cashInLieu.gt(0)) {
       const pos = await latestPosition(tx, en.portfolioId, e.securityId, effective);
       const held = pos?.quantity ?? ZERO;
-      const next = applyToPosition(e, held, pos?.avgCost ?? ZERO, cc);
+      // Book cost of a fraction sold for cash in lieu leaves the position (and is split from gain in the journal).
+      cilCost = cc.cashInLieu.gt(0) ? fractionCost(params(e), c.quantity, pos?.avgCost ?? ZERO, c.option, cc) : ZERO;
+      const next = applyToPosition(e, held, pos?.avgCost ?? ZERO, cc, cilCost);
+      note.avgCostBefore = (pos?.avgCost ?? ZERO).toString();
+      note.cilCost = cilCost.toString();
       await tx.portfolioPosition.upsert({
         where: { portfolioId_securityId_asOf: { portfolioId: en.portfolioId, securityId: e.securityId, asOf: effective } },
         create: { portfolioId: en.portfolioId, securityId: e.securityId, quantity: next.quantity, avgCost: next.avgCost, asOf: effective },
@@ -179,7 +188,9 @@ export async function applyEntitlements(tx: Prisma.TransactionClient, e: EventRo
         const tHeld = tpos?.quantity ?? ZERO;
         const tNew = tHeld.add(cc.targetShares);
         // cost carries over from the old holding: held cost plus the existing acquirer cost, spread over all shares
-        const carried = (pos?.avgCost ?? ZERO).mul(held);
+        const carried = (pos?.avgCost ?? ZERO).mul(held).sub(cilCost);
+        note.carriedCost = carried.toString();
+        note.targetAvgBefore = (tpos?.avgCost ?? ZERO).toString();
         const tAvg = tNew.gt(0) ? tHeld.mul(tpos?.avgCost ?? ZERO).add(carried).div(tNew).toDecimalPlaces(6, D.ROUND_HALF_UP) : ZERO;
         await tx.portfolioPosition.upsert({
           where: { portfolioId_securityId_asOf: { portfolioId: en.portfolioId, securityId: e.targetSecurityId, asOf: effective } },
@@ -210,6 +221,7 @@ export async function applyEntitlements(tx: Prisma.TransactionClient, e: EventRo
         cashAmount: cc.cash,
         sharesDelta: cc.sharesDelta,
         targetShares: cc.targetShares,
+        cashInLieu: cc.cashInLieu,
         status: 'APPLIED',
         appliedAt: new Date(),
         detail: { ...((en.detail as object | null) ?? {}), ...note } as Prisma.InputJsonValue,
@@ -219,15 +231,137 @@ export async function applyEntitlements(tx: Prisma.TransactionClient, e: EventRo
     tax = tax.add(cc.tax);
     shares = shares.add(cc.sharesDelta);
     target = target.add(cc.targetShares);
+    cilTotal = cilTotal.add(cc.cashInLieu);
     applied++;
   }
-  return { effectiveDate: isoDay(effective), applied, clamped, netCash: cash.toFixed(4), tax: tax.toFixed(4), sharesDelta: shares.toString(), targetShares: target.toString() };
+  return { effectiveDate: isoDay(effective), applied, clamped, cashInLieu: cilTotal.toFixed(4), netCash: cash.toFixed(4), tax: tax.toFixed(4), sharesDelta: shares.toString(), targetShares: target.toString() };
+}
+
+// ---------------------------------------------------------------- reversal by adjustment
+
+/**
+ * Undoes a PROCESSED action without rewriting history: today's append-by-date rows are adjusted back (position, cost,
+ * cash), each applied entitlement becomes REVERSED, and the system journals are discarded (pending) or countered by an
+ * inverse pending journal (posted). Positions that moved since (for example sold) are limited to what is held and noted.
+ */
+export async function reverseApplied(tx: Prisma.TransactionClient, e: EventRow) {
+  const today = startOfDay(new Date());
+  const ents = await tx.corpActionEntitlement.findMany({ where: { eventId: e.id, status: 'APPLIED' } });
+  let cash = ZERO;
+  let shares = ZERO;
+  let clamped = 0;
+  const portfolios: string[] = [];
+  for (const en of ents) {
+    const d = (en.detail ?? {}) as { addedCost?: string; avgCostBefore?: string; cilCost?: string; carriedCost?: string; targetAvgBefore?: string };
+    const note: Record<string, unknown> = { reversedOn: isoDay(today) };
+    if (!en.sharesDelta.eq(0) || en.cashInLieu.gt(0)) {
+      const pos = await latestPosition(tx, en.portfolioId, e.securityId, today);
+      const cur = pos?.quantity ?? ZERO;
+      let q = cur.sub(en.sharesDelta);
+      if (q.lt(0)) {
+        q = ZERO;
+        clamped++;
+        note.clamped = 'Position was smaller than the processed holding; the reversal was limited to what is held';
+      }
+      const cil = new D(d.cilCost ?? 0);
+      const total = cur.mul(pos?.avgCost ?? ZERO).sub(new D(d.addedCost ?? 0)).add(cil);
+      const avg = e.type === 'MERGER' ? new D(d.avgCostBefore ?? pos?.avgCost ?? 0) : q.gt(0) ? total.div(q).toDecimalPlaces(6, D.ROUND_HALF_UP) : (pos?.avgCost ?? ZERO);
+      await tx.portfolioPosition.upsert({
+        where: { portfolioId_securityId_asOf: { portfolioId: en.portfolioId, securityId: e.securityId, asOf: today } },
+        create: { portfolioId: en.portfolioId, securityId: e.securityId, quantity: q, avgCost: avg, asOf: today },
+        update: { quantity: q, avgCost: avg },
+      });
+      note.positionRestored = q.toString();
+      shares = shares.add(en.sharesDelta);
+      if (e.type === 'MERGER' && e.targetSecurityId && en.targetShares.gt(0)) {
+        const tpos = await latestPosition(tx, en.portfolioId, e.targetSecurityId, today);
+        const tCur = tpos?.quantity ?? ZERO;
+        let tq = tCur.sub(en.targetShares);
+        if (tq.lt(0)) {
+          tq = ZERO;
+          clamped++;
+        }
+        const carried = new D(d.carriedCost ?? 0);
+        const tAvg = tq.gt(0) ? tCur.mul(tpos?.avgCost ?? ZERO).sub(carried).div(tq).toDecimalPlaces(6, D.ROUND_HALF_UP) : (tpos?.avgCost ?? ZERO);
+        await tx.portfolioPosition.upsert({
+          where: { portfolioId_securityId_asOf: { portfolioId: en.portfolioId, securityId: e.targetSecurityId, asOf: today } },
+          create: { portfolioId: en.portfolioId, securityId: e.targetSecurityId, quantity: tq, avgCost: tAvg, asOf: today },
+          update: { quantity: tq, avgCost: tAvg },
+        });
+        note.targetPositionRestored = tq.toString();
+      }
+    }
+    if (!en.cashAmount.eq(0)) {
+      const row = await tx.portfolioCash.findFirst({ where: { portfolioId: en.portfolioId, currency: e.currency, asOf: { lte: today } }, orderBy: [{ asOf: 'desc' }, { createdAt: 'desc' }] });
+      const after = (row?.available ?? ZERO).sub(en.cashAmount).toDecimalPlaces(4, D.ROUND_HALF_UP);
+      await tx.portfolioCash.upsert({
+        where: { portfolioId_currency_asOf: { portfolioId: en.portfolioId, currency: e.currency, asOf: today } },
+        create: { portfolioId: en.portfolioId, currency: e.currency, available: after, asOf: today },
+        update: { available: after },
+      });
+      note.cashAfter = after.toFixed(4);
+      cash = cash.add(en.cashAmount);
+      portfolios.push(en.portfolioId);
+    }
+    await tx.corpActionEntitlement.update({ where: { id: en.id }, data: { status: 'REVERSED', detail: { ...((en.detail as object | null) ?? {}), ...note } as Prisma.InputJsonValue } });
+  }
+  return { reversed: ents.length, clamped, cashReturned: cash.toFixed(4), sharesRemoved: shares.toString(), portfolios, effectiveDate: isoDay(today) };
+}
+
+// ---------------------------------------------------------------- client level
+
+/** Entitlements rolled up to the owning client (portfolio.clientId); portfolios with no client are grouped as "Unassigned". */
+export async function clientEntitlements(eventId: string) {
+  const ents = await prisma.corpActionEntitlement.findMany({ where: { eventId } });
+  const pf = ents.length ? await prisma.portfolio.findMany({ where: { id: { in: ents.map((x) => x.portfolioId) } }, select: { id: true, ref: true, name: true, clientId: true } }) : [];
+  const clientIds = [...new Set(pf.map((p) => p.clientId).filter((x): x is string => !!x))];
+  const clients = clientIds.length ? await prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, ref: true, name: true } }) : [];
+  const groups = new Map<string, { clientId: string | null; clientRef: string | null; clientName: string; portfolios: string[]; quantity: Dec; cash: Dec; cashInLieu: Dec; sharesDelta: Dec; targetShares: Dec; elected: number; entitlements: number }>();
+  for (const x of ents) {
+    const p = pf.find((y) => y.id === x.portfolioId);
+    const cl = p?.clientId ? clients.find((c) => c.id === p.clientId) : undefined;
+    const key = cl?.id ?? 'none';
+    const g = groups.get(key) ?? { clientId: cl?.id ?? null, clientRef: cl?.ref ?? null, clientName: cl?.name ?? 'Unassigned', portfolios: [], quantity: ZERO, cash: ZERO, cashInLieu: ZERO, sharesDelta: ZERO, targetShares: ZERO, elected: 0, entitlements: 0 };
+    g.portfolios.push(p?.ref ?? x.portfolioId);
+    g.quantity = g.quantity.add(x.quantity);
+    g.cash = g.cash.add(x.cashAmount);
+    g.cashInLieu = g.cashInLieu.add(x.cashInLieu);
+    g.sharesDelta = g.sharesDelta.add(x.sharesDelta);
+    g.targetShares = g.targetShares.add(x.targetShares);
+    g.elected += x.elected ? 1 : 0;
+    g.entitlements += 1;
+    groups.set(key, g);
+  }
+  return [...groups.values()].sort((a, b) => b.cash.abs().comparedTo(a.cash.abs())).map((g) => ({ ...g, quantity: g.quantity.toString(), cash: f2(g.cash), cashInLieu: f2(g.cashInLieu), sharesDelta: g.sharesDelta.toString(), targetShares: g.targetShares.toString() }));
+}
+
+/** Everything a client is entitled to across portfolios, newest event first. */
+export async function entitlementsForClient(clientId: string) {
+  const pf = await prisma.portfolio.findMany({ where: { clientId }, select: { id: true, ref: true, name: true } });
+  if (!pf.length) return [];
+  const ents = await prisma.corpActionEntitlement.findMany({ where: { portfolioId: { in: pf.map((p) => p.id) } }, include: { event: true }, orderBy: { createdAt: 'desc' }, take: 300 });
+  return ents.map((x) => ({
+    eventId: x.eventId,
+    eventRef: x.event.ref,
+    ticker: x.event.ticker,
+    type: x.event.type,
+    eventStatus: x.event.status,
+    payDate: isoDay(x.event.payDate),
+    portfolioRef: pf.find((p) => p.id === x.portfolioId)?.ref ?? null,
+    quantity: x.quantity.toString(),
+    option: x.option,
+    status: x.status,
+    cashAmount: f2(x.cashAmount),
+    cashInLieu: f2(x.cashInLieu),
+    sharesDelta: x.sharesDelta.toString(),
+    currency: x.event.currency,
+  }));
 }
 
 // ---------------------------------------------------------------- views
 
 export async function eventViews(rows: EventRow[]) {
-  const users = await names(rows.flatMap((r) => [r.makerId, r.confirmedBy, r.processedBy]));
+  const users = await names(rows.flatMap((r) => [r.makerId, r.confirmedBy, r.processedBy, r.reversedBy]));
   const counts = rows.length ? await prisma.corpActionEntitlement.groupBy({ by: ['eventId'], where: { eventId: { in: rows.map((r) => r.id) } }, _count: { _all: true }, _sum: { cashAmount: true } }) : [];
   const elected = rows.length ? await prisma.corpActionEntitlement.groupBy({ by: ['eventId'], where: { eventId: { in: rows.map((r) => r.id) }, elected: true }, _count: { _all: true } }) : [];
   return rows.map((r) => {
@@ -270,6 +404,12 @@ export async function eventViews(rows: EventRow[]) {
       processedAt: iso(r.processedAt),
       cancelReason: r.cancelReason,
       cancelledAt: iso(r.cancelledAt),
+      cashInLieu: r.cashInLieu,
+      cilPrice: r.cilPrice ? r.cilPrice.toString() : null,
+      reversedBy: r.reversedBy,
+      reversedByName: r.reversedBy ? (users.get(r.reversedBy) ?? null) : null,
+      reversedAt: iso(r.reversedAt),
+      reverseReason: r.reverseReason,
       processing: r.detail ?? null,
       createdAt: iso(r.createdAt),
       updatedAt: iso(r.updatedAt),
@@ -296,6 +436,9 @@ export function allowedActions(e: EventRow, user: { id: string; permissions: str
     process: e.status === 'CONFIRMED' && processBlocker === null,
     processBlocker,
     cancel: open,
+    reverse: e.status === 'PROCESSED' && user.permissions.includes('corporate_actions.process') && e.processedBy !== user.id,
+    reverseBlocker:
+      e.status !== 'PROCESSED' ? null : !user.permissions.includes('corporate_actions.process') ? 'You do not hold the process permission' : e.processedBy === user.id ? 'A different person from the processor must reverse this action' : null,
   };
 }
 
@@ -329,6 +472,7 @@ export async function eventDetail(e: EventRow, user: { id: string; permissions: 
         grossAmount: f2(x.grossAmount),
         taxAmount: f2(x.taxAmount),
         cashAmount: f2(x.cashAmount),
+        cashInLieu: f2(x.cashInLieu),
         sharesDelta: x.sharesDelta.toString(),
         targetShares: x.targetShares.toString(),
         fraction: d.fraction ?? '0',
@@ -337,7 +481,7 @@ export async function eventDetail(e: EventRow, user: { id: string; permissions: 
         note: d.clamped ?? null,
       };
     }),
-    totals: { quantity: totals.quantity.toString(), gross: f2(totals.gross), tax: f2(totals.tax), netCash: f2(totals.cash), sharesDelta: totals.shares.toString(), targetShares: totals.target.toString() },
+    totals: { quantity: totals.quantity.toString(), gross: f2(totals.gross), tax: f2(totals.tax), netCash: f2(totals.cash), cashInLieu: f2(ents.reduce((s, x) => s.add(x.cashInLieu), ZERO)), sharesDelta: totals.shares.toString(), targetShares: totals.target.toString() },
     timeline: events.map((x) => ({ at: x.occurredAt, action: x.action, actor: x.actorId ? (users.get(x.actorId) ?? 'Unknown user') : 'System', reason: x.reason })),
     allowed: allowedActions(e, user, ents.length),
   };
