@@ -51,7 +51,7 @@ export function maxSeverity(a: Severity, b: Severity): Severity {
  * Severity from the size of a difference relative to the item (percent): at least 20% CRITICAL, above 5% HIGH,
  * above 1% MEDIUM, otherwise LOW.
  */
-export function severityForPct(pct: Dec | number): Severity {
+export function severityForPct(pct: Dec | number | string): Severity {
   const p = new D(pct).abs();
   if (p.gte(20)) return 'CRITICAL';
   if (p.gt(5)) return 'HIGH';

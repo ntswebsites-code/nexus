@@ -348,12 +348,21 @@ export async function executeRun(req: Request, input: RunInput): Promise<RunResu
     let reopened = 0;
     let cleared = 0;
     let updated = 0;
+    let sharedCount = 0;
     const critical: { ref: string; label: string; id: string }[] = [];
 
     for (const d of det.detected) {
       if (seen.has(d.itemKey)) continue; // defensive: keys are unique per run
       seen.add(d.itemKey);
-      const e = byKey.get(d.itemKey);
+      // An item already tracked by another run for the same date (overlapping scopes) is not duplicated: the first run owns it.
+      let e = byKey.get(d.itemKey);
+      if (!e) {
+        const other = await tx.reconBreak.findFirst({ where: { family: input.family, itemKey: d.itemKey, runId: { not: run.id }, run: { asOfDate: dayStart(input.asOfDate) } } });
+        if (other) {
+          e = other;
+          sharedCount += 1;
+        }
+      }
       const data = {
         kind: d.kind,
         label: d.label.slice(0, 255),
@@ -377,7 +386,9 @@ export async function executeRun(req: Request, input: RunInput): Promise<RunResu
       }
       const same = signature({ kind: e.kind as Detected['kind'], internal: (e.internalValue as Record<string, unknown> | null) ?? null, external: (e.externalValue as Record<string, unknown> | null) ?? null, difference: e.difference ? e.difference.toString() : null }) === signature(d);
       if (e.status === 'MATCHED' || e.status === 'CLOSED') {
-        if (same) continue;
+        // CLOSED was accepted by a checker: it stays closed unless the difference changed. MATCHED was cleared by an
+        // earlier run (nobody accepted it), so the same difference reappearing reopens it.
+        if (e.status === 'CLOSED' && same) continue;
         await tx.reconBreak.update({
           where: { id: e.id },
           data: { ...data, status: 'NEW', closedAt: null, resolvedAt: null, checkerId: null, version: { increment: 1 } },
@@ -391,6 +402,7 @@ export async function executeRun(req: Request, input: RunInput): Promise<RunResu
         await tx.reconBreak.update({ where: { id: e.id }, data: { ...data, version: { increment: 1 } } });
         await breakEvent(tx, e.id, 'updated', e.status, e.status, actorId, 'Values changed in a later run', { run: run.ref });
         updated += 1;
+        if (d.severity === 'CRITICAL' && e.severity !== 'CRITICAL') critical.push({ ref: e.ref, label: d.label, id: e.id });
       } else await tx.reconBreak.update({ where: { id: e.id }, data: { lastSeenAt: new Date() } });
     }
     for (const e of existing) {
@@ -424,6 +436,7 @@ export async function executeRun(req: Request, input: RunInput): Promise<RunResu
         matched: det.matchedCount,
         breaks: det.detected.length,
         created,
+        sharedWithOtherRuns: sharedCount,
         reopened,
         cleared,
         updated,
