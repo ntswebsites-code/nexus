@@ -421,13 +421,13 @@ export async function evaluateControls(p: PortfolioRow, benchmark: BenchmarkRow 
 
   // 1. IBOR positions reconciled
   const h = (k: string) => health.items.find((i) => i.key === k)!;
-  const iborOk = h('lots').ok && h('fills').ok && health.openBreaks === 0;
+  const iborOk = h('lots').ok && h('fills').ok && h('recon').ok && health.openBreaks === 0;
   const ibor: ControlItem = {
     key: 'ibor',
     title: 'IBOR positions reconciled',
-    description: 'Tax lots agree with positions, all fills are booked and no holdings break is open.',
+    description: 'Tax lots agree with positions, all fills are booked, a holdings reconciliation has been run and no holdings break is open.',
     state: iborOk ? 'done' : 'warn',
-    detail: iborOk ? `${h('recon').detail}` : [!h('lots').ok && h('lots').detail, !h('fills').ok && h('fills').detail, health.openBreaks > 0 && `${health.openBreaks} open holdings break(s).`].filter(Boolean).join(' '),
+    detail: iborOk ? `${h('recon').detail}` : [!h('lots').ok && h('lots').detail, !h('fills').ok && h('fills').detail, health.openBreaks > 0 && `${health.openBreaks} open holdings break(s).`, !h('recon').ok && health.openBreaks === 0 && h('recon').detail].filter(Boolean).join(' '),
   };
 
   // 2. Cash reconciled
@@ -445,7 +445,7 @@ export async function evaluateControls(p: PortfolioRow, benchmark: BenchmarkRow 
 
   // 3. Valuation sources approved
   let navDetail = 'No released NAV run on the period end to compare.';
-  let navOk = true;
+  let navOk = false; // no released NAV to compare is unverified, never a pass
   let navCheck: { ref: string; nav: string; computed: string; diffPct: string } | null = null;
   if (navRun) {
     const diffPct = c.endValue > 0 ? Math.abs((num(navRun.nav) - c.endValue) / c.endValue) * 100 : 100;

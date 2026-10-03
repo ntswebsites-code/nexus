@@ -7,6 +7,7 @@ import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
 
 const F = (p: string) => v1(`/financing${p}`);
+const NEEDS_MANAGE = 'Needs the financing.manage permission';
 const TYPES = ['MARGIN_LOAN', 'REPO', 'SEC_LENDING', 'OVERDRAFT'];
 
 interface MarginView {
@@ -153,7 +154,7 @@ export default function FinancingPage() {
         kicker="Risk"
         title="Collateral & Financing"
         subtitle="Margin and financing facilities, the collateral pools behind them, haircut and eligibility rules, and the margin call lifecycle. Drawn balance and coverage are derived, never typed in."
-        actions={canManage && <MonitorButton onDone={bump} />}
+        actions={canManage ? <MonitorButton onDone={bump} /> : <button className="ops-btn" type="button" disabled title={NEEDS_MANAGE}>Run margin monitor</button>}
       />
       <Loaded res={summary} what="financing summary">
         {(s) => (
@@ -199,7 +200,7 @@ function FacilitiesTab({ onOpen, onChanged }: { onOpen: (id: string) => void; on
   const [creating, setCreating] = useState(false);
   const res = useResource<Facility[]>(() => api.get<Facility[]>(F(`/facilities${qs({ status })}`)), [status]);
   return (
-    <Card title="Facilities" actions={canManage && <button className="ops-btn primary" type="button" onClick={() => setCreating(true)}>New facility</button>}>
+    <Card title="Facilities" actions={<button className="ops-btn primary" type="button" disabled={!canManage} title={canManage ? undefined : NEEDS_MANAGE} onClick={() => setCreating(true)}>New facility</button>}>
       <div className="ops-filters">
         <Field label="Status">
           <select className="ops-input" value={status} onChange={(e) => setStatus(e.target.value)}>
@@ -390,6 +391,15 @@ function FacilityModal({ id, onClose, onChanged, onOpenCall }: { id: string; onC
                   )}
                   {f.status === 'SUSPENDED' && canApprove && <button className="ops-btn" type="button" onClick={() => setSub('reactivate')}>Reactivate</button>}
                   {f.status !== 'CLOSED' && canManage && <button className="ops-btn" type="button" onClick={() => setSub('close')}>Close</button>}
+                  {!canManage && f.status !== 'CLOSED' && (
+                    <>
+                      {f.status === 'ACTIVE' && <button className="ops-btn primary" type="button" disabled title={NEEDS_MANAGE}>Draw</button>}
+                      {f.status === 'ACTIVE' && <button className="ops-btn" type="button" disabled title={NEEDS_MANAGE}>Repay</button>}
+                      <button className="ops-btn" type="button" disabled title={NEEDS_MANAGE}>Close</button>
+                      <span className="ops-muted">{NEEDS_MANAGE}.</span>
+                    </>
+                  )}
+                  {f.status === 'PENDING_APPROVAL' && !canApprove && <button className="ops-btn primary" type="button" disabled title="Needs the financing.approve permission">Approve and activate</button>}
                 </div>
                 {sub === 'edit' && <FacilityForm facility={f} onClose={() => setSub(null)} onDone={done} />}
                 {sub === 'draw' && moveForm('draw')}
@@ -489,6 +499,15 @@ function CallModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                     {issuer && <button className="ops-btn" type="button" onClick={() => setSub('cancel')}>Cancel (raised in error)</button>}
                   </div>
                 )}
+                {open && !canManage && (
+                  <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+                    <button className="ops-btn primary" type="button" disabled title={NEEDS_MANAGE}>Acknowledge</button>
+                    <button className="ops-btn" type="button" disabled title={NEEDS_MANAGE}>Dispute</button>
+                    <button className="ops-btn primary" type="button" disabled title={NEEDS_MANAGE}>Mark as met</button>
+                    <button className="ops-btn" type="button" disabled title="Needs the financing.approve permission">Waive</button>
+                    <span className="ops-muted">{NEEDS_MANAGE} to act on a margin call.</span>
+                  </div>
+                )}
                 {sub === 'dispute' && <ReasonModal title="Dispute call" submitLabel="Dispute" onClose={() => setSub(null)} onSubmit={(reason) => api.post(F(`/calls/${c.id}/dispute`), { reason })} onDone={done} />}
                 {sub === 'waive' && <ReasonModal title="Waive call" hint="Needs a person other than the issuer; recorded in the audit trail" submitLabel="Waive" danger onClose={() => setSub(null)} onSubmit={(reason) => api.post(F(`/calls/${c.id}/waive`), { reason })} onDone={done} />}
                 {sub === 'cancel' && <ReasonModal title="Cancel call" submitLabel="Cancel call" danger onClose={() => setSub(null)} onSubmit={(reason) => api.post(F(`/calls/${c.id}/cancel`), { reason })} onDone={done} />}
@@ -514,7 +533,7 @@ function PoolsTab({ onOpen, onChanged }: { onOpen: (id: string) => void; onChang
   const [creating, setCreating] = useState(false);
   const res = useResource<Pool[]>(() => api.get<Pool[]>(F('/pools')), []);
   return (
-    <Card title="Collateral pools" actions={canManage && <button className="ops-btn primary" type="button" onClick={() => setCreating(true)}>New pool</button>}>
+    <Card title="Collateral pools" actions={<button className="ops-btn primary" type="button" disabled={!canManage} title={canManage ? undefined : NEEDS_MANAGE} onClick={() => setCreating(true)}>New pool</button>}>
       <Loaded res={res} what="pools">
         {(rows) =>
           rows.length === 0 ? (
@@ -574,6 +593,12 @@ function PoolModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                   ))}
                 </div>
               )}
+              {!canManage && p.status === 'ACTIVE' && (
+                <div className="ops-actions" style={{ marginTop: 14 }}>
+                  <button className="ops-btn primary" type="button" disabled title={NEEDS_MANAGE}>Post collateral</button>
+                  <span className="ops-muted">{NEEDS_MANAGE}.</span>
+                </div>
+              )}
               {sub === 'post' && (
                 <FormModal title="Post collateral" subtitle="Only an eligible security the portfolio holds and has not already pledged." submitLabel="Pledge" onClose={() => setSub(null)} onSubmit={(fd, k) => api.post(F(`/pools/${p.id}/collateral`), { securityId: str(fd, 'securityId'), quantity: str(fd, 'quantity').replace(/,/g, '') }, { idempotencyKey: k })} onDone={done}>
                   <FieldGrid>
@@ -603,7 +628,7 @@ function RulesTab({ onChanged }: { onChanged: () => void }) {
   const [editing, setEditing] = useState<Rule | 'new' | null>(null);
   const res = useResource<Rule[]>(() => api.get<Rule[]>(F('/rules')), []);
   return (
-    <Card title="Eligibility and haircut schedule" actions={canManage && <button className="ops-btn primary" type="button" onClick={() => setEditing('new')}>Set a rule</button>}>
+    <Card title="Eligibility and haircut schedule" actions={<button className="ops-btn primary" type="button" disabled={!canManage} title={canManage ? undefined : NEEDS_MANAGE} onClick={() => setEditing('new')}>Set a rule</button>}>
       <p className="ops-muted">The most specific rule wins: asset class with market, then asset class alone. An asset with no rule is not eligible. Changes apply to every pool at once and need step-up confirmation.</p>
       <Loaded res={res} what="rules">
         {(rows) =>

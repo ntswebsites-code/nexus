@@ -194,19 +194,23 @@ researchRoutes.get('/summary', ...canView, async (req, res) => {
   const [byStatus, openDecisions, voting, meetings, mine] = await Promise.all([
     prisma.researchCase.groupBy({ by: ['status'], _count: { _all: true } }),
     prisma.icDecision.count({ where: { status: { in: OPEN_DECISION } } }),
-    prisma.icDecision.findMany({ where: { status: 'VOTING' }, select: { id: true, votes: { where: { voterId: req.user!.id }, select: { id: true } } } }),
+    prisma.icDecision.findMany({ where: { status: 'VOTING' }, select: { id: true, meetingId: true, votes: { select: { voterId: true } } } }),
     prisma.icMeeting.findMany({ where: { status: 'SCHEDULED', scheduledAt: { gte: new Date(Date.now() - 86_400_000) } }, orderBy: { scheduledAt: 'asc' }, take: 5 }),
     prisma.researchCase.count({ where: { analystId: req.user!.id, status: { in: ['DRAFT', 'IN_REVIEW'] } } }),
   ]);
   const count = (s: string) => byStatus.find((x) => x.status === s)?._count._all ?? 0;
   const usr = await names(meetings.map((m) => m.chairId));
+  // Awaiting ratification means voting has reached quorum; a decision still short of quorum is "voting open".
+  const quorumOf = new Map((await prisma.icMeeting.findMany({ where: { id: { in: voting.map((v) => v.meetingId).filter((x): x is string => !!x) } }, select: { id: true, quorum: true } })).map((m) => [m.id, m.quorum]));
+  const atQuorum = voting.filter((v) => v.votes.length >= (v.meetingId ? (quorumOf.get(v.meetingId) ?? DEFAULT_QUORUM) : DEFAULT_QUORUM)).length;
   const mc = await Promise.all(meetings.map(async (m) => ({ decisions: await prisma.icDecision.count({ where: { meetingId: m.id } }), open: await prisma.icDecision.count({ where: { meetingId: m.id, status: { in: OPEN_DECISION } } }) })));
   res.json({
     data: {
       cases: { draft: count('DRAFT'), inReview: count('IN_REVIEW'), published: count('PUBLISHED'), archived: count('ARCHIVED') },
       openDecisions,
-      awaitingMyVote: voting.filter((v) => v.votes.length === 0).length,
-      awaitingRatification: await prisma.icDecision.count({ where: { status: 'VOTING' } }),
+      awaitingMyVote: voting.filter((v) => !v.votes.some((x) => x.voterId === req.user!.id)).length,
+      awaitingRatification: atQuorum,
+      votingOpen: voting.length - atQuorum,
       myOpenCases: mine,
       upcomingMeetings: meetings.map((m, i) => meetingView(m, { decisions: mc[i]!.decisions, open: mc[i]!.open }, usr)),
     },

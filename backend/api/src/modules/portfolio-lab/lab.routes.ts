@@ -26,6 +26,9 @@ import { checkConstraints, modelProblems, proposeRebalance, type ConstraintResul
  */
 export const portfolioLabRoutes = Router();
 
+/** Portfolio Construction models use PMD-#### (Model Governance owns MDL-####). Shares the existing `modelPortfolio` sequence so numbering continues. */
+const modelRef = (tx: Prisma.TransactionClient) => seqRef(tx, 'modelPortfolio', 'PMD-', 4, 1001);
+
 const staff = [requireAuth, requirePortalAccess('admin')];
 const canView = [...staff, requirePermission('portfolio.view')];
 const canManage = [...staff, requirePermission('portfolio.view'), requirePermission('portfolio.manage')];
@@ -103,7 +106,7 @@ portfolioLabRoutes.post('/models', ...canManage, validateBody(modelBody), idempo
   const problems = modelProblems(weights, b.cashTargetPct, false);
   if (problems.length) throw HttpError.badRequest('Validation failed', problems.map((message) => ({ path: 'weights', message })));
   const row = await prisma.$transaction(async (tx) => {
-    const ref = await nextRef(tx, 'modelPortfolio');
+    const ref = await modelRef(tx);
     const m = await tx.modelPortfolio.create({ data: { ref, name: b.name, description: b.description ?? null, cashTargetPct: b.cashTargetPct, createdBy: req.user!.id, weights: { create: weights } } });
     await writeAudit(tx, audit(req), { action: 'lab.model_created', objectType: 'model_portfolio', objectId: m.id, after: { ref, name: b.name, holdings: weights.length, cashTargetPct: b.cashTargetPct.toString() } });
     return m;
@@ -166,7 +169,7 @@ portfolioLabRoutes.post('/models/:id/clone', ...canManage, idempotent('lab.model
   const m = await loadModel(param(req, 'id'));
   const weights = await prisma.modelWeight.findMany({ where: { modelId: m.id } });
   const row = await prisma.$transaction(async (tx) => {
-    const ref = await nextRef(tx, 'modelPortfolio');
+    const ref = await modelRef(tx);
     const c = await tx.modelPortfolio.create({ data: { ref, name: `${m.name} (copy)`.slice(0, 160), description: m.description, cashTargetPct: m.cashTargetPct, createdBy: req.user!.id, weights: { create: weights.map((w) => ({ securityId: w.securityId, targetPct: w.targetPct })) } } });
     await writeAudit(tx, audit(req), { action: 'lab.model_cloned', objectType: 'model_portfolio', objectId: c.id, after: { ref, from: m.ref } });
     return c;

@@ -10,7 +10,7 @@
 import { fileURLToPath } from 'node:url';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
-import { nextRef } from '../src/lib/refs';
+import { seqRef } from '../src/modules/ops/ops.common';
 
 const log = (m: string) => console.log(`[seed:research-privates] ${m}`);
 const D = (v: string | number) => new Prisma.Decimal(v);
@@ -104,13 +104,18 @@ export async function seedResearchPrivates() {
     const w: [string, string][] = [['DLTA.ZW', '12'], ['INN.ZW', '11'], ['ECO.ZW', '9'], ['CBZ.ZW', '8'], ['FBC.ZW', '7'], ['MEIK.ZW', '6'], ['SIM.ZW', '8'], ['OKZ.ZW', '5'], ['ZIM.VX', '10'], ['CMCL.VX', '8'], ['SEED.VX', '6']];
     const rows = w.map(([t, p]) => ({ s: sec(t), p })).filter((x): x is { s: NonNullable<ReturnType<typeof sec>>; p: string } => !!x.s);
     await prisma.$transaction(async (tx) => {
-      const ref = await nextRef(tx, 'modelPortfolio');
+      const ref = await seqRef(tx, 'modelPortfolio', 'PMD-', 4, 1001);
       await tx.modelPortfolio.create({ data: { ref, name: 'Balanced Core', description: 'Diversified ZSE and VFEX equity core with a 10% cash reserve.', cashTargetPct: D('10'), status: 'ACTIVE', createdBy: actor, weights: { create: rows.map((r) => ({ securityId: r.s.id, targetPct: D(r.p) })) } } });
-      const ref2 = await nextRef(tx, 'modelPortfolio');
+      const ref2 = await seqRef(tx, 'modelPortfolio', 'PMD-', 4, 1001);
       await tx.modelPortfolio.create({ data: { ref: ref2, name: 'Resources Tilt (draft)', description: 'Overweight VFEX materials; awaiting a second approver.', cashTargetPct: D('5'), status: 'DRAFT', createdBy: actor, weights: { create: rows.filter((r) => ['ZIM.VX', 'CMCL.VX', 'DLTA.ZW', 'INN.ZW', 'CBZ.ZW', 'SEED.VX'].includes(r.s.ticker)).map((r) => ({ securityId: r.s.id, targetPct: D(r.s.ticker.endsWith('.VX') ? '20' : '11.67') })) } } });
     });
     log('model portfolios');
   }
+
+  // Earlier seeds issued MDL-#### to Portfolio Construction models, clashing with Model Governance refs: re-prefix to PMD-####.
+  // Idempotent: only rows still starting with MDL- are touched.
+  const renamed = await prisma.$executeRaw`UPDATE model_portfolios SET ref = CONCAT('PMD-', SUBSTRING(ref, 5)) WHERE ref LIKE 'MDL-%'`;
+  if (renamed) log(`model portfolio refs re-prefixed to PMD-: ${renamed}`);
 
   // ---------------------------------------------------------------- financing
   const rules: { assetClass: string; market: string; eligible: boolean; haircut: string; cap: string | null; note: string }[] = [

@@ -179,15 +179,25 @@ export async function overview(portfolios: PortfolioRow[], asOf: Date) {
   let availableCash = ZERO;
   let unsettledBuys = ZERO;
   let accrued = ZERO;
+  // One reporting currency for every headline figure: the portfolio base when the scope has a
+  // single base currency, otherwise USD. Per-portfolio base amounts are converted into it so the
+  // totals never add USD to ZWG (ADB-003).
+  const bases = new Set(portfolios.map((p) => p.baseCurrency));
+  const reporting = bases.size === 1 ? [...bases][0]! : 'USD';
+  const toReporting = async (amount: Dec, from: string): Promise<Dec> => {
+    if (from === reporting) return amount;
+    const fx = await resolveFxRate(from, reporting, day);
+    return amount.mul(fx ?? 0);
+  };
   for (const r of rows) {
-    if (r.marketValueBase) mv = mv.add(r.marketValueBase);
-    if (r.accrued) accrued = accrued.add(r.accrued);
+    if (r.marketValueBase) mv = mv.add(await toReporting(new D(r.marketValueBase), r.baseCurrency));
+    if (r.accrued) accrued = accrued.add(await toReporting(new D(r.accrued), r.baseCurrency));
   }
   for (const [pid, list] of cash) {
     const base = byPortfolio.get(pid)!.baseCurrency;
     for (const c of list) {
       const fx = c.currency === base ? new D(1) : await resolveFxRate(c.currency, base, day);
-      availableCash = availableCash.add(c.available.sub(c.reserved).mul(fx ?? 0));
+      availableCash = availableCash.add(await toReporting(c.available.sub(c.reserved).mul(fx ?? 0), base));
     }
   }
   const fills = await prisma.orderFill.findMany({
@@ -198,7 +208,7 @@ export async function overview(portfolios: PortfolioRow[], asOf: Date) {
   for (const f of fills) {
     const base = byPortfolio.get(f.order.portfolioId)!.baseCurrency;
     const fx = f.order.currency === base ? new D(1) : await resolveFxRate(f.order.currency, base, day);
-    unsettledBuys = unsettledBuys.add(f.quantity.mul(f.price).add(f.fees).mul(fx ?? 0));
+    unsettledBuys = unsettledBuys.add(await toReporting(f.quantity.mul(f.price).add(f.fees).mul(fx ?? 0), base));
     liveInstructions += 1;
   }
   const health = await bookHealth(portfolios, rows);
@@ -208,6 +218,7 @@ export async function overview(portfolios: PortfolioRow[], asOf: Date) {
   return {
     asOf: iso(day),
     kpis: {
+      currency: reporting,
       marketValueBase: m2(mv),
       positions: rows.length,
       portfolios: portfolios.length,

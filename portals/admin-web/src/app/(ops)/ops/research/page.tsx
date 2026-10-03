@@ -1,10 +1,10 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, qs, v1 } from '@/ops/api';
+import { api, OpsError, qs, v1 } from '@/ops/api';
 import { AccessDenied, DataTable, label, PortfolioSelect, ReasonModal, Tag, Tile, useSecurities, usePortfolios } from '@/ops/rp';
 import { useCan, useSession } from '@/ops/session';
-import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
+import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useAction, useResource } from '@/ops/ui';
 
 const R = (p: string) => v1(`/research${p}`);
 const RATINGS = ['BUY', 'ACCUMULATE', 'HOLD', 'REDUCE', 'SELL'];
@@ -81,6 +81,7 @@ interface Summary {
   openDecisions: number;
   awaitingMyVote: number;
   awaitingRatification: number;
+  votingOpen?: number;
   myOpenCases: number;
   upcomingMeetings: MeetingRow[];
 }
@@ -111,7 +112,7 @@ export default function ResearchPage() {
           <div className="ops-tiles">
             <Tile label="Published cases" value={String(s.cases.published)} hint={`${s.cases.inReview} in review · ${s.cases.draft} draft`} onClick={() => setTab('cases')} />
             <Tile label="Open IC decisions" value={String(s.openDecisions)} hint={`${s.awaitingMyVote} await your vote`} onClick={() => setTab('decisions')} />
-            <Tile label="Awaiting ratification" value={String(s.awaitingRatification)} hint="Voting open; a second person ratifies" onClick={() => setTab('decisions')} />
+            <Tile label="Awaiting ratification" value={String(s.awaitingRatification)} hint={`Quorum reached; a second person ratifies${s.votingOpen ? ` · ${s.votingOpen} still collecting votes` : ''}`} onClick={() => setTab('decisions')} />
             <Tile label="Next meeting" value={s.upcomingMeetings[0] ? formatDate(s.upcomingMeetings[0].scheduledAt) : '—'} hint={s.upcomingMeetings[0]?.title ?? 'None scheduled'} onClick={() => setTab('meetings')} />
           </div>
         )}
@@ -184,43 +185,129 @@ function CasesTab({ onOpen, onChanged }: { onOpen: (id: string) => void; onChang
         }
       </Loaded>
       {creating && (
-        <FormModal
+        <CaseFormModal
           title="New research case"
           submitLabel="Create draft"
-          wide
+          securities={securities}
           onClose={() => setCreating(false)}
-          onSubmit={(fd, key) =>
-            api.post(R('/cases'), { securityId: str(fd, 'securityId'), title: str(fd, 'title'), thesis: str(fd, 'thesis'), risks: optStr(fd, 'risks'), rating: str(fd, 'rating'), targetPrice: str(fd, 'targetPrice'), horizonMonths: Number(str(fd, 'horizon') || 12), conviction: Number(str(fd, 'conviction') || 3) }, { idempotencyKey: key })
-          }
+          onSubmit={(body, key) => api.post(R('/cases'), body, { idempotencyKey: key })}
           onDone={() => {
             res.reload();
             onChanged();
           }}
-        >
-          <FieldGrid>
-            <Field label="Security">
-              <select className="ops-input" name="securityId" required>
-                <option value="">Choose a security</option>
-                {securities.map((s) => (
-                  <option key={s.id} value={s.id}>{s.ticker} · {s.name}</option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Title"><input className="ops-input" name="title" required minLength={3} maxLength={200} /></Field>
-            <Field label="Rating">
-              <select className="ops-input" name="rating" defaultValue="HOLD">{RATINGS.map((r) => <option key={r}>{r}</option>)}</select>
-            </Field>
-            <Field label="Target price" hint="In the security's currency"><input className="ops-input" name="targetPrice" inputMode="decimal" required /></Field>
-            <Field label="Horizon (months)"><input className="ops-input" name="horizon" type="number" min={1} max={120} defaultValue={12} /></Field>
-            <Field label="Conviction (1-5)"><input className="ops-input" name="conviction" type="number" min={1} max={5} defaultValue={3} /></Field>
-            <Field label="Thesis" span={2}><textarea className="ops-input" name="thesis" rows={5} minLength={20} required /></Field>
-            <Field label="Risks" span={2}><textarea className="ops-input" name="risks" rows={3} /></Field>
-          </FieldGrid>
-        </FormModal>
+        />
       )}
     </Card>
   );
 }
+
+// ================================================================ case form (per-field validation, ADB-010)
+
+type CaseBody = { securityId?: string; title: string; thesis: string; risks?: string; rating: string; targetPrice: string; horizonMonths?: number; conviction: number };
+/** Server field paths to the form's field names. */
+const FIELD_OF: Record<string, string> = { horizonMonths: 'horizon' };
+
+function FieldError({ msg }: { msg?: string }) {
+  return msg ? <span className="ops-error-text" role="alert">{msg}</span> : null;
+}
+
+function CaseFormModal({ title, submitLabel, initial, securities, onClose, onSubmit, onDone }: {
+  title: string;
+  submitLabel: string;
+  initial?: { title: string; thesis: string; risks: string | null; rating: string; targetPrice: string; conviction: number };
+  securities?: { id: string; ticker: string; name: string }[];
+  onClose: () => void;
+  onSubmit: (body: CaseBody, idempotencyKey: string) => Promise<unknown>;
+  onDone: () => void;
+}) {
+  const action = useAction();
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const isNew = !initial;
+
+  function validate(fd: FormData): Record<string, string> {
+    const e: Record<string, string> = {};
+    if (isNew && !str(fd, 'securityId')) e.securityId = 'Choose the security this case covers';
+    const t = str(fd, 'title');
+    if (t.length < 3 || t.length > 200) e.title = 'Give the case a title of 3 to 200 characters';
+    if (str(fd, 'thesis').length < 20) e.thesis = 'State the thesis (20+ characters)';
+    const tp = str(fd, 'targetPrice');
+    if (!tp || !/^\d+(\.\d+)?$/.test(tp) || Number(tp) <= 0) e.targetPrice = 'Enter the target price as a positive number, for example 12.50';
+    if (isNew) {
+      const h = Number(str(fd, 'horizon') || 12);
+      if (!Number.isInteger(h) || h < 1 || h > 120) e.horizon = 'Horizon must be a whole number of months from 1 to 120';
+    }
+    const c = Number(str(fd, 'conviction') || 3);
+    if (!Number.isInteger(c) || c < 1 || c > 5) e.conviction = 'Conviction is a whole number from 1 to 5';
+    return e;
+  }
+
+  async function handle(ev: React.FormEvent<HTMLFormElement>) {
+    ev.preventDefault();
+    const fd = new FormData(ev.currentTarget);
+    const local = validate(fd);
+    setErrors(local);
+    if (Object.keys(local).length) return;
+    const body: CaseBody = { title: str(fd, 'title'), thesis: str(fd, 'thesis'), risks: optStr(fd, 'risks'), rating: str(fd, 'rating'), targetPrice: str(fd, 'targetPrice'), conviction: Number(str(fd, 'conviction') || 3), ...(isNew ? { securityId: str(fd, 'securityId'), horizonMonths: Number(str(fd, 'horizon') || 12) } : {}) };
+    let ok = false;
+    try {
+      await action.run(async (key) => {
+        try {
+          await onSubmit(body, key);
+        } catch (e) {
+          // Surface the server's per-field reasons next to the fields instead of one generic message.
+          const d = e instanceof OpsError && Array.isArray(e.details) ? (e.details as { path?: string; message?: string }[]) : [];
+          const mapped: Record<string, string> = {};
+          for (const x of d) if (x.path && x.message) mapped[FIELD_OF[x.path] ?? x.path] = x.message;
+          if (Object.keys(mapped).length) setErrors(mapped);
+          throw e;
+        }
+        ok = true;
+      });
+    } finally {
+      if (ok) {
+        onDone();
+        onClose();
+      }
+    }
+  }
+
+  return (
+    <Modal title={title} kicker="Research" onClose={onClose} wide>
+      <form onSubmit={handle} noValidate>
+        <div className="ops-modal-body">
+          <FieldGrid>
+            {isNew && (
+              <Field label="Security">
+                <select className="ops-input" name="securityId" defaultValue="" aria-invalid={!!errors.securityId}>
+                  <option value="">Choose a security</option>
+                  {(securities ?? []).map((x) => (
+                    <option key={x.id} value={x.id}>{x.ticker} · {x.name}</option>
+                  ))}
+                </select>
+                <FieldError msg={errors.securityId} />
+              </Field>
+            )}
+            <Field label="Title"><input className="ops-input" name="title" defaultValue={initial?.title} maxLength={200} aria-invalid={!!errors.title} /><FieldError msg={errors.title} /></Field>
+            <Field label="Rating">
+              <select className="ops-input" name="rating" defaultValue={initial?.rating ?? 'HOLD'}>{RATINGS.map((r) => <option key={r}>{r}</option>)}</select>
+            </Field>
+            <Field label="Target price" hint="In the security's currency"><input className="ops-input" name="targetPrice" inputMode="decimal" defaultValue={initial?.targetPrice} aria-invalid={!!errors.targetPrice} /><FieldError msg={errors.targetPrice} /></Field>
+            {isNew && <Field label="Horizon (months)"><input className="ops-input" name="horizon" type="number" defaultValue={12} aria-invalid={!!errors.horizon} /><FieldError msg={errors.horizon} /></Field>}
+            <Field label="Conviction (1-5)"><input className="ops-input" name="conviction" type="number" defaultValue={initial?.conviction ?? 3} aria-invalid={!!errors.conviction} /><FieldError msg={errors.conviction} /></Field>
+            <Field label="Thesis" span={2}><textarea className="ops-input" name="thesis" rows={5} defaultValue={initial?.thesis} aria-invalid={!!errors.thesis} /><FieldError msg={errors.thesis} /></Field>
+            <Field label="Risks" span={2}><textarea className="ops-input" name="risks" rows={3} defaultValue={initial?.risks ?? ''} /><FieldError msg={errors.risks} /></Field>
+          </FieldGrid>
+          <Alert>{action.error}</Alert>
+        </div>
+        <footer className="ops-modal-foot">
+          <button className="ops-btn" type="button" onClick={onClose} disabled={action.busy}>Cancel</button>
+          <button className="ops-btn primary" type="submit" disabled={action.busy}>{action.busy ? 'Working…' : submitLabel}</button>
+        </footer>
+      </form>
+    </Modal>
+  );
+}
+
 
 function CaseModal({ id, onClose, onChanged }: { id: string; onClose: () => void; onChanged: () => void }) {
   const { user } = useSession();
@@ -314,18 +401,7 @@ function CaseModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                   )}
                   {c.status !== 'ARCHIVED' && canEdit && <button className="ops-btn" type="button" onClick={() => setSub('archive')}>Archive</button>}
                 </div>
-                {sub === 'edit' && (
-                  <FormModal title="Edit draft" submitLabel="Save" wide onClose={() => setSub(null)} onSubmit={(fd) => api.patch(R(`/cases/${c.id}`), { title: str(fd, 'title'), thesis: str(fd, 'thesis'), risks: optStr(fd, 'risks'), rating: str(fd, 'rating'), targetPrice: str(fd, 'targetPrice'), conviction: Number(str(fd, 'conviction')), version: c.version })} onDone={done}>
-                    <FieldGrid>
-                      <Field label="Title"><input className="ops-input" name="title" defaultValue={c.title} required /></Field>
-                      <Field label="Rating"><select className="ops-input" name="rating" defaultValue={c.rating}>{RATINGS.map((r) => <option key={r}>{r}</option>)}</select></Field>
-                      <Field label="Target price"><input className="ops-input" name="targetPrice" defaultValue={c.targetPrice} required /></Field>
-                      <Field label="Conviction"><input className="ops-input" name="conviction" type="number" min={1} max={5} defaultValue={c.conviction} /></Field>
-                      <Field label="Thesis" span={2}><textarea className="ops-input" name="thesis" rows={5} defaultValue={c.thesis} required /></Field>
-                      <Field label="Risks" span={2}><textarea className="ops-input" name="risks" rows={3} defaultValue={c.risks ?? ''} /></Field>
-                    </FieldGrid>
-                  </FormModal>
-                )}
+                {sub === 'edit' && <CaseFormModal title="Edit draft" submitLabel="Save" initial={c} onClose={() => setSub(null)} onSubmit={(body) => api.patch(R(`/cases/${c.id}`), { ...body, version: c.version })} onDone={done} />}
                 {sub === 'return' && <ReasonModal title="Return to author" submitLabel="Return" onClose={() => setSub(null)} onSubmit={(reason) => api.post(R(`/cases/${c.id}/return`), { reason })} onDone={done} />}
                 {sub === 'revise' && <ReasonModal title="Revise a published case" hint="It goes back to draft and must be published again" submitLabel="Revise" onClose={() => setSub(null)} onSubmit={(reason) => api.post(R(`/cases/${c.id}/revise`), { reason })} onDone={done} />}
                 {sub === 'archive' && <ReasonModal title="Archive case" submitLabel="Archive" danger onClose={() => setSub(null)} onSubmit={(reason) => api.post(R(`/cases/${c.id}/archive`), { reason })} onDone={done} />}
