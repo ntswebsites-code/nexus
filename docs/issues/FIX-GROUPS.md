@@ -13,6 +13,8 @@ Severity mapping: blocker = critical, polish = minor.
 6. New or changed seed data must keep `seed-uat.ts` and `seed-demo.ts` idempotent.
 7. Keep your final reply under 100 words: counts fixed / not-a-defect / needs-other-group, files, branch name.
 
+8. **NO BROWSER ACTIVITY OF ANY KIND** (owner instruction, overrides everything above and earlier briefs): do not open pages, click, navigate, screenshot, or read the browser console/network. Verify with non-browser means only: unit/integration/API tests, direct endpoint calls, builds, type checks, lint. If something can only be confirmed in a browser, list it in your FIXES file under "Not browser-verified".
+
 ## Groups and file ownership (disjoint; only the owner edits these)
 
 ### F1 Fund ops, cash, capital calls, notices, reconciliation display
