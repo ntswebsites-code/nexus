@@ -35,7 +35,7 @@ const FORMATS = {
   pmCommitment: { prefix: 'PMC-', pad: 4, start: 1001 },
   pmCashflow: { prefix: 'PMX-', pad: 5, start: 1 },
   pmMark: { prefix: 'PMM-', pad: 5, start: 1 },
-  modelPortfolio: { prefix: 'MDL-', pad: 4, start: 1001 },
+  modelPortfolio: { prefix: 'PMD-', pad: 4, start: 1001 },
   rebalance: { prefix: 'RBL-', pad: 5, start: 1 },
   finFacility: { prefix: 'FAC-', pad: 4, start: 1001 },
   finPool: { prefix: 'POOL-', pad: 4, start: 1001 },

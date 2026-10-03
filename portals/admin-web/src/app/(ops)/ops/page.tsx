@@ -21,7 +21,7 @@ export default function OpsHome() {
     <>
       <PageHeader
         kicker="Operations console"
-        title={`Welcome${user.name ? `, ${user.name.split(' ')[0]}` : ''}`}
+        title={`Welcome${user.name ? `, ${user.name}` : ''}`}
         subtitle="Staff side of the fund operations journeys. Every action here is live, audited and subject to maker/checker controls."
       />
       {visible.length === 0 ? (

@@ -391,6 +391,12 @@ export function ActionButton({
   const needs = requires === undefined ? [] : Array.isArray(requires) ? requires : [requires];
   const missing = needs.length > 0 && !can(...needs);
   const [asking, setAsking] = useState(false);
+  // A failure message describes the state the page was in when the click happened; once the button's own
+  // inputs change (prerequisite met, label or enabled state flipped) it is stale and must go (ISS-ADB-018).
+  const clearError = action.clear;
+  useEffect(() => {
+    clearError();
+  }, [clearError, disabled, missing, label, title, confirm]);
   async function run() {
     let ok = false;
     await action.run(async (key) => {
@@ -414,7 +420,14 @@ export function ActionButton({
         {action.busy ? 'Working…' : label}
       </button>
       {missing && <span className="ops-muted ops-gate-note"> Needs {needs.join(' or ')}</span>}
-      {action.error && <span className="ops-error-text">{action.error}</span>}
+      {action.error && (
+        <span className="ops-error-text" role="alert">
+          {action.error}{' '}
+          <button type="button" className="ops-btn small" aria-label="Dismiss message" onClick={action.clear}>
+            ×
+          </button>
+        </span>
+      )}
       {asking && (
         <ConfirmDialog
           title={label}

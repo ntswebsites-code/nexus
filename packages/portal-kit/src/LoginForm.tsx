@@ -15,6 +15,11 @@ export interface LoginFormProps {
    * account can still sign in through the shared auth system.
    */
   enforcePortalAccess?: boolean;
+  /**
+   * For role-less portals (company, onboarding): accounts holding a role on any of these portals are shown
+   * "no access" instead of a Continue link, matching the proxy's turn-away list (ISS-INO-001).
+   */
+  turnAwayPortals?: PortalId[];
 }
 
 type Step = 'password' | 'forgot' | 'forgot-sent' | { mfa: 'verify' | 'enroll' };
@@ -23,7 +28,7 @@ type Step = 'password' | 'forgot' | 'forgot-sent' | { mfa: 'verify' | 'enroll' }
  * Sign-in for a portal. Every portal renders this same form and talks to the
  * same shared API, so one account works everywhere the user has access.
  */
-export function LoginForm({ portal, apiUrl, enforcePortalAccess = true }: LoginFormProps) {
+export function LoginForm({ portal, apiUrl, enforcePortalAccess = true, turnAwayPortals = [] }: LoginFormProps) {
   const api = useMemo(() => createApiClient({ baseUrl: apiUrl }), [apiUrl]);
   const [user, setUser] = useState<AuthUser | null>(null);
   const [checking, setChecking] = useState(true);
@@ -96,7 +101,9 @@ export function LoginForm({ portal, apiUrl, enforcePortalAccess = true }: LoginF
   }
 
   const def = PORTALS[portal];
-  const hasAccess = !enforcePortalAccess || (user?.roles.some((r) => r.portal === portal) ?? false);
+  const hasAccess = enforcePortalAccess
+    ? (user?.roles.some((r) => r.portal === portal) ?? false)
+    : !(user?.roles.some((r) => (turnAwayPortals as string[]).includes(r.portal)) ?? false);
 
   if (typeof step === 'object') {
     return (

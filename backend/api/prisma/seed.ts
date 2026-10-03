@@ -32,8 +32,8 @@ const CATALOG_SETTING = { ownerId: 'platform', key: 'role_catalog_applied' };
 
 /**
  * Adds catalog roles and any catalog permissions not applied before. Permissions an
- * administrator removed in the RBAC screen stay removed; only locked roles are forced
- * back to the catalog bundle.
+ * administrator removed in the RBAC screen stay removed; locked roles are topped up to the
+ * catalog bundle. Nothing is ever revoked here.
  */
 async function seedCatalog() {
   const catalog = JSON.parse(readFileSync(path.join(here, 'seed', 'role-catalog.json'), 'utf8')) as {
@@ -52,9 +52,12 @@ async function seedCatalog() {
       update: { label: r.label, locked },
       create: { portal: r.portal, key: r.key, label: r.label, locked },
     });
-    if (locked) await prisma.rolePermission.deleteMany({ where: { roleId: role.id, permission: { notIn: r.permissions } } });
+    // Additive by default: a locked role is topped up, never trimmed, so re-running the seed cannot take a
+    // permission (e.g. admin.settings from system_admin) away from a live database. Removals are explicit:
+    // see retireCataloguePermissions() in seed-admin-shell.ts (SEED_APPLY_ROLE_RETIREMENTS=1).
     const before = new Set(applied[id] ?? []);
-    const fresh = locked ? r.permissions : r.permissions.filter((p) => !before.has(p));
+    const current = new Set((await prisma.rolePermission.findMany({ where: { roleId: role.id }, select: { permission: true } })).map((x) => x.permission));
+    const fresh = locked ? r.permissions.filter((p) => !current.has(p)) : r.permissions.filter((p) => !before.has(p));
     if (fresh.length) {
       const res = await prisma.rolePermission.createMany({
         data: fresh.map((permission) => ({ roleId: role.id, permission })),

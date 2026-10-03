@@ -63,3 +63,54 @@ E-sign routes use the shared `validateBody`; with the changes above their errors
 
 ## Needs other group (summary)
 F8: LPC-006 route validation, `lp.http.ts` stack. F7: `investee.http.ts` stack. F2: Accounting page wrong permission name. F1: recon `window.confirm`, `DAY-DEMO1` seed owner. F5/F6: adopt `ActionButton requires` / per-field errors in their forms. Unowned: `/ops` overview greeting. F8 (or whoever owns it): `investor-web/.../lp-performance-screen.tsx` invalid UTF-8 breaks `next build`.
+
+# Rework round
+
+Verification: `tsc --noEmit` clean in `packages/shared`, `packages/portal-kit`, `portals/admin-web`, `portals/company-web` (the last three checked with a temporary `paths` tsconfig because inside a worktree `@matanho/*` resolves to the main checkout's older sources); `backend/api` tsc clean except pre-existing `prisma/seed-research-privates.ts` (F5: `nextRef` not imported). `next build --webpack` passes for admin-web (Turbopack fails only because of the worktree layout). company-web webpack build type-checks against the main checkout's stale portal-kit, so only the paths-based tsc is authoritative there. No schema change.
+
+## Role seeding made additive (ADB-020 rollout risk): FIXED
+`prisma/seed.ts` no longer trims locked roles (`deleteMany notIn` removed; locked roles are topped up only). `seed-admin-shell.ts` `retireCataloguePermissions` is now explicit: runs only with `SEED_APPLY_ROLE_RETIREMENTS=1`, logs every role and permission it removes, and skips `admin.settings` unless an active user holds `admin:settings_admin`. Default seeding never revokes anything, so System Administrator keeps `admin.settings` on live databases. The SoD-clean catalogue (`role-catalog.json`, with `retiredPermissions` and the `settings_admin` role) was restored: the merge had reverted it. Re-test: seed twice on an existing DB, `role_permissions` unchanged; with the flag and a settings_admin user, System Administrator loses `admin.settings`.
+
+## Validation envelope (ADA-010/ADB-014/LPC-015/LPC-006 shared layer): REWORKED
+`validate.ts`: removed the catch-all `Invalid*` rewrite; only zod's exact default sentences are rephrased, so "Invalid IBAN checksum" stays as written. `errorHandler.ts`: `message` is stable ("Validation failed") again; reasons live in `fieldErrors` (several per field are joined with "; ", none dropped). Clients render them: `describeApiError` (`packages/shared/src/auth.ts`) used by the shared `ApiError` and `EsignSigner`; `OpsError` in `ops/api.ts` appends the reasons, so every admin form still shows the field text. 5xx `HttpError`s are now logged (warn). Re-test: POST a NAV with accruals "abc": body message "Validation failed", `fieldErrors.accruals` set, banner shows both.
+
+## ADA-014 confirm: security page converted
+`security/page.tsx` uses `ConfirmDialog` for removing a permission code and for the retention purge (no `window.confirm` left in F3 files; `recon/RunTab.tsx` and `recon/SourcesTab.tsx` are F1's).
+
+## ADB-018 stale error in ActionButton: FIXED
+`ActionButton` clears its error when `disabled`, the missing-permission state, label, title or confirm text change, and shows a dismiss button. Re-test: regulatory pack action fails for a missing prerequisite, fix it, the red text disappears.
+
+## ADA-029 "Welcome, UAT": FIXED
+`app/(ops)/ops/page.tsx` greets with the full name.
+
+## ADB-004 breadcrumbs: FIXED
+`Breadcrumbs.tsx` `segmentLabel`: "position" -> "Position", "new-order" -> "New order"; ids with digits unchanged.
+
+## ADB-023 refs.ts label: FIXED
+`FORMATS.modelPortfolio` prefix is `PMD-` (Model Governance keeps `MDL-`). Settings > numbering shows it.
+
+## ADA-019 old market-data route: FIXED
+`admin-core/integrations.routes.ts` `/market-data/sync|simulate` now delegates to `refreshMarketData` (sanity bounds, exceptions, run record, undo) instead of writing VENDOR prices directly. Re-test: POST `/api/v1/admin-core/integrations/market-data/sync` returns a run summary; a wild quote becomes an exception.
+
+## ADB-025 esign nav: FIXED
+`ops/shell/nav.ts` shows E-signatures to every signed-in staff user (the page already renders the signer inbox and gates the rest). Staff signing still needs an enrolled authenticator when `mfa_required` is on.
+
+## LPC-004 typed-name hint: FIXED (UI); API check is F6
+`EsignSigner.tsx` (`EsignInbox` and public signer) shows "Type your registered name exactly: <name>", flags a mismatch and keeps Sign disabled until it matches (case, accents, spacing ignored).
+
+## INO-001 login Continue link: FIXED
+`LoginForm`/`LoginPage` take `turnAwayPortals`; the company login passes `['investor','custodian']`, so such accounts see "no access" with a sign-in-as-other option, and the company proxy turns custodian users away to `/access-denied` like investors.
+
+## INO-009/010 seed KPIs, periods, revenue: FIXED
+`tools/uat/seed-data/uat-seed.json`: ARR series and prev in dollars (budget was already dollars), period labels "Jul – Sep 2025", "Oct – Dec 2025", "Jan – Mar 2026". `seed-uat.ts`: accepted periods now carry per-quarter KPI values and `totalRevenue` (ARR/4), and existing databases get labels repaired and missing revenue added without touching workflow state.
+
+## LPC-007 stray LP membership: FIXED
+`seed-uat.ts` `seedMemberships` removes memberships a persona holds in a UAT client other than its own (seed-demo enrols unlinked investor users in the demo client).
+
+## Not done / not a defect
+- INO-030 unauthenticated unknown route redirects to `/login?next=`: not-a-defect, intended gated behaviour of the proxy.
+- Vault document numbering `LP-DOC-` vs `DOC-`: not fixed; `LP-DOC` refs are keyed by the seed dataset and by other seeded rows, renaming risks existing databases.
+- DAY-DEMO1 file/hash: F1 (`seed-recon.ts`); F3 side (second approver `test_custodian_approver`) already exists.
+- Cookie namespacing: browsers send `Referer` on navigations, so download links keep working; no-referrer requests fall back to the plain cookie. `scripts/test-*.ts` resend the whole cookie pair with their Origin, so they work; only `test-lp-remainder.ts` expects the plain name for its manually supplied cookie.
+- `nav_stale_days` label/description (F2 review): the value is a NAV policy key, not surfaced in the Settings screen; nothing to relabel there.
+- `lp.http.ts` / `investee.http.ts` stack leaks: F8 and F7 files.

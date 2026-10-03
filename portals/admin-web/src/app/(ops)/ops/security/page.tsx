@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { api, apiRequest, describeError, newIdempotencyKey, v1 } from '@/ops/api';
 import { useCan } from '@/ops/session';
-import { Alert, Card, Empty, Field, FieldGrid, FormModal, Loaded, PageHeader, formatDateTime, optStr, str, useAction, useResource } from '@/ops/ui';
+import { Alert, Card, ConfirmDialog, Empty, Field, FieldGrid, FormModal, Loaded, PageHeader, formatDateTime, optStr, str, useAction, useResource } from '@/ops/ui';
 
 interface PermissionsRes {
   data: string[];
@@ -51,6 +51,17 @@ function CustomPermissions() {
   const res = useResource(() => apiRequest<PermissionsRes>('GET', v1('/admin/permissions')), []);
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState('');
+  const [removing, setRemoving] = useState<string | null>(null);
+  const remove = async (code: string) => {
+    setRemoving(null);
+    try {
+      await apiRequest('DELETE', v1(`/admin/permissions/${encodeURIComponent(code)}`));
+      setError('');
+      res.reload();
+    } catch (e) {
+      setError(describeError(e));
+    }
+  };
   return (
     <Card
       title="Custom permission codes"
@@ -91,16 +102,7 @@ function CustomPermissions() {
                         <button
                           className="ops-btn small danger"
                           type="button"
-                          onClick={async () => {
-                            if (!window.confirm(`Remove ${c.code}? Roles must no longer carry it.`)) return;
-                            try {
-                              await apiRequest('DELETE', v1(`/admin/permissions/${encodeURIComponent(c.code)}`));
-                              setError('');
-                              res.reload();
-                            } catch (e) {
-                              setError(describeError(e));
-                            }
-                          }}
+                          onClick={() => setRemoving(c.code)}
                         >
                           Remove
                         </button>
@@ -113,6 +115,16 @@ function CustomPermissions() {
           )
         }
       </Loaded>
+      {removing && (
+        <ConfirmDialog
+          title="Remove permission code"
+          message={`Remove ${removing}? Roles must no longer carry it.`}
+          confirmLabel="Remove"
+          danger
+          onCancel={() => setRemoving(null)}
+          onConfirm={() => void remove(removing)}
+        />
+      )}
       {adding && (
         <FormModal
           title="Define a permission code"
@@ -196,8 +208,8 @@ function Retention() {
   const res = useResource(() => apiRequest<Runs>('GET', v1('/admin-core/retention/runs')), []);
   const action = useAction();
   const [last, setLast] = useState<PurgeResult | null>(null);
+  const [confirmPurge, setConfirmPurge] = useState(false);
   const run = async (dryRun: boolean) => {
-    if (!dryRun && !window.confirm('Delete expired sessions, tokens, idempotency keys, delivered outbox events and old read notifications now?')) return;
     const r = await action.run(() => apiRequest<{ data: PurgeResult }>('POST', v1('/admin-core/retention/run'), { dryRun }, { idempotencyKey: newIdempotencyKey() }));
     if (r) {
       setLast(r.data);
@@ -212,7 +224,7 @@ function Retention() {
           <button className="ops-btn small" type="button" disabled={action.busy} onClick={() => void run(true)}>
             Dry run
           </button>{' '}
-          <button className="ops-btn small danger" type="button" disabled={action.busy} onClick={() => void run(false)}>
+          <button className="ops-btn small danger" type="button" disabled={action.busy} onClick={() => setConfirmPurge(true)}>
             Run now
           </button>
         </>
@@ -222,6 +234,19 @@ function Retention() {
         The worker runs this once a day using the retention values in Settings. Audit events are never deleted (the audit retention value is reported as a floor) and client documents past retention are only listed for approved disposal.
       </p>
       <Alert>{action.error}</Alert>
+      {confirmPurge && (
+        <ConfirmDialog
+          title="Run retention purge"
+          message="Delete expired sessions, tokens, idempotency keys, delivered outbox events and old read notifications now?"
+          confirmLabel="Run now"
+          danger
+          onCancel={() => setConfirmPurge(false)}
+          onConfirm={() => {
+            setConfirmPurge(false);
+            void run(false);
+          }}
+        />
+      )}
       {last && (
         <Alert kind="ok">
           {last.dryRun ? 'Dry run' : 'Purged'}: {last.sessionsDeleted} sessions, {last.passwordResetsDeleted} reset tokens, {last.invitationsDeleted} invitations, {last.idempotencyKeysDeleted} idempotency keys, {last.outboxEventsDeleted} outbox events, {last.notificationsDeleted} notifications. Audit floor {last.auditFloor}; {last.documentsEligibleForDisposal} documents eligible for disposal.

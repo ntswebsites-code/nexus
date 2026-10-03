@@ -18,21 +18,38 @@ const CUSTOM_PERMISSIONS = [
 ];
 
 /**
- * ISS-ADB-020: revoke from existing databases the permissions the role catalogue no longer ships, so the
- * out-of-the-box roles satisfy the separation-of-duties catalogue. prisma/seed.ts only ever adds permissions.
+ * ISS-ADB-020: the shipped role catalogue is separation-of-duties clean. Databases seeded earlier still hold
+ * the old grants. Seeding is additive (prisma/seed.ts never revokes), so removing them is an explicit,
+ * opt-in migration: run with SEED_APPLY_ROLE_RETIREMENTS=1. Every affected role and permission is logged.
+ * Safety: `admin.settings` is only withdrawn from System Administrator when at least one active user holds
+ * the Platform Settings Administrator role, so Settings can never be orphaned.
  */
 async function retireCataloguePermissions() {
   const file = path.join(path.dirname(fileURLToPath(import.meta.url)), 'seed', 'role-catalog.json');
   const catalog = JSON.parse(readFileSync(file, 'utf8')) as { retiredPermissions?: { roles?: Record<string, string[]> } };
-  let revoked = 0;
-  for (const [id, perms] of Object.entries(catalog.retiredPermissions?.roles ?? {})) {
+  const plan = Object.entries(catalog.retiredPermissions?.roles ?? {});
+  if (process.env.SEED_APPLY_ROLE_RETIREMENTS !== '1') {
+    if (plan.length) log('role retirements available but not applied (set SEED_APPLY_ROLE_RETIREMENTS=1 to revoke legacy grants)');
+    return;
+  }
+  const settingsHolders = await prisma.userRole.count({
+    where: { role: { portal: 'admin', key: 'settings_admin' }, user: { isActive: true } },
+  });
+  for (const [id, perms] of plan) {
     const [portal, key] = id.split(':');
     const role = await prisma.role.findUnique({ where: { portal_key: { portal: portal!, key: key! } } });
     if (!role) continue;
-    const res = await prisma.rolePermission.deleteMany({ where: { roleId: role.id, permission: { in: perms } } });
-    revoked += res.count;
+    const allowed = perms.filter((p) => {
+      if (p === 'admin.settings' && settingsHolders === 0) {
+        log(`SKIPPED ${id}: admin.settings kept because no active user holds admin:settings_admin`);
+        return false;
+      }
+      return true;
+    });
+    if (!allowed.length) continue;
+    const res = await prisma.rolePermission.deleteMany({ where: { roleId: role.id, permission: { in: allowed } } });
+    if (res.count) log(`SoD: ${id} lost ${res.count} grant(s): ${allowed.join(', ')}`);
   }
-  log(`SoD: ${revoked} retired role permission grants revoked`);
 }
 
 export async function seedAdminShell() {

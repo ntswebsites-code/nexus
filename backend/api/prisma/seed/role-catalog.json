@@ -8,18 +8,14 @@
       "permissions": [
         "dashboard.view",
         "portfolio.view",
-        "portfolio.manage",
         "orders.view",
-        "orders.create",
         "orders.approve",
         "research.view",
-        "research.edit",
         "risk.view",
         "clients.view",
         "onboarding.view",
         "onboarding.manage",
         "reports.view",
-        "reports.create",
         "documents.view",
         "documents.edit",
         "operations.view",
@@ -27,7 +23,6 @@
         "corporate_actions.process",
         "valuation.view",
         "valuation.release",
-        "accounting.post",
         "accounting.close",
         "accounting.reopen",
         "audit.view",
@@ -46,7 +41,6 @@
         "performance.lock",
         "research.ic.decide",
         "private.mark.approve",
-        "financing.manage",
         "financing.approve",
         "reports.approve",
         "model.approve",
@@ -87,7 +81,6 @@
         "dealing.view",
         "term_sheets.view",
         "term_sheets.create",
-        "research.ic.decide",
         "financing.manage"
       ]
     },
@@ -99,7 +92,6 @@
         "dashboard.view",
         "portfolio.view",
         "orders.view",
-        "orders.create",
         "orders.route",
         "research.view",
         "risk.view",
@@ -138,13 +130,11 @@
         "portfolio.view",
         "orders.view",
         "risk.view",
-        "risk.manage",
         "clients.view",
         "clients.edit",
         "onboarding.view",
         "onboarding.manage",
         "reports.view",
-        "reports.create",
         "documents.view",
         "documents.edit",
         "operations.view",
@@ -168,12 +158,10 @@
         "term_sheets.approve",
         "custodian.view",
         "performance.lock",
-        "financing.manage",
         "financing.approve",
         "onboarding.approve",
         "documents.approve",
         "reports.approve",
-        "reports.submit",
         "model.approve",
         "esign.view",
         "esign.manage",
@@ -203,10 +191,8 @@
         "audit.view",
         "cash.view",
         "cash.journal.create",
-        "cash.journal.approve",
         "cash.reservation",
         "cash.import",
-        "cash.close",
         "funds.view",
         "funds.manage",
         "capital.view",
@@ -244,12 +230,9 @@
         "recon.manage",
         "recon.signoff",
         "valuation.view",
-        "valuation.release",
         "accounting.post",
-        "accounting.close",
         "audit.view",
         "cash.view",
-        "cash.journal.create",
         "cash.journal.approve",
         "cash.import",
         "cash.close",
@@ -347,7 +330,6 @@
         "valuation.view",
         "audit.view",
         "admin.rbac",
-        "admin.settings",
         "cash.view",
         "funds.view",
         "capital.view",
@@ -359,6 +341,16 @@
         "esign.view",
         "esign.manage",
         "esign.void"
+      ]
+    },
+    {
+      "portal": "admin",
+      "key": "settings_admin",
+      "label": "Platform Settings Administrator",
+      "permissions": [
+        "dashboard.view",
+        "audit.view",
+        "admin.settings"
       ]
     },
     {
@@ -557,16 +549,43 @@
         "custodian.dayend.submit",
         "custodian.dayend.approve"
       ]
-    },
-    {
-      "portal": "admin",
-      "key": "settings_admin",
-      "label": "Platform Settings Administrator",
-      "permissions": [
-        "dashboard.view",
-        "audit.view",
+    }
+  ],
+  "retiredPermissions": {
+    "_comment": "Permissions removed from shipped roles so no role breaks the separation-of-duties catalogue (ISS-ADB-020). seed-admin-shell.ts revokes them from existing databases; prisma/seed.ts only ever adds.",
+    "roles": {
+      "admin:investment_director": [
+        "orders.create",
+        "accounting.post",
+        "financing.manage",
+        "portfolio.manage",
+        "research.edit",
+        "reports.create"
+      ],
+      "admin:portfolio_manager": [
+        "research.ic.decide"
+      ],
+      "admin:dealer": [
+        "orders.create"
+      ],
+      "admin:compliance": [
+        "financing.manage",
+        "reports.create",
+        "reports.submit",
+        "risk.manage"
+      ],
+      "admin:operations": [
+        "cash.journal.approve",
+        "cash.close"
+      ],
+      "admin:fund_accountant": [
+        "cash.journal.create",
+        "accounting.close",
+        "valuation.release"
+      ],
+      "admin:system_admin": [
         "admin.settings"
       ]
     }
-  ]
+  }
 }

@@ -235,6 +235,10 @@ async function seedMemberships() {
       revokedAt: null,
     };
     const cid = clientId.get(p.client)!;
+    // seed-demo.ts enrols every not-yet-linked investor user into its demo client; a persona belongs to exactly
+    // the client the dataset gives it (docs/LOCAL-STACK.md), so drop those stray memberships (ISS-LPC-007).
+    const stray = await prisma.clientUser.deleteMany({ where: { userId, clientId: { not: cid, in: [...clientId.values()] } } });
+    if (stray.count) log(`removed ${stray.count} stray membership(s) of ${p.key}`);
     await prisma.clientUser.upsert({ where: { clientId_userId: { clientId: cid, userId } }, update: data, create: { clientId: cid, userId, ...data } });
     n++;
   }
@@ -680,16 +684,36 @@ async function seedCompanies() {
       const vd = { name: v.name, threshold: v.threshold, actual: D(v.actual), limit: D(v.limit), unit: v.unit, headroom: v.headroom, evidence: v.evidence, note: v.note ?? null, sort: v.sort };
       await prisma.covenant.upsert({ where: { companyId_key: { companyId: row.id, key: v.id } }, update: vd, create: { companyId: row.id, key: v.id, ...vd } });
     }
+    // Accepted periods carry the KPI values of their own quarter (the tail of each series, oldest first) and the
+    // quarter's revenue (ISS-INO-009/010), instead of every period repeating the latest value.
+    const doneCount = c.periods.filter((p) => p.status !== 'open').length;
+    const arrSeries = c.kpis.find((k) => k.key === 'annual_recurring_revenue')?.series;
+    let doneIdx = 0;
     for (const p of c.periods) {
       const found = await prisma.reportingPeriod.findUnique({ where: { companyId_period: { companyId: row.id, period: p.period } } });
-      if (found && !RESET) continue;
+      const done = p.status !== 'open';
+      const at = (series: number[]) => series[Math.max(0, series.length - (doneCount - doneIdx))] ?? series.at(-1) ?? 0;
+      const kpiValues: Record<string, number> = Object.fromEntries(c.kpis.map((k) => [k.key, at(k.series)]));
+      if (arrSeries) kpiValues.totalRevenue = Math.round(at(arrSeries) / 4);
+      if (done) doneIdx++;
+      if (found && !RESET) {
+        // Repair labels and missing revenue on databases seeded earlier; never touch workflow state.
+        const current = (found.kpiValues ?? {}) as Record<string, unknown>;
+        await prisma.reportingPeriod.update({
+          where: { id: found.id },
+          data: {
+            label: p.label,
+            ...(done && current.totalRevenue === undefined && kpiValues.totalRevenue !== undefined ? { kpiValues: { ...current, totalRevenue: kpiValues.totalRevenue } } : {}),
+          },
+        });
+        continue;
+      }
       if (found) await prisma.reportingPeriod.delete({ where: { id: found.id } });
       await prisma.$transaction(async (tx) => {
         const period = await openPeriod(tx, row.id, p.period, date(p.due));
         const [y, m] = p.period.split('-').map(Number) as [number, number];
         const start = new Date(Date.UTC(y, m - (p.periodType === 'QUARTERLY' ? 3 : 1), 1));
         const end = new Date(Date.UTC(y, m, 0));
-        const done = p.status !== 'open';
         const submittedAt = new Date(date(p.due).getTime() - 5 * 86_400_000);
         await tx.reportingPeriod.update({
           where: { id: period.id },
@@ -702,7 +726,7 @@ async function seedCompanies() {
             status: p.status,
             ...(done
               ? {
-                  kpiValues: Object.fromEntries(c.kpis.map((k) => [k.key, k.series.at(-1) ?? 0])),
+                  kpiValues,
                   submittedAt,
                   submittedById: users.get('investee_101_contributor') ?? null,
                   reviewedById: reviewer,
