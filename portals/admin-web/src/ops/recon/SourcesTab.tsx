@@ -2,7 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { api, apiRequest, apiUpload, qs } from '../api';
-import { Alert, Card, DateText, Empty, Field, FieldGrid, Loaded, optStr, str, useAction, useResource } from '../ui';
+import { Alert, Card, DateText, Empty, Field, FieldGrid, Loaded, optStr, str, useAction, useResource, ConfirmDialog } from '../ui';
 import { recon, useCounterparties } from './common';
 import { FAMILIES, TOLERANCE_FIELDS, familyLabel, today, yesterday, type EffectiveTolerances, type FeedReceipt, type Tolerance } from './types';
 
@@ -171,8 +171,24 @@ export function SourcesTab({ canManage, canSign }: { canManage: boolean; canSign
   const feeds = useResource<FeedReceipt[]>(() => api.get<FeedReceipt[]>(recon('/feeds')), []);
   const tols = useResource<Tolerance[]>(() => api.get<Tolerance[]>(recon('/tolerances')), []);
   const del = useAction();
+  const [withdrawId, setWithdrawId] = useState<string | null>(null);
   return (
     <>
+      {withdrawId && (
+        <ConfirmDialog
+          title="Withdraw tolerance change"
+          message="Withdraw this tolerance change?"
+          confirmLabel="Withdraw"
+          danger
+          onCancel={() => setWithdrawId(null)}
+          onConfirm={async () => {
+            const id = withdrawId;
+            setWithdrawId(null);
+            await del.run(() => apiRequest('DELETE', recon(`/tolerances/${id}`)));
+            tols.reload();
+          }}
+        />
+      )}
       <Card title="Custodian position file">
         {canManage ? <FeedForm kind="positions" onDone={feeds.reload} /> : <Alert kind="info">Uploading source files needs recon.manage.</Alert>}
       </Card>
@@ -238,9 +254,7 @@ export function SourcesTab({ canManage, canSign }: { canManage: boolean; canSign
                               type="button"
                               disabled={del.busy}
                               onClick={async () => {
-                                if (!window.confirm('Withdraw this tolerance change?')) return;
-                                await del.run(() => apiRequest('DELETE', recon(`/tolerances/${t.id}`)));
-                                tols.reload();
+                                setWithdrawId(t.id);
                               }}
                             >
                               Withdraw

@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../src/lib/prisma';
 import { seqRef } from '../src/modules/ops/ops.common';
-import { accountRefs } from '../src/modules/custodian/custodian.service';
+import { accountRefs, packageHash } from '../src/modules/custodian/custodian.service';
+import { storeFile } from '../src/lib/storage';
 
 const D = (v: string | number) => new Prisma.Decimal(v);
 const log = (m: string) => console.log(`[seed:recon] ${m}`);
@@ -24,7 +25,10 @@ export async function seedRecon() {
   const account = cp ? accountRefs(cp.accounts)[0] : undefined;
   if (!cp || !account) return log('no custodian counterparty with an account; skipped');
   if (await prisma.counterpartyExecution.findFirst({ where: { counterpartyId: cp.id, tradeRef: { startsWith: 'DEMO-' } } })) return log('demo records already present');
-  const link = await prisma.counterpartyUser.findFirst({ where: { counterpartyId: cp.id, status: 'active' } });
+  // The day-end is prepared by a submitter-role custodian user so that an approver-role persona can approve it (segregation of duties).
+  const link =
+    (await prisma.counterpartyUser.findFirst({ where: { counterpartyId: cp.id, status: 'active', role: 'submitter' }, orderBy: { createdAt: 'asc' } })) ??
+    (await prisma.counterpartyUser.findFirst({ where: { counterpartyId: cp.id, status: 'active' }, orderBy: { createdAt: 'asc' } }));
   const portfolio = await prisma.portfolio.findFirst({ where: { name: 'Zimbabwe Opportunities' } });
   const sec = await prisma.security.findFirst({ where: { ticker: 'OKZ.ZW' } });
   const maker = await prisma.userRole.findFirst({ where: { role: { portal: 'admin', key: { in: ['portfolio_manager', 'investment_director'] } }, user: { isActive: true } }, select: { userId: true } });
@@ -78,7 +82,24 @@ export async function seedRecon() {
   await prisma.counterpartyExecution.create({ data: exec(2, 'DEMO-CN-002', 40000) }); // not in the internal book
 
   const cash = await prisma.portfolioCash.findFirst({ where: { portfolioId: portfolio.id, currency: sec.currency }, orderBy: { asOf: 'desc' } });
-  await prisma.counterpartyDayEndPackage.create({
+  // Holdings market value of the mapped portfolio in the package currency, from its latest positions and prices.
+  let holdingsMv = D(0);
+  for (const pos of await prisma.portfolioPosition.findMany({ where: { portfolioId: portfolio.id }, orderBy: { asOf: 'desc' }, include: { security: { select: { id: true, currency: true } } } })) {
+    if (pos.security.currency !== sec.currency) continue;
+    const px = await prisma.securityPrice.findFirst({ where: { securityId: pos.security.id }, orderBy: { priceDate: 'desc' }, select: { price: true } });
+    if (px) holdingsMv = holdingsMv.plus(pos.quantity.mul(px.price));
+  }
+  holdingsMv = holdingsMv.toDecimalPlaces(2);
+  // Official day-end file (the seed stands in for the custodian's statement), so the package carries a file and a fingerprint.
+  const stored = await storeFile({
+    name: `day-end-${account}-${date}.csv`,
+    mime: 'text/csv',
+    data: Buffer.from(`account,statement_date,currency,closing_cash,holdings_mv,trade_count
+${account},${date},${sec.currency},${(cash?.available ?? D(0)).plus('250.00').toFixed(2)},${holdingsMv.toFixed(2)},2
+`),
+    uploadedById: link.userId,
+  });
+  const pkg = await prisma.counterpartyDayEndPackage.create({
     data: {
       ref: 'DAY-DEMO1',
       counterpartyId: cp.id,
@@ -86,12 +107,14 @@ export async function seedRecon() {
       statementDate: new Date(`${date}T00:00:00.000Z`),
       currency: sec.currency,
       closingCash: (cash?.available ?? D(0)).plus('250.00'),
-      holdingsMv: D(0),
+      holdingsMv,
       tradeCount: 2,
+      fileId: stored.id,
       note: 'Demo seed: cash differs from the book by 250.00',
       submittedById: link.userId,
     },
   });
+  await prisma.counterpartyDayEndPackage.update({ where: { id: pkg.id }, data: { sha256: await packageHash(pkg, cp.ref) } });
   log(`mapped ${cp.ref}/${account} to ${portfolio.ref}; demo records for ${date}`);
 }
 

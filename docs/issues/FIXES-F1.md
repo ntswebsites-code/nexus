@@ -59,3 +59,12 @@ fixed 8 (ADA-015, 021, 022, 023, 026, 027, 030, 031), partial with other-group f
 ## Verification
 - `npx tsc --noEmit` clean in `backend/api` and `portals/admin-web`. No schema change, no migration.
 - `npm run build -w @matanho/admin-web` could not run in this worktree (no node_modules of its own; Turbopack rejects a symlinked root). Re-run it in the merged checkout.
+
+## Rework round
+- ADA-017 seed poster: `seed-cash.ts` now picks an active admin-portal user holding `cash.journal.approve` (not the maker); updateMany still limited to OPENING-BALANCE journals the seed made with maker == poster. Fills-do-not-move-cash half is F2 territory (orphaned, not done here).
+- ADA-031: formatting fixed; CMCL.VX holdings exist (seed-portfolio, as of 2026-08-26, before the record date) so entitlements are non-zero; marker match now ` Sample event.` suffix; legacy tidy skipped when NODE_ENV=production.
+- ADA-026: `isOverdue` uses `row.due.slice(0,10)`. Period-label inconsistency remains orphaned (F5 private-markets API label), not done.
+- ADA-027 / LPC-012 (DAY-DEMO1, `seed-recon.ts`): package now has a stored official file and sha256 (`packageHash`), holdings MV computed from positions/prices (was 0.00), prepared by a submitter-role custodian user so an approver persona can approve. Existing databases keep the old row (seed skips when DEMO- records exist).
+- F3 handoff: `window.confirm` in `recon/RunTab.tsx` and `recon/SourcesTab.tsx` replaced with `ConfirmDialog`.
+- ADA-022 (store allocation method on the call) and ADA-023 (data migration of existing CC-AGFI refs) left: schema/migration not essential.
+- Verify: tsc clean in admin-web; backend/api tsc only reports pre-existing `nextRef` errors in `seed-research-privates.ts` (F5 file); admin-web built with `next build --webpack` (Turbopack fails only on the worktree node_modules junction).

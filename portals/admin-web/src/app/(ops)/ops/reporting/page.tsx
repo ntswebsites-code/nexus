@@ -28,7 +28,7 @@ interface ReportingPack {
 const STATUSES = ['submitted', 'open', 'returned', 'accepted', 'all'];
 
 /** A pack still waiting on the company (open or returned) whose due date has passed. */
-const isOverdue = (row: ReportingPack) => (row.status === 'open' || row.status === 'returned') && !!row.due && row.due < new Date().toISOString().slice(0, 10);
+const isOverdue = (row: ReportingPack) => (row.status === 'open' || row.status === 'returned') && !!row.due && row.due.slice(0, 10) < new Date().toISOString().slice(0, 10);
 
 export default function ReportingPacksPage() {
   const canReview = useCan('research.edit');
