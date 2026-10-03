@@ -20,6 +20,7 @@ import {
   questionView,
   workspace,
 } from './company.service';
+import { requireFeature } from '../../middleware/feature';
 
 /** `/api/v1/private-markets` - investment-team review of portfolio-company reporting (SRD 8.1 / 8.4). */
 export const companyStaffRoutes = Router();
@@ -174,7 +175,7 @@ const questionSchema = z.object({
   role: z.string().trim().max(120).optional(),
 });
 
-companyStaffRoutes.post('/companies/:ref/questions', REVIEW, validateBody(questionSchema), async (req, res) => {
+companyStaffRoutes.post('/companies/:ref/questions', REVIEW, requireFeature('feature.investee_requests'), validateBody(questionSchema), async (req, res) => {
   const company = await companyByRef(param(req, 'ref'));
   const b = req.body as z.infer<typeof questionSchema>;
   const period = b.period ? await prisma.reportingPeriod.findUnique({ where: { companyId_period: { companyId: company.id, period: b.period } } }) : null;

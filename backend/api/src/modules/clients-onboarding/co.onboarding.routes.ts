@@ -197,16 +197,16 @@ async function decideRisk(req: import('express').Request, approve: boolean) {
   return c.id;
 }
 
-coOnboardingRoutes.post('/onboarding/risk/:id/approve', requirePermission('onboarding.approve'), validateBody(decideSchema), requireStepUp, async (req, res) => {
+coOnboardingRoutes.post('/onboarding/risk/:id/approve', requirePermission('onboarding.approve'), validateBody(decideSchema), requireStepUp, idempotent('clients-onboarding.post.onboarding_risk_id_approve', { required: false }), async (req, res) => {
   res.json(await workup(await decideRisk(req, true)));
 });
-coOnboardingRoutes.post('/onboarding/risk/:id/reject', requirePermission('onboarding.approve'), validateBody(decideSchema), async (req, res) => {
+coOnboardingRoutes.post('/onboarding/risk/:id/reject', requirePermission('onboarding.approve'), validateBody(decideSchema), idempotent('clients-onboarding.post.onboarding_risk_id_reject', { required: false }), async (req, res) => {
   res.json(await workup(await decideRisk(req, false)));
 });
 
 const assignSchema = z.object({ userId: z.string().uuid().nullable() }).strict();
 
-coOnboardingRoutes.post('/onboarding/cases/:id/assign', requirePermission('onboarding.manage'), validateBody(assignSchema), async (req, res) => {
+coOnboardingRoutes.post('/onboarding/cases/:id/assign', requirePermission('onboarding.manage'), validateBody(assignSchema), idempotent('clients-onboarding.post.onboarding_cases_id_assign', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   const staff = req.body.userId ? await assertStaff(req.body.userId) : null;
   await prisma.$transaction(async (tx) => {

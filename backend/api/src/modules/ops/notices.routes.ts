@@ -9,6 +9,7 @@ import { enqueue } from '../../lib/outbox';
 import { requirePermission } from '../../middleware/requireAuth';
 import { validateBody } from '../../middleware/validate';
 import { nextNoticeRef, noticeRecipients } from '../lp-portal/services/notices';
+import { idempotent } from '../../lib/idempotency';
 
 /**
  * `/api/v1/ops/notices` - LP notices authored by staff (SRD 5B notices, DEV-PLAN WS1).
@@ -104,7 +105,7 @@ opsNoticesRoutes.get('/:id', requirePermission('notices.view'), async (req, res)
   res.json({ notice: { ...noticeView(n), recipients } });
 });
 
-opsNoticesRoutes.post('/', requirePermission('notices.create'), validateBody(createSchema), async (req, res) => {
+opsNoticesRoutes.post('/', requirePermission('notices.create'), validateBody(createSchema), idempotent('ops.post.root', { required: false }), async (req, res) => {
   const b = req.body as z.infer<typeof createSchema>;
   if (b.targetType === 'FUND' && !(await prisma.fund.findUnique({ where: { id: b.fundId! }, select: { id: true } }))) {
     throw HttpError.badRequest('Validation failed', [{ path: 'fundId', message: 'Unknown fund' }]);
@@ -144,7 +145,7 @@ opsNoticesRoutes.post('/', requirePermission('notices.create'), validateBody(cre
   res.status(201).json({ notice: noticeView(notice) });
 });
 
-opsNoticesRoutes.post('/:id/submit', requirePermission('notices.create'), async (req, res) => {
+opsNoticesRoutes.post('/:id/submit', requirePermission('notices.create'), idempotent('ops.post.id_submit', { required: false }), async (req, res) => {
   const n = await findNotice(param(req, 'id'));
   const updated = await prisma.$transaction(async (tx) => {
     const u = await transition(tx, n, ['DRAFT'], 'PENDING_APPROVAL');
@@ -161,7 +162,7 @@ opsNoticesRoutes.post('/:id/submit', requirePermission('notices.create'), async 
   res.json({ notice: noticeView(updated) });
 });
 
-opsNoticesRoutes.post('/:id/approve', requirePermission('notices.publish'), async (req, res) => {
+opsNoticesRoutes.post('/:id/approve', requirePermission('notices.publish'), idempotent('ops.post.id_approve', { required: false }), async (req, res) => {
   const n = await findNotice(param(req, 'id'));
   if (n.createdById && n.createdById === req.user!.id) {
     throw HttpError.forbidden('Segregation of duties: a different person must approve this notice', 'segregation_of_duties');
@@ -174,7 +175,7 @@ opsNoticesRoutes.post('/:id/approve', requirePermission('notices.publish'), asyn
   res.json({ notice: noticeView(updated) });
 });
 
-opsNoticesRoutes.post('/:id/publish', requirePermission('notices.publish'), async (req, res) => {
+opsNoticesRoutes.post('/:id/publish', requirePermission('notices.publish'), idempotent('ops.post.id_publish', { required: false }), async (req, res) => {
   const n = await findNotice(param(req, 'id'));
   if (n.expiresAt && n.expiresAt.getTime() <= Date.now()) throw HttpError.conflict('Notice has already expired', 'invalid_state');
   const out = await prisma.$transaction(async (tx) => {
@@ -207,7 +208,7 @@ opsNoticesRoutes.post('/:id/publish', requirePermission('notices.publish'), asyn
   res.json({ notice: { ...noticeView(out.u), recipients: out.recipients } });
 });
 
-opsNoticesRoutes.post('/:id/withdraw', requirePermission('notices.publish'), validateBody(reasonSchema), async (req, res) => {
+opsNoticesRoutes.post('/:id/withdraw', requirePermission('notices.publish'), validateBody(reasonSchema), idempotent('ops.post.id_withdraw', { required: false }), async (req, res) => {
   const n = await findNotice(param(req, 'id'));
   const { reason } = req.body as z.infer<typeof reasonSchema>;
   const updated = await prisma.$transaction(async (tx) => {

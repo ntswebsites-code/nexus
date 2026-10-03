@@ -257,7 +257,7 @@ reconRoutes.get('/account-map', ...canView, async (_req, res) => {
 
 const mapSchema = z.object({ counterpartyId: id36, accountRef: z.string().trim().min(1).max(64), portfolioId: id36 }).strict();
 
-reconRoutes.put('/account-map', ...canManage, validateBody(mapSchema), async (req, res) => {
+reconRoutes.put('/account-map', ...canManage, validateBody(mapSchema), idempotent('recon.put.account_map', { required: false }), async (req, res) => {
   const b = req.body as z.infer<typeof mapSchema>;
   const cp = await resolveCounterparty(b.counterpartyId);
   const pf = await resolvePortfolio(b.portfolioId);
@@ -284,7 +284,7 @@ reconRoutes.put('/account-map', ...canManage, validateBody(mapSchema), async (re
   res.json({ data: { id: row.id, counterpartyId: row.counterpartyId, accountRef: row.accountRef, portfolioId: row.portfolioId } });
 });
 
-reconRoutes.delete('/account-map/:id', ...canManage, async (req, res) => {
+reconRoutes.delete('/account-map/:id', ...canManage, idempotent('recon.delete.account_map_id', { required: false }), async (req, res) => {
   const row = await prisma.reconAccountMap.findUnique({ where: { id: param(req, 'id') } });
   if (!row) throw HttpError.notFound('Mapping not found');
   await prisma.$transaction(async (tx) => {
@@ -535,7 +535,7 @@ function assertOpen(b: BreakRow, what: string) {
   }
 }
 
-reconRoutes.post('/breaks/:id/assign', ...canManage, validateBody(assignSchema), async (req, res) => {
+reconRoutes.post('/breaks/:id/assign', ...canManage, validateBody(assignSchema), idempotent('recon.post.breaks_id_assign', { required: false }), async (req, res) => {
   const b = await loadBreak(param(req, 'id'));
   assertOpen(b, 'assigned');
   expectVersion(req, b.version);
@@ -555,7 +555,7 @@ reconRoutes.post('/breaks/:id/assign', ...canManage, validateBody(assignSchema),
   await reply(req, res, b.id);
 });
 
-reconRoutes.post('/breaks/:id/investigate', ...canManage, validateBody(investigateSchema), async (req, res) => {
+reconRoutes.post('/breaks/:id/investigate', ...canManage, validateBody(investigateSchema), idempotent('recon.post.breaks_id_investigate', { required: false }), async (req, res) => {
   const b = await loadBreak(param(req, 'id'));
   assertOpen(b, 'investigated');
   expectVersion(req, b.version);
@@ -564,7 +564,7 @@ reconRoutes.post('/breaks/:id/investigate', ...canManage, validateBody(investiga
   await reply(req, res, b.id);
 });
 
-reconRoutes.post('/breaks/:id/resolve', ...canManage, validateBody(resolveSchema), async (req, res) => {
+reconRoutes.post('/breaks/:id/resolve', ...canManage, validateBody(resolveSchema), idempotent('recon.post.breaks_id_resolve', { required: false }), async (req, res) => {
   const b = await loadBreak(param(req, 'id'));
   assertOpen(b, 'resolved');
   expectVersion(req, b.version);
@@ -584,7 +584,7 @@ reconRoutes.post('/breaks/:id/resolve', ...canManage, validateBody(resolveSchema
   await reply(req, res, b.id);
 });
 
-reconRoutes.post('/breaks/:id/approve', ...canSignoff, requireStepUp, validateBody(approveSchema), async (req, res) => {
+reconRoutes.post('/breaks/:id/approve', ...canSignoff, requireStepUp, validateBody(approveSchema), idempotent('recon.post.breaks_id_approve', { required: false }), async (req, res) => {
   const b = await loadBreak(param(req, 'id'));
   if (b.status !== 'PENDING_CHECKER') throw HttpError.conflict(`Break ${b.ref} is ${b.status}; only a break pending the checker can be approved`, 'invalid_transition');
   assertSegregation(req.user!.id, b.makerId);
@@ -602,7 +602,7 @@ reconRoutes.post('/breaks/:id/approve', ...canSignoff, requireStepUp, validateBo
   await reply(req, res, b.id);
 });
 
-reconRoutes.post('/breaks/:id/reject', ...canSignoff, validateBody(rejectSchema), async (req, res) => {
+reconRoutes.post('/breaks/:id/reject', ...canSignoff, validateBody(rejectSchema), idempotent('recon.post.breaks_id_reject', { required: false }), async (req, res) => {
   const b = await loadBreak(param(req, 'id'));
   if (b.status !== 'PENDING_CHECKER') throw HttpError.conflict(`Break ${b.ref} is ${b.status}; only a break pending the checker can be returned`, 'invalid_transition');
   assertSegregation(req.user!.id, b.makerId);
@@ -740,7 +740,7 @@ reconRoutes.get('/signoffs/readiness', ...canView, validateQuery(readinessQuery)
   });
 });
 
-reconRoutes.post('/signoffs', ...canSignoff, requireStepUp, validateBody(signoffBody), async (req, res) => {
+reconRoutes.post('/signoffs', ...canSignoff, requireStepUp, validateBody(signoffBody), idempotent('recon.post.signoffs', { required: false }), async (req, res) => {
   const b = req.body as z.infer<typeof signoffBody>;
   if (b.asOfDate > todayIso()) throw HttpError.badRequest('Validation failed', [{ path: 'asOfDate', message: 'The date cannot be in the future' }]);
   const cp = await resolveCounterparty(b.counterpartyId);

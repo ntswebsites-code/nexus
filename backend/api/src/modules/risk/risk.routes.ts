@@ -193,7 +193,7 @@ riskRoutes.post('/limits', ...canManage, validateBody(limitCreate), idempotent('
   res.status(201).json({ data: (await limitViews([created]))[0] });
 });
 
-riskRoutes.patch('/limits/:id', ...canManage, validateBody(limitPatch), async (req, res) => {
+riskRoutes.patch('/limits/:id', ...canManage, validateBody(limitPatch), idempotent('risk.patch.limits_id', { required: false }), async (req, res) => {
   const l = await loadLimit(param(req, 'id'));
   expectVersion(req, l.version);
   if (l.status !== 'DRAFT') throw HttpError.conflict('Only a DRAFT limit can be edited. Retire it and create a new one.', 'limit_not_editable');
@@ -229,7 +229,7 @@ riskRoutes.patch('/limits/:id', ...canManage, validateBody(limitPatch), async (r
   res.json({ data: (await limitViews([updated]))[0] });
 });
 
-riskRoutes.delete('/limits/:id', ...canManage, async (req, res) => {
+riskRoutes.delete('/limits/:id', ...canManage, idempotent('risk.delete.limits_id', { required: false }), async (req, res) => {
   const l = await loadLimit(param(req, 'id'));
   if (l.status !== 'DRAFT') throw HttpError.conflict('Only a DRAFT limit can be deleted. Retire an active limit instead.', 'limit_not_deletable');
   await prisma.$transaction(async (tx) => {
@@ -266,12 +266,12 @@ async function transitionLimit(
   });
 }
 
-riskRoutes.post('/limits/:id/submit', ...canManage, async (req, res) => {
+riskRoutes.post('/limits/:id/submit', ...canManage, idempotent('risk.post.limits_id_submit', { required: false }), async (req, res) => {
   const l = await loadLimit(param(req, 'id'));
   res.json({ data: (await limitViews([await transitionLimit(req, l, 'DRAFT', 'PENDING_APPROVAL', 'risk.limit_submitted')]))[0] });
 });
 
-riskRoutes.post('/limits/:id/approve', ...canManage, requireStepUp, async (req, res) => {
+riskRoutes.post('/limits/:id/approve', ...canManage, requireStepUp, idempotent('risk.post.limits_id_approve', { required: false }), async (req, res) => {
   const l = await loadLimit(param(req, 'id'));
   if (l.status !== 'PENDING_APPROVAL') throw HttpError.conflict(`The limit is ${l.status}; it must be PENDING_APPROVAL to approve.`, 'invalid_state');
   if (l.makerId === req.user!.id) throw HttpError.forbidden('The person who created a limit cannot approve it (maker-checker)', 'sod_violation');
@@ -286,13 +286,13 @@ riskRoutes.post('/limits/:id/approve', ...canManage, requireStepUp, async (req, 
 
 const reasonBody = z.object({ reason: z.string().trim().min(3).max(500) }).strict();
 
-riskRoutes.post('/limits/:id/reject', ...canManage, validateBody(reasonBody), async (req, res) => {
+riskRoutes.post('/limits/:id/reject', ...canManage, validateBody(reasonBody), idempotent('risk.post.limits_id_reject', { required: false }), async (req, res) => {
   const l = await loadLimit(param(req, 'id'));
   const updated = await transitionLimit(req, l, 'PENDING_APPROVAL', 'DRAFT', 'risk.limit_rejected', {}, (req.body as z.infer<typeof reasonBody>).reason);
   res.json({ data: (await limitViews([updated]))[0] });
 });
 
-riskRoutes.post('/limits/:id/retire', ...canManage, validateBody(reasonBody), async (req, res) => {
+riskRoutes.post('/limits/:id/retire', ...canManage, validateBody(reasonBody), idempotent('risk.post.limits_id_retire', { required: false }), async (req, res) => {
   const l = await loadLimit(param(req, 'id'));
   const updated = await transitionLimit(req, l, 'ACTIVE', 'RETIRED', 'risk.limit_retired', { retiredAt: new Date() }, (req.body as z.infer<typeof reasonBody>).reason);
   res.json({ data: (await limitViews([updated]))[0] });
@@ -400,7 +400,7 @@ riskRoutes.get('/breaches', ...canView, validateQuery(breachQuery), async (req, 
 
 const ackBody = z.object({ note: z.string().trim().max(500).optional() }).strict();
 
-riskRoutes.post('/breaches/:id/acknowledge', ...canManage, validateBody(ackBody), async (req, res) => {
+riskRoutes.post('/breaches/:id/acknowledge', ...canManage, validateBody(ackBody), idempotent('risk.post.breaches_id_acknowledge', { required: false }), async (req, res) => {
   const b = await prisma.riskBreach.findUnique({ where: { id: param(req, 'id') }, include: { limit: true } });
   if (!b) throw HttpError.notFound('Breach not found');
   if (b.status !== 'OPEN') throw HttpError.conflict(`The breach is ${b.status}; only an OPEN breach can be acknowledged.`, 'invalid_state');
@@ -489,7 +489,7 @@ riskRoutes.get('/scenarios/:id', ...canView, async (req, res) => {
   res.json({ data: (await scenarioViews([await loadScenario(param(req, 'id'))]))[0] });
 });
 
-riskRoutes.patch('/scenarios/:id', ...canManage, validateBody(scenarioPatch), async (req, res) => {
+riskRoutes.patch('/scenarios/:id', ...canManage, validateBody(scenarioPatch), idempotent('risk.patch.scenarios_id', { required: false }), async (req, res) => {
   const s = await loadScenario(param(req, 'id'));
   if (s.preset) throw HttpError.conflict('Built-in preset scenarios cannot be edited. Save a copy under a new name.', 'preset_locked');
   const b = req.body as z.infer<typeof scenarioPatch>;
@@ -505,7 +505,7 @@ riskRoutes.patch('/scenarios/:id', ...canManage, validateBody(scenarioPatch), as
   res.json({ data: (await scenarioViews([updated]))[0] });
 });
 
-riskRoutes.delete('/scenarios/:id', ...canManage, async (req, res) => {
+riskRoutes.delete('/scenarios/:id', ...canManage, idempotent('risk.delete.scenarios_id', { required: false }), async (req, res) => {
   const s = await loadScenario(param(req, 'id'));
   if (s.preset) throw HttpError.conflict('Built-in preset scenarios cannot be deleted', 'preset_locked');
   if (await prisma.riskScenarioRun.count({ where: { scenarioId: s.id } })) {
@@ -706,7 +706,7 @@ const casePatch = z
   .partial()
   .strict();
 
-riskRoutes.patch('/cases/:id', ...canManage, validateBody(casePatch), async (req, res) => {
+riskRoutes.patch('/cases/:id', ...canManage, validateBody(casePatch), idempotent('risk.patch.cases_id', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   expectVersion(req, c.version);
   if (c.status === 'CLOSED') throw HttpError.conflict('A closed case cannot be edited', 'invalid_state');
@@ -729,7 +729,7 @@ riskRoutes.patch('/cases/:id', ...canManage, validateBody(casePatch), async (req
 
 const assignBody = z.object({ ownerUserId: id36 }).strict();
 
-riskRoutes.post('/cases/:id/assign', ...canManage, validateBody(assignBody), async (req, res) => {
+riskRoutes.post('/cases/:id/assign', ...canManage, validateBody(assignBody), idempotent('risk.post.cases_id_assign', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   if (c.status === 'CLOSED') throw HttpError.conflict('A closed case cannot be reassigned', 'invalid_state');
   const { ownerUserId } = req.body as z.infer<typeof assignBody>;
@@ -744,7 +744,7 @@ riskRoutes.post('/cases/:id/assign', ...canManage, validateBody(assignBody), asy
 
 const transitionBody = z.object({ status: z.enum(['INVESTIGATING', 'RESOLVED', 'CLOSED']), note: z.string().trim().max(2000).optional() }).strict();
 
-riskRoutes.post('/cases/:id/transition', ...canManage, validateBody(transitionBody), async (req, res) => {
+riskRoutes.post('/cases/:id/transition', ...canManage, validateBody(transitionBody), idempotent('risk.post.cases_id_transition', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   const b = req.body as z.infer<typeof transitionBody>;
   if (!NEXT[c.status]?.includes(b.status)) {
@@ -781,7 +781,7 @@ riskRoutes.post('/cases/:id/transition', ...canManage, validateBody(transitionBo
   res.json({ data: (await caseViews([updated]))[0] });
 });
 
-riskRoutes.delete('/cases/:id', ...canManage, async (req, res) => {
+riskRoutes.delete('/cases/:id', ...canManage, idempotent('risk.delete.cases_id', { required: false }), async (req, res) => {
   const c = await loadCase(param(req, 'id'));
   if (c.status !== 'OPEN' || c.sourceBreachId) throw HttpError.conflict('Only an OPEN, manually created case can be deleted', 'case_not_deletable');
   await prisma.$transaction(async (tx) => {

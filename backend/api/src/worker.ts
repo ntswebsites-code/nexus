@@ -1,6 +1,13 @@
+import type { Prisma } from '@prisma/client';
 import { config } from './config';
 import { prisma } from './lib/prisma';
 import { sendMail } from './lib/mailer';
+import { enqueue } from './lib/outbox';
+import { claimEvents } from './lib/outboxClaim';
+import { INSTANCE_ID, acquireJob, finishJob, releaseJob } from './lib/jobs';
+import { routeNotifications } from './modules/notifications/delivery';
+import { runDigests } from './modules/notifications/digest';
+import { runScheduledPurge } from './modules/admin-core/retention';
 import type { EmailPayload, NotifyPermissionPayload, NotifyUsersPayload } from './lib/outbox';
 import { runScreening } from './modules/kyc/screening';
 import { scanReportingReminders } from './modules/company/reminders';
@@ -21,14 +28,32 @@ async function notifyUsers(p: NotifyUsersPayload) {
     where: { id: { in: p.userIds }, isActive: true },
     select: { id: true, email: true },
   });
-  await prisma.notification.createMany({
-    data: users.map((u) => ({ userId: u.id, type: p.type, title: p.title, body: p.body ?? null, link: p.link ?? null })),
-  });
-  if (p.email) {
+  if (!users.length) return;
+  // Preferences, digest choice and platform switches decide the channel per recipient (GAP-008).
+  const routes = await routeNotifications(
+    users.map((u) => u.id),
+    p.type,
+    !!p.email,
+  );
+  await prisma.$transaction(async (tx) => {
+    const rows: Prisma.NotificationCreateManyInput[] = [];
     for (const u of users) {
-      await sendMail(u.email, p.title, `${p.body ?? p.title}${p.link ? `\n\n${p.link}` : ''}`);
+      const r = routes.get(u.id)!;
+      const emailStatus = r.email === 'now' ? 'SENT' : r.email === 'daily' ? 'DIGEST_DAILY' : r.email === 'weekly' ? 'DIGEST_WEEKLY' : p.email ? 'SUPPRESSED' : null;
+      const digested = r.email === 'daily' || r.email === 'weekly';
+      // A digested item whose bell is muted is stored already-read so it is available to the digest but never shows as unread.
+      if (r.inApp || digested) {
+        rows.push({ userId: u.id, type: p.type, title: p.title, body: p.body ?? null, link: p.link ?? null, emailStatus, readAt: r.inApp ? null : new Date() });
+      }
+      if (r.email === 'now') {
+        // Email goes through its own outbox event so a mail failure retries the email, not the notification.
+        await enqueue(tx, 'email.send', { to: u.email, subject: p.title, text: `${p.body ?? p.title}${p.link ? `
+
+${p.link}` : ''}` });
+      }
     }
-  }
+    if (rows.length) await tx.notification.createMany({ data: rows });
+  });
 }
 
 async function notifyPermission(p: NotifyPermissionPayload) {
@@ -49,49 +74,49 @@ const handlers: Record<string, (payload: unknown) => Promise<void>> = {
   'kyc.screening.requested': (p) => runScreening((p as { caseId: string }).caseId),
 };
 
-let lastReminderScan = 0;
-let lastReportScan = 0;
+const HOUR = 60 * 60 * 1000;
+/** Runs a scheduled job at most once per `everyMs` across every worker (job_locks row is the lease). */
+async function scheduled(name: string, everyMs: number, run: () => Promise<number | void>) {
+  if (!(await acquireJob(name, 5 * 60_000))) return;
+  try {
+    const n = await run();
+    await finishJob(name, { handled: n ?? 0 }, everyMs);
+    if (n) console.log(`[worker] ${name}: ${n}`);
+  } catch (error) {
+    console.error(`[worker] ${name} failed`, error);
+    await releaseJob(name);
+  }
+}
 
 async function tick() {
-  if (Date.now() - lastReportScan > 60 * 60 * 1000) {
-    lastReportScan = Date.now();
-    try {
-      const ran = await runDueSchedules();
-      if (ran) console.log(`[worker] scheduled reports generated: ${ran}`);
-    } catch (error) {
-      console.error('[worker] scheduled report run failed', error);
-      lastReportScan = 0;
-    }
+  await scheduled('reports.schedules', HOUR, () => runDueSchedules());
+  await scheduled('company.reminders', HOUR, () => scanReportingReminders());
+  try {
+    const purged = await runScheduledPurge(); // self-locking: once per day across workers
+    if (purged) console.log(`[worker] retention purge: ${JSON.stringify(purged)}`);
+  } catch (error) {
+    console.error('[worker] retention purge failed', error);
   }
-  if (Date.now() - lastReminderScan > 60 * 60 * 1000) {
-    lastReminderScan = Date.now();
-    try {
-      const sent = await scanReportingReminders();
-      if (sent) console.log(`[worker] reporting reminders queued: ${sent}`);
-    } catch (error) {
-      console.error('[worker] reporting reminder scan failed', error);
-      lastReminderScan = 0;
-    }
+  try {
+    const sent = await runDigests();
+    if (sent) console.log(`[worker] digests queued: ${sent}`);
+  } catch (error) {
+    console.error('[worker] digest run failed', error);
   }
-  const events = await prisma.outboxEvent.findMany({
-    where: { publishedAt: null, attempts: { lt: MAX_ATTEMPTS } },
-    orderBy: { id: 'asc' },
-    take: BATCH,
-  });
+  const events = await claimEvents(INSTANCE_ID, BATCH);
   for (const event of events) {
-    // Exponential back-off: skip until 2^attempts seconds after creation have passed.
-    if (event.attempts > 0 && Date.now() - event.createdAt.getTime() < 2 ** event.attempts * 1000) continue;
     const handler = handlers[event.type];
     try {
       if (!handler) throw new Error(`No handler for ${event.type}`);
       await handler(event.payload);
-      await prisma.outboxEvent.update({ where: { id: event.id }, data: { publishedAt: new Date() } });
+      await prisma.outboxEvent.update({ where: { id: event.id }, data: { publishedAt: new Date(), claimedBy: null, claimedAt: null } });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       console.error(`[worker] event ${event.id} (${event.type}) failed: ${message}`);
+      // Exponential back-off: the next claim is 2^attempts seconds away.
       await prisma.outboxEvent.update({
         where: { id: event.id },
-        data: { attempts: { increment: 1 }, lastError: message.slice(0, 2000) },
+        data: { attempts: { increment: 1 }, lastError: message.slice(0, 2000), claimedBy: null, claimedAt: null, nextAttemptAt: new Date(Date.now() + 2 ** (event.attempts + 1) * 1000) },
       });
     }
   }
@@ -111,6 +136,8 @@ async function main() {
     }
     if (handled < BATCH) await new Promise((r) => setTimeout(r, POLL_MS));
   }
+  // Hand back any claim this instance still holds so another worker can take the events at once.
+  await prisma.outboxEvent.updateMany({ where: { publishedAt: null, claimedBy: INSTANCE_ID }, data: { claimedBy: null, claimedAt: null } }).catch(() => undefined);
   await prisma.$disconnect();
   process.exit(0);
 }

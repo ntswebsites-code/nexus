@@ -320,7 +320,7 @@ privateMarketsRoutes.get('/funds/:id', ...canView, async (req, res) => {
   res.json({ data: { ...fundView(f, active), totals: perfView(total), totalsCurrency: f.currency, commitmentList: v.rows } });
 });
 
-privateMarketsRoutes.patch('/funds/:id', ...canManage, validateBody(fundPatch), async (req, res) => {
+privateMarketsRoutes.patch('/funds/:id', ...canManage, validateBody(fundPatch), idempotent('private-markets.patch.funds_id', { required: false }), async (req, res) => {
   const f = await loadFund(param(req, 'id'));
   const b = req.body as z.infer<typeof fundPatch>;
   if (b.status && b.status !== 'ACTIVE') {
@@ -453,7 +453,7 @@ privateMarketsRoutes.get('/jcurve', ...canView, validateQuery(z.object({ portfol
   res.json({ data: { currency: REPORT_CCY, fxMissing: missing, points: points.map((p) => ({ date: isoDay(p.date), calls: f2(p.calls), distributions: f2(p.distributions), netCash: f2(p.netCash), nav: f2(p.nav), netValue: f2(p.netValue) })) } });
 });
 
-privateMarketsRoutes.post('/commitments/:id/cancel', ...canManage, validateBody(reasonSchema), async (req, res) => {
+privateMarketsRoutes.post('/commitments/:id/cancel', ...canManage, validateBody(reasonSchema), idempotent('private-markets.post.commitments_id_cancel', { required: false }), async (req, res) => {
   const c = await loadCommitment(param(req, 'id'));
   if (c.status !== 'ACTIVE') throw invalidState(`${c.ref} is ${c.status}`);
   const used = await prisma.pmCashflow.count({ where: { commitmentId: c.id, status: { in: ['NOTICED', 'PAID'] } } });
@@ -515,7 +515,7 @@ privateMarketsRoutes.post('/cashflows/:id/pay', ...canManage, validateBody(z.obj
   res.json({ data: flowView(await loadFlow(f.id), usr, posted.get(f.id)) });
 });
 
-privateMarketsRoutes.post('/cashflows/:id/cancel', ...canManage, validateBody(reasonSchema), async (req, res) => {
+privateMarketsRoutes.post('/cashflows/:id/cancel', ...canManage, validateBody(reasonSchema), idempotent('private-markets.post.cashflows_id_cancel', { required: false }), async (req, res) => {
   const f = await loadFlow(param(req, 'id'));
   if (f.status !== 'NOTICED') throw invalidState(`${f.ref} is ${f.status}; only a noticed cashflow can be cancelled`);
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -647,7 +647,7 @@ privateMarketsRoutes.post('/marks/:id/submit', ...canManage, idempotent('pm.mark
   await respondMark(res, m.id);
 });
 
-privateMarketsRoutes.post('/marks/:id/return', ...canApprove, validateBody(reasonSchema), async (req, res) => {
+privateMarketsRoutes.post('/marks/:id/return', ...canApprove, validateBody(reasonSchema), idempotent('private-markets.post.marks_id_return', { required: false }), async (req, res) => {
   const m = await loadMark(param(req, 'id'));
   if (m.status !== 'PENDING_APPROVAL') throw invalidState(`${m.ref} is ${m.status}; only a pending mark can be returned`);
   if (m.makerId === req.user!.id) throw sod('Return a mark you did not prepare');
@@ -659,7 +659,7 @@ privateMarketsRoutes.post('/marks/:id/return', ...canApprove, validateBody(reaso
   await respondMark(res, m.id);
 });
 
-privateMarketsRoutes.post('/marks/:id/reject', ...canApprove, validateBody(reasonSchema), async (req, res) => {
+privateMarketsRoutes.post('/marks/:id/reject', ...canApprove, validateBody(reasonSchema), idempotent('private-markets.post.marks_id_reject', { required: false }), async (req, res) => {
   const m = await loadMark(param(req, 'id'));
   if (m.status !== 'PENDING_APPROVAL') throw invalidState(`${m.ref} is ${m.status}; only a pending mark can be rejected`);
   if (m.makerId === req.user!.id) throw sod('You cannot reject a mark you prepared');

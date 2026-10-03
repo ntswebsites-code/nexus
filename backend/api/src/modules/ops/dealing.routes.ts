@@ -113,7 +113,7 @@ async function transition(
   });
 }
 
-opsDealingRoutes.post('/dealing/requests/:id/accept', requirePermission('dealing.process'), async (req, res) => {
+opsDealingRoutes.post('/dealing/requests/:id/accept', requirePermission('dealing.process'), idempotent('ops.post.dealing_requests_id_accept', { required: false }), async (req, res) => {
   const r = await load(param(req, 'id'));
   if (r.client.dealingHold) throw HttpError.conflict(`The client is on a dealing hold${r.client.holdReason ? `: ${r.client.holdReason}` : ''}`, 'compliance_hold');
   const to = r.requestType === 'SUBSCRIPTION' ? 'AWAITING_FUNDS' : 'UNDER_REVIEW';
@@ -123,7 +123,7 @@ opsDealingRoutes.post('/dealing/requests/:id/accept', requirePermission('dealing
 
 const reasonSchema = z.object({ reason: z.string().trim().min(3).max(255) });
 
-opsDealingRoutes.post('/dealing/requests/:id/reject', requireAnyPermission('dealing.process', 'dealing.approve'), validateBody(reasonSchema), async (req, res) => {
+opsDealingRoutes.post('/dealing/requests/:id/reject', requireAnyPermission('dealing.process', 'dealing.approve'), validateBody(reasonSchema), idempotent('ops.post.dealing_requests_id_reject', { required: false }), async (req, res) => {
   const r = await load(param(req, 'id'));
   const { reason } = req.body as z.infer<typeof reasonSchema>;
   await transition(r, ['SUBMITTED', 'COMPLIANCE_REVIEW', 'AWAITING_FUNDS', 'UNDER_REVIEW', 'AWAITING_NAV'], 'REJECTED', { rejectionReason: reason }, { action: 'dealing.rejected', actorReq: req, reason });
@@ -132,7 +132,7 @@ opsDealingRoutes.post('/dealing/requests/:id/reject', requireAnyPermission('deal
 
 const processSchema = z.object({ navPerUnit: optionalMoneyInput.optional(), notes: z.string().trim().max(2000).optional() });
 
-opsDealingRoutes.post('/dealing/requests/:id/process', requirePermission('dealing.process'), validateBody(processSchema), async (req, res) => {
+opsDealingRoutes.post('/dealing/requests/:id/process', requirePermission('dealing.process'), validateBody(processSchema), idempotent('ops.post.dealing_requests_id_process', { required: false }), async (req, res) => {
   const r = await load(param(req, 'id'));
   const b = req.body as z.infer<typeof processSchema>;
   const nav = b.navPerUnit ? new D(b.navPerUnit) : r.fund.navPerUnit;

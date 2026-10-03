@@ -185,10 +185,13 @@ model Notification {
   link      String?   @db.VarChar(500)
   readAt    DateTime? @map("read_at")
   createdAt DateTime  @default(now()) @map("created_at")
+  /// Email routing outcome (WP-4): SENT, DIGEST_DAILY, DIGEST_WEEKLY, DIGESTED, SUPPRESSED; null when no email was requested.
+  emailStatus String? @map("email_status") @db.VarChar(16)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, readAt])
+  @@index([userId, emailStatus])
   @@map("notifications")
 }
 
@@ -235,6 +238,10 @@ model OutboxEvent {
   publishedAt DateTime? @map("published_at")
   attempts    Int       @default(0)
   lastError   String?   @map("last_error") @db.Text
+  /// Row claiming (WP-4): the worker instance holding the row and when it took it; stale claims are re-taken.
+  claimedBy     String?   @map("claimed_by") @db.VarChar(64)
+  claimedAt     DateTime? @map("claimed_at") @db.DateTime(3)
+  nextAttemptAt DateTime? @map("next_attempt_at") @db.DateTime(3)
 
   @@index([publishedAt, id])
   @@map("outbox_events")
@@ -4235,3 +4242,52 @@ model OpsTaskComment {
   @@map("ops_task_comments")
 }
 // ---- end ReconOps ----
+
+// ---- Admin Shell & Security ----
+/// Permission codes created by administrators beyond the built-in catalogue (WP-4).
+model CustomPermission {
+  code        String   @id @db.VarChar(80)
+  label       String   @db.VarChar(120)
+  description String?  @db.VarChar(500)
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("custom_permissions")
+}
+
+/// One digest email per user per period (period = YYYY-MM-DD for daily, YYYY-Www for weekly); the primary key makes the send exactly-once across workers.
+model NotificationDigestLog {
+  userId    String   @map("user_id") @db.Char(36)
+  period    String   @db.VarChar(12)
+  itemCount Int      @map("item_count")
+  sentAt    DateTime @default(now()) @map("sent_at")
+
+  @@id([userId, period])
+  @@map("notification_digest_logs")
+}
+
+/// Cooperative lock for scheduled jobs so two workers never run the same job at once.
+model JobLock {
+  name        String    @id @db.VarChar(64)
+  lockedBy    String    @map("locked_by") @db.VarChar(64)
+  lockedUntil DateTime  @map("locked_until") @db.DateTime(3)
+  lastRunAt   DateTime? @map("last_run_at") @db.DateTime(3)
+  lastResult  Json?     @map("last_result")
+
+  @@map("job_locks")
+}
+
+/// Result of each retention purge execution.
+model PurgeRun {
+  id          String    @id @default(uuid()) @db.Char(36)
+  startedAt   DateTime  @default(now()) @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  dryRun      Boolean   @default(false) @map("dry_run")
+  result      Json?
+  triggeredBy String?   @map("triggered_by") @db.VarChar(64)
+
+  @@index([startedAt])
+  @@map("purge_runs")
+}
+
+// ---- end Admin Shell & Security ----

@@ -8,6 +8,8 @@ import { idempotent } from '../../lib/idempotency';
 import { enqueue } from '../../lib/outbox';
 import { nextRef, refFormats } from '../../lib/refs';
 import { getPolicies } from '../../lib/policy';
+import { clearSettingCache, setting } from '../../lib/settings';
+import { runRetentionPurge } from './retention';
 import { param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
@@ -15,6 +17,7 @@ import { assertSegregation, assertUpdated, audit, notifyPermission } from '../op
 import {
   MONETARY,
   permissionArea,
+  PRIVILEGED_PERMISSIONS,
   privilegedPermissionAdds,
   privilegedRoleAdds,
   SETTINGS,
@@ -80,6 +83,11 @@ adminCoreRoutes.get('/rbac/matrix', RBAC, async (_req, res) => {
     areas: [...areas.entries()].map(([area, permissions]) => ({ area, permissions })),
     privilegedRule: 'Granting a privileged permission, or the System Administrator role, needs an independent checker.',
   });
+});
+
+/** The SoD catalogue itself: the blocklist platform administrators may never hold and every conflicting permission pair. */
+adminCoreRoutes.get('/sod/rules', RBAC, async (_req, res) => {
+  res.json({ data: SOD_RULES, blocklist: MONETARY, privileged: [...PRIVILEGED_PERMISSIONS].sort() });
 });
 
 adminCoreRoutes.get('/rbac/sod', RBAC, async (_req, res) => {
@@ -631,6 +639,7 @@ adminCoreRoutes.put('/settings/:key', SETTINGS_PERM, idempotent('setting.change'
     await tx.platformSettingChange.create({ data: { key: def.key, version, before: before as Prisma.InputJsonValue, after: v.value, reason: b.reason, changedBy: req.user!.id } });
     await writeAudit(tx, audit(req), { action: 'platform_setting.changed', objectType: 'platform_setting', objectId: def.key, before: { value: before, version: version - 1 }, after: { value: v.value, version }, reason: b.reason });
   });
+  clearSettingCache(def.key);
   res.json({ data: (await settingRows()).find((s) => s.key === def.key) });
 });
 
@@ -694,11 +703,29 @@ adminCoreRoutes.get('/audit/events/:id', AUDIT, async (req, res) => {
   });
 });
 
+// ================================================================ retention
+
+adminCoreRoutes.get('/retention/runs', SETTINGS_PERM, async (_req, res) => {
+  const [runs, lock] = await Promise.all([prisma.purgeRun.findMany({ orderBy: { startedAt: 'desc' }, take: 20 }), prisma.jobLock.findUnique({ where: { name: 'retention.purge' } })]);
+  res.json({
+    data: runs.map((r) => ({ id: r.id, startedAt: r.startedAt.toISOString(), finishedAt: r.finishedAt?.toISOString() ?? null, dryRun: r.dryRun, triggeredBy: r.triggeredBy, result: r.result })),
+    lastScheduledRunAt: lock?.lastRunAt?.toISOString() ?? null,
+  });
+});
+
+/** Runs the purge now (default dry run: counts only). A live run is audited and needs a fresh authenticator code. */
+adminCoreRoutes.post('/retention/run', SETTINGS_PERM, validateBody(z.object({ dryRun: z.boolean().default(true) })), async (req, res) => {
+  const dryRun = (req.body as { dryRun: boolean }).dryRun;
+  if (!dryRun) await stepUp(req, res);
+  const result = await runRetentionPurge({ dryRun, triggeredBy: req.user!.id });
+  await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: dryRun ? 'retention.dry_run' : 'retention.purged', objectType: 'retention', objectId: 'platform', after: result as unknown as Prisma.InputJsonValue }));
+  res.json({ data: result });
+});
+
 // ================================================================ copilot
 
 async function copilotEnabled() {
-  const row = await prisma.platformSetting.findUnique({ where: { key: 'feature.copilot' } });
-  return row ? row.value !== false : true;
+  return setting<boolean>('feature.copilot');
 }
 
 adminCoreRoutes.get('/copilot/suggestions', COPILOT, async (_req, res) => {

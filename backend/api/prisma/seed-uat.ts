@@ -790,6 +790,7 @@ try {
   await (await import('./seed-cash')).seedCash();
   await (await import('./seed-wiring')).seedWiring();
   await (await import('./seed-admin-core')).seedAdminCore();
+  await (await import('./seed-admin-shell')).seedAdminShell();
   await (await import('./seed-recon')).seedRecon();
   await (await import('./seed-recon-ops')).seedReconOps();
   await (await import('./seed-ibor-performance')).seedIborPerformance();

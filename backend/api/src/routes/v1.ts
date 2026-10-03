@@ -37,9 +37,14 @@ import { regulatoryRoutes } from '../modules/regulatory';
 import { dataRoutes } from '../modules/data-fabric';
 import { modelRoutes } from '../modules/model-governance';
 import { adminCoreRoutes } from '../modules/admin-core';
+import { shellRoutes } from '../modules/search';
+import { STAFF_LIST_PREFIXES, paginateData } from '../middleware/paginate';
 
 /** `/api/v1` - SRD section 11 domain API. */
 export const v1Router = Router();
+
+// page/pageSize/total list envelope for staff endpoints (see middleware/paginate.ts).
+for (const prefix of STAFF_LIST_PREFIXES) v1Router.use(prefix, paginateData);
 
 v1Router.use('/platform', platformRoutes);
 v1Router.use('/lp-portal', lpPortalRoutes);
@@ -86,6 +91,8 @@ v1Router.use('/data', dataRoutes);
 v1Router.use('/model-governance', modelRoutes);
 // Admin Core: /admin-core/* (RBAC change requests, access reviews, SoD, platform settings, audit facets, Copilot).
 v1Router.use('/admin-core', adminCoreRoutes);
+// Admin shell: /shell/* (global search, record detail, profile, password change, sessions, role focus).
+v1Router.use('/shell', shellRoutes);
 v1Router.use('/auth', identityRoutes);
 v1Router.use('/', filesRoutes);
 v1Router.use('/notifications', notificationsRoutes);

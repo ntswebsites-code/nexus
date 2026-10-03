@@ -240,7 +240,7 @@ reportsRoutes.post('/schedules', ...canCreate, validateBody(scheduleBody), idemp
   res.status(201).json({ data: (await scheduleViews([row]))[0] });
 });
 
-reportsRoutes.patch('/schedules/:id', ...canCreate, validateBody(schedulePatch), async (req, res) => {
+reportsRoutes.patch('/schedules/:id', ...canCreate, validateBody(schedulePatch), idempotent('reports.patch.schedules_id', { required: false }), async (req, res) => {
   const id = param(req, 'id');
   const cur = await prisma.reportSchedule.findUnique({ where: { id }, include: { definition: true } });
   if (!cur) throw HttpError.notFound('Schedule not found');

@@ -113,7 +113,7 @@ dataRoutes.post('/sources', ...canManage, validateBody(sourceBody), idempotent('
   res.status(201).json({ data: (await sourceViews([row]))[0] });
 });
 
-dataRoutes.patch('/sources/:id', ...canManage, validateBody(sourcePatch), async (req, res) => {
+dataRoutes.patch('/sources/:id', ...canManage, validateBody(sourcePatch), idempotent('data-fabric.patch.sources_id', { required: false }), async (req, res) => {
   const s = await loadSource(param(req, 'id'));
   const b = req.body as z.infer<typeof sourcePatch>;
   const row = await prisma.$transaction(async (tx) => {
@@ -244,7 +244,7 @@ dataRoutes.post('/rules', ...canManage, validateBody(ruleBody), idempotent('data
   res.status(201).json({ data: (await ruleViews([row]))[0] });
 });
 
-dataRoutes.patch('/rules/:id', ...canManage, validateBody(rulePatch), async (req, res) => {
+dataRoutes.patch('/rules/:id', ...canManage, validateBody(rulePatch), idempotent('data-fabric.patch.rules_id', { required: false }), async (req, res) => {
   const r = await loadRule(param(req, 'id'));
   const b = req.body as z.infer<typeof rulePatch>;
   if (b.params) {
@@ -356,7 +356,7 @@ async function transition(req: Request, to: 'ACKNOWLEDGED' | 'RESOLVED' | 'WAIVE
   });
   return { id: e.id, status: to };
 }
-dataRoutes.post('/exceptions/:id/acknowledge', ...canManage, async (req, res) => res.json({ data: await transition(req, 'ACKNOWLEDGED', ['OPEN'], false) }));
+dataRoutes.post('/exceptions/:id/acknowledge', ...canManage, idempotent('data-fabric.post.exceptions_id_acknowledge', { required: false }), async (req, res) => res.json({ data: await transition(req, 'ACKNOWLEDGED', ['OPEN'], false) }));
 dataRoutes.post('/exceptions/:id/resolve', ...canManage, validateBody(reasonSchema), async (req, res) => res.json({ data: await transition(req, 'RESOLVED', ['OPEN', 'ACKNOWLEDGED'], true) }));
 dataRoutes.post('/exceptions/:id/waive', ...canManage, validateBody(reasonSchema), async (req, res) => res.json({ data: await transition(req, 'WAIVED', ['OPEN', 'ACKNOWLEDGED'], true) }));
 

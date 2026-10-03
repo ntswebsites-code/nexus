@@ -74,7 +74,7 @@ opsTermSheetRoutes.get('/', VIEW, async (req, res) => {
   res.json({ data: rows.map((r) => staffTermSheetView(r, extras.get(r.id))) });
 });
 
-opsTermSheetRoutes.post('/', CREATE, validateBody(createTermSheetSchema), async (req, res) => {
+opsTermSheetRoutes.post('/', CREATE, validateBody(createTermSheetSchema), idempotent('ops.post.root', { required: false }), async (req, res) => {
   const ts = await createTermSheet(actor(req), req.body as z.infer<typeof createTermSheetSchema>);
   res.status(201).json({ data: await view(ts.id) });
 });
@@ -83,13 +83,13 @@ opsTermSheetRoutes.get('/:id', VIEW, async (req, res) => {
   res.json({ data: await view(param(req, 'id')) });
 });
 
-opsTermSheetRoutes.patch('/:id', CREATE, validateBody(updateTermSheetSchema), async (req, res) => {
+opsTermSheetRoutes.patch('/:id', CREATE, validateBody(updateTermSheetSchema), idempotent('ops.patch.id', { required: false }), async (req, res) => {
   const ts = await loadTermSheet(param(req, 'id'));
   await updateDraft(actor(req), ts, req.body as z.infer<typeof updateTermSheetSchema>);
   res.json({ data: await view(ts.id) });
 });
 
-opsTermSheetRoutes.post('/:id/submit', CREATE, async (req, res) => {
+opsTermSheetRoutes.post('/:id/submit', CREATE, idempotent('ops.post.id_submit', { required: false }), async (req, res) => {
   const ts = await loadTermSheet(param(req, 'id'));
   await submitForApproval(actor(req), ts);
   res.json({ data: await view(ts.id) });
@@ -135,7 +135,7 @@ opsTermSheetRoutes.post('/:id/execute', APPROVE, requireStepUp, idempotent('term
   res.json({ data: await view(ts.id) });
 });
 
-opsTermSheetRoutes.post('/:id/withdraw', ISSUE, requireStepUp, validateBody(reasonSchema), async (req, res) => {
+opsTermSheetRoutes.post('/:id/withdraw', ISSUE, requireStepUp, validateBody(reasonSchema), idempotent('ops.post.id_withdraw', { required: false }), async (req, res) => {
   const ts = await loadTermSheet(param(req, 'id'));
   await withdraw(actor(req), ts, (req.body as z.infer<typeof reasonSchema>).reason);
   res.json({ data: await view(ts.id) });

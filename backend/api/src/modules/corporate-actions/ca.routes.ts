@@ -259,6 +259,8 @@ corporateActionsRoutes.post('/events', ...canWrite, validateBody(createSchema), 
 });
 
 corporateActionsRoutes.patch('/events/:id', ...canWrite, validateBody(patchSchema), async (req, res) => {
+=======
+corporateActionsRoutes.patch('/events/:id', ...canView, validateBody(patchSchema), idempotent('corporate-actions.patch.events_id', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'edited');
   if (e.status !== 'ANNOUNCED') throw HttpError.conflict(`${e.ref} is ${e.status}; only an ANNOUNCED action can be edited`, 'invalid_state');
@@ -344,6 +346,8 @@ corporateActionsRoutes.post('/events/:id/entitlements/calculate', ...canWrite, i
 });
 
 corporateActionsRoutes.put('/events/:id/elections', ...canWrite, validateBody(electionSchema), async (req, res) => {
+=======
+corporateActionsRoutes.put('/events/:id/elections', ...canView, validateBody(electionSchema), idempotent('corporate-actions.put.events_id_elections', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'changed');
   const opts = ELECTION_OPTIONS[e.type as CaType];

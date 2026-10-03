@@ -80,7 +80,7 @@ const createSchema = z.object({
   wire: wireInput.optional(),
 });
 
-opsCapitalRoutes.post('/capital-calls', requirePermission('capital.create'), validateBody(createSchema), async (req, res) => {
+opsCapitalRoutes.post('/capital-calls', requirePermission('capital.create'), validateBody(createSchema), idempotent('ops.post.capital_calls', { required: false }), async (req, res) => {
   const b = req.body as z.infer<typeof createSchema>;
   if (b.dueDate < b.callDate) throw HttpError.badRequest('The due date must be on or after the call date');
   const fund = await prisma.fund.findFirst({ where: { OR: [{ id: b.fundId }, { ref: b.fundId }] } });
@@ -142,7 +142,7 @@ opsCapitalRoutes.get('/capital-calls/:id', requirePermission('capital.view'), as
   res.json({ data: await staffCallView(await loadCall(param(req, 'id'))) });
 });
 
-opsCapitalRoutes.post('/capital-calls/:id/submit', requirePermission('capital.create'), async (req, res) => {
+opsCapitalRoutes.post('/capital-calls/:id/submit', requirePermission('capital.create'), idempotent('ops.post.capital_calls_id_submit', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
   if (c.status !== 'DRAFT') badState('The call', c.status, 'submitted');
   await prisma.$transaction(async (tx) => {
@@ -179,7 +179,7 @@ opsCapitalRoutes.post('/capital-calls/:id/approve', requirePermission('capital.a
 
 const reasonSchema = z.object({ reason: z.string().trim().min(3).max(255) });
 
-opsCapitalRoutes.post('/capital-calls/:id/reject', requirePermission('capital.approve'), validateBody(reasonSchema), async (req, res) => {
+opsCapitalRoutes.post('/capital-calls/:id/reject', requirePermission('capital.approve'), validateBody(reasonSchema), idempotent('ops.post.capital_calls_id_reject', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
   if (c.status !== 'PENDING_APPROVAL') badState('The call', c.status, 'rejected');
   const { reason } = req.body as z.infer<typeof reasonSchema>;

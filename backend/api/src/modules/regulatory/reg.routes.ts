@@ -148,7 +148,7 @@ regulatoryRoutes.get('/calendar', ...canView, async (_req, res) => {
 });
 
 /** Opens a DRAFT filing for the last closed period of every active template that does not already have one. Idempotent. */
-regulatoryRoutes.post('/calendar/generate', ...canPrepare, async (req, res) => {
+regulatoryRoutes.post('/calendar/generate', ...canPrepare, idempotent('regulatory.post.calendar_generate', { required: false }), async (req, res) => {
   await ensureTemplates();
   const today = startOfDay(new Date());
   const templates = await prisma.regTemplate.findMany({ where: { active: true } });
@@ -232,7 +232,7 @@ regulatoryRoutes.post('/filings/:id/populate', ...canPrepare, async (req, res) =
 });
 
 const patchBody = z.object({ notes: z.string().trim().max(1000) }).strict();
-regulatoryRoutes.patch('/filings/:id', ...canPrepare, validateBody(patchBody), async (req, res) => {
+regulatoryRoutes.patch('/filings/:id', ...canPrepare, validateBody(patchBody), idempotent('regulatory.patch.filings_id', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
   if (!canMove('edit', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status} and cannot be edited`, 'invalid_state');
   const notes = (req.body as z.infer<typeof patchBody>).notes;
@@ -245,7 +245,7 @@ regulatoryRoutes.patch('/filings/:id', ...canPrepare, validateBody(patchBody), a
 
 // ---------------------------------------------------------------- evidence
 
-regulatoryRoutes.post('/filings/:id/evidence', ...canPrepare, uploadFiles('file', 1), async (req, res) => {
+regulatoryRoutes.post('/filings/:id/evidence', ...canPrepare, uploadFiles('file', 1), idempotent('regulatory.post.filings_id_evidence', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
   if (!canMove('edit', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; evidence can only be attached while DRAFT or RETURNED`, 'invalid_state');
   const file = req.file;
@@ -261,7 +261,7 @@ regulatoryRoutes.post('/filings/:id/evidence', ...canPrepare, uploadFiles('file'
   res.status(201).json({ data: { id: row.id, name: row.name, sha256: row.sha256 } });
 });
 
-regulatoryRoutes.delete('/filings/:id/evidence/:eid', ...canPrepare, async (req, res) => {
+regulatoryRoutes.delete('/filings/:id/evidence/:eid', ...canPrepare, idempotent('regulatory.delete.filings_id_evidence_eid', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
   if (!canMove('edit', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; evidence can only be removed while DRAFT or RETURNED`, 'invalid_state');
   const e = f.evidence.find((x) => x.id === param(req, 'eid'));
@@ -325,7 +325,7 @@ regulatoryRoutes.post('/filings/:id/approve', ...canApprove, requireStepUp, idem
   res.json({ data: await detail(await load(f.id), req.user!) });
 });
 
-regulatoryRoutes.post('/filings/:id/return', ...canApprove, validateBody(reasonSchema), async (req, res) => {
+regulatoryRoutes.post('/filings/:id/return', ...canApprove, validateBody(reasonSchema), idempotent('regulatory.post.filings_id_return', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
   if (!canMove('return', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; only IN_REVIEW or APPROVED filings can be returned`, 'invalid_state');
   if (f.makerId === req.user!.id) throw sod('You prepared this filing; withdraw it by editing instead of returning it');
@@ -351,7 +351,7 @@ regulatoryRoutes.post('/filings/:id/submit', ...canSubmit, requireStepUp, valida
   res.json({ data: await detail(await load(f.id), req.user!) });
 });
 
-regulatoryRoutes.post('/filings/:id/waive', ...canApprove, validateBody(reasonSchema), async (req, res) => {
+regulatoryRoutes.post('/filings/:id/waive', ...canApprove, validateBody(reasonSchema), idempotent('regulatory.post.filings_id_waive', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
   if (!canMove('waive', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; only DRAFT or RETURNED filings can be waived`, 'invalid_state');
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;

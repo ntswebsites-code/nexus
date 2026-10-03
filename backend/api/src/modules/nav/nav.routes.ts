@@ -190,7 +190,7 @@ navRoutes.post('/runs/:id/recalculate', ...canView, idempotent('nav.recalculate'
 
 // ================================================================ inputs and exceptions
 
-navRoutes.patch('/runs/:id/inputs', ...canView, validateBody(patchSchema), async (req, res) => {
+navRoutes.patch('/runs/:id/inputs', ...canView, validateBody(patchSchema), idempotent('nav.patch.runs_id_inputs', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   assertNotImmutable(r, 'edited');
   if (!(EDITABLE as readonly string[]).includes(r.status)) throw HttpError.conflict(`${r.ref} is ${r.status}; inputs can only be edited in DRAFT or EXCEPTIONS_OPEN`, 'run_not_editable');
@@ -237,7 +237,7 @@ navRoutes.patch('/runs/:id/inputs', ...canView, validateBody(patchSchema), async
   await respond(res, req, r.id);
 });
 
-navRoutes.patch('/runs/:id/exceptions/:exId', ...canView, validateBody(resolveSchema), async (req, res) => {
+navRoutes.patch('/runs/:id/exceptions/:exId', ...canView, validateBody(resolveSchema), idempotent('nav.patch.runs_id_exceptions_exid', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   assertNotImmutable(r, 'changed');
   if (!(EDITABLE as readonly string[]).includes(r.status)) throw HttpError.conflict(`${r.ref} is ${r.status}; exceptions can only be resolved in DRAFT or EXCEPTIONS_OPEN`, 'run_not_editable');

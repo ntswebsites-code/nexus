@@ -149,7 +149,7 @@ financingRoutes.get('/facilities/:id', ...canView, async (req, res) => {
   });
 });
 
-financingRoutes.patch('/facilities/:id', ...canManage, validateBody(facilityPatch), async (req, res) => {
+financingRoutes.patch('/facilities/:id', ...canManage, validateBody(facilityPatch), idempotent('financing.patch.facilities_id', { required: false }), async (req, res) => {
   const f = await loadFacility(param(req, 'id'));
   if (f.status !== 'DRAFT') throw invalidState(`${f.ref} is ${f.status}; only a DRAFT facility can be edited`);
   if (f.makerId !== req.user!.id) throw HttpError.forbidden('Only the person who prepared this facility can change it', 'not_maker');
@@ -180,7 +180,7 @@ financingRoutes.post('/facilities/:id/submit', ...canManage, idempotent('fin.fac
   await respondFacility(res, f.id);
 });
 
-financingRoutes.post('/facilities/:id/return', ...canApprove, validateBody(reasonSchema), async (req, res) => {
+financingRoutes.post('/facilities/:id/return', ...canApprove, validateBody(reasonSchema), idempotent('financing.post.facilities_id_return', { required: false }), async (req, res) => {
   const f = await loadFacility(param(req, 'id'));
   if (f.status !== 'PENDING_APPROVAL') throw invalidState(`${f.ref} is ${f.status}; only a pending facility can be returned`);
   if (f.makerId === req.user!.id) throw sod('Return a facility you did not prepare');
@@ -203,7 +203,7 @@ financingRoutes.post('/facilities/:id/approve', ...canApprove, requireStepUp, id
   await respondFacility(res, f.id);
 });
 
-financingRoutes.post('/facilities/:id/suspend', ...canManage, validateBody(reasonSchema), async (req, res) => {
+financingRoutes.post('/facilities/:id/suspend', ...canManage, validateBody(reasonSchema), idempotent('financing.post.facilities_id_suspend', { required: false }), async (req, res) => {
   const f = await loadFacility(param(req, 'id'));
   if (f.status !== 'ACTIVE') throw invalidState(`${f.ref} is ${f.status}`);
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -214,7 +214,7 @@ financingRoutes.post('/facilities/:id/suspend', ...canManage, validateBody(reaso
   await respondFacility(res, f.id);
 });
 
-financingRoutes.post('/facilities/:id/reactivate', ...canApprove, requireStepUp, validateBody(reasonSchema), async (req, res) => {
+financingRoutes.post('/facilities/:id/reactivate', ...canApprove, requireStepUp, validateBody(reasonSchema), idempotent('financing.post.facilities_id_reactivate', { required: false }), async (req, res) => {
   const f = await loadFacility(param(req, 'id'));
   if (f.status !== 'SUSPENDED') throw invalidState(`${f.ref} is ${f.status}`);
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -225,7 +225,7 @@ financingRoutes.post('/facilities/:id/reactivate', ...canApprove, requireStepUp,
   await respondFacility(res, f.id);
 });
 
-financingRoutes.post('/facilities/:id/close', ...canManage, validateBody(reasonSchema), async (req, res) => {
+financingRoutes.post('/facilities/:id/close', ...canManage, validateBody(reasonSchema), idempotent('financing.post.facilities_id_close', { required: false }), async (req, res) => {
   const f = await loadFacility(param(req, 'id'));
   if (f.status === 'CLOSED') throw invalidState(`${f.ref} is already closed`);
   const drawn = await drawnOf(f.id);
@@ -344,7 +344,7 @@ financingRoutes.post('/pools/:id/collateral', ...canManage, validateBody(z.objec
   res.status(201).json({ data: await poolView(p, fac?.currency) });
 });
 
-financingRoutes.post('/pools/:id/collateral/:itemId/release', ...canManage, requireStepUp, validateBody(reasonSchema), async (req, res) => {
+financingRoutes.post('/pools/:id/collateral/:itemId/release', ...canManage, requireStepUp, validateBody(reasonSchema), idempotent('financing.post.pools_id_collateral_itemid_release', { required: false }), async (req, res) => {
   const p = await loadPool(param(req, 'id'));
   const item = await prisma.finCollateralItem.findFirst({ where: { id: param(req, 'itemId'), poolId: p.id } });
   if (!item) throw HttpError.notFound('Collateral item not found');
@@ -453,7 +453,7 @@ financingRoutes.post('/calls/:id/acknowledge', ...canManage, idempotent('fin.cal
   await respondCall(res, c.id);
 });
 
-financingRoutes.post('/calls/:id/dispute', ...canManage, validateBody(reasonSchema), async (req, res) => {
+financingRoutes.post('/calls/:id/dispute', ...canManage, validateBody(reasonSchema), idempotent('financing.post.calls_id_dispute', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
   if (!['ISSUED', 'ACKNOWLEDGED'].includes(c.status)) throw invalidState(`${c.ref} is ${c.status}; only an open call can be disputed`);
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -479,7 +479,7 @@ financingRoutes.post('/calls/:id/resolve', ...canManage, requireStepUp, validate
   await respondCall(res, c.id);
 });
 
-financingRoutes.post('/calls/:id/waive', ...canApprove, requireStepUp, validateBody(reasonSchema), async (req, res) => {
+financingRoutes.post('/calls/:id/waive', ...canApprove, requireStepUp, validateBody(reasonSchema), idempotent('financing.post.calls_id_waive', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
   if (!OPEN_CALL.includes(c.status)) throw invalidState(`${c.ref} is ${c.status}; it is not open`);
   if (c.issuedBy === req.user!.id) throw sod('The person who issued a call cannot waive it (maker-checker)');
@@ -491,7 +491,7 @@ financingRoutes.post('/calls/:id/waive', ...canApprove, requireStepUp, validateB
   await respondCall(res, c.id);
 });
 
-financingRoutes.post('/calls/:id/cancel', ...canManage, validateBody(reasonSchema), async (req, res) => {
+financingRoutes.post('/calls/:id/cancel', ...canManage, validateBody(reasonSchema), idempotent('financing.post.calls_id_cancel', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
   if (!OPEN_CALL.includes(c.status)) throw invalidState(`${c.ref} is ${c.status}; it is not open`);
   if (c.issuedBy !== req.user!.id) throw HttpError.forbidden('Only the person who issued a call can cancel it', 'not_maker');

@@ -18,6 +18,7 @@ import {
   submitRedemption,
   submitSubscription,
 } from '../services/dealing';
+import { requireFeature } from '../../../middleware/feature';
 
 /** Domain `dealing`: subscriptions and redemptions (WS2, after J3). */
 export const lpDealingRoutes = Router();
@@ -82,6 +83,7 @@ lpDealingRoutes.post('/dealing/subscriptions/estimate', requireLp('lp.dealing.es
 lpDealingRoutes.post(
   '/dealing/subscriptions',
   requireLp('lp.dealing.subscribe'),
+  requireFeature('feature.lp_dealing'),
   requireLpRole('SIGNATORY'),
   requireStepUp,
   uploadFiles('files', 5),
@@ -98,6 +100,7 @@ lpDealingRoutes.post('/dealing/redemptions/estimate', requireLp('lp.dealing.esti
 lpDealingRoutes.post(
   '/dealing/redemptions',
   requireLp('lp.dealing.redeem'),
+  requireFeature('feature.lp_dealing'),
   requireLpRole('SIGNATORY'),
   requireStepUp,
   idempotent('lp.dealing.redeem'),

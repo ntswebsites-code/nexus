@@ -6,6 +6,7 @@ import { createCors } from './config/cors';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler';
 import { originGuard } from './middleware/originGuard';
 import { requestId } from './middleware/requestId';
+import { generalLimiter, metricsHandler, requestLog, uploadLimiter } from './middleware/observability';
 import { apiRouter } from './routes';
 
 // Audit/outbox ids are BIGINT; serialise them as strings in JSON responses.
@@ -28,10 +29,12 @@ export function createApp() {
     }),
   );
   app.use(requestId);
+  app.use(requestLog);
   app.use(createCors(config));
   app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
-  app.use('/api', originGuard(config.corsOrigins), apiRouter);
+  app.get('/api/internal/metrics', metricsHandler);
+  app.use('/api', generalLimiter, uploadLimiter, originGuard(config.corsOrigins), apiRouter);
 
   app.get('/', (_req, res) => {
     res.json({ service: 'matanho-nexus-api', health: '/api/health' });

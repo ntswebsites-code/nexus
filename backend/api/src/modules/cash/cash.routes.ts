@@ -53,6 +53,7 @@ import {
   type JournalRow,
 } from './cash.service';
 import { restoreReservationOnReverse } from './cash.orders';
+import { requireFeature } from '../../middleware/feature';
 
 /**
  * Cash & Ledgers (SRD 5.A.15 `cash`; FR-CASH-001..008). Admin-portal staff only. Mounted at `/api/v1/cash`.
@@ -177,7 +178,7 @@ cashRoutes.post('/ledgers/default-set', ...canApprove, validateBody(defaultSet),
   res.status(201).json({ data: await ledgerViews(created), created: created.length, skipped: DEFAULT_LEDGERS.length - created.length });
 });
 
-cashRoutes.patch('/ledgers/:id', ...canApprove, validateBody(ledgerPatch), async (req, res) => {
+cashRoutes.patch('/ledgers/:id', ...canApprove, validateBody(ledgerPatch), idempotent('cash.patch.ledgers_id', { required: false }), async (req, res) => {
   const l = await loadLedger(param(req, 'id'));
   const b = req.body as z.infer<typeof ledgerPatch>;
   if (b.status === 'CLOSED') {
@@ -328,7 +329,7 @@ cashRoutes.post('/journals', ...canCreate, validateBody(createJournal), idempote
   await respond(res, req, row.id, 201);
 });
 
-cashRoutes.patch('/journals/:id', ...canCreate, validateBody(patchJournal), async (req, res) => {
+cashRoutes.patch('/journals/:id', ...canCreate, validateBody(patchJournal), idempotent('cash.patch.journals_id', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
   if (r.status !== 'DRAFT') throw new HttpError(409, 'journal_immutable', `${r.ref} is ${r.status}; only a DRAFT can be edited. Posted journals are corrected by reversal.`);
   assertMaker(r, req);
@@ -369,7 +370,7 @@ cashRoutes.post('/journals/:id/submit', ...canCreate, idempotent('cash.journal_s
   await respond(res, req, r.id);
 });
 
-cashRoutes.post('/journals/:id/return', ...canApprove, validateBody(reasonSchema), async (req, res) => {
+cashRoutes.post('/journals/:id/return', ...canApprove, validateBody(reasonSchema), idempotent('cash.post.journals_id_return', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
   if (r.status !== 'PENDING_APPROVAL') throw HttpError.conflict(`${r.ref} is ${r.status}; only a pending journal can be returned`, 'invalid_state');
   if (r.makerId === req.user!.id) throw sod('Return a journal you did not create, or discard your own');
@@ -382,7 +383,7 @@ cashRoutes.post('/journals/:id/return', ...canApprove, validateBody(reasonSchema
 });
 
 /** FR-CASH-012: rejection needs a reason; the journal becomes read-only and shows it. */
-cashRoutes.post('/journals/:id/reject', ...canApprove, validateBody(reasonSchema), async (req, res) => {
+cashRoutes.post('/journals/:id/reject', ...canApprove, validateBody(reasonSchema), idempotent('cash.post.journals_id_reject', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
   if (r.status !== 'PENDING_APPROVAL') throw HttpError.conflict(`${r.ref} is ${r.status}; only a pending journal can be rejected`, 'invalid_state');
   if (r.makerId === req.user!.id) throw sod('You cannot reject a journal you created; discard it instead');
@@ -394,7 +395,7 @@ cashRoutes.post('/journals/:id/reject', ...canApprove, validateBody(reasonSchema
   await respond(res, req, r.id);
 });
 
-cashRoutes.post('/journals/:id/discard', ...canView, validateBody(reasonSchema), async (req, res) => {
+cashRoutes.post('/journals/:id/discard', ...canView, validateBody(reasonSchema), idempotent('cash.post.journals_id_discard', { required: false }), async (req, res) => {
   const r = await loadJournal(param(req, 'id'));
   if (!['DRAFT', 'PENDING_APPROVAL'].includes(r.status)) throw new HttpError(409, 'journal_immutable', `${r.ref} is ${r.status} and cannot be discarded. Posted journals are corrected by reversal.`);
   const canDiscard = r.makerId === req.user!.id || (r.status === 'PENDING_APPROVAL' && req.user!.permissions.includes('cash.journal.approve'));
@@ -652,7 +653,7 @@ cashRoutes.post('/expectations', ...canCreate, validateBody(expBody), idempotent
   res.status(201).json({ data: (await expectationViews([row]))[0] });
 });
 
-cashRoutes.post('/expectations/:id/cancel', ...canCreate, validateBody(reasonSchema), async (req, res) => {
+cashRoutes.post('/expectations/:id/cancel', ...canCreate, validateBody(reasonSchema), idempotent('cash.post.expectations_id_cancel', { required: false }), async (req, res) => {
   const e = await prisma.cashExpectation.findFirst({ where: { OR: [{ id: param(req, 'id') }, { ref: param(req, 'id').toUpperCase() }] } });
   if (!e) throw HttpError.notFound('Expectation not found');
   if (e.status !== 'EXPECTED') throw HttpError.conflict(`${e.ref} is ${e.status}; only an open expectation can be cancelled`, 'invalid_state');
@@ -693,7 +694,7 @@ cashRoutes.get('/statement-imports/:id', ...canView, async (req, res) => {
 });
 
 /** Parses and stages a CSV or JSON statement. Nothing touches the ledger: it must foot, be new, and then a different person commits it. */
-cashRoutes.post('/statement-imports', ...canImport, validateBody(importBody), idempotent('cash.import_stage'), async (req, res) => {
+cashRoutes.post('/statement-imports', ...canImport, requireFeature('feature.statement_import'), validateBody(importBody), idempotent('cash.import_stage'), async (req, res) => {
   const b = req.body as z.infer<typeof importBody>;
   const ledger = await loadLedger(b.ledgerId);
   if (ledger.kind !== 'BANK') throw HttpError.badRequest('Validation failed', [{ path: 'ledgerId', message: 'Statements are imported against a bank ledger' }]);
@@ -775,7 +776,7 @@ cashRoutes.post('/statement-imports/:id/commit', ...canApprove, requireStepUp, i
   res.json({ data: out, autoMatched: matched });
 });
 
-cashRoutes.post('/statement-imports/:id/reject', ...canImport, validateBody(reasonSchema), async (req, res) => {
+cashRoutes.post('/statement-imports/:id/reject', ...canImport, validateBody(reasonSchema), idempotent('cash.post.statement_imports_id_reject', { required: false }), async (req, res) => {
   const imp = await loadImport(param(req, 'id'));
   if (imp.status !== 'STAGED') throw HttpError.conflict(`${imp.ref} is ${imp.status}; only a staged import can be rejected`, 'invalid_state');
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -801,7 +802,7 @@ cashRoutes.get('/statement-lines', ...canView, validateQuery(lineQuery), async (
 });
 
 const matchBody = z.object({ journalId: z.string().trim().min(1).max(36) }).strict();
-cashRoutes.post('/statement-lines/:id/match', ...canImport, validateBody(matchBody), async (req, res) => {
+cashRoutes.post('/statement-lines/:id/match', ...canImport, validateBody(matchBody), idempotent('cash.post.statement_lines_id_match', { required: false }), async (req, res) => {
   const line = await prisma.cashStatementLine.findUnique({ where: { id: param(req, 'id') }, include: { import: true } });
   if (!line || line.import.status !== 'COMMITTED') throw HttpError.notFound('Statement line not found');
   if (line.status !== 'UNMATCHED') throw HttpError.conflict(`The line is ${line.status}`, 'invalid_state');
@@ -819,7 +820,7 @@ cashRoutes.post('/statement-lines/:id/match', ...canImport, validateBody(matchBo
 });
 
 const ignoreBody = z.object({ note: z.string().trim().min(5, 'Explain why (5+ characters)').max(255) }).strict();
-cashRoutes.post('/statement-lines/:id/ignore', ...canApprove, validateBody(ignoreBody), async (req, res) => {
+cashRoutes.post('/statement-lines/:id/ignore', ...canApprove, validateBody(ignoreBody), idempotent('cash.post.statement_lines_id_ignore', { required: false }), async (req, res) => {
   const line = await prisma.cashStatementLine.findUnique({ where: { id: param(req, 'id') }, include: { import: true } });
   if (!line || line.import.status !== 'COMMITTED') throw HttpError.notFound('Statement line not found');
   if (line.status !== 'UNMATCHED') throw HttpError.conflict(`The line is ${line.status}`, 'invalid_state');

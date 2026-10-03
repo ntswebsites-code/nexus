@@ -61,7 +61,7 @@ const createSchema = z.object({
     .optional(),
 });
 
-opsDistributionsRoutes.post('/distributions', requirePermission('distributions.create'), validateBody(createSchema), async (req, res) => {
+opsDistributionsRoutes.post('/distributions', requirePermission('distributions.create'), validateBody(createSchema), idempotent('ops.post.distributions', { required: false }), async (req, res) => {
   const b = req.body as z.infer<typeof createSchema>;
   const fund = await prisma.fund.findFirst({ where: { OR: [{ id: b.fundId }, { ref: b.fundId }] } });
   if (!fund) throw HttpError.badRequest('Unknown fund');
@@ -116,7 +116,7 @@ opsDistributionsRoutes.get('/distributions/:id', requireAnyPermission('capital.v
   res.json({ data: staffDistributionView(await loadDistribution(param(req, 'id'))) });
 });
 
-opsDistributionsRoutes.post('/distributions/:id/submit', requirePermission('distributions.create'), async (req, res) => {
+opsDistributionsRoutes.post('/distributions/:id/submit', requirePermission('distributions.create'), idempotent('ops.post.distributions_id_submit', { required: false }), async (req, res) => {
   const d = await loadDistribution(param(req, 'id'));
   if (d.status !== 'DRAFT') badState('The distribution', d.status, 'submitted');
   await prisma.$transaction(async (tx) => {
@@ -143,7 +143,7 @@ opsDistributionsRoutes.post('/distributions/:id/approve', requirePermission('dis
 
 const reasonSchema = z.object({ reason: z.string().trim().min(3).max(255) });
 
-opsDistributionsRoutes.post('/distributions/:id/reject', requirePermission('distributions.approve'), validateBody(reasonSchema), async (req, res) => {
+opsDistributionsRoutes.post('/distributions/:id/reject', requirePermission('distributions.approve'), validateBody(reasonSchema), idempotent('ops.post.distributions_id_reject', { required: false }), async (req, res) => {
   const d = await loadDistribution(param(req, 'id'));
   if (d.status !== 'PENDING_APPROVAL') badState('The distribution', d.status, 'rejected');
   const { reason } = req.body as z.infer<typeof reasonSchema>;
