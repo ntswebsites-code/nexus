@@ -2181,3 +2181,133 @@ model NavException {
   @@map("nav_exceptions")
 }
 // ---- end NAV ----
+
+// ---- Reconciliation ----
+/// Counterparty account (as submitted in custodian executions / day-end packages) to internal portfolio.
+/// Logical references (no FK), like the portfolio foundation.
+model ReconAccountMap {
+  id             String   @id @default(uuid()) @db.Char(36)
+  counterpartyId String   @map("counterparty_id") @db.Char(36)
+  accountRef     String   @map("account_ref") @db.VarChar(64)
+  portfolioId    String   @map("portfolio_id") @db.Char(36)
+  createdBy      String?  @map("created_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@unique([counterpartyId, accountRef])
+  @@index([portfolioId])
+  @@map("recon_account_map")
+}
+
+/// One matching run per family + date + counterparty + portfolio (`scope_key`); a re-run updates the same row.
+model ReconRun {
+  id             String   @id @default(uuid()) @db.Char(36)
+  /// RUN-00001 ...
+  ref            String   @unique @db.VarChar(16)
+  /// family|date|counterparty or *|portfolio or *
+  scopeKey       String   @unique @map("scope_key") @db.VarChar(190)
+  /// TRADES | CASH | HOLDINGS | DAYEND_COUNT
+  family         String   @db.VarChar(16)
+  asOfDate       DateTime @map("as_of_date") @db.Date
+  counterpartyId String?  @map("counterparty_id") @db.Char(36)
+  portfolioId    String?  @map("portfolio_id") @db.Char(36)
+  /// CLEAN | BREAKS | SOURCE_MISSING
+  status         String   @default("CLEAN") @db.VarChar(16)
+  matchedCount   Int      @default(0) @map("matched_count")
+  breakCount     Int      @default(0) @map("break_count")
+  /// Tolerances used.
+  params         Json?
+  /// Missing sources, unmapped accounts.
+  summary        Json?
+  runCount       Int      @default(1) @map("run_count")
+  runBy          String   @map("run_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  breaks ReconBreak[]
+
+  @@index([family, asOfDate])
+  @@index([counterpartyId])
+  @@map("recon_runs")
+}
+
+model ReconBreak {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// REC-00001 ...
+  ref            String    @unique @db.VarChar(16)
+  runId          String    @map("run_id") @db.Char(36)
+  family         String    @db.VarChar(16)
+  itemKey        String    @map("item_key") @db.VarChar(190)
+  /// Detected type, e.g. MISSING_INTERNAL, MISSING_EXTERNAL, PRICE_OUT_OF_TOLERANCE, QUANTITY_DIFF, ATTRIBUTE_DIFF, AMOUNT_DIFF
+  kind           String    @db.VarChar(32)
+  label          String    @db.VarChar(255)
+  internalValue  Json?     @map("internal_value")
+  externalValue  Json?     @map("external_value")
+  /// external - internal (null when one side is missing)
+  difference     Decimal?  @db.Decimal(24, 6)
+  differencePct  Decimal?  @map("difference_pct") @db.Decimal(14, 4)
+  currency       String?   @db.Char(3)
+  /// Maker-chosen cause at resolution (TIMING, BOOKING_ERROR, CUSTODIAN_ERROR, PRICE_SOURCE, FX, FEES, CORPORATE_ACTION, OTHER)
+  cause          String?   @db.VarChar(32)
+  /// LOW | MEDIUM | HIGH | CRITICAL
+  severity       String    @db.VarChar(12)
+  /// NEW | ASSIGNED | INVESTIGATING | PENDING_CHECKER | MATCHED | CLOSED
+  status         String    @default("NEW") @db.VarChar(20)
+  ownerUserId    String?   @map("owner_user_id") @db.Char(36)
+  counterpartyId String?   @map("counterparty_id") @db.Char(36)
+  portfolioId    String?   @map("portfolio_id") @db.Char(36)
+  resolutionNote String?   @map("resolution_note") @db.VarChar(2000)
+  evidenceRef    String?   @map("evidence_ref") @db.VarChar(255)
+  makerId        String?   @map("maker_id") @db.Char(36)
+  checkerId      String?   @map("checker_id") @db.Char(36)
+  resolvedAt     DateTime? @map("resolved_at")
+  closedAt       DateTime? @map("closed_at")
+  lastSeenAt     DateTime  @default(now()) @map("last_seen_at")
+  version        Int       @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  run    ReconRun          @relation(fields: [runId], references: [id])
+  events ReconBreakEvent[]
+
+  @@unique([runId, itemKey])
+  @@index([status, severity])
+  @@index([family, status])
+  @@index([ownerUserId])
+  @@index([counterpartyId])
+  @@map("recon_breaks")
+}
+
+model ReconBreakEvent {
+  id         String   @id @default(uuid()) @db.Char(36)
+  breakId    String   @map("break_id") @db.Char(36)
+  action     String   @db.VarChar(32)
+  fromStatus String?  @map("from_status") @db.VarChar(20)
+  toStatus   String?  @map("to_status") @db.VarChar(20)
+  actorId    String?  @map("actor_id") @db.Char(36)
+  note       String?  @db.VarChar(2000)
+  detail     Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  brk ReconBreak @relation(fields: [breakId], references: [id], onDelete: Cascade)
+
+  @@index([breakId, createdAt])
+  @@map("recon_break_events")
+}
+
+model ReconSignoff {
+  id             String   @id @default(uuid()) @db.Char(36)
+  /// family|date|counterparty or *
+  scopeKey       String   @unique @map("scope_key") @db.VarChar(190)
+  family         String   @db.VarChar(16)
+  asOfDate       DateTime @map("as_of_date") @db.Date
+  counterpartyId String?  @map("counterparty_id") @db.Char(36)
+  signedBy       String   @map("signed_by") @db.Char(36)
+  signedAt       DateTime @default(now()) @map("signed_at")
+  note           String?  @db.VarChar(1000)
+  /// Counts at the moment of sign-off.
+  summary        Json?
+
+  @@index([family, asOfDate])
+  @@map("recon_signoffs")
+}
+// ---- end Reconciliation ----

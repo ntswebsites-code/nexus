@@ -508,6 +508,123 @@ Units, Maker review, Release.
 
 Every write audits inside its transaction (`nav.run_created`, `.run_recalculated`, `.run_superseded`, `.inputs_updated`,
 `.exception_resolved`, `.maker_reviewed`, `.released`; object type `nav_run`). Release audits the fund before and after.
+## Reconciliation
+
+Reconciliations (SRD 5.A.17, 6.10 FR-OPS-002..005, 7.7 break lifecycle, 5.E.4 custodian hand-off; BR-001, BR-065, BR-067).
+Branch `feat/reconciliation`, migration `20261003100000_reconciliation` (additive, one folder; models between
+`// ---- Reconciliation ----` and `// ---- end Reconciliation ----` at the end of `schema.prisma`). Code:
+`backend/api/src/modules/recon/` (`recon.engine.ts` pure matching rules and severity, `recon.service.ts` detection,
+persistence and sign-off readiness, `recon.routes.ts`), UI in `portals/admin-web/src/ops/recon/` and `/ops/reconciliation`.
+Also touched outside the block: `routes/v1.ts` (mount `/recon`), `ops/Shell.tsx` (nav section "Operations"),
+`prisma/seed/role-catalog.json` (new permissions), `prisma/seed-uat.ts` (calls `seed-recon.ts`). No Prisma model outside
+the block was edited and no ref kind was added to `lib/refs.ts` (refs use `seqRef`).
+
+### What is reconciled
+
+The external side is what the custodian portal already stores (`counterparty_executions`, `counterparty_day_end_packages`,
+latest non-Superseded row). The internal side is the Orders module (`orders`, `order_fills`) and the portfolio foundation
+(`getPortfolioSnapshot`, `portfolio_cash`). `counterparties.accounts` is only a list of account strings and nothing linked
+an account to a portfolio, so this migration adds **`recon_account_map`** (counterparty, account, portfolio; unique per
+counterparty + account). Only mapped accounts are reconciled; unmapped ones are listed on the run (`summary.unmappedAccounts`)
+and in `/sources`. Manage the mapping with `PUT /recon/account-map` (UI: Run matching tab, "Account mapping"). One portfolio
+may have several accounts; if a portfolio is held at several counterparties and a run is limited to one of them, the
+internal side still contains the other counterparties' fills (there is no fill-to-counterparty link), so run such
+portfolios with the counterparty left blank.
+
+### Tables
+
+| Table | Model | Key columns |
+|---|---|---|
+| `recon_account_map` | `ReconAccountMap` | `counterparty_id`, `account_ref`, `portfolio_id` (logical refs); unique (counterparty, account) |
+| `recon_runs` | `ReconRun` | `ref` `RUN-00001`, `scope_key` (unique: family, date, counterparty or `*`, portfolio or `*`), `family`, `as_of_date`, `counterparty_id?`, `portfolio_id?`, `status` CLEAN / BREAKS / SOURCE_MISSING, `matched_count`, `break_count`, `params` (tolerances), `summary` (missing sources, unmapped accounts), `run_count`, `run_by` |
+| `recon_breaks` | `ReconBreak` | `ref` `REC-00001`, `run_id` (FK), `family`, `item_key` (unique per run), `kind`, `label`, `internal_value` / `external_value` JSON, `difference`, `difference_pct`, `currency`, `cause` (maker's), `severity`, `status`, `owner_user_id`, `counterparty_id`, `portfolio_id`, `resolution_note`, `evidence_ref`, `maker_id`, `checker_id`, `resolved_at`, `closed_at`, `last_seen_at`, `version`; age is `created_at` |
+| `recon_break_events` | `ReconBreakEvent` | `break_id`, `action`, `from_status`, `to_status`, `actor_id`, `note`, `detail`, `created_at` (the break timeline) |
+| `recon_signoffs` | `ReconSignoff` | `scope_key` (unique: family, date, counterparty or `*`), `family`, `as_of_date`, `counterparty_id?`, `signed_by`, `signed_at`, `note`, `summary` |
+
+Families are stored as `TRADES`, `CASH`, `HOLDINGS`, `DAYEND_COUNT` (the API also accepts `DAYEND-COUNT`).
+
+### Matching rules
+
+- **TRADES**, per portfolio: external = the date's custodian executions (UTC day, Superseded excluded) of its mapped accounts;
+  internal = `order_fills` of the portfolio's orders executed that day. Pass 1, exact reference: custodian `trade_ref` equals
+  the fill's `source_ref` (contract-note reference) or the order ref, case-insensitive. Pass 2: ticker + side + **exact**
+  quantity, taking the closest price. A paired trade must have the same ticker, side and currency (else `ATTRIBUTE_DIFF`),
+  the same quantity (else `QUANTITY_DIFF`) and a price within **+/- 0.01** (else `PRICE_OUT_OF_TOLERANCE`; exactly 0.01 passes).
+  A custodian trade with no internal fill is `MISSING_INTERNAL`; an internal fill with no custodian trade is `MISSING_EXTERNAL`.
+  Partial fills are not aggregated. The custodian execution's status becomes `Matched` or `Exception` (Queried and
+  Superseded are never touched).
+- **CASH**, per mapped account with a day-end package: package `closing_cash` against the latest `portfolio_cash` row at or
+  before the date in the statement currency (no row counts as 0). Tolerance: absolute **0.01** (inclusive).
+- **HOLDINGS**: package `holdings_mv` (a control total) against the portfolio's securities market value at the latest
+  prices (`getPortfolioSnapshot` lines, other currencies converted by `resolveFxRate`). Tolerance: **0.5% of the custodian
+  value** (inclusive). A position that cannot be valued (no price or no FX rate) is named in the break and raises it to at
+  least HIGH.
+- **DAYEND_COUNT**: package `trade_count` against the number of executions received for that account and date.
+- Tolerances are run parameters (`tolerances: { price, cash, holdingsPct }` in `POST /runs`, stored in `params`), with the
+  defaults above. SRD BR-067 wants them effective-dated configuration per family; that is not built.
+- **A missing source is not a break** (BR-065). A mapped account with no day-end package for CASH, HOLDINGS or DAYEND_COUNT
+  is listed in `summary.missingSources`, the run status is `SOURCE_MISSING`, and sign-off is blocked (`source_missing`).
+
+### Severity thresholds
+
+Difference as a percent of the larger of the two amounts: **>= 20% CRITICAL, > 5% HIGH, > 1% MEDIUM, otherwise LOW**
+(1.00% exactly is LOW). Used for price, cash, holdings and count. Fixed rules on top:
+
+| Break | Severity |
+|---|---|
+| Custodian trade not in the internal book (`MISSING_INTERNAL`) | CRITICAL |
+| Internal fill not confirmed by the custodian (`MISSING_EXTERNAL`) | HIGH |
+| Quantity differs on a reference match | at least HIGH (CRITICAL from 20%) |
+| Ticker, side or currency differs on a match | HIGH |
+| Day-end count differs from executions received (a trade is missing or extra) | at least HIGH (CRITICAL from 20%) |
+| Holdings with an unvalued position | at least HIGH |
+
+HIGH and CRITICAL are "material": they block sign-off while open. A break is **overdue** when open and CRITICAL, or older
+than 3 days (`SLA_DAYS` in `recon.engine.ts`).
+
+### Run semantics (idempotent)
+
+One run row per scope key, so `POST /runs` for the same family, date, counterparty and portfolio is a **re-run of the same
+run** (200, `rerun: true`, `run_count` + 1), never a second set of breaks. On a re-run: a known item keeps its workflow
+state and ref (values and severity are refreshed, timeline entry `updated`); an item that no longer differs and is
+NEW/ASSIGNED/INVESTIGATING becomes MATCHED (`auto_cleared`); a MATCHED item that differs again is reopened to NEW; a
+CLOSED item (accepted by a checker) is reopened only if the difference changed; PENDING_CHECKER is left alone. Overlapping
+scopes (for example all counterparties and one counterparty on the same date) do not duplicate items: the first run to
+find an item owns it (`sharedWithOtherRuns` in the audit event). `Idempotency-Key` is required and replays the stored
+response; two simultaneous runs serialise on the run row.
+
+### Endpoints (`/api/v1/recon`, admin portal staff only)
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /overview?asOf=` | `operations.view` | Per-family matched / breaks / match rate / open / signed-off for the date (default: latest run date), open breaks by severity, overdue |
+| `GET /sources?asOf=` | view | Per counterparty: accounts with mapping, day-end received, executions for the date, `lastDayEnd`, `missingSource`, unmapped accounts |
+| `GET /counterparties`, `GET /users` | view | Pickers |
+| `GET /account-map`, `PUT /account-map`, `DELETE /account-map/:id` | view / `recon.manage` | PUT `{counterpartyId, accountRef, portfolioId}` (account must be one the counterparty lists); audited |
+| `POST /runs` | `recon.manage` | `{family, asOfDate, counterpartyId?, portfolioId?, tolerances?}` (ids or refs). `Idempotency-Key` required. 201 new / 200 re-run; returns `data` (run), `breaks`, `rerun`. 409 `no_account_mapping`; no future dates |
+| `GET /runs?family=&asOf=&counterpartyId=&portfolioId=&status=`, `GET /runs/:idOrRef` | view | Detail includes the run's breaks |
+| `GET /breaks?family=&status=&severity=&ownerId=&mine=1&counterpartyId=&portfolioId=&runId=&asOf=&ageDays=&overdue=1&q=` | view | Lists accept commas; `status=open` (four open states) and `resolved` (MATCHED + CLOSED); oldest first; `summary` has open, overdue, byStatus, openBySeverity, openByFamily |
+| `GET /breaks/:idOrRef` | view | Break, `events` (timeline) and `allowed` (assign, investigate, resolve, approve, reject, `approveBlockedReason`) for the caller |
+| `POST /breaks/:id/assign` | `recon.manage` | `{ownerUserId, note?}`; NEW to ASSIGNED, owner can change while open; notifies the new owner |
+| `POST /breaks/:id/investigate` | `recon.manage` | `{note}`; NEW/ASSIGNED to INVESTIGATING (a further note while investigating); owner defaults to the caller |
+| `POST /breaks/:id/resolve` | `recon.manage` | `{cause, rationale (10+ chars), evidenceRef}`; to PENDING_CHECKER, caller becomes the maker; notifies `recon.signoff` holders |
+| `POST /breaks/:id/approve` | `recon.signoff` + **step-up MFA** | PENDING_CHECKER to CLOSED; caller must not be the maker (403 `segregation_of_duties`) |
+| `POST /breaks/:id/reject` | `recon.signoff` | `{reason}`; back to INVESTIGATING, maker notified; not the maker |
+| `GET /signoffs/readiness?family=&asOf=&counterpartyId=` | view | Open material breaks, missing sources, runs, `canSign`, `independent` |
+| `POST /signoffs` | `recon.signoff` + **step-up MFA** | `{family, asOfDate, counterpartyId?, note?}`; see below |
+| `GET /signoffs?family=&from=&to=&counterpartyId=` | view | History |
+
+Transitions are `UPDATE ... WHERE status=? AND version=?`; `If-Match` or `version` in the body is compared first
+(`409 version_conflict`); any other move is `409 invalid_transition`. MATCHED (auto-cleared by a run) and CLOSED (approved)
+are the two terminal states; there is no reopen endpoint (a later run reopens, see above).
+
+### Sign-off rules
+
+`POST /signoffs` is refused with: `409 no_run` (no run for the family and date), `409 open_material_breaks` (details list
+the breaks), `409 source_missing` (families other than TRADES: a mapped account in scope has no day-end package),
+`403 segregation_of_duties` (the caller ran any covering run or made a resolution on any of its breaks), `409
+already_signed_off` (unique per family, date and counterparty or all). LOW and MEDIUM breaks do not block and are
+carried forward (`summary.openOther`). A sign-off without a counterparty covers every mapped counterparty.
 
 ### Permission and step-up matrix
 
@@ -541,6 +658,42 @@ exceptions), NAV bridge, exceptions with a resolve form (rationale, evidence ref
 inputs and controls, versions and history, pack preview, and the actions Recalculate, Edit inputs, Maker review and
 Release NAV, enabled from the server's `allowed` flags (the release button is disabled for the maker reviewer and for users
 without `valuation.release`; the TOTP step-up modal appears on release). Typecheck only; no browser verification was done.
+| View everything | `operations.view` | | no |
+| Map accounts, run matching, assign, investigate, resolve | `operations.view` + `recon.manage` | | no (run needs `Idempotency-Key`) |
+| Approve a resolution | `operations.view` + `recon.signoff` | checker != maker | yes |
+| Return a resolution to the maker | `operations.view` + `recon.signoff` | checker != maker, reason | no |
+| Daily sign-off | `operations.view` + `recon.signoff` | independent of the runner and the makers | yes |
+
+**New permission codes** `recon.manage` and `recon.signoff` (none existed), granted in `role-catalog.json` to `operations`,
+`compliance` and `fund_accountant`; `system_admin` is locked to its bundle and gets neither. Existing databases pick the
+grants up when `prisma/seed.ts` runs again. Because the same three roles hold both codes, the maker/checker split is
+enforced per user (different people), not per role.
+
+Notifications (outbox): a new, reopened or newly-escalated CRITICAL break and every resolution go to `recon.signoff`
+holders (`notify.permission`, link `/ops/reconciliation?break=<id>`); an assignment goes to the owner, a return or
+closure to the maker (`notify.users`). Audit actions: `recon.run_executed` (counts: matched, breaks, created, reopened,
+cleared, updated), `recon.break_assigned`, `.break_investigating`, `.break_resolved`, `.break_approved`, `.break_rejected`,
+`recon.signoff_recorded`, `recon.account_mapped`, `recon.account_unmapped`. Break creation by a run is audited once on
+the run, and per break in the timeline.
+
+### Screens
+
+`/ops/reconciliation` (nav "Operations", visible with `operations.view`). Tabs: **Overview** (match-rate tile per family,
+open breaks by severity and overdue, source health table; tiles jump to the filtered queue), **Breaks** (filters for
+family, severity, status, counterparty, minimum age, mine, search; oldest first), **Run matching** (family, date,
+counterparty, portfolio, optional tolerance, result with the breaks, recent runs, account mapping), **Daily sign-off**
+(readiness with blocking breaks and missing sources, sign-off with step-up, history). A break opens in a dialog with
+internal vs external, difference, timeline and only the actions `allowed` for the user (the approve button is disabled for
+the maker with the reason; the TOTP prompt is the console's shared step-up). `?break=<id>` deep-links a break. Typecheck
+only; no browser verification was done for these screens.
+
+### Demo seed
+
+`prisma/seed-recon.ts` (called by `seed-uat.ts`, also standalone, idempotent via `DEMO-` trade refs, skipped with a message
+when the custodian, portfolio, `OKZ.ZW` or a staff user is missing): maps the first custodian account to Zimbabwe
+Opportunities and, for yesterday, adds a filled internal SELL order (contract-note ref `DEMO-CN-001`), the matching custodian
+execution, a second custodian execution `DEMO-CN-002` that is not in the book (CRITICAL break) and a day-end package whose
+cash is 250.00 above the book. It runs no matching: press Run matching for Trades and Cash.
 
 ### Running the test
 
@@ -567,3 +720,35 @@ outbox notification.
 
 Scheduled or automatic daily runs, NAV approval limits per amount, bulk release, PDF/CSV export of the pack (the pack is a
 JSON summary), per-share-class NAV, and accrual or fee schedules beyond the single management-fee rate.
+# disposable DB only (schema nexus_recon_test on a throwaway MySQL); same steps as the other modules
+cd backend/api
+npx prisma migrate deploy --schema prisma/schema.prisma
+npx tsx --env-file-if-exists=../../.env prisma/seed.ts
+API_PORT=4251 npx tsx --env-file-if-exists=../../.env src/server.ts      # another terminal; needs FILE_ENCRYPTION_KEY
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4251 npx tsx --env-file-if-exists=../../.env scripts/test-recon.ts
+```
+
+Covers (168 checks, all passing, repeatable on the same schema): the pure engine (severity bands, tolerance edges, matching
+passes); 401 / portal / permission refusals (investor, analyst, portfolio manager and system admin cannot write); mapping
+and run validation; TRADES against a hand-computed book (2 matched, 4 breaks: price +0.02, quantity 11 vs 10, custodian-only,
+internal-only; +0.01 passes; ignored superseded, other-date executions and out-of-date fills; custodian status updates);
+idempotent re-runs (key replay, key reuse, new key, concurrent runs, no duplicate breaks, stable refs); auto-clear, reopen
+of a cleared break, a CLOSED break staying closed unless the difference changes; the full lifecycle (assign, investigate,
+validation errors, resolve, maker cannot approve or return, stale MFA gives `step_up_required`, return to maker,
+approve by a different user, timeline, version conflict, invalid transitions); queue filters and KPIs; CASH (equal, +0.01,
++0.02, configurable tolerance, severity at 1%, 4%, 15%, 20%); HOLDINGS (12,500 exact, 0.4975% inside, 0.557% LOW, MEDIUM,
+HIGH, configurable tolerance); DAYEND_COUNT (match, 6 vs 5 HIGH, 7 vs 5 CRITICAL, clear); sources (received, missing,
+unmapped, default today); `SOURCE_MISSING` is not a break; sign-off blocked by open Critical/High, by a missing source and
+by no run, refused for the runner, stale MFA, allowed for an independent checker after resolution, duplicate refused,
+counterparty-scoped sign-off; overview; audit events with actors and the audit chain; outbox notifications. The test uses a
+date nine days back so UAT demo records never mix in. Run it on a schema without other unmapped custodian fixtures: a
+mapped account left over from other data would join the all-counterparty runs.
+
+### Not done
+
+Effective-dated tolerance configuration per family (BR-067) and Q-13 per-family price tolerance admin, manual source
+upload with hash and the scheduled-source registry (a "missing source" is derived from mapped accounts and day-end
+packages only), query-source and escalate break actions, an explicit reopen endpoint, attaching evidence files (a reference
+string is stored), aggregating partial fills, FX-aware trade price comparison across currencies, the NAV-close and
+Operations-runbook gating, and CSV export of breaks. The prototype's other reconciliation families (positions vs custody
+quantities, settlement fails, corporate actions) are not implemented.
