@@ -23,7 +23,7 @@ export default function DayEndPage() {
   const me = useMe();
   const list = useLoad(() => custodian.get<{ items: DayEnd[] }>('/day-end'));
   const [modal, setModal] = useState<null | { kind: 'new'; supersede?: DayEnd } | { kind: 'detail'; row: DayEnd }>(null);
-  const [flash, setFlash] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [flash, setFlash] = useState<{ kind: 'ok' | 'warn' | 'error'; text: string } | null>(null);
   const canPrepare = can(me, 'custodian.dayend.submit');
   const canApprove = can(me, 'custodian.dayend.approve');
 
@@ -116,9 +116,9 @@ export default function DayEndPage() {
           supersede={modal.supersede}
           accounts={me.counterparty.accounts}
           onClose={() => setModal(null)}
-          onDone={() => {
+          onDone={(warnings) => {
             setModal(null);
-            setFlash({ kind: 'ok', text: 'Draft saved. Submit it when the control totals agree.' });
+            setFlash(warnings.length ? { kind: 'warn', text: `Draft saved. ${warnings.join('; ')}. Submit only one of them.` } : { kind: 'ok', text: 'Draft saved. Submit it when the control totals agree.' });
             void list.reload();
           }}
         />
@@ -186,7 +186,7 @@ function PackageDetail({ row, onClose }: { row: DayEnd; onClose: () => void }) {
   );
 }
 
-function NewPackage({ supersede, accounts, onClose, onDone }: { supersede?: DayEnd; accounts: string[]; onClose: () => void; onDone: () => void }) {
+function NewPackage({ supersede, accounts, onClose, onDone }: { supersede?: DayEnd; accounts: string[]; onClose: () => void; onDone: (warnings: string[]) => void }) {
   const [d, setD] = useState({
     statementDate: supersede?.statementDate ?? todayIso(),
     accountRef: supersede?.accountRef ?? accounts[0] ?? '',
@@ -228,9 +228,9 @@ function NewPackage({ supersede, accounts, onClose, onDone }: { supersede?: DayE
     if (supersede) f.append('supersedesId', supersede.id);
     f.append('file', file);
     try {
-      await custodian.post('/day-end', f, key.current());
+      const r = await custodian.post<{ warnings?: string[] }>('/day-end', f, key.current());
       key.renew();
-      onDone();
+      onDone(r.warnings ?? []);
     } catch (e) {
       setErr(errorText(e));
       setBusy(false);

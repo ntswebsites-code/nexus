@@ -112,7 +112,7 @@ function assertChangeable(row: { status: string; cancelledAt: Date | null; ref: 
 // ------------------------------------------------------------------ bulk upload
 
 const bulkFields = z.object({
-  declaredCount: z.coerce.number().int().min(0).max(MAX_BULK_ROWS).optional().or(z.literal('').transform(() => undefined)),
+  declaredCount: z.coerce.number({ error: 'Declared trade count must be a whole number' }).int({ error: 'Declared trade count must be a whole number' }).min(0, { error: 'Declared trade count cannot be negative' }).max(MAX_BULK_ROWS, { error: `Declared trade count cannot exceed ${MAX_BULK_ROWS}` }).optional().or(z.literal('').transform(() => undefined)),
   declaredQuantity: decimalString(18, 8).optional().or(z.literal('').transform(() => undefined)),
   declaredNotional: decimalString(20, 2).optional().or(z.literal('').transform(() => undefined)),
   dryRun: z.enum(['true', 'false', '1', '0']).optional(),

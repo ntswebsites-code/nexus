@@ -33,7 +33,12 @@ export async function runScreening(caseId: string) {
     expectedInvestment: app.expectedInvestment?.toNumber() ?? 0,
     documentsPresent: kycCase.evidence.filter((e) => e.fileId).length,
   });
-  const exceptions = results.filter((r) => r.outcome !== 'Clear').map((r) => r.type);
+  const exceptions: string[] = results.filter((r) => r.outcome !== 'Clear').map((r) => r.type);
+  // Funding-account holder must be the applicant: a different holder is a third-party-funding exception for the reviewer.
+  const norm = (v: unknown) => (typeof v === 'string' ? v : '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+  const holder = norm(formData['bankHolder']);
+  const holderMismatch = holder.length > 0 && holder !== norm(app.legalName) && !app.owners.some((o) => norm(o.fullName) === holder);
+  if (holderMismatch) exceptions.push('Bank account holder differs from applicant');
 
   await prisma.$transaction(async (tx) => {
     await tx.screeningResult.createMany({
@@ -55,8 +60,8 @@ export async function runScreening(caseId: string) {
         caseId,
         title: 'Automated pre-screen completed',
         detail: exceptions.length
-          ? `Advisory exceptions: ${exceptions.join(', ')}. Risk rated ${risk}; human review required.`
-          : `No advisory exceptions. Risk rated ${risk}; human review required.`,
+          ? `Advisory exceptions: ${exceptions.join(', ')}. Indicative risk ${risk} (automated pre-screen only); human review required.`
+          : `No advisory exceptions raised by the automated pre-screen. Indicative risk ${risk}; this is not a completed provider check and human review is required.`,
       },
     });
     await writeAudit(tx, { actorRole: 'System (screening worker)' }, {

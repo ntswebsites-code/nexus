@@ -21,8 +21,8 @@ async function guarded<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (e) {
-    if (e instanceof ApiError && e.status === 401 && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+    if (e instanceof ApiError && e.status === 401 && e.code === 'unauthorized' && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
     }
     throw e;
   }
