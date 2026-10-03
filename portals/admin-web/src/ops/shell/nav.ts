@@ -102,6 +102,7 @@ export const NAV: { section: string; items: NavItem[] }[] = [
       { href: '/ops/settings', label: 'Settings', perms: ['admin.settings'] },
       { href: '/ops/security', label: 'Security controls', perms: ['admin.rbac', 'admin.settings'] },
       { href: '/ops/integrations', label: 'Integrations', perms: ['admin.settings'] },
+      { href: '/ops/health', label: 'Platform health', perms: ['admin.settings'] },
       { href: '/ops/audit', label: 'Audit Trail', perms: ['audit.view'] },
       { href: '/ops/copilot', label: 'Investment Copilot', perms: ['dashboard.view'] },
     ],

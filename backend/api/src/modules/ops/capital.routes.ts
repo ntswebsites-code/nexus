@@ -5,7 +5,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
-import { param } from '../../lib/http';
+import { expectVersion, param } from '../../lib/http';
 import { validateBody } from '../../middleware/validate';
 import { requireAnyPermission, requirePermission, requireStepUp } from '../../middleware/requireAuth';
 import {
@@ -144,6 +144,7 @@ opsCapitalRoutes.get('/capital-calls/:id', requirePermission('capital.view'), as
 
 opsCapitalRoutes.post('/capital-calls/:id/submit', requirePermission('capital.create'), idempotent('ops.post.capital_calls_id_submit', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
+  expectVersion(req, c.version);
   if (c.status !== 'DRAFT') badState('The call', c.status, 'submitted');
   await prisma.$transaction(async (tx) => {
     assertUpdated(
@@ -161,6 +162,7 @@ opsCapitalRoutes.post('/capital-calls/:id/submit', requirePermission('capital.cr
 
 opsCapitalRoutes.post('/capital-calls/:id/approve', requirePermission('capital.approve'), requireStepUp, idempotent('ops.capital_call.approve'), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
+  expectVersion(req, c.version);
   if (c.status !== 'PENDING_APPROVAL') badState('The call', c.status, 'approved');
   assertSegregation(req.user!.id, c.makerId);
   await prisma.$transaction(async (tx) => {
@@ -181,6 +183,7 @@ const reasonSchema = z.object({ reason: z.string().trim().min(3).max(255) });
 
 opsCapitalRoutes.post('/capital-calls/:id/reject', requirePermission('capital.approve'), validateBody(reasonSchema), idempotent('ops.post.capital_calls_id_reject', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
+  expectVersion(req, c.version);
   if (c.status !== 'PENDING_APPROVAL') badState('The call', c.status, 'rejected');
   const { reason } = req.body as z.infer<typeof reasonSchema>;
   await prisma.$transaction(async (tx) => {
@@ -199,6 +202,7 @@ opsCapitalRoutes.post('/capital-calls/:id/reject', requirePermission('capital.ap
 
 opsCapitalRoutes.post('/capital-calls/:id/issue', requirePermission('capital.create'), requireStepUp, idempotent('ops.capital_call.issue'), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
+  expectVersion(req, c.version);
   if (c.status !== 'APPROVED') badState('The call', c.status, 'issued (it must be approved first)');
   await prisma.$transaction(
     async (tx) => {
@@ -297,6 +301,7 @@ opsCapitalRoutes.post(
   validateBody(reasonSchema),
   async (req, res) => {
     const c = await loadCall(param(req, 'id'));
+    expectVersion(req, c.version);
     if (['CANCELLED', 'PAID', 'PARTIALLY_PAID'].includes(c.status)) badState('The call', c.status, 'cancelled');
     if (c.allocations.some((a) => a.amountPaid.gt(0))) badState('The call', 'part-paid', 'cancelled');
     if (c.status === 'ISSUED' && !req.user!.permissions.includes('capital.approve')) {

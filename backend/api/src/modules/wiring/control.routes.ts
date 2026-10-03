@@ -6,7 +6,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess } from '../../middleware/requireAuth';
 import { assertUpdated, audit } from '../ops/ops.common';
@@ -173,6 +173,7 @@ operationsRoutes.get('/tasks/:id', ...canOps, async (req, res) => {
 
 operationsRoutes.patch('/tasks/:id', ...canOps, validateBody(patchBody), async (req, res) => {
   const t = await loadTask(param(req, 'id'));
+  expectVersion(req, t.version);
   if (['DONE', 'CANCELLED'].includes(t.status)) throw HttpError.conflict(`${t.ref} is ${t.status}; reopen it to edit`, 'invalid_state');
   const b = req.body as z.infer<typeof patchBody>;
   await checkRefs(b, t.id);

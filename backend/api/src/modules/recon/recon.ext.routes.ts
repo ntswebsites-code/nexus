@@ -523,6 +523,7 @@ const tradeRefOf = (b: BreakRow) => {
 
 reconExtRoutes.post('/breaks/:id/query', ...canManage, validateBody(querySchema), idempotent('recon.query', { required: false }), async (req, res) => {
   const b = await loadBreak(param(req, 'id'));
+  expectVersion(req, b.version);
   if (!isLive(b)) throw HttpError.conflict(`Break ${b.ref} is ${b.status}; it cannot be queried`, 'invalid_transition');
   const body = req.body as z.infer<typeof querySchema>;
   const cp = (await counterpartyOf(body.counterpartyId)) ?? (b.counterpartyId ? await counterpartyOf(b.counterpartyId) : null);
@@ -633,6 +634,7 @@ reconExtRoutes.post('/breaks/:id/reopen', ...canSignoff, requireStepUp, validate
     },
   });
   const fresh = await prisma.reconBreak.findUniqueOrThrow({ where: { id: b.id } });
+  expectVersion(req, fresh.version);
   res.json({ data: { id: fresh.id, ref: fresh.ref, status: fresh.status, version: fresh.version, voidedSignoffs: signoffs.length } });
 });
 

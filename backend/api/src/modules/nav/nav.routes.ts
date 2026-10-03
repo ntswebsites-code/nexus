@@ -6,7 +6,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
@@ -301,6 +301,7 @@ navRoutes.post('/runs/:id/maker-review', ...canView, idempotent('nav.maker_revie
 
 navRoutes.post('/runs/:id/release', ...canRelease, requireStepUp, idempotent('nav.release', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
+  expectVersion(req, r.version);
   assertNotImmutable(r, 'released again');
   if (r.status !== 'MAKER_REVIEWED') throw HttpError.conflict(`${r.ref} is ${r.status}; it must be MAKER_REVIEWED to release`, 'invalid_state');
   if (r.reviewerId === req.user!.id) throw HttpError.forbidden('The maker reviewer cannot release the same NAV (maker-checker)', 'segregation_of_duties');

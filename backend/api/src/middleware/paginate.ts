@@ -1,4 +1,4 @@
-import type { RequestHandler } from 'express';
+import type { Request, RequestHandler } from 'express';
 
 /**
  * List envelope for staff endpoints (NFR-PERF-005). Staff list handlers return `{ data: [...] }` bounded by a `take` cap;
@@ -25,6 +25,30 @@ export const paginateData: RequestHandler = (req, res, next) => {
   }) as typeof res.json;
   next();
 };
+
+export interface SqlPage {
+  /** True when the caller asked for a page (`?page=` / `?pageSize=`). */
+  paged: boolean;
+  skip: number;
+  take: number;
+  page: number;
+  pageSize: number;
+}
+
+/**
+ * Real SQL paging (GAP-014). Handlers pass `skip`/`take` to Prisma and count with the same `where`, then return
+ * `pageEnvelope(...)`: `paginateData` leaves a body that already carries `total` alone, so nothing is sliced in memory.
+ * Without paging parameters the handler's own `limit` applies, as before.
+ */
+export function sqlPage(req: Request, fallbackLimit: number, maxPageSize = 200): SqlPage {
+  const paged = req.query.page !== undefined || req.query.pageSize !== undefined;
+  if (!paged) return { paged, skip: 0, take: fallbackLimit, page: 1, pageSize: fallbackLimit };
+  const pageSize = Math.min(maxPageSize, Math.max(1, Number.parseInt(String(req.query.pageSize ?? '50'), 10) || 50));
+  const page = Math.max(1, Number.parseInt(String(req.query.page ?? '1'), 10) || 1);
+  return { paged, skip: (page - 1) * pageSize, take: pageSize, page, pageSize };
+}
+
+export const pageEnvelope = <T>(p: SqlPage, data: T[], total: number) => ({ data, page: p.page, pageSize: p.pageSize, total });
 
 /** Staff API prefixes that get the envelope. Portal-facing routers (lp-portal, investee, custodian) keep their own strict contracts. */
 export const STAFF_LIST_PREFIXES = [

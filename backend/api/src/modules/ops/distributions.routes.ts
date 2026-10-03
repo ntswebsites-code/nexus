@@ -4,7 +4,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
-import { param } from '../../lib/http';
+import { expectVersion, param } from '../../lib/http';
 import { validateBody } from '../../middleware/validate';
 import { requireAnyPermission, requirePermission, requireStepUp } from '../../middleware/requireAuth';
 import { rollUpStatus } from './capital.service';
@@ -118,6 +118,7 @@ opsDistributionsRoutes.get('/distributions/:id', requireAnyPermission('capital.v
 
 opsDistributionsRoutes.post('/distributions/:id/submit', requirePermission('distributions.create'), idempotent('ops.post.distributions_id_submit', { required: false }), async (req, res) => {
   const d = await loadDistribution(param(req, 'id'));
+  expectVersion(req, d.version);
   if (d.status !== 'DRAFT') badState('The distribution', d.status, 'submitted');
   await prisma.$transaction(async (tx) => {
     assertUpdated((await tx.distribution.updateMany({ where: { id: d.id, status: 'DRAFT', version: d.version }, data: { status: 'PENDING_APPROVAL', version: { increment: 1 } } })).count);
@@ -129,6 +130,7 @@ opsDistributionsRoutes.post('/distributions/:id/submit', requirePermission('dist
 
 opsDistributionsRoutes.post('/distributions/:id/approve', requirePermission('distributions.approve'), requireStepUp, idempotent('ops.distribution.approve'), async (req, res) => {
   const d = await loadDistribution(param(req, 'id'));
+  expectVersion(req, d.version);
   if (d.status !== 'PENDING_APPROVAL') badState('The distribution', d.status, 'approved');
   assertSegregation(req.user!.id, d.makerId);
   await prisma.$transaction(async (tx) => {
@@ -145,6 +147,7 @@ const reasonSchema = z.object({ reason: z.string().trim().min(3).max(255) });
 
 opsDistributionsRoutes.post('/distributions/:id/reject', requirePermission('distributions.approve'), validateBody(reasonSchema), idempotent('ops.post.distributions_id_reject', { required: false }), async (req, res) => {
   const d = await loadDistribution(param(req, 'id'));
+  expectVersion(req, d.version);
   if (d.status !== 'PENDING_APPROVAL') badState('The distribution', d.status, 'rejected');
   const { reason } = req.body as z.infer<typeof reasonSchema>;
   await prisma.$transaction(async (tx) => {
@@ -156,6 +159,7 @@ opsDistributionsRoutes.post('/distributions/:id/reject', requirePermission('dist
 
 opsDistributionsRoutes.post('/distributions/:id/issue', requirePermission('distributions.create'), requireStepUp, idempotent('ops.distribution.issue'), async (req, res) => {
   const d = await loadDistribution(param(req, 'id'));
+  expectVersion(req, d.version);
   if (d.status !== 'APPROVED') badState('The distribution', d.status, 'issued (it must be approved first)');
   await prisma.$transaction(
     async (tx) => {
@@ -229,6 +233,7 @@ opsDistributionsRoutes.post(
   validateBody(reasonSchema),
   async (req, res) => {
     const d = await loadDistribution(param(req, 'id'));
+    expectVersion(req, d.version);
     if (['CANCELLED', 'PAID', 'PARTIALLY_PAID'].includes(d.status)) badState('The distribution', d.status, 'cancelled');
     if (d.allocations.some((a) => a.amountPaid.gt(ZERO))) badState('The distribution', 'part-paid', 'cancelled');
     if (d.status === 'ISSUED' && !req.user!.permissions.includes('distributions.approve')) {

@@ -1,5 +1,7 @@
 import { Router, type Request, type Response } from 'express';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 import { z } from 'zod';
+import { emailSchema } from '@matanho/shared';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
@@ -10,7 +12,7 @@ import { nextRef, refFormats } from '../../lib/refs';
 import { getPolicies } from '../../lib/policy';
 import { clearSettingCache, setting } from '../../lib/settings';
 import { runRetentionPurge } from './retention';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertSegregation, assertUpdated, audit, notifyPermission } from '../ops/ops.common';
@@ -34,6 +36,9 @@ import {
 import { SUGGESTIONS } from './copilot';
 import { getLlmAdapter } from '../../integrations/llm';
 import { integrationsRoutes } from './integrations.routes';
+import { createInvitation } from '../identity/invitations';
+import { createHash } from 'node:crypto';
+import { opsHealthRoutes } from './ops-health.routes';
 
 /**
  * Admin Core (SRD 5A `rbac`, `settings`, `audit`, `copilot`). Mounted at `/api/v1/admin-core`. Extends the staff
@@ -45,6 +50,8 @@ export const adminCoreRoutes = Router();
 adminCoreRoutes.use(requireAuth, requirePortalAccess('admin'));
 // Integrations ops screen API (WP-8): /admin-core/integrations/*
 adminCoreRoutes.use('/integrations', integrationsRoutes);
+// Worker / outbox health and alerts (R4-1, GAP-023): /admin-core/ops-health/*
+adminCoreRoutes.use('/ops-health', opsHealthRoutes);
 
 const RBAC = requirePermission('admin.rbac');
 const SETTINGS_PERM = requirePermission('admin.settings');
@@ -159,7 +166,25 @@ async function activeAdminCount(tx: Prisma.TransactionClient | typeof prisma) {
 }
 
 /** Applies a change inside the caller's transaction; throws a 409/400 when it is no longer safe. */
-async function applyChange(tx: Prisma.TransactionClient, kind: ChangeKind, targetId: string, proposal: Record<string, unknown>) {
+async function applyChange(tx: Prisma.TransactionClient, kind: ChangeKind, targetId: string, proposal: Record<string, unknown>, actorId: string | null = null): Promise<{ before: Record<string, unknown>; after: Record<string, unknown>; objectId?: string }> {
+  if (kind === 'ROLE_CREATE') {
+    const base = String(proposal.key);
+    let key = base;
+    for (let n = 2; await tx.role.findUnique({ where: { portal_key: { portal: 'admin', key } } }); n++) key = `${base}_${n}`.slice(0, 64);
+    const perms = (proposal.permissions as string[]) ?? [];
+    const created = await tx.role.create({ data: { portal: 'admin', key, label: String(proposal.label), custom: true, permissions: { create: perms.map((permission) => ({ permission })) } } });
+    return { before: {}, after: { roleId: created.id, key, label: created.label, permissions: perms }, objectId: created.id };
+  }
+  if (kind === 'STAFF_INVITE') {
+    const email = String(proposal.email).toLowerCase();
+    const roleKey = String(proposal.roleKey);
+    const role = await tx.role.findUnique({ where: { portal_key: { portal: 'admin', key: roleKey } } });
+    if (!role) throw HttpError.badRequest('The proposed role no longer exists');
+    const existing = await tx.user.findUnique({ where: { email }, include: { roles: { where: { role: { portal: 'admin' } }, select: { roleId: true } } } });
+    if (existing?.roles.length) throw HttpError.conflict('This person already has workspace access', 'already_member');
+    const { invitation } = await createInvitation(tx, { email, name: String(proposal.name), portal: 'admin', roleKeys: [role.key], invitedById: actorId, context: `the Matanho Nexus workspace as ${role.label}` });
+    return { before: {}, after: { invitationId: invitation.id, email, role: role.key }, objectId: invitation.id };
+  }
   if (kind === 'USER_ROLES') {
     const wanted = (proposal.roles as string[]) ?? [];
     const roles = await loadAdminRoles(tx);
@@ -193,6 +218,16 @@ async function applyChange(tx: Prisma.TransactionClient, kind: ChangeKind, targe
   return { before: { isActive: user.isActive }, after: { isActive: false } };
 }
 
+/** Audit action and object recorded when a request of this kind is applied. */
+const APPLIED_AUDIT: Record<ChangeKind, string> = {
+  USER_ROLES: 'staff_user.roles_changed',
+  ROLE_PERMISSIONS: 'role.permissions_changed',
+  USER_DISABLE: 'staff_user.disabled',
+  ROLE_CREATE: 'role.created',
+  STAFF_INVITE: 'staff_user.invited',
+};
+const appliedObjectType = (kind: ChangeKind, targetType: string) => (kind === 'ROLE_CREATE' ? 'role' : kind === 'STAFF_INVITE' ? 'invitation' : targetType === 'role' ? 'role' : 'user');
+
 const requestView = (r: Prisma.AccessChangeRequestGetPayload<object>, names: Map<string, string>) => ({
   id: r.id,
   ref: r.ref,
@@ -223,9 +258,14 @@ adminCoreRoutes.get(
   validateQuery(z.object({ status: z.string().max(80).optional(), limit: z.coerce.number().int().min(1).max(200).default(100) })),
   async (req, res) => {
     const q = query<{ status?: string; limit: number }>(req);
-    const rows = await prisma.accessChangeRequest.findMany({ where: q.status ? { status: { in: csv(q.status) } } : undefined, orderBy: { requestedAt: 'desc' }, take: q.limit });
+    const pg = sqlPage(req, q.limit);
+    const where: Prisma.AccessChangeRequestWhereInput | undefined = q.status ? { status: { in: csv(q.status) } } : undefined;
+    const [rows, total] = await Promise.all([
+      prisma.accessChangeRequest.findMany({ where, orderBy: { requestedAt: 'desc' }, skip: pg.skip, take: pg.take }),
+      prisma.accessChangeRequest.count({ where }),
+    ]);
     const names = await userName(rows.flatMap((r) => [r.requestedBy, r.decidedBy]));
-    res.json({ data: rows.map((r) => requestView(r, names)) });
+    res.json(pageEnvelope(pg, rows.map((r) => requestView(r, names)), total));
   },
 );
 
@@ -233,6 +273,8 @@ const requestSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('USER_ROLES'), userId: z.string().regex(UUID), roles: z.array(z.string().max(64)).min(1).max(10), reason: z.string().trim().min(5).max(500) }),
   z.object({ kind: z.literal('ROLE_PERMISSIONS'), roleKey: z.string().max(64), permissions: z.array(z.string().regex(/^[a-z_]+(\.[a-z_]+)+$/)).max(200), reason: z.string().trim().min(5).max(500) }),
   z.object({ kind: z.literal('USER_DISABLE'), userId: z.string().regex(UUID), reason: z.string().trim().min(5).max(500) }),
+  z.object({ kind: z.literal('ROLE_CREATE'), label: z.string().trim().min(2).max(120), template: z.string().max(64).default('blank'), reason: z.string().trim().min(5).max(500) }),
+  z.object({ kind: z.literal('STAFF_INVITE'), name: z.string().trim().min(1).max(120), email: emailSchema, role: z.string().trim().min(1).max(64), reason: z.string().trim().min(5).max(500) }),
 ]);
 type RequestBody = z.infer<typeof requestSchema>;
 
@@ -240,7 +282,8 @@ type RequestBody = z.infer<typeof requestSchema>;
  * Creates the change. A privileged change (or one forced by a review) waits for an independent checker. Anything else
  * is applied at once by the requester under step-up, and recorded the same way.
  */
-async function createChange(req: Request, b: RequestBody, opts: { forcePending?: boolean; reviewItemId?: string; tx?: Prisma.TransactionClient } = {}) {
+async function createChange(req: Request, b: RequestBody, opts0: { forcePending?: boolean; reviewItemId?: string; tx?: Prisma.TransactionClient } = {}) {
+  let opts = opts0;
   const me = req.user!.id;
   const roles = await loadAdminRoles();
   let targetType: 'user' | 'role' = 'user';
@@ -250,7 +293,33 @@ async function createChange(req: Request, b: RequestBody, opts: { forcePending?:
   let proposal: Prisma.InputJsonObject;
   let privilegedBy: string[] = [];
 
-  if (b.kind === 'ROLE_PERMISSIONS') {
+  if (b.kind === 'ROLE_CREATE') {
+    const base = (b.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'custom_role').slice(0, 50);
+    if (b.template === SYSTEM_ADMIN) throw HttpError.badRequest('System Administrator cannot be used as a template');
+    const template = b.template === 'blank' ? null : roles.get(b.template);
+    if (b.template !== 'blank' && !template) throw HttpError.badRequest('Unknown template role');
+    const perms = template ? template.permissions : ['dashboard.view'];
+    targetType = 'role';
+    targetId = `new:${base}`;
+    targetLabel = b.label;
+    before = {};
+    proposal = { key: base, label: b.label, template: b.template, permissions: perms };
+    // A new role is always created through a checker; the privileged permissions it would carry are called out.
+    privilegedBy = privilegedPermissionAdds([], perms);
+    opts = { ...opts, forcePending: true };
+  } else if (b.kind === 'STAFF_INVITE') {
+    const role = roles.get(b.role);
+    if (!role) throw HttpError.badRequest('Unknown role');
+    const email = b.email.toLowerCase();
+    const existing = await prisma.user.findUnique({ where: { email }, include: staffInclude });
+    if (existing?.roles.length) throw HttpError.conflict('This person already has workspace access - change their role instead', 'already_member');
+    targetId = `invite:${createHash('sha1').update(email).digest('hex')}`;
+    targetLabel = email.slice(0, 200);
+    before = {};
+    proposal = { name: b.name, email, roleKey: role.key };
+    privilegedBy = privilegedRoleAdds([], [{ key: role.key, permissions: role.permissions }]);
+    opts = { ...opts, forcePending: true };
+  } else if (b.kind === 'ROLE_PERMISSIONS') {
     const role = roles.get(b.roleKey);
     if (!role) throw HttpError.notFound('Role not found');
     if (role.key === SYSTEM_ADMIN) throw HttpError.forbidden('System Administrator privileges are platform-only and cannot be edited', 'role_locked');
@@ -306,7 +375,7 @@ async function createChange(req: Request, b: RequestBody, opts: { forcePending?:
     let status = 'PENDING';
     let applied: Awaited<ReturnType<typeof applyChange>> | null = null;
     if (!pending) {
-      applied = await applyChange(tx, b.kind, targetId, proposal as Record<string, unknown>);
+      applied = await applyChange(tx, b.kind, targetId, proposal as Record<string, unknown>, me);
       status = 'APPLIED';
     }
     const row = await tx.accessChangeRequest.create({
@@ -335,7 +404,7 @@ async function createChange(req: Request, b: RequestBody, opts: { forcePending?:
       after: applied?.after ?? { ...proposal, status, privilegedBy },
       reason: b.reason,
     });
-    if (applied) await writeAudit(tx, audit(req), { action: b.kind === 'ROLE_PERMISSIONS' ? 'role.permissions_changed' : b.kind === 'USER_DISABLE' ? 'staff_user.disabled' : 'staff_user.roles_changed', objectType: targetType === 'role' ? 'role' : 'user', objectId: targetId, before: applied.before, after: applied.after, reason: b.reason });
+    if (applied) await writeAudit(tx, audit(req), { action: APPLIED_AUDIT[b.kind], objectType: appliedObjectType(b.kind, targetType), objectId: applied.objectId ?? targetId, before: applied.before, after: applied.after, reason: b.reason });
     if (!applied) {
       await notifyPermission(tx, 'admin.rbac', { type: 'access.change_pending', title: `${ref}: ${privileged ? 'privileged ' : ''}access change needs approval`, body: `${targetLabel}: ${b.reason}`, link: '/ops/rbac' });
     }
@@ -363,13 +432,14 @@ async function loadRequest(id: string) {
 adminCoreRoutes.post('/rbac/requests/:id/approve', RBAC, requireStepUp, idempotent('access_change.approve'), validateBody(decideSchema), async (req, res) => {
   const r = await loadRequest(param(req, 'id'));
   if (r.status !== 'PENDING') throw HttpError.conflict(`${r.ref} is ${r.status}; it cannot be approved`, 'invalid_state');
+  expectVersion(req, r.version);
   assertSegregation(req.user!.id, r.requestedBy, r.targetType === 'user' ? r.targetId : null);
   const row = await prisma.$transaction(async (tx) => {
     const claimed = await tx.accessChangeRequest.updateMany({ where: { id: r.id, status: 'PENDING', version: r.version }, data: { status: 'APPLIED', decidedBy: req.user!.id, decidedAt: new Date(), decisionNote: (req.body as z.infer<typeof decideSchema>).note ?? null, version: { increment: 1 } } });
     assertUpdated(claimed.count);
-    const applied = await applyChange(tx, r.kind as ChangeKind, r.targetId, r.proposal as Record<string, unknown>);
+    const applied = await applyChange(tx, r.kind as ChangeKind, r.targetId, r.proposal as Record<string, unknown>, r.requestedBy);
     await writeAudit(tx, audit(req), { action: 'access_change.approved', objectType: 'access_change_request', objectId: r.id, before: { status: 'PENDING', ...applied.before }, after: { status: 'APPLIED', ...applied.after }, reason: (req.body as z.infer<typeof decideSchema>).note ?? r.reason });
-    await writeAudit(tx, audit(req), { action: r.kind === 'ROLE_PERMISSIONS' ? 'role.permissions_changed' : r.kind === 'USER_DISABLE' ? 'staff_user.disabled' : 'staff_user.roles_changed', objectType: r.targetType === 'role' ? 'role' : 'user', objectId: r.targetId, before: applied.before, after: applied.after, reason: `Approved ${r.ref}` });
+    await writeAudit(tx, audit(req), { action: APPLIED_AUDIT[r.kind as ChangeKind], objectType: appliedObjectType(r.kind as ChangeKind, r.targetType), objectId: applied.objectId ?? r.targetId, before: applied.before, after: applied.after, reason: `Approved ${r.ref}` });
     await enqueue(tx, 'notify.users', { userIds: [r.requestedBy], type: 'access.change_decided', title: `${r.ref} approved`, body: r.targetLabel, link: '/ops/rbac' });
     return tx.accessChangeRequest.findUniqueOrThrow({ where: { id: r.id } });
   });
@@ -380,6 +450,7 @@ adminCoreRoutes.post('/rbac/requests/:id/approve', RBAC, requireStepUp, idempote
 adminCoreRoutes.post('/rbac/requests/:id/reject', RBAC, idempotent('access_change.reject'), validateBody(z.object({ note: z.string().trim().min(3).max(500) })), async (req, res) => {
   const r = await loadRequest(param(req, 'id'));
   if (r.status !== 'PENDING') throw HttpError.conflict(`${r.ref} is ${r.status}; it cannot be rejected`, 'invalid_state');
+  expectVersion(req, r.version);
   assertSegregation(req.user!.id, r.requestedBy);
   const note = (req.body as { note: string }).note;
   const row = await prisma.$transaction(async (tx) => {
@@ -397,6 +468,7 @@ adminCoreRoutes.post('/rbac/requests/:id/withdraw', RBAC, idempotent('access_cha
   const r = await loadRequest(param(req, 'id'));
   if (r.requestedBy !== req.user!.id) throw HttpError.forbidden('Only the requester can withdraw a request', 'permission_denied');
   if (r.status !== 'PENDING') throw HttpError.conflict(`${r.ref} is ${r.status}; it cannot be withdrawn`, 'invalid_state');
+  expectVersion(req, r.version);
   const row = await prisma.$transaction(async (tx) => {
     const c = await tx.accessChangeRequest.updateMany({ where: { id: r.id, status: 'PENDING', version: r.version }, data: { status: 'WITHDRAWN', decidedBy: req.user!.id, decidedAt: new Date(), version: { increment: 1 } } });
     assertUpdated(c.count);
@@ -609,9 +681,15 @@ adminCoreRoutes.get(
   validateQuery(z.object({ key: z.string().max(80).optional(), limit: z.coerce.number().int().min(1).max(200).default(50) })),
   async (req, res) => {
     const q = query<{ key?: string; limit: number }>(req);
-    const rows = await prisma.platformSettingChange.findMany({ where: q.key ? { key: q.key } : undefined, orderBy: { changedAt: 'desc' }, take: q.limit });
+    const pg = sqlPage(req, q.limit);
+    const where: Prisma.PlatformSettingChangeWhereInput | undefined = q.key ? { key: q.key } : undefined;
+    const [rows, total] = await Promise.all([
+      prisma.platformSettingChange.findMany({ where, orderBy: { changedAt: 'desc' }, skip: pg.skip, take: pg.take }),
+      prisma.platformSettingChange.count({ where }),
+    ]);
     const names = await userName(rows.map((r) => r.changedBy));
     res.json({
+      ...pageEnvelope(pg, [], total),
       data: rows.map((r) => ({ id: r.id, key: r.key, label: settingDef(r.key)?.label ?? r.key, version: r.version, before: r.before, after: r.after, reason: r.reason, changedBy: names.get(r.changedBy) ?? 'Unknown', changedAt: r.changedAt.toISOString() })),
     });
   },

@@ -6,7 +6,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { signedDownloadUrl, storeFile } from '../../lib/storage';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
@@ -223,6 +223,7 @@ regulatoryRoutes.post('/filings', ...canPrepare, validateBody(createBody), idemp
 /** Rebuilds the figures from live data. The caller becomes the preparer, so they cannot approve or submit it. */
 regulatoryRoutes.post('/filings/:id/populate', ...canPrepare, async (req, res) => {
   const f = await load(param(req, 'id'));
+  expectVersion(req, f.version);
   if (!canMove('edit', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; figures can only be rebuilt while DRAFT or RETURNED`, 'invalid_state');
   const payload = await buildPayload(f.template.key, f.periodStart, f.periodEnd);
   await prisma.$transaction(async (tx) => {
@@ -293,6 +294,7 @@ regulatoryRoutes.get('/filings/:id/export', ...canView, async (req, res) => {
 
 regulatoryRoutes.post('/filings/:id/submit-review', ...canPrepare, idempotent('regulatory.filing_review', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
+  expectVersion(req, f.version);
   if (!canMove('submitReview', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; only a DRAFT or RETURNED filing can be sent for review`, 'invalid_state');
   if (f.makerId && f.makerId !== req.user!.id) throw sod('Only the preparer can send this filing for review; rebuild the figures to take it over');
   if (!f.payload) throw HttpError.conflict('Populate the figures before sending for review', 'no_payload');
@@ -314,6 +316,7 @@ function assertIntact(f: Filing) {
 
 regulatoryRoutes.post('/filings/:id/approve', ...canApprove, requireStepUp, idempotent('regulatory.filing_approve', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
+  expectVersion(req, f.version);
   if (!canMove('approve', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; it must be IN_REVIEW to approve`, 'invalid_state');
   if (f.makerId === req.user!.id) throw sod('The preparer cannot approve their own filing (maker-checker)');
   assertIntact(f);
@@ -328,6 +331,7 @@ regulatoryRoutes.post('/filings/:id/approve', ...canApprove, requireStepUp, idem
 
 regulatoryRoutes.post('/filings/:id/return', ...canApprove, validateBody(reasonSchema), idempotent('regulatory.post.filings_id_return', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
+  expectVersion(req, f.version);
   if (!canMove('return', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; only IN_REVIEW or APPROVED filings can be returned`, 'invalid_state');
   if (f.makerId === req.user!.id) throw sod('You prepared this filing; withdraw it by editing instead of returning it');
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
@@ -341,6 +345,7 @@ regulatoryRoutes.post('/filings/:id/return', ...canApprove, validateBody(reasonS
 const submitBody = z.object({ submissionRef: z.string().trim().min(3, 'Enter the regulator reference (3+ characters)').max(80) }).strict();
 regulatoryRoutes.post('/filings/:id/submit', ...canSubmit, requireStepUp, validateBody(submitBody), idempotent('regulatory.filing_submit', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
+  expectVersion(req, f.version);
   if (!canMove('submit', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; it must be APPROVED to submit`, 'invalid_state');
   if (f.makerId === req.user!.id) throw sod('The preparer cannot submit their own filing');
   assertIntact(f);
@@ -356,6 +361,7 @@ regulatoryRoutes.post('/filings/:id/submit', ...canSubmit, requireStepUp, valida
 
 regulatoryRoutes.post('/filings/:id/waive', ...canApprove, validateBody(reasonSchema), idempotent('regulatory.post.filings_id_waive', { required: false }), async (req, res) => {
   const f = await load(param(req, 'id'));
+  expectVersion(req, f.version);
   if (!canMove('waive', f.status)) throw HttpError.conflict(`${f.ref} is ${f.status}; only DRAFT or RETURNED filings can be waived`, 'invalid_state');
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
   await prisma.$transaction(async (tx) => {

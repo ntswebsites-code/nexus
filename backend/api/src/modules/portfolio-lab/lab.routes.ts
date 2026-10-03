@@ -7,7 +7,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
 import { nextRef } from '../../lib/refs';
-import { param, query } from '../../lib/http';
+import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess } from '../../middleware/requireAuth';
 import { assertUpdated, audit, seqRef } from '../ops/ops.common';
@@ -117,6 +117,7 @@ portfolioLabRoutes.get('/models/:id', ...canView, async (req, res) => {
 
 portfolioLabRoutes.patch('/models/:id', ...canManage, validateBody(modelPatch), idempotent('portfolio-lab.patch.models_id', { required: false }), async (req, res) => {
   const m = await loadModel(param(req, 'id'));
+  expectVersion(req, m.version);
   if (m.status !== 'DRAFT') throw invalidState(`${m.ref} is ${m.status}; only a DRAFT model can be edited. Clone it to make changes.`);
   const b = req.body as z.infer<typeof modelPatch>;
   if (b.version !== undefined && b.version !== m.version) throw HttpError.conflict('This record was changed by someone else. Reload and try again.', 'version_conflict');

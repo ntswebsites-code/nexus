@@ -106,29 +106,9 @@ adminRoutes.get('/users', RBAC, async (_req, res) => {
 
 const addUserSchema = z.object({ name: z.string().trim().min(1).max(120), email: emailSchema, role: z.string().trim().min(1).max(64) });
 
-adminRoutes.post('/users', RBAC, requireStepUp, idempotent('staff.invite'), validateBody(addUserSchema), async (req, res) => {
-  const b = req.body as z.infer<typeof addUserSchema>;
-  const role = await prisma.role.findUnique({ where: { portal_key: { portal: 'admin', key: b.role } } });
-  if (!role) throw HttpError.badRequest('Unknown role');
-  const existing = await prisma.user.findUnique({ where: { email: b.email }, include: staffRoleInclude });
-  if (existing?.roles.length) throw HttpError.conflict('This person already has workspace access - change their role instead', 'already_member');
-  const roleWithPerms = await prisma.role.findUnique({ where: { id: role.id }, include: { permissions: true } });
-  const privileged = privilegedRoleAdds([], [{ key: role.key, permissions: (roleWithPerms?.permissions ?? []).map((p) => p.permission) }]);
-  if (privileged.length) {
-    throw HttpError.conflict(`Inviting someone as ${role.label} grants ${privileged.join(', ')} and needs an independent checker. Invite with a non-privileged role, then raise an access change request.`, 'approval_required');
-  }
-  await prisma.$transaction(async (tx) => {
-    const { invitation } = await createInvitation(tx, {
-      email: b.email,
-      name: b.name,
-      portal: 'admin',
-      roleKeys: [role.key],
-      invitedById: req.user!.id,
-      context: `the Matanho Nexus workspace as ${role.label}`,
-    });
-    await writeAudit(tx, audit(req), { action: 'staff_user.invited', objectType: 'invitation', objectId: invitation.id, after: { email: b.email, role: role.key } });
-  });
-  res.status(201).json({ data: await staffUsers() });
+/** R4-1: staff invitations are maker-checker change requests (`POST /admin-core/rbac/requests` kind STAFF_INVITE). */
+adminRoutes.post('/users', RBAC, requireStepUp, validateBody(addUserSchema), async () => {
+  throw HttpError.conflict('Staff invitations need an independent checker. Raise a STAFF_INVITE access change request (POST /api/v1/admin-core/rbac/requests).', 'approval_required');
 });
 
 const rolesSchema = z.object({ roles: z.array(z.string().max(64)).min(1).max(10) });
@@ -242,24 +222,9 @@ adminRoutes.delete('/permissions/:code', RBAC, requireStepUp, async (req, res) =
 
 const newRoleSchema = z.object({ label: z.string().trim().min(2).max(120), template: z.string().max(64).default('blank') });
 
-adminRoutes.post('/roles', RBAC, requireStepUp, validateBody(newRoleSchema), async (req, res) => {
-  const b = req.body as z.infer<typeof newRoleSchema>;
-  const base = b.label.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'custom_role';
-  let key = base;
-  for (let n = 2; await prisma.role.findUnique({ where: { portal_key: { portal: 'admin', key } } }); n++) key = `${base}_${n}`;
-  const template =
-    b.template === 'blank' ? null : await prisma.role.findUnique({ where: { portal_key: { portal: 'admin', key: b.template } }, include: { permissions: true } });
-  if (template?.key === SYSTEM_ADMIN) throw HttpError.badRequest('System Administrator cannot be used as a template');
-  const templatePerms = template ? template.permissions.map((p) => p.permission) : ['dashboard.view'];
-  // A new role cannot start with privileged permissions: they need the independent-checker change request.
-  const deferred = privilegedPermissionAdds([], templatePerms);
-  const perms = templatePerms.filter((p) => !deferred.includes(p));
-  const role = await prisma.$transaction(async (tx) => {
-    const r = await tx.role.create({ data: { portal: 'admin', key, label: b.label, custom: true, permissions: { create: perms.map((permission) => ({ permission })) } } });
-    await writeAudit(tx, audit(req), { action: 'role.created', objectType: 'role', objectId: r.id, after: { key, label: b.label, template: b.template, permissions: perms, deferredPrivileged: deferred } });
-    return r;
-  });
-  res.status(201).json({ role: { key: role.key, label: role.label, permissions: perms.sort() }, deferredPrivileged: deferred });
+/** R4-1: role creation is a maker-checker change request (`POST /admin-core/rbac/requests` kind ROLE_CREATE). */
+adminRoutes.post('/roles', RBAC, requireStepUp, validateBody(newRoleSchema), async () => {
+  throw HttpError.conflict('New roles need an independent checker. Raise a ROLE_CREATE access change request (POST /api/v1/admin-core/rbac/requests).', 'approval_required');
 });
 
 /** Every code a role may carry: codes already granted somewhere in the catalogue plus administrator-defined ones. */

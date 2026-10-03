@@ -77,6 +77,7 @@ function MatrixTab() {
   const res = useResource<Matrix>(() => api.get<Matrix>(AC('/rbac/matrix')), []);
   const roles = useResource<{ data: RoleRow[] } | RoleRow[]>(() => api.get<RoleRow[]>(v1('/admin/roles')), []);
   const [edit, setEdit] = useState<RoleRow | null>(null);
+  const [create, setCreate] = useState(false);
   const [note, setNote] = useState('');
   const roleRows = roles.state === 'ok' ? ((Array.isArray(roles.data) ? roles.data : roles.data.data) ?? []) : [];
   return (
@@ -85,7 +86,14 @@ function MatrixTab() {
         <>
           <Alert kind="info">{m.privilegedRule} Privileged permissions are marked with a dot.</Alert>
           <Alert kind="ok">{note}</Alert>
-          <Card title={`Roles (${m.roles.length})`}>
+          <Card
+            title={`Roles (${m.roles.length})`}
+            actions={
+              <button className="ops-btn primary" type="button" onClick={() => setCreate(true)}>
+                New role
+              </button>
+            }
+          >
             <div className="ops-table-wrap">
               <table className="ops-table">
                 <thead>
@@ -136,6 +144,42 @@ function MatrixTab() {
               </table>
             </div>
           </Card>
+          {create && (
+            <FormModal
+              title="New role"
+              kicker="Access change request"
+              subtitle="A new role is created only after a different administrator approves the request. Privileged permissions from the template are flagged."
+              submitLabel="Submit request"
+              onClose={() => setCreate(false)}
+              onDone={(r) => {
+                setNote(outcome(r));
+                res.reload();
+                roles.reload();
+              }}
+              onSubmit={(fd, key) => postRequest({ kind: 'ROLE_CREATE', label: str(fd, 'label'), template: str(fd, 'template'), reason: str(fd, 'reason') }, key)}
+            >
+              <FieldGrid>
+                <Field label="Role name">
+                  <input className="ops-input" name="label" required minLength={2} maxLength={120} />
+                </Field>
+                <Field label="Start from">
+                  <select className="ops-input" name="template" defaultValue="blank">
+                    <option value="blank">Blank (dashboard only)</option>
+                    {m.roles
+                      .filter((r) => r.key !== 'system_admin')
+                      .map((r) => (
+                        <option key={r.key} value={r.key}>
+                          Copy of {r.label}
+                        </option>
+                      ))}
+                  </select>
+                </Field>
+              </FieldGrid>
+              <Field label="Reason">
+                <textarea className="ops-input" name="reason" required minLength={5} maxLength={500} />
+              </Field>
+            </FormModal>
+          )}
           {edit && (
             <RolePermissionsModal
               role={edit}
@@ -234,13 +278,21 @@ function StaffTab() {
   const { user: me } = useSession();
   const [target, setTarget] = useState<StaffUser | null>(null);
   const [disable, setDisable] = useState<StaffUser | null>(null);
+  const [invite, setInvite] = useState(false);
   const [note, setNote] = useState('');
   const roleList = roles.state === 'ok' ? roles.data : [];
   const label = (k: string) => roleList.find((r) => r.key === k)?.label ?? k;
   return (
     <>
       <Alert kind="ok">{note}</Alert>
-      <Card title="Staff and role assignments">
+      <Card
+        title="Staff and role assignments"
+        actions={
+          <button className="ops-btn primary" type="button" onClick={() => setInvite(true)}>
+            Invite staff member
+          </button>
+        }
+      >
         <Loaded res={users} what="staff">
           {(list) =>
             list.length === 0 ? (
@@ -301,6 +353,44 @@ function StaffTab() {
           </button>
         </div>
       </Card>
+      {invite && (
+        <FormModal
+          title="Invite a staff member"
+          kicker="Access change request"
+          subtitle="Invitations are maker-checker: a different administrator approves the request, and only then is the email sent."
+          submitLabel="Submit request"
+          onClose={() => setInvite(false)}
+          onDone={(r) => {
+            setNote(outcome(r));
+            users.reload();
+          }}
+          onSubmit={(fd, key) => postRequest({ kind: 'STAFF_INVITE', name: str(fd, 'name'), email: str(fd, 'email'), role: str(fd, 'role'), reason: str(fd, 'reason') }, key)}
+        >
+          <FieldGrid>
+            <Field label="Full name">
+              <input className="ops-input" name="name" required maxLength={120} />
+            </Field>
+            <Field label="Work email">
+              <input className="ops-input" name="email" type="email" required maxLength={254} />
+            </Field>
+            <Field label="Role">
+              <select className="ops-input" name="role" required defaultValue="">
+                <option value="" disabled>
+                  Choose a role
+                </option>
+                {roleList.map((r) => (
+                  <option key={r.key} value={r.key}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </FieldGrid>
+          <Field label="Reason">
+            <textarea className="ops-input" name="reason" required minLength={5} maxLength={500} />
+          </Field>
+        </FormModal>
+      )}
       {target && (
         <FormModal
           title={`Change roles: ${target.name}`}
@@ -357,6 +447,8 @@ function StaffTab() {
 function describe(r: ChangeRequest): string {
   if (r.kind === 'USER_ROLES') return `Roles: ${((r.before?.roles as string[]) ?? []).join(', ') || 'none'} → ${((r.proposal.roles as string[]) ?? []).join(', ')}`;
   if (r.kind === 'USER_DISABLE') return 'Disable account';
+  if (r.kind === 'ROLE_CREATE') return `Create role "${String(r.proposal.label)}" (${((r.proposal.permissions as string[]) ?? []).length} permissions, template ${String(r.proposal.template)})`;
+  if (r.kind === 'STAFF_INVITE') return `Invite ${String(r.proposal.name)} <${String(r.proposal.email)}> as ${String(r.proposal.roleKey)}`;
   const before = (r.before?.permissions as string[]) ?? [];
   const next = (r.proposal.permissions as string[]) ?? [];
   const add = next.filter((p) => !before.includes(p));
@@ -425,10 +517,10 @@ function RequestsTab() {
                           {r.status === 'PENDING' && (
                             <>
                               {mine ? (
-                                <ActionButton label="Withdraw" onRun={(k) => api.post(AC(`/rbac/requests/${r.id}/withdraw`), {}, { idempotencyKey: k })} onDone={res.reload} />
+                                <ActionButton label="Withdraw" onRun={(k) => api.post(AC(`/rbac/requests/${r.id}/withdraw`), { version: r.version }, { idempotencyKey: k })} onDone={res.reload} />
                               ) : (
                                 <>
-                                  <ActionButton primary label="Approve" confirm={`Approve ${r.ref} and apply it now?`} onRun={(k) => api.post(AC(`/rbac/requests/${r.id}/approve`), {}, { idempotencyKey: k })} onDone={res.reload} />{' '}
+                                  <ActionButton primary label="Approve" confirm={`Approve ${r.ref} and apply it now?`} onRun={(k) => api.post(AC(`/rbac/requests/${r.id}/approve`), { version: r.version }, { idempotencyKey: k })} onDone={res.reload} />{' '}
                                   <button className="ops-btn danger" type="button" onClick={() => setReject(r)}>
                                     Reject
                                   </button>
@@ -453,7 +545,7 @@ function RequestsTab() {
           submitLabel="Reject"
           onClose={() => setReject(null)}
           onDone={res.reload}
-          onSubmit={(fd, key) => api.post(AC(`/rbac/requests/${reject.id}/reject`), { note: str(fd, 'note') }, { idempotencyKey: key })}
+          onSubmit={(fd, key) => api.post(AC(`/rbac/requests/${reject.id}/reject`), { note: str(fd, 'note'), version: reject.version }, { idempotencyKey: key })}
         >
           <Field label="Reason">
             <textarea className="ops-input" name="note" required minLength={3} maxLength={500} />

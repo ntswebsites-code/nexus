@@ -15,6 +15,7 @@ import { runDueSchedules } from './modules/reports';
 import { assertIntegrationsConfig, integrationTick } from './integrations';
 import { scanEsign } from './modules/esign';
 import { marketDataTick } from './integrations/market-data/scheduler';
+import { pruneHeartbeats, recordHeartbeat, syncAlerts } from './modules/admin-core/ops-health';
 
 /**
  * Outbox worker (SRD 10.2 "worker/scheduler"). Polls `outbox_events`, runs the
@@ -95,6 +96,9 @@ let lastEsignScan = 0;
 async function tick() {
   await scheduled('reports.schedules', HOUR, () => runDueSchedules());
   await scheduled('company.reminders', HOUR, () => scanReportingReminders());
+  // R4-1 (GAP-023): raise alerts for a stalled outbox, dead letters and overdue jobs; tidy old heartbeat rows daily.
+  await scheduled('ops.health', 60_000, async () => (await syncAlerts()).opened);
+  await scheduled('ops.heartbeat_prune', 24 * HOUR, () => pruneHeartbeats());
   try {
     const purged = await runScheduledPurge(); // self-locking: once per day across workers
     if (purged) console.log(`[worker] retention purge: ${JSON.stringify(purged)}`);
@@ -147,11 +151,15 @@ async function main() {
   console.log(`[worker] Matanho Nexus worker started (${config.nodeEnv}); SMTP ${config.smtp ? 'on' : 'console'}`);
   while (!stopping) {
     let handled = 0;
+    let tickError: string | null = null;
+    const tickStart = Date.now();
     try {
       handled = await tick();
     } catch (error) {
       console.error('[worker] poll failed', error);
+      tickError = error instanceof Error ? error.message : String(error);
     }
+    await recordHeartbeat(INSTANCE_ID, { ms: Date.now() - tickStart, handled, error: tickError });
     if (handled < BATCH) await new Promise((r) => setTimeout(r, POLL_MS));
   }
   // Hand back any claim this instance still holds so another worker can take the events at once.

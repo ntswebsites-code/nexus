@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
@@ -241,15 +242,13 @@ const priceQuery = z.object({ from: dateStr.optional(), to: dateStr.optional(), 
 portfolioRoutes.get('/securities/:id/prices', ...staff, canRead, validateQuery(priceQuery), async (req, res) => {
   const f = query<z.infer<typeof priceQuery>>(req);
   const sec = await getSecurityWithPrice(param(req, 'id'));
-  const rows = await prisma.securityPrice.findMany({
-    where: { securityId: sec.id, priceDate: { gte: f.from ? toDate(f.from) : undefined, lte: f.to ? toDate(f.to) : undefined } },
-    orderBy: [{ priceDate: 'desc' }, { createdAt: 'desc' }],
-    take: f.limit,
-  });
-  res.json({
-    data: rows.map((h) => ({ price: h.price.toFixed(6), priceDate: h.priceDate.toISOString().slice(0, 10), source: h.source })),
-    total: rows.length,
-  });
+  const pg = sqlPage(req, f.limit, 1000);
+  const where: Prisma.SecurityPriceWhereInput = { securityId: sec.id, priceDate: { gte: f.from ? toDate(f.from) : undefined, lte: f.to ? toDate(f.to) : undefined } };
+  const [rows, total] = await Promise.all([
+    prisma.securityPrice.findMany({ where, orderBy: [{ priceDate: 'desc' }, { createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.securityPrice.count({ where }),
+  ]);
+  res.json(pageEnvelope(pg, rows.map((h) => ({ price: h.price.toFixed(6), priceDate: h.priceDate.toISOString().slice(0, 10), source: h.source })), total));
 });
 
 const priceSchema = z.object({

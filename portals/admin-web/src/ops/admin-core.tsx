@@ -83,7 +83,7 @@ export interface Matrix {
 export interface ChangeRequest {
   id: string;
   ref: string;
-  kind: 'USER_ROLES' | 'ROLE_PERMISSIONS' | 'USER_DISABLE';
+  kind: 'USER_ROLES' | 'ROLE_PERMISSIONS' | 'USER_DISABLE' | 'ROLE_CREATE' | 'STAFF_INVITE';
   targetType: string;
   targetId: string;
   targetLabel: string;

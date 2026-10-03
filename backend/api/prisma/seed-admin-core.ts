@@ -70,6 +70,26 @@ export async function seedAdminCore() {
       log(`opened access review for ${users.length} staff`);
     }
   }
+  // ---- R4-1: a pending maker-checker role creation, and one resolved ops alert for the health screen ----
+  const demoRoleKey = 'regulatory_reviewer';
+  const demoTarget = `new:${demoRoleKey}`;
+  if (!(await prisma.accessChangeRequest.findFirst({ where: { kind: 'ROLE_CREATE', targetId: demoTarget } })) && !(await prisma.role.findUnique({ where: { portal_key: { portal: 'admin', key: demoRoleKey } } }))) {
+    const template = await prisma.role.findUnique({ where: { portal_key: { portal: 'admin', key: 'auditor' } }, include: { permissions: true } });
+    const perms = template ? template.permissions.map((p) => p.permission).sort() : ['dashboard.view'];
+    await prisma.$transaction(async (tx) => {
+      const ref = await nextRef(tx, 'accessRequest');
+      const row = await tx.accessChangeRequest.create({
+        data: { ref, kind: 'ROLE_CREATE', targetType: 'role', targetId: demoTarget, targetLabel: 'Regulatory Reviewer', before: {}, proposal: { key: demoRoleKey, label: 'Regulatory Reviewer', template: 'auditor', permissions: perms }, privileged: false, reason: 'Read-only role for the SECZ examination team (demo)', status: 'PENDING', requestedBy: actor.id },
+      });
+      await writeAudit(tx, ctx, { action: 'access_change.requested', objectType: 'access_change_request', objectId: row.id, after: { kind: 'ROLE_CREATE', key: demoRoleKey, status: 'PENDING' }, reason: row.reason });
+    });
+    log('pending role creation request');
+  }
+  if (!(await prisma.opsAlert.findUnique({ where: { alertKey: 'outbox.backlog' } }))) {
+    const seen = new Date(Date.now() - 3 * 86_400_000);
+    await prisma.opsAlert.create({ data: { alertKey: 'outbox.backlog', source: 'outbox', severity: 'WARNING', title: 'Outbox backlog', detail: '42 events waiting; the oldest has waited 9 min. (demo history)', status: 'RESOLVED', occurrences: 1, firstSeenAt: seen, lastSeenAt: seen, resolvedAt: new Date(seen.getTime() + 20 * 60_000), notifiedAt: seen } });
+    log('resolved ops alert history');
+  }
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
