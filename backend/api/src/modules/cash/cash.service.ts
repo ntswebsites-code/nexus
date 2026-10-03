@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { SYSTEM_ACTOR_ID, SYSTEM_NAME } from '../../lib/system';
+import { cashCloseGates } from '../opsctl/opsctl.gates';
 import { AGED_DAYS, availability, AVAIL_VERSION, coverageProblems, daysBetween, EFFECTIVE, LIVE_RESERVATION, signed, UNPOSTED } from './cash.engine';
 
 const D = Prisma.Decimal;
@@ -404,7 +405,7 @@ export async function loadClose(id: string): Promise<CloseRow> {
 // ---------------------------------------------------------------- close pre-check
 
 export interface PrecheckItem {
-  key: 'STATEMENT_COVERAGE' | 'BALANCE_VARIANCE' | 'SUSPENSE' | 'AGED_ITEMS' | 'UNPOSTED_JOURNALS' | 'CHECKER_APPROVAL';
+  key: 'STATEMENT_COVERAGE' | 'BALANCE_VARIANCE' | 'SUSPENSE' | 'AGED_ITEMS' | 'UNPOSTED_JOURNALS' | 'CHECKER_APPROVAL' | 'NAV_RELEASED' | 'RECON_SIGNOFF' | 'RECON_MATERIAL';
   label: string;
   ok: boolean;
   blockers: string[];
@@ -473,6 +474,8 @@ export async function closePrecheck(portfolioId: string, periodEnd: Date, close:
       detail: approved ? 'Approved' : close ? 'Awaiting checker' : 'Not prepared',
     },
   ];
+  // R4-2: NAV-released gate and reconciliation sign-off gate, each with itemised blockers.
+  items.push(...(await cashCloseGates(portfolioId, periodEnd)));
   const blockers = items.flatMap((i) => i.blockers);
   return { items, blockers, canClose: blockers.length === 0 };
 }
