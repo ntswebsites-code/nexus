@@ -428,3 +428,142 @@ idempotent (new key, no key, same key replay), FIRM scope across portfolios, sev
 breach acknowledge; scenario maths for rate, equity, FX in both base currencies, liquidity coverage thresholds
 (Within/Review/Escalate), limit-driven Review and Escalate, presets, stored runs; cases (validation, filters, assign,
 every allowed and refused transition, resolution note, breach resolution); audit events.
+
+## NAV
+
+NAV & Valuation (SRD 5.A.18, 6.11 FR-VAL-001..005, 7.8; BR-001, BR-012, BR-013). Branch `feat/nav-valuation`, migration
+`20261003110000_nav` (additive, one folder; models between `// ---- NAV ----` and `// ---- end NAV ----` at the end of
+`schema.prisma`). Code: `backend/api/src/modules/nav/` (`nav.engine.ts` pure maths, `nav.service.ts` valuation and
+persistence, `nav.routes.ts`), screens `/ops/nav` and `/ops/nav/[id]` with `src/ops/nav.tsx`, nav section "Valuation".
+
+Changes outside the NAV block: `funds.portfolio_id` (nullable `CHAR(36)`, logical link to `portfolios.id`, no FK; one
+field added to the `Fund` model), `lib/refs.ts` (kind `navRun` = `NAV-00001`), `routes/v1.ts` (mount `/nav`),
+`ops/Shell.tsx`, `prisma/seed/role-catalog.json` (new permission `valuation.release`), `prisma/seed-nav.ts` (called by
+`seed-uat.ts` and `seed-demo.ts`; links `FND-AEOF` Matanho Equity Opportunities Fund to the "USD Equity Fund" portfolio,
+`FND-AGFI` is private capital and stays unlinked).
+
+### Tables
+
+| Table | Model | Notes |
+|---|---|---|
+| `nav_runs` | `NavRun` | `ref` `NAV-#####`, `portfolio_id`, `fund_id?`, `nav_date`, `version` (unique with portfolio + date), `stage`, `base_currency`, `market_value`, `cash`, `accruals`, `fees`, `liabilities`, `fee_rate_pct?`, `nav`, `units?`, `nav_per_unit?` (4 dp), `price_coverage` (percent, 4 dp), `position_count`, `status`, `maker_id` (preparer), `reviewer_id` + `reviewed_at` (maker review), `checker_id` + `released_at` (release), `notes`, `detail` JSON (cash by currency, settings applied) |
+| `nav_run_lines` | `NavRunLine` | `run_id`, `security_id`, ticker, name, currency, `quantity`, `price`, `price_source`, `price_date`, `fx_rate`, `value_local`, `value_base`, `flags` JSON |
+| `nav_exceptions` | `NavException` | `run_id`, `type`, `security_id?`, `detail`, `current_value`, `reference_value`, `difference`, `material`, `status` OPEN/RESOLVED, `resolution`, `evidence_ref`, `resolved_by`, `resolved_at` |
+
+### Calculation (deterministic, from `getPortfolioSnapshot` at the NAV date)
+
+- Market value = sum of base-currency values of positions that have a price and an FX rate. Cash = snapshot cash in base.
+- **NAV = market value + cash + accruals - fees - liabilities** (BR-012), 2 dp. **NAV per unit = NAV / units**, 4 dp half-up,
+  null with no units. Fees are a manual amount, or when `feeRatePct` is set `fees = rate / 100 x (market value + cash +
+  accruals) / 365` (one day of accrual); setting a manual `fees` clears the rate.
+- **Price coverage** (BR-013) = valued / (valued + reference of unvalued) x 100, 4 dp. A position is valued when it has a
+  price and an FX rate (a stale price still counts as valued). Reference of an unvalued position = cost (quantity x average
+  cost x FX), else local value. 100 when there is nothing to value.
+- Exceptions:
+
+| Type | Raised when | Material |
+|---|---|---|
+| `MISSING_PRICE` | no price on or before the NAV date | always |
+| `MISSING_FX` | priced position or cash balance with no FX rate to base | always |
+| `NEGATIVE_CASH` | a cash balance below zero | always |
+| `TOLERANCE` | price moved more than `nav_price_move_pct` against the previous run's price (latest earlier RELEASED run, else the latest earlier non-superseded run, else the security's previous market price) | difference (current value minus value at the previous price) above `nav_tolerance_pct` of the position or above `nav_tolerance_abs` (BR-013) |
+| `STALE_PRICE` | price date more than `nav_stale_days` before the NAV date | never |
+
+Tolerances are read from the `policies` table (numeric values) and default to `nav_stale_days` 3, `nav_price_move_pct` 10,
+`nav_tolerance_pct` 1, `nav_tolerance_abs` 50000; the values used are stored in `nav_runs.detail.settings`.
+
+Versions: creating or recalculating for a portfolio and date inserts the next `version` (under a lock on the portfolio row)
+and marks every unreleased earlier version (DRAFT, EXCEPTIONS_OPEN, MAKER_REVIEWED) SUPERSEDED. Inputs not supplied
+(accruals, fees or fee rate, liabilities, units, notes) carry over from the latest unreleased version, else the latest one
+for that date; units default to the previous run's units, else fund total NAV / NAV per unit. Resolved exceptions carry over
+when type, security and current value are unchanged.
+
+### State machine (SRD 7.8)
+
+```
+DRAFT <-> EXCEPTIONS_OPEN   (open exception present / all resolved)
+DRAFT | EXCEPTIONS_OPEN --maker review (no material exception open; units set for a fund NAV)--> MAKER_REVIEWED
+MAKER_REVIEWED --release (different user, valuation.release, step-up)--> RELEASED
+any unreleased --recalculate / new run for the same date--> SUPERSEDED     RELEASED --a later version is released--> SUPERSEDED
+```
+
+`RELEASED` and `SUPERSEDED` are immutable: edits, resolutions, recalculation and review return `409 run_immutable`
+(create a new run for the date instead). Inputs and exception resolution are only allowed in DRAFT / EXCEPTIONS_OPEN
+(`409 run_not_editable` once MAKER_REVIEWED). Stage bar (derived, stored in `stage`): Positions, Cash, Prices & FX, Fees,
+Units, Maker review, Release.
+
+### Endpoints (`/api/v1/nav`, admin portal staff only)
+
+| Method and path | Permission | Notes |
+|---|---|---|
+| `GET /runs?portfolioId=&fundId=&status=&from=&to=&q=&limit=&offset=` | `valuation.view` | `portfolioId`/`fundId` take id or ref, `status` a comma list; returns `data`, `total`, `summary` |
+| `POST /runs` | `valuation.view` | `{portfolioId, navDate, accruals?, fees?, feeRatePct?, liabilities?, units?, notes?}`; `Idempotency-Key` required; 201 with detail; no future dates; `409 currency_mismatch` when the linked fund and portfolio currencies differ |
+| `GET /runs/:idOrRef` | `valuation.view` | run, `stageBar`, `bridge`, `lines`, `exceptions`, `versions`, `timeline`, `allowed` (what this user may do and why not) |
+| `POST /runs/:id/recalculate` | `valuation.view` | new version, 201; `Idempotency-Key` optional |
+| `PATCH /runs/:id/inputs` | `valuation.view` | accruals, fees, feeRatePct, liabilities, units, notes; recomputes NAV and NAV per unit; fees and a rate together is 400 |
+| `PATCH /runs/:id/exceptions/:exId` | `valuation.view` | `{resolution (5+ chars), evidenceRef?}`; resolved twice is `409 already_resolved` |
+| `POST /runs/:id/maker-review` | `valuation.view` | `409 material_exceptions_open`, `409 units_required` (fund NAV); reviewer recorded; notifies holders of `valuation.release` |
+| `POST /runs/:id/release` | `valuation.release` + **step-up** | status MAKER_REVIEWED; releaser must not be the maker reviewer (`403 segregation_of_duties`); supersedes the previous RELEASED version for the portfolio and date; updates the fund |
+| `GET /runs/:id/pack` | `valuation.view` | JSON summary for a preview (KPIs, bridge, top positions, exceptions, approvals, fund impact), `draft` until released |
+
+Every write audits inside its transaction (`nav.run_created`, `.run_recalculated`, `.run_superseded`, `.inputs_updated`,
+`.exception_resolved`, `.maker_reviewed`, `.released`; object type `nav_run`). Release audits the fund before and after.
+
+### Permission and step-up matrix
+
+| Action | Permission | Also required | Step-up |
+|---|---|---|---|
+| View, pack | `valuation.view` | | no |
+| Create, recalculate, edit inputs, resolve exceptions, maker review | `valuation.view` | | no |
+| Release | `valuation.release` | status MAKER_REVIEWED, releaser != maker reviewer | yes |
+
+`valuation.view` was already in the catalogue (investment director, portfolio manager, compliance, operations, fund
+accountant, auditor, system admin). **New `valuation.release`** is granted to `fund_accountant`, `investment_director` and
+`compliance`, not `system_admin`. Existing databases pick the grant up when `prisma/seed.ts` runs again. Note for the owner:
+as specified, preparing and reviewing need only `valuation.view`, so auditors and system admins can prepare runs; consider a
+separate manage right.
+
+### Link to the LP portal
+
+`funds.portfolio_id` links a fund to its portfolio. A run for a portfolio that backs a fund records the fund (`fund_id`),
+and **release** updates in one transaction: `funds.nav_per_unit`, `total_nav` (the NAV), `as_of_date` (the NAV date),
+`valuation_status` = `FINAL`, `dealing_rules_json.navHistory` (the LP NAV chart reads it, last 24 points), and every active
+`lp_holdings` row of the fund (`nav_per_unit`, `account_value` = units x NAV per unit, `as_of_date`, status FINAL). The LP
+session (`as_of_date`, `valuation_status`), dashboard (`openEndedSummary`) and dealing NAV read these. If the NAV date is older
+than the fund's current as-of date only the NAV history is updated. Drafts, exceptions and maker review change nothing on
+the fund. A portfolio with no linked fund can be valued on its own, with units entered by hand.
+
+### Console
+
+`/ops/nav`: filters (portfolio, status, NAV date range), tiles (awaiting release, exceptions open, released), table, and
+**New NAV run** (portfolio, date, optional inputs). `/ops/nav/[id]`: stage bar, KPIs (NAV, NAV per unit, units, coverage,
+exceptions), NAV bridge, exceptions with a resolve form (rationale, evidence ref), positions with price source and date,
+inputs and controls, versions and history, pack preview, and the actions Recalculate, Edit inputs, Maker review and
+Release NAV, enabled from the server's `allowed` flags (the release button is disabled for the maker reviewer and for users
+without `valuation.release`; the TOTP step-up modal appears on release). Typecheck only; no browser verification was done.
+
+### Running the test
+
+```
+# disposable DB only (for example schema nexus_nav_test on a private MySQL); same steps as the other modules
+cd backend/api
+npx prisma migrate deploy --schema prisma/schema.prisma
+npx tsx --env-file-if-exists=../../.env prisma/seed.ts
+API_PORT=4181 npx tsx --env-file-if-exists=../../.env src/server.ts      # in another terminal; FILE_ENCRYPTION_KEY must be set
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exists=../../.env scripts/test-nav.ts
+```
+
+Covers (134 checks, all passing on a disposable MySQL 8.4 schema): formulas (NAV, NAV per unit rounding, coverage, fee
+accrual, materiality); 401/403 per portal and permission; create with `Idempotency-Key` (replay, reuse, missing) and
+validation; hand-computed NAV 25,025.00, NAV per unit 10.0100 and coverage 100%; inputs and fee rate; `units_required`;
+recalculation versioning and supersede; each exception type with its values (coverage 90.2778%); maker review blocked by a
+material exception; resolution validation and carry-over; release refused for no permission, system admin, the maker
+reviewer (even with step-up) and a stale MFA; release by a different user; immutability of released and superseded runs; a
+later release superseding the previous one; fund row, NAV history, LP holding, and the LP session and dashboard read as the
+LP persona before and after release; an older NAV date not rolling the fund back; list filters, pack, audit events and the
+outbox notification.
+
+### Not done
+
+Scheduled or automatic daily runs, NAV approval limits per amount, bulk release, PDF/CSV export of the pack (the pack is a
+JSON summary), per-share-class NAV, and accrual or fee schedules beyond the single management-fee rate.
