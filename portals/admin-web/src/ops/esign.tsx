@@ -1,79 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { api, apiBase, apiRequest, describeError, OpsError, qs, v1 } from './api';
+import { EsignInbox } from '@matanho/portal-kit';
+import { api, apiBase, apiRequest, describeError, qs } from './api';
 import { Badge, downloadCsv } from './admin-core';
 import { Tiles } from './suite';
 import { useCan } from './session';
 import { Alert, Card, DefinitionList, Empty, Field, FieldGrid, formatDateTime, FormModal, Loaded, Modal, PageHeader, useAction, useResource } from './ui';
+import { FieldEditor, defaultLayout, layoutSummary, type FieldBox } from './esign-fields';
+import { BatchesCard, BulkModal, CadenceFields, DocPicker, FlowModal, PersonPicker, cadenceBody, type FlowKind } from './esign-flows';
+import { esign, KIND, uploadPdf, type DirEntry, type DocEntry, type EsignRequest, type IntegrityReport, type ListResponse } from './esign-shared';
 
-/** Native e-signature console: requests, create wizard, status, resend, void, sealed PDF and certificate. */
-
-export interface Signer {
-  id: string;
-  orderNo: number;
-  kind: string;
-  userId: string | null;
-  name: string;
-  email: string;
-  roleLabel: string | null;
-  status: string;
-  identityMethod: string | null;
-  notifiedAt: string | null;
-  reminderCount: number;
-  viewedAt: string | null;
-  signedAt: string | null;
-  declinedAt: string | null;
-  declineReason: string | null;
-  signatureMode: string | null;
-  ip: string | null;
-  chainHash: string | null;
-}
-export interface EsignRequest {
-  id: string;
-  ref: string;
-  title: string;
-  message: string | null;
-  status: string;
-  signingOrder: string;
-  subjectType: string | null;
-  subjectId: string | null;
-  originalSha256: string;
-  sealedSha256: string | null;
-  chainHead: string | null;
-  hasSealed: boolean;
-  hasCertificate: boolean;
-  expiresAt: string | null;
-  sentAt: string | null;
-  completedAt: string | null;
-  voidReason: string | null;
-  declineReason: string | null;
-  createdAt: string;
-  progress: { signed: number; total: number };
-  signers: Signer[];
-  events?: { id: string; type: string; at: string; who: string | null; ip: string | null; hash: string }[];
-}
-interface ListResponse {
-  data: EsignRequest[];
-  counts: Record<string, number>;
-}
-interface DirEntry {
-  userId: string;
-  name: string;
-  email: string;
-  kind: string;
-  org?: string;
-  role?: string;
-  clientId?: string;
-  companyId?: string;
-}
-interface DocEntry {
-  id: string;
-  ref: string;
-  name: string;
-  type: string;
-  version: number;
-}
+/** Native e-signature console: requests, create wizard with positioned signature fields, flows, bulk send, status, resend, void, sealed PDF and certificate. */
 
 const TONE: Record<string, 'grey' | 'amber' | 'blue' | 'green' | 'red'> = {
   DRAFT: 'grey',
@@ -86,22 +24,6 @@ const TONE: Record<string, 'grey' | 'amber' | 'blue' | 'green' | 'red'> = {
   EXPIRED: 'red',
 };
 const Status = ({ s }: { s: string }) => <Badge tone={TONE[s] ?? 'grey'}>{s.toLowerCase()}</Badge>;
-const KIND: Record<string, string> = { STAFF: 'Staff', LP: 'LP signatory', INVESTEE: 'Investee', EXTERNAL: 'External (e-mail link)' };
-const esign = (p: string) => v1(`/esign${p}`);
-
-async function uploadPdf(file: File): Promise<string> {
-  const fd = new FormData();
-  fd.append('file', file);
-  let res: Response;
-  try {
-    res = await fetch(`${apiBase}/api/v1/uploads`, { method: 'POST', body: fd, credentials: 'include' });
-  } catch {
-    throw new OpsError(0, 'network_error', 'The API could not be reached.');
-  }
-  const json = (await res.json().catch(() => ({}))) as { files?: { id: string }[]; error?: { message?: string } };
-  if (!res.ok || !json.files?.[0]) throw new Error(json.error?.message ?? `Upload failed (${res.status})`);
-  return json.files[0].id;
-}
 
 export function EsignScreen() {
   const can = useCan('esign.view');
@@ -112,14 +34,30 @@ export function EsignScreen() {
   const res = useResource<ListResponse>(() => apiRequest<ListResponse>('GET', esign(`/requests${qs({ status, q })}`)), [status, q]);
   const [openId, setOpenId] = useState<string | null>(null);
   const [wizard, setWizard] = useState(false);
-  const [flow, setFlow] = useState<'commitment' | 'capital-call-ack' | null>(null);
+  const [flow, setFlow] = useState<FlowKind | null>(null);
   const [verify, setVerify] = useState(false);
+  const [bulk, setBulk] = useState(false);
+  const [tab, setTab] = useState<'all' | 'mine'>(can ? 'all' : 'mine');
+  const [batchKey, setBatchKey] = useState(0);
+  const [batchId, setBatchId] = useState<string | null>(null);
 
-  if (!can) {
+  if (!can || tab === 'mine') {
     return (
       <>
-        <PageHeader kicker="Operations" title="E-signatures" />
-        <Alert>Your role does not include e-signatures. Ask an administrator for the esign.view permission.</Alert>
+        <PageHeader
+          kicker="Operations"
+          title="E-signatures"
+          subtitle="Documents waiting for your own signature or approval."
+          actions={
+            can ? (
+              <button className="ops-btn" type="button" onClick={() => setTab('all')}>
+                All signature requests
+              </button>
+            ) : undefined
+          }
+        />
+        {!can && <Alert kind="info">Your role cannot see the signature requests of other people (esign.view), but you can sign what has been sent to you.</Alert>}
+        <EsignInbox heading="Awaiting my signature" />
       </>
     );
   }
@@ -136,13 +74,21 @@ export function EsignScreen() {
             <button className="ops-btn" type="button" onClick={() => setVerify(true)}>
               Verify a document
             </button>{' '}
+            <button className="ops-btn" type="button" onClick={() => setTab('mine')}>
+              My signatures
+            </button>{' '}
             {canManage && (
               <>
-                <button className="ops-btn" type="button" onClick={() => setFlow('commitment')}>
-                  LP commitment agreement
-                </button>{' '}
-                <button className="ops-btn" type="button" onClick={() => setFlow('capital-call-ack')}>
-                  Capital call acknowledgement
+                <select className="ops-input" style={{ width: 'auto', display: 'inline-block' }} value="" aria-label="Start a signing flow" onChange={(e) => { if (e.target.value) setFlow(e.target.value as FlowKind); }}>
+                  <option value="">Signing flows…</option>
+                  <option value="commitment-pack">Subscription and commitment pack</option>
+                  <option value="commitment">LP commitment agreement (single page)</option>
+                  <option value="capital-call-ack">Capital call acknowledgement</option>
+                  <option value="term-sheet">Term sheet countersignature</option>
+                  <option value="staff-approval">Staff approval</option>
+                </select>{' '}
+                <button className="ops-btn" type="button" onClick={() => setBulk(true)}>
+                  Bulk send
                 </button>{' '}
                 <button className="ops-btn primary" type="button" onClick={() => setWizard(true)}>
                   New signature request
@@ -231,6 +177,8 @@ export function EsignScreen() {
           }
         </Loaded>
       </Card>
+      <BatchesCard refreshKey={batchKey} onOpenRequest={setOpenId} openBatch={batchId} onOpenBatch={setBatchId} onCloseBatch={() => setBatchId(null)} />
+      {bulk && <BulkModal onClose={() => setBulk(false)} onDone={(id) => { res.reload(); setBatchKey((n) => n + 1); setBatchId(id); }} />}
       {openId && <DetailModal id={openId} onClose={() => setOpenId(null)} onChanged={res.reload} />}
       {wizard && <Wizard onClose={() => setWizard(false)} onCreated={(id) => { res.reload(); setOpenId(id); }} />}
       {flow && <FlowModal flow={flow} onClose={() => setFlow(null)} onCreated={(id) => { res.reload(); setOpenId(id); }} />}
@@ -246,7 +194,9 @@ function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
   const canVoid = useCan('esign.void');
   const res = useResource<{ request: EsignRequest }>(() => api.get<{ request: EsignRequest }>(esign(`/requests/${id}`)), [id]);
   const [voiding, setVoiding] = useState(false);
-  const [report, setReport] = useState<{ ok: boolean; checks: { name: string; ok: boolean; detail?: string }[] } | null>(null);
+  const [report, setReport] = useState<IntegrityReport | null>(null);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
+  const [cadenceOpen, setCadenceOpen] = useState(false);
   const act = useAction();
   const dl = (variant: string, name: string) => downloadCsv(esign(`/requests/${id}/${variant}`), name).catch((e: Error) => window.alert(e.message));
   const after = () => {
@@ -271,6 +221,8 @@ function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
                   ['Sent', formatDateTime(r.sentAt)],
                   ['Expires', formatDateTime(r.expiresAt)],
                   ['Completed', formatDateTime(r.completedAt)],
+                  ['Signature fields', layoutSummary(r.fields)],
+                  ['Reminders', r.status === 'DRAFT' || r.status === 'PENDING' ? `every ${r.reminder.intervalDays} day${r.reminder.intervalDays === 1 ? '' : 's'}, up to ${r.reminder.max} per signer${r.reminder.custom ? ' (custom schedule)' : ' (default)'}` : '-'],
                   ['Original SHA-256', <code key="o" style={{ wordBreak: 'break-all' }}>{r.originalSha256}</code>],
                   ['Sealed SHA-256', r.sealedSha256 ? <code key="s" style={{ wordBreak: 'break-all' }}>{r.sealedSha256}</code> : 'Not sealed yet'],
                   ['Signature chain head', r.chainHead ? <code key="c" style={{ wordBreak: 'break-all' }}>{r.chainHead}</code> : '-'],
@@ -304,7 +256,8 @@ function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
                         <td>{KIND[s.kind] ?? s.kind}</td>
                         <td>
                           <Status s={s.status} />
-                          {s.status === 'PENDING' && <div className="ops-muted">{s.viewedAt ? 'viewed' : 'not opened'}{s.reminderCount ? `, ${s.reminderCount} reminder(s)` : ''}</div>}
+                          {s.status === 'PENDING' && <div className="ops-muted">{s.viewedAt ? 'viewed' : 'not opened'}{s.reminderCount ? `, ${s.reminderCount} reminder(s)` : ''}{s.nextReminderAt ? `, next ${formatDateTime(s.nextReminderAt)}` : ''}</div>}
+                          {s.fieldCount > 0 && <div className="ops-muted">{s.fieldCount} field{s.fieldCount === 1 ? '' : 's'} placed</div>}
                           {s.declineReason && <div className="ops-muted">{s.declineReason}</div>}
                         </td>
                         <td>{s.identityMethod === 'SESSION' ? 'Signed-in session' : s.identityMethod === 'EMAIL_OTP' ? 'E-mail code' : '-'}</td>
@@ -327,8 +280,15 @@ function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
               <Alert>{act.error}</Alert>
               {report && (
                 <Alert kind={report.ok ? 'ok' : 'error'}>
-                  {report.ok ? 'Integrity verified: ' : 'Integrity problem: '}
-                  {report.checks.map((c) => `${c.name} ${c.ok ? 'ok' : `FAILED${c.detail ? ` (${c.detail})` : ''}`}`).join(' · ')}
+                  <strong>{report.ok ? 'Integrity verified' : 'Integrity problem'}</strong>
+                  <ul style={{ margin: '6px 0 0', paddingLeft: 18 }}>
+                    {report.checks.map((c) => (
+                      <li key={c.name}>
+                        {c.ok ? 'Passed' : 'FAILED'}: {c.name}
+                        {c.detail ? ` (${c.detail})` : ''}
+                      </li>
+                    ))}
+                  </ul>
                 </Alert>
               )}
               <h4>Audit trail</h4>
@@ -357,9 +317,19 @@ function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
                 <button className="ops-btn" type="button" disabled={!r.hasCertificate} onClick={() => dl('certificate', `${r.ref}-certificate.pdf`)}>
                   Download certificate
                 </button>
-                <button className="ops-btn" type="button" disabled={act.busy} onClick={async () => { const v = await act.run(() => api.get<{ ok: boolean; checks: { name: string; ok: boolean; detail?: string }[] }>(esign(`/requests/${id}/verify`))); if (v) setReport(v); }}>
+                <button className="ops-btn" type="button" disabled={act.busy} onClick={async () => { const v = await act.run(() => api.get<IntegrityReport>(esign(`/requests/${id}/verify`))); if (v) setReport(v); }}>
                   Verify integrity
                 </button>
+                {(r.fields.length > 0 || (canManage && r.status === 'DRAFT')) && (
+                  <button className="ops-btn" type="button" onClick={() => setFieldsOpen(true)}>
+                    {canManage && r.status === 'DRAFT' ? (r.fields.length ? 'Edit signature fields' : 'Place signature fields') : 'View signature fields'}
+                  </button>
+                )}
+                {canManage && (r.status === 'DRAFT' || r.status === 'PENDING') && (
+                  <button className="ops-btn" type="button" onClick={() => setCadenceOpen(true)}>
+                    Reminder schedule
+                  </button>
+                )}
                 {canManage && r.status === 'DRAFT' && (
                   <button className="ops-btn primary" type="button" disabled={act.busy} onClick={async () => { if ((await act.run(() => api.post(esign(`/requests/${id}/send`), {}))) !== undefined) after(); }}>
                     Send for signature
@@ -376,6 +346,8 @@ function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
                   </button>
                 )}
               </div>
+              {fieldsOpen && <FieldsModal r={r} editable={canManage && r.status === 'DRAFT'} onClose={() => setFieldsOpen(false)} onSaved={after} />}
+              {cadenceOpen && <CadenceModal r={r} onClose={() => setCadenceOpen(false)} onSaved={after} />}
               {voiding && (
                 <FormModal
                   danger
@@ -400,6 +372,79 @@ function DetailModal({ id, onClose, onChanged }: { id: string; onClose: () => vo
   );
 }
 
+// ------------------------------------------------------------------ fields + cadence
+
+function FieldsModal({ r, editable, onClose, onSaved }: { r: EsignRequest; editable: boolean; onClose: () => void; onSaved: () => void }) {
+  const signers = r.signers.map((s) => ({ email: s.email.toLowerCase(), name: s.name }));
+  const byId = new Map(r.signers.map((s) => [s.id, s.email.toLowerCase()]));
+  const [boxes, setBoxes] = useState<FieldBox[]>(() => r.fields.map((f) => ({ key: f.id, signerEmail: byId.get(f.signerId) ?? '', kind: f.kind as FieldBox['kind'], page: f.page, x: f.x, y: f.y, width: f.width, height: f.height })));
+  const act = useAction();
+  const missing = signers.filter((s) => !boxes.some((b) => b.signerEmail === s.email && b.kind === 'SIGNATURE'));
+  return (
+    <Modal wide title={`${r.ref} signature fields`} kicker="E-signature" subtitle={editable ? 'Each signer needs at least one signature box. Fields lock when the request is sent.' : 'Fields are locked once the request has been sent.'} onClose={onClose}>
+      <div className="ops-modal-body">
+        <FieldEditor source={{ requestId: r.id }} signers={signers} value={boxes} onChange={setBoxes} readOnly={!editable} />
+        {editable && missing.length > 0 && boxes.length > 0 && <Alert kind="warn">No signature box yet for {missing.map((m) => m.name).join(', ')}.</Alert>}
+        <Alert>{act.error}</Alert>
+      </div>
+      <footer className="ops-modal-foot">
+        <button className="ops-btn" type="button" onClick={onClose}>
+          {editable ? 'Cancel' : 'Close'}
+        </button>
+        {editable && (
+          <button
+            className="ops-btn primary"
+            type="button"
+            disabled={act.busy || (boxes.length > 0 && missing.length > 0)}
+            onClick={async () => {
+              if ((await act.run(() => api.put(esign(`/requests/${r.id}/fields`), { fields: boxes.map(({ key: _k, ...f }) => f) }))) !== undefined) {
+                onSaved();
+                onClose();
+              }
+            }}
+          >
+            {act.busy ? 'Saving…' : boxes.length ? 'Save fields' : 'Save with no fields'}
+          </button>
+        )}
+      </footer>
+    </Modal>
+  );
+}
+
+function CadenceModal({ r, onClose, onSaved }: { r: EsignRequest; onClose: () => void; onSaved: () => void }) {
+  const [cad, setCad] = useState<{ interval: number | ''; max: number | '' }>({ interval: r.reminder.custom ? r.reminder.intervalDays : '', max: r.reminder.custom ? r.reminder.max : '' });
+  const act = useAction();
+  return (
+    <Modal title={`${r.ref} reminders`} kicker="E-signature" subtitle="Reminders go to signers whose turn it is, once this long has passed since they were last notified. Leave blank for the platform default (every 3 days, up to 3)." onClose={onClose}>
+      <div className="ops-modal-body">
+        <FieldGrid>
+          <CadenceFields interval={cad.interval} max={cad.max} onChange={setCad} />
+        </FieldGrid>
+        <Alert>{act.error}</Alert>
+      </div>
+      <footer className="ops-modal-foot">
+        <button className="ops-btn" type="button" onClick={onClose}>
+          Cancel
+        </button>
+        <button
+          className="ops-btn primary"
+          type="button"
+          disabled={act.busy}
+          onClick={async () => {
+            const b = cadenceBody(cad.interval, cad.max);
+            if ((await act.run(() => api.patch(esign(`/requests/${r.id}/reminders`), { reminderIntervalDays: b.reminderIntervalDays ?? null, reminderMax: b.reminderMax ?? null }))) !== undefined) {
+              onSaved();
+              onClose();
+            }
+          }}
+        >
+          Save schedule
+        </button>
+      </footer>
+    </Modal>
+  );
+}
+
 // ------------------------------------------------------------------ wizard
 
 interface DraftSigner {
@@ -417,28 +462,23 @@ interface DraftSigner {
 function Wizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: string) => void }) {
   const [step, setStep] = useState(1);
   const [source, setSource] = useState<'store' | 'upload'>('store');
-  const [docQ, setDocQ] = useState('');
-  const [docs, setDocs] = useState<DocEntry[]>([]);
   const [doc, setDoc] = useState<DocEntry | null>(null);
-  const [file, setFile] = useState<File | null>(null);
+  const [fileId, setFileId] = useState<string | null>(null);
+  const [fileName, setFileName] = useState('');
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
   const [order, setOrder] = useState<'PARALLEL' | 'SEQUENTIAL'>('PARALLEL');
   const [days, setDays] = useState(14);
+  const [cad, setCad] = useState<{ interval: number | ''; max: number | '' }>({ interval: '', max: '' });
   const [signers, setSigners] = useState<DraftSigner[]>([]);
   const [kind, setKind] = useState('STAFF');
   const [dirQ, setDirQ] = useState('');
   const [dir, setDir] = useState<DirEntry[]>([]);
   const [ext, setExt] = useState({ name: '', email: '', role: '' });
+  const [place, setPlace] = useState(false);
+  const [boxes, setBoxes] = useState<FieldBox[]>([]);
   const act = useAction();
-
-  useEffect(() => {
-    if (source !== 'store') return;
-    const t = setTimeout(() => {
-      api.get<DocEntry[]>(esign(`/documents${qs({ q: docQ })}`)).then(setDocs).catch(() => setDocs([]));
-    }, 250);
-    return () => clearTimeout(t);
-  }, [docQ, source]);
+  const up = useAction();
 
   useEffect(() => {
     if (kind === 'EXTERNAL') return;
@@ -453,18 +493,38 @@ function Wizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: s
     [],
   );
 
-  const step1Ok = (source === 'store' ? !!doc : !!file) && title.trim().length >= 3;
+  const pdfSource = source === 'store' ? (doc ? { documentId: doc.id } : null) : fileId ? { fileId } : null;
+  const step1Ok = !!pdfSource && title.trim().length >= 3;
+  const editorSigners = signers.map((s) => ({ email: s.email.toLowerCase(), name: s.name }));
+  const missingSig = editorSigners.filter((s) => !boxes.some((b) => b.signerEmail === s.email && b.kind === 'SIGNATURE'));
+  const fieldsOk = !place || (boxes.length > 0 && missingSig.length === 0);
+
+  // Boxes belong to signers; when the signer list changes, drop boxes of removed signers.
+  useEffect(() => {
+    setBoxes((prev) => prev.filter((b) => editorSigners.some((s) => s.email === b.signerEmail)));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [signers.map((s) => s.email).join('|')]);
+
+  const startPlacing = async () => {
+    setPlace(true);
+    if (!boxes.length) {
+      const pages = pdfSource ? await api.get<{ pages: { page: number }[] }>(esign(`/source/pages${qs(pdfSource)}`)).catch(() => null) : null;
+      setBoxes(defaultLayout(editorSigners, pages?.pages.length ?? 1));
+    }
+  };
+
   const submit = async (send: boolean) => {
     const r = await act.run(async () => {
-      const fileId = source === 'upload' && file ? await uploadPdf(file) : undefined;
       return api.post<{ request: EsignRequest }>(esign('/requests'), {
         title: title.trim(),
         message: message.trim() || undefined,
         documentId: source === 'store' ? doc?.id : undefined,
-        fileId,
+        fileId: source === 'upload' ? (fileId ?? undefined) : undefined,
         signingOrder: order,
         expiresInDays: days,
         send,
+        ...cadenceBody(cad.interval, cad.max),
+        fields: place ? boxes.map(({ key: _k, ...f }) => f) : undefined,
         signers: signers.map((s) => ({ kind: s.kind, userId: s.userId, name: s.name, email: s.email, roleLabel: s.roleLabel, orderNo: s.orderNo, clientId: s.clientId, companyId: s.companyId })),
       });
     });
@@ -475,7 +535,7 @@ function Wizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: s
   };
 
   return (
-    <Modal wide title="New signature request" kicker={`Step ${step} of 3`} onClose={onClose}>
+    <Modal wide title="New signature request" kicker={`Step ${step} of 4`} onClose={onClose}>
       <div className="ops-modal-body">
         {step === 1 && (
           <>
@@ -488,34 +548,29 @@ function Wizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: s
               </button>
             </div>
             {source === 'store' ? (
-              <>
-                <Field label="Search documents">
-                  <input className="ops-input" value={docQ} onChange={(e) => setDocQ(e.target.value)} placeholder="Name or reference" />
-                </Field>
-                <div className="ops-table-wrap" style={{ maxHeight: 220, overflow: 'auto' }}>
-                  <table className="ops-table">
-                    <tbody>
-                      {docs.map((d) => (
-                        <tr key={d.id} className={`clickable${doc?.id === d.id ? ' selected' : ''}`} onClick={() => { setDoc(d); if (!title) setTitle(d.name); }}>
-                          <td>{d.ref}</td>
-                          <td>{d.name}</td>
-                          <td className="ops-muted">{d.type} v{d.version}</td>
-                        </tr>
-                      ))}
-                      {!docs.length && (
-                        <tr>
-                          <td className="ops-muted">No PDF documents found.</td>
-                        </tr>
-                      )}
-                    </tbody>
-                  </table>
-                </div>
-              </>
+              <DocPicker value={doc} onChange={(d) => { setDoc(d); setBoxes([]); if (d && !title) setTitle(d.name); }} />
             ) : (
               <Field label="PDF file" hint="Unencrypted PDF, up to the platform upload limit.">
-                <input className="ops-input" type="file" accept="application/pdf,.pdf" onChange={(e) => { const f = e.target.files?.[0] ?? null; setFile(f); if (f && !title) setTitle(f.name.replace(/\.pdf$/i, '')); }} />
+                <input
+                  className="ops-input"
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    const id = await up.run(() => uploadPdf(f));
+                    if (id) {
+                      setFileId(id);
+                      setFileName(f.name);
+                      setBoxes([]);
+                      if (!title) setTitle(f.name.replace(/\.pdf$/i, ''));
+                    }
+                  }}
+                />
               </Field>
             )}
+            {source === 'upload' && fileName && <p className="ops-muted">Uploaded {fileName}.</p>}
+            <Alert>{up.error}</Alert>
             <FieldGrid>
               <Field label="Title" span={2}>
                 <input className="ops-input" value={title} onChange={(e) => setTitle(e.target.value)} maxLength={200} />
@@ -532,6 +587,7 @@ function Wizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: s
               <Field label="Expires in (days)">
                 <input className="ops-input" type="number" min={1} max={90} value={days} onChange={(e) => setDays(Number(e.target.value) || 14)} />
               </Field>
+              <CadenceFields interval={cad.interval} max={cad.max} onChange={setCad} />
             </FieldGrid>
           </>
         )}
@@ -631,18 +687,40 @@ function Wizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: s
             {order === 'SEQUENTIAL' && <p className="ops-muted">Signers with the same number sign together; a group is notified once the previous group has finished.</p>}
           </>
         )}
-        {step === 3 && (
+        {step === 3 && pdfSource && (
+          <>
+            {!place ? (
+              <>
+                <p>By default each signature goes on a signature page appended to the document. You can instead place signature, date, initials and name boxes on the pages themselves.</p>
+                <button className="ops-btn primary" type="button" onClick={startPlacing}>
+                  Place signature boxes on the document
+                </button>
+              </>
+            ) : (
+              <>
+                <FieldEditor source={pdfSource} signers={editorSigners} value={boxes} onChange={setBoxes} />
+                {missingSig.length > 0 && <Alert kind="warn">No signature box yet for {missingSig.map((m) => m.name).join(', ')}.</Alert>}
+                <button className="ops-btn" type="button" onClick={() => { setPlace(false); setBoxes([]); }}>
+                  Skip placement (use the signature page)
+                </button>
+              </>
+            )}
+          </>
+        )}
+        {step === 4 && (
           <>
             <DefinitionList
               items={[
-                ['Document', source === 'store' ? `${doc?.ref} ${doc?.name}` : file?.name],
+                ['Document', source === 'store' ? `${doc?.ref} ${doc?.name}` : fileName],
                 ['Title', title],
                 ['Order', order === 'SEQUENTIAL' ? 'Sequential' : 'Parallel'],
                 ['Expires', `${days} days after sending`],
+                ['Reminders', cad.interval === '' && cad.max === '' ? 'Default (every 3 days, up to 3)' : `Every ${cad.interval || 3} days, up to ${cad.max === '' ? 3 : cad.max}`],
+                ['Signature boxes', place ? layoutSummary(boxes) : 'On the appended signature page'],
                 ['Signers', signers.map((s) => `${order === 'SEQUENTIAL' ? `${s.orderNo}. ` : ''}${s.name} (${KIND[s.kind]})`).join('; ')],
               ]}
             />
-            <p className="ops-muted">External signers get a one-time link and must confirm their e-mail address with a code before signing. Signed-in users sign from their portal.</p>
+            <p className="ops-muted">External signers get a one-time link and must confirm their e-mail address with a code before signing. Signed-in users sign from their portal. Signature boxes cannot be changed after sending.</p>
           </>
         )}
         <Alert>{act.error}</Alert>
@@ -651,8 +729,8 @@ function Wizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: s
         <button className="ops-btn" type="button" onClick={step === 1 ? onClose : () => setStep(step - 1)} disabled={act.busy}>
           {step === 1 ? 'Cancel' : 'Back'}
         </button>
-        {step < 3 ? (
-          <button className="ops-btn primary" type="button" disabled={step === 1 ? !step1Ok : signers.length === 0} onClick={() => setStep(step + 1)}>
+        {step < 4 ? (
+          <button className="ops-btn primary" type="button" disabled={step === 1 ? !step1Ok : step === 2 ? signers.length === 0 : !fieldsOk} onClick={() => setStep(step + 1)}>
             Next
           </button>
         ) : (
@@ -672,38 +750,6 @@ function Wizard({ onClose, onCreated }: { onClose: () => void; onCreated: (id: s
 
 // ------------------------------------------------------------------ flows + verify
 
-function FlowModal({ flow, onClose, onCreated }: { flow: 'commitment' | 'capital-call-ack'; onClose: () => void; onCreated: (id: string) => void }) {
-  const isCommitment = flow === 'commitment';
-  return (
-    <FormModal
-      title={isCommitment ? 'LP commitment agreement' : 'Capital call acknowledgement'}
-      kicker="Signing flow"
-      subtitle={
-        isCommitment
-          ? 'Generates the subscription and commitment agreement and asks the investor’s authorised signatories to sign. Completing it activates a pending commitment.'
-          : 'Generates the acknowledgement for an issued capital call and asks an investor signatory to sign. Completing it records the acknowledgement on the call.'
-      }
-      submitLabel="Create and send"
-      onClose={onClose}
-      onSubmit={(fd) => {
-        const id = String(fd.get('id') ?? '').trim();
-        const counter = String(fd.get('counter') ?? '').trim();
-        return api.post<{ request: EsignRequest }>(esign(`/flows/${flow}/${encodeURIComponent(id)}`), { countersignerUserId: counter || undefined });
-      }}
-      onDone={(r) => onCreated((r as { request: EsignRequest }).request.id)}
-    >
-      <Field label={isCommitment ? 'Commitment id' : 'Capital call allocation id'} hint="Copy it from the Funds & commitments or Capital calls screen.">
-        <input className="ops-input" name="id" required />
-      </Field>
-      {isCommitment && (
-        <Field label="Countersigner (staff user id, optional)" hint="When set, the staff countersignature follows the investor’s signatures.">
-          <input className="ops-input" name="counter" />
-        </Field>
-      )}
-    </FormModal>
-  );
-}
-
 interface VerifyResult {
   match: 'SEALED' | 'ORIGINAL' | 'NONE';
   sha256: string;
@@ -712,6 +758,7 @@ interface VerifyResult {
   completedAt?: string | null;
   signers?: { name: string; roleLabel: string | null; signedAt: string | null }[];
   chainIntact?: boolean | null;
+  checks?: { name: string; ok: boolean }[];
   note?: string;
 }
 
@@ -749,6 +796,7 @@ export function VerifyModal({ onClose }: { onClose: () => void }) {
             <Alert kind={result.match === 'SEALED' && result.chainIntact !== false ? 'ok' : 'warn'}>
               {result.ref}: {result.note} {result.chainIntact === false && 'The recorded signature chain no longer verifies.'}
               {result.signers && ` Signed by ${result.signers.map((s) => s.name).join(', ')}.`}
+              {result.checks && ` Checks: ${result.checks.map((c) => `${c.name} ${c.ok ? 'passed' : 'FAILED'}`).join('; ')}.`}
             </Alert>
           ))}
       </div>

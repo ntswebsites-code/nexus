@@ -7,6 +7,7 @@ import type { ESignAdapter } from './types';
 
 export * from './types';
 export * from './chain';
+export * from './stamp';
 export { meta } from './meta';
 
 export type ESignMode = 'native' | 'fake' | 'live';

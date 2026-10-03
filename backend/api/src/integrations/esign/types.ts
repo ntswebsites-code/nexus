@@ -33,6 +33,17 @@ export interface SealSigner {
   chainHash: string;
 }
 
+/** A signature field placed on an original page (fractions 0..1, origin top-left, page 1-based). */
+export interface SealField {
+  signerId: string;
+  kind: 'SIGNATURE' | 'INITIALS' | 'DATE' | 'NAME';
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface SealInput {
   ref: string;
   title: string;
@@ -43,6 +54,10 @@ export interface SealInput {
   completedAt: Date;
   chainHead: string;
   signers: SealSigner[];
+  /** Positioned fields stamped on the original pages (empty = signature page only). */
+  fields?: SealField[];
+  /** SHA-256 of the placed layout, printed on the certificate. */
+  fieldsSha256?: string | null;
   /** Condensed audit trail lines for the certificate. */
   events: { at: Date; type: string; who: string | null; ip: string | null }[];
   verifyUrl: string;

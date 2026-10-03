@@ -20,6 +20,8 @@ import {
   listForUser,
   listRequests,
   loadByToken,
+  setFields,
+  setReminderCadence,
   pdfDocuments,
   recordViewed,
   requestFile,
@@ -36,6 +38,11 @@ import {
   type EsignActor,
 } from './esign.service';
 import { requestCapitalCallAckSignature, requestCommitmentSignature } from './esign.flows';
+import { requestCommitmentPack, requestStaffApproval, requestTermSheetCountersign } from './esign.packflows';
+import { bulkSend, batchSummary, listBatches, remindBatch } from './esign.bulk';
+import { lookupAllocations, lookupCommitments, lookupTermSheets } from './esign.lookup';
+import { previewPlacement, sourcePagePdf, sourcePages, type PdfSource } from './esign.preview';
+import { FIELD_KINDS } from './esign.fields';
 
 /**
  * `/api/v1/esign`
@@ -98,6 +105,7 @@ publicRoutes.get('/:token', async (req, res) => {
     request: { ref: r.ref, title: r.title, message: r.message, status: r.status, expiresAt: r.expiresAt },
     signer: { name: signer.name, email: maskEmail(signer.email), roleLabel: signer.roleLabel, status: signer.status },
     canSign: r.status === 'PENDING' && signer.status === 'PENDING',
+    myFields: r.fields.filter((f) => f.signerId === signer.id).map((f) => ({ kind: f.kind, page: f.page })),
   });
 });
 
@@ -120,7 +128,7 @@ async function proven(req: Request) {
 publicRoutes.get('/:token/document', async (req, res) => {
   const { r, signer } = await proven(req);
   await recordViewed(actorOf(req, null, signer.name), signer, r.id);
-  const { file, data } = await fileForSigner(r);
+  const { file, data } = await fileForSigner(r, 'document', signer);
   sendPdf(res, file.name, data, true);
 });
 
@@ -157,7 +165,7 @@ meRoutes.get('/requests/:id/document', async (req, res) => {
   const { req: r, signer } = await signerForUser(req.user!.id, param(req, 'id'));
   await recordViewed(actorOf(req, null), signer, r.id);
   const variant = req.query.variant === 'certificate' ? 'certificate' : 'document';
-  const { file, data } = await fileForSigner(r, variant);
+  const { file, data } = await fileForSigner(r, variant, signer);
   sendPdf(res, file.name, data, req.query.download !== '1');
 });
 
@@ -192,8 +200,25 @@ const signerInput = z.object({
   companyId: z.string().trim().max(40).optional(),
 });
 
+const fieldInput = z.object({
+  signerEmail: z.string().trim().max(254),
+  kind: z.enum(FIELD_KINDS),
+  page: z.number().int().min(1).max(400),
+  x: z.number().min(0).max(1),
+  y: z.number().min(0).max(1),
+  width: z.number().min(0).max(1),
+  height: z.number().min(0).max(1),
+  label: z.string().trim().max(80).nullish(),
+});
+const cadenceInput = {
+  reminderIntervalDays: z.number().int().min(1).max(30).optional(),
+  reminderMax: z.number().int().min(0).max(10).optional(),
+};
+
 const createSchema = z
   .object({
+    fields: z.array(fieldInput).max(60).optional(),
+    ...cadenceInput,
     title: z.string().trim().min(3).max(200),
     message: z.string().trim().max(2000).optional(),
     documentId: z.string().trim().max(40).optional(),
@@ -214,6 +239,7 @@ const flowSchema = z.object({
   countersignerUserId: z.string().max(40).optional(),
   expiresInDays: z.number().int().min(1).max(90).optional(),
   send: z.boolean().optional(),
+  ...cadenceInput,
 });
 
 staff.get('/requests', requirePermission('esign.view'), async (req, res) => {
@@ -269,5 +295,124 @@ staff.post('/flows/commitment/:commitmentId', requirePermission('esign.manage'),
 staff.post('/flows/capital-call-ack/:allocationId', requirePermission('esign.manage'), validateBody(flowSchema), async (req, res) => {
   res.status(201).json({ request: await requestCapitalCallAckSignature(adminActor(req), param(req, 'allocationId'), req.body) });
 });
+
+// ---- R4-4: positioned fields, pickers, new flows, bulk send, reminder cadence ----
+
+const sourceOf = (req: Request): PdfSource => {
+  const q = (k: string) => (typeof req.query[k] === 'string' && req.query[k] ? (req.query[k] as string) : undefined);
+  return { documentId: q('documentId'), fileId: q('fileId'), requestId: q('requestId') };
+};
+
+staff.get('/source/pages', requirePermission('esign.view'), async (req, res) => {
+  res.json({ pages: await sourcePages(req.user!.id, sourceOf(req)) });
+});
+
+/** One page as a stand-alone PDF: the backdrop of the field editor. */
+staff.get('/source/pages/:n', requirePermission('esign.view'), async (req, res) => {
+  sendPdf(res, `page-${param(req, 'n')}.pdf`, await sourcePagePdf(req.user!.id, sourceOf(req), Number(param(req, 'n'))), true);
+});
+
+/** The real PDF with labelled boxes where each field will be stamped (nothing is stored). */
+staff.post(
+  '/source/preview',
+  requirePermission('esign.view'),
+  validateBody(
+    z.object({
+      documentId: z.string().max(40).optional(),
+      fileId: z.string().max(40).optional(),
+      requestId: z.string().max(40).optional(),
+      fields: z.array(fieldInput).min(1).max(60),
+    }),
+  ),
+  async (req, res) => {
+    const { fields, ...src } = req.body as { fields: z.infer<typeof fieldInput>[] } & PdfSource;
+    const rows = fields.map((f) => ({ ...f, signerKey: f.signerEmail.toLowerCase(), label: f.label || f.signerEmail }));
+    sendPdf(res, 'placement-preview.pdf', await previewPlacement(req.user!.id, src, rows), true);
+  },
+);
+
+staff.put('/requests/:id/fields', requirePermission('esign.manage'), validateBody(z.object({ fields: z.array(fieldInput).max(60) })), async (req, res) => {
+  res.json({ request: await setFields(adminActor(req), param(req, 'id'), req.body.fields) });
+});
+
+staff.patch(
+  '/requests/:id/reminders',
+  requirePermission('esign.manage'),
+  validateBody(z.object({ reminderIntervalDays: z.number().int().min(1).max(30).nullable().optional(), reminderMax: z.number().int().min(0).max(10).nullable().optional() })),
+  async (req, res) => {
+    res.json({ request: await setReminderCadence(adminActor(req), param(req, 'id'), req.body) });
+  },
+);
+
+const lookupQ = (req: Request) => (typeof req.query.q === 'string' ? req.query.q : undefined);
+staff.get('/lookup/commitments', requirePermission('esign.view'), async (req, res) => res.json({ data: await lookupCommitments(lookupQ(req)) }));
+staff.get('/lookup/allocations', requirePermission('esign.view'), async (req, res) => res.json({ data: await lookupAllocations(lookupQ(req)) }));
+staff.get('/lookup/term-sheets', requirePermission('esign.view'), async (req, res) => res.json({ data: await lookupTermSheets(lookupQ(req)) }));
+
+staff.post('/flows/commitment-pack/:commitmentId', requirePermission('esign.manage'), validateBody(flowSchema), async (req, res) => {
+  res.status(201).json({ request: await requestCommitmentPack(adminActor(req), param(req, 'commitmentId'), req.body) });
+});
+
+staff.post(
+  '/flows/term-sheet-countersign/:termSheetId',
+  requirePermission('esign.manage'),
+  validateBody(flowSchema.extend({ countersignerUserId: z.string().min(1).max(40) })),
+  async (req, res) => {
+    res.status(201).json({ request: await requestTermSheetCountersign(adminActor(req), param(req, 'termSheetId'), req.body) });
+  },
+);
+
+staff.post(
+  '/flows/staff-approval',
+  requirePermission('esign.manage'),
+  validateBody(
+    z
+      .object({
+        title: z.string().trim().min(3).max(150),
+        summary: z.string().trim().min(3).max(4000),
+        reference: z.string().trim().max(64).optional(),
+        documentId: z.string().max(40).optional(),
+        fileId: z.string().max(40).optional(),
+        approverUserIds: z.array(z.string().max(40)).min(1).max(8),
+        order: z.enum(['SEQUENTIAL', 'PARALLEL']).optional(),
+        expiresInDays: z.number().int().min(1).max(90).optional(),
+        send: z.boolean().optional(),
+        ...cadenceInput,
+      })
+      .refine((v) => !(v.documentId && v.fileId), { message: 'Provide either documentId or fileId' }),
+  ),
+  async (req, res) => {
+    res.status(201).json({ request: await requestStaffApproval(adminActor(req), req.body) });
+  },
+);
+
+staff.post(
+  '/bulk',
+  requirePermission('esign.manage'),
+  validateBody(
+    z
+      .object({
+        title: z.string().trim().min(3).max(150),
+        message: z.string().trim().max(2000).optional(),
+        documentId: z.string().max(40).optional(),
+        fileId: z.string().max(40).optional(),
+        recipients: z.array(signerInput).min(1).max(100),
+        fieldTemplate: z.array(fieldInput.omit({ signerEmail: true })).max(20).optional(),
+        expiresInDays: z.number().int().min(1).max(90).optional(),
+        send: z.boolean().optional(),
+        idempotencyKey: z.string().trim().min(8).max(120),
+        ...cadenceInput,
+      })
+      .refine((v) => !!v.documentId !== !!v.fileId, { message: 'Provide either documentId or fileId' }),
+  ),
+  async (req, res) => {
+    const out = await bulkSend(adminActor(req), req.body);
+    res.status(out.replayed ? 200 : 201).json(out);
+  },
+);
+
+staff.get('/batches', requirePermission('esign.view'), async (_req, res) => res.json({ data: await listBatches() }));
+staff.get('/batches/:id', requirePermission('esign.view'), async (req, res) => res.json({ batch: await batchSummary(param(req, 'id')) }));
+staff.post('/batches/:id/remind', requirePermission('esign.manage'), async (req, res) => res.json(await remindBatch(adminActor(req), param(req, 'id'))));
 
 esignRoutes.use(staff);

@@ -3,3 +3,6 @@ export { scanEsign, createRequest, signRequest, declineRequest, voidRequest, res
 export type { EsignActor, CreateRequestInput, SignerInput } from './esign.service';
 export { registerCompletionHook } from './esign.hooks';
 export * from './esign.flows';
+export * from './esign.packflows';
+export * from './esign.bulk';
+export { setFields, setReminderCadence } from './esign.service';
