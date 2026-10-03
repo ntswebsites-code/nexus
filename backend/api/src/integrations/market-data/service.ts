@@ -84,6 +84,12 @@ async function skipSet(now: Date, force: boolean): Promise<Set<string>> {
   return out;
 }
 
+/** Rows a run created or changed, so the whole run can be reversed. `prev` is null for a created row. */
+interface UndoLog {
+  prices: { id: string; prev: string | null }[];
+  fx: { id: string; prev: string | null }[];
+}
+
 interface Tally {
   accepted: number;
   unchanged: number;
@@ -112,7 +118,7 @@ async function recordIssue(tx: Prisma.TransactionClient, i: FetchIssue, security
   });
 }
 
-async function refreshPrices(o: RefreshOptions, now: Date, skip: Set<string>, reports: SourceReport[], tally: Tally) {
+async function refreshPrices(o: RefreshOptions, now: Date, skip: Set<string>, reports: SourceReport[], tally: Tally, undo: UndoLog) {
   const adapter = getMarketDataAdapter();
   const securities = await prisma.security.findMany({
     where: { status: 'Active', assetClass: { not: 'Cash' }, ...(o.tickers?.length ? { ticker: { in: o.tickers } } : {}) },
@@ -122,7 +128,7 @@ async function refreshPrices(o: RefreshOptions, now: Date, skip: Set<string>, re
   const prices = await latestPrices(securities.map((s) => s.id), now);
   const batch = await adapter.fetchQuotes(
     securities.map((s) => s.ticker),
-    { force: o.force, fallbackLimit: o.trigger === 'SCHEDULE' ? 5 : 0, skipSources: skip, now },
+    { force: o.force, fallbackLimit: o.trigger === 'SCHEDULE' ? 5 : 0, skipSources: skip, now, anchors: new Map(securities.flatMap((s) => { const p = prices.get(s.id); return p ? [[s.ticker, p.latest.price] as const] : []; })) },
   );
   reports.push(...batch.sources);
 
@@ -153,6 +159,7 @@ async function refreshPrices(o: RefreshOptions, now: Date, skip: Set<string>, re
         let row = existing;
         if (!existing || !existing.price.eq(value)) {
           row = await tx.securityPrice.upsert({ where, update: { price: value }, create: { securityId: sec.id, priceDate, source: q.source, price: value } });
+          undo.prices.push({ id: row.id, prev: existing ? existing.price.toString() : null });
           tally.accepted++;
         } else tally.unchanged++;
         if (v.stale) tally.stale++;
@@ -182,10 +189,15 @@ export async function fxPairsToRefresh(): Promise<FxPair[]> {
   return [...pairs.values()];
 }
 
-async function refreshFx(o: RefreshOptions, now: Date, skip: Set<string>, reports: SourceReport[], tally: Tally) {
+async function refreshFx(o: RefreshOptions, now: Date, skip: Set<string>, reports: SourceReport[], tally: Tally, undo: UndoLog) {
   const adapter = getMarketDataAdapter();
   const pairs = await fxPairsToRefresh();
-  const batch = await adapter.fetchFx(pairs, { force: o.force, skipSources: skip, now });
+  const anchors = new Map<string, string>();
+  for (const p of pairs) {
+    const last = await prisma.fxRate.findFirst({ where: { fromCurrency: p.from, toCurrency: p.to }, orderBy: { rateDate: 'desc' } });
+    if (last) anchors.set(`${p.from}/${p.to}`, last.rate.toString());
+  }
+  const batch = await adapter.fetchFx(pairs, { force: o.force, skipSources: skip, now, anchors });
   reports.push(...batch.sources);
   await prisma.$transaction(
     async (tx) => {
@@ -211,6 +223,7 @@ async function refreshFx(o: RefreshOptions, now: Date, skip: Set<string>, report
         let row = existing;
         if (!existing || !existing.rate.eq(rate)) {
           row = await tx.fxRate.upsert({ where, update: { rate, source: q.source }, create: { fromCurrency: q.from, toCurrency: q.to, rateDate, rate, source: q.source } });
+          undo.fx.push({ id: row.id, prev: existing ? existing.rate.toString() : null });
           tally.accepted++;
         } else tally.unchanged++;
         const keyHash = sha256(['FX', q.source, label, q.rateDate, 'ACCEPTED'].join('|'));
@@ -230,12 +243,13 @@ export async function refreshMarketData(o: RefreshOptions): Promise<RefreshSumma
   const run = await prisma.mdRefreshRun.create({ data: { trigger: o.trigger, provider, scope: o.scope, requestedBy: o.userId ?? null, startedAt: now } });
   const tally: Tally = { accepted: 0, unchanged: 0, rejected: 0, errors: 0, skipped: 0, overridden: 0, stale: 0 };
   const reports: SourceReport[] = [];
+  const undo: UndoLog = { prices: [], fx: [] };
   let message: string | undefined;
   let failed = false;
   try {
     const skip = await skipSet(now, !!o.force);
-    if (o.scope !== 'FX') await refreshPrices(o, now, skip, reports, tally);
-    if (o.scope === 'FX' || o.scope === 'ALL') await refreshFx(o, now, skip, reports, tally);
+    if (o.scope !== 'FX') await refreshPrices(o, now, skip, reports, tally, undo);
+    if (o.scope === 'FX' || o.scope === 'ALL') await refreshFx(o, now, skip, reports, tally, undo);
     await updateSourceStatuses(reports, provider, now);
   } catch (e) {
     failed = true;
@@ -251,7 +265,7 @@ export async function refreshMarketData(o: RefreshOptions): Promise<RefreshSumma
   }
   const noData = tally.accepted + tally.unchanged + tally.overridden === 0;
   const status: RefreshSummary['status'] = failed || (noData && tally.errors > 0) ? 'FAILED' : tally.errors + tally.rejected > 0 ? 'PARTIAL' : 'OK';
-  const summary = { ...tally, message, sources: reports.map((r) => ({ source: r.source, status: r.status, count: r.count, error: r.error })) };
+  const summary = { ...tally, message, undo, sources: reports.map((r) => ({ source: r.source, status: r.status, count: r.count, error: r.error })) };
   await prisma.$transaction(async (tx) => {
     await tx.mdRefreshRun.update({
       where: { id: run.id },
@@ -260,6 +274,39 @@ export async function refreshMarketData(o: RefreshOptions): Promise<RefreshSumma
     await writeAudit(tx, o.audit ?? SYSTEM_AUDIT, { action: 'market_data.refresh', objectType: 'market_data_run', objectId: run.id, after: { provider, scope: o.scope, trigger: o.trigger, status, ...tally } });
   });
   return { runId: run.id, provider, scope: o.scope, status, ...tally, message };
+}
+
+/**
+ * Reverses a finished run: rows it created are deleted, rows it changed go back to their previous value. Only rows still
+ * carrying the run's own value are touched (a later manual correction is left alone). Provenance of the run's accepted
+ * values is marked REVERTED so the status screen stops showing it as the current source.
+ */
+export async function undoRefreshRun(runId: string, audit: AuditContext) {
+  const run = await prisma.mdRefreshRun.findUnique({ where: { id: runId } });
+  if (!run) throw HttpError.notFound('Refresh run not found');
+  if (run.status === 'REVERTED') throw HttpError.conflict('This run was already reversed', 'already_reverted');
+  if (run.status === 'RUNNING') throw HttpError.conflict('This run is still in progress', 'refresh_running');
+  const undo = ((run.summary as { undo?: UndoLog } | null)?.undo ?? { prices: [], fx: [] }) as UndoLog;
+  if (!undo.prices.length && !undo.fx.length) throw HttpError.conflict('This run changed no prices or rates, nothing to reverse', 'nothing_to_reverse');
+  const out = { pricesRemoved: 0, pricesRestored: 0, fxRemoved: 0, fxRestored: 0 };
+  await prisma.$transaction(
+    async (tx) => {
+      for (const u of undo.prices) {
+        if (u.prev === null) out.pricesRemoved += (await tx.securityPrice.deleteMany({ where: { id: u.id } })).count;
+        else out.pricesRestored += (await tx.securityPrice.updateMany({ where: { id: u.id }, data: { price: new Prisma.Decimal(u.prev) } })).count;
+      }
+      for (const u of undo.fx) {
+        if (u.prev === null) out.fxRemoved += (await tx.fxRate.deleteMany({ where: { id: u.id } })).count;
+        else out.fxRestored += (await tx.fxRate.updateMany({ where: { id: u.id }, data: { rate: new Prisma.Decimal(u.prev) } })).count;
+      }
+      const ids = [...undo.prices, ...undo.fx].map((u) => u.id);
+      if (ids.length) await tx.mdProvenance.updateMany({ where: { refId: { in: ids }, status: 'ACCEPTED' }, data: { status: 'REVERTED', reason: trunc(`Reversed with run ${runId}`, 300) } });
+      await tx.mdRefreshRun.update({ where: { id: runId }, data: { status: 'REVERTED' } });
+      await writeAudit(tx, audit, { action: 'market_data.refresh.reverted', objectType: 'market_data_run', objectId: runId, after: out });
+    },
+    { timeout: 30_000 },
+  );
+  return { runId, ...out };
 }
 
 // ---------------------------------------------------------------- status for the ops screen
@@ -305,7 +352,7 @@ export async function getMarketDataStatus(now = new Date()) {
     scheduler: schedulerEnabled(),
     staleAfterBusinessDays: STALE_AFTER_BUSINESS_DAYS,
     sources,
-    runs: runs.map((r) => ({ id: r.id, trigger: r.trigger, provider: r.provider, scope: r.scope, status: r.status, startedAt: r.startedAt.toISOString(), finishedAt: r.finishedAt?.toISOString() ?? null, accepted: r.accepted, rejected: r.rejected, errors: r.errors, skipped: r.skipped })),
+    runs: runs.map((r) => ({ revertible: r.status !== 'REVERTED' && r.status !== 'RUNNING' && !!((r.summary as { undo?: UndoLog } | null)?.undo?.prices.length || (r.summary as { undo?: UndoLog } | null)?.undo?.fx.length), id: r.id, trigger: r.trigger, provider: r.provider, scope: r.scope, status: r.status, startedAt: r.startedAt.toISOString(), finishedAt: r.finishedAt?.toISOString() ?? null, accepted: r.accepted, rejected: r.rejected, errors: r.errors, skipped: r.skipped })),
     securities: secs.map((s) => {
       const p = prices.get(s.id);
       const prov = provBySec.get(s.id);

@@ -84,6 +84,11 @@ export interface FetchContext {
   /** Source codes to skip (in back-off). */
   skipSources?: ReadonlySet<string>;
   now?: Date;
+  /**
+   * Last stored value per ticker (or FROM/TO for FX). Only the fake provider uses it: it walks a small deterministic
+   * step from this level instead of an unrelated base, so a simulated run looks like a plausible next close.
+   */
+  anchors?: ReadonlyMap<string, string>;
 }
 
 export interface HealthReport {
