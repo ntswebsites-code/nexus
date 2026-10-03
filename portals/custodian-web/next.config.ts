@@ -40,7 +40,7 @@ function securityHeaders(extra: { script?: string[]; frame?: string[] } = {}) {
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  transpilePackages: ['@matanho/shared', '@matanho/legacy-runtime'],
+  transpilePackages: ['@matanho/shared', '@matanho/portal-kit'],
   poweredByHeader: false,
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders() }];

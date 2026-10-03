@@ -4,7 +4,7 @@
  * (single HTML files + versioned enhancement scripts/styles) into the assets
  * consumed by the Next.js portals.
  *
- *   node tools/extract-legacy.mjs                # extract admin, onboarding, custodian
+ *   node tools/extract-legacy.mjs                # extract admin, onboarding (custodian is native since R4-7)
  *   node tools/extract-legacy.mjs --only admin
  *   node tools/extract-legacy.mjs --analyze admin  # print structure, write nothing
  *   node tools/extract-legacy.mjs --rev <git-rev>  # source revision (default: root commit)
@@ -37,7 +37,6 @@ const PORTALS = {
   },
   // V65 prototype pages are read from the working tree (legacy-static/v65), not git history.
   onboarding: { source: 'public-onboarding.html', sourceDir: 'legacy-static/v65', outDir: 'portals/onboarding-web', fragments: 'single' },
-  custodian: { source: 'custodian-portal.html', sourceDir: 'legacy-static/v65', outDir: 'portals/custodian-web', fragments: 'single' },
 };
 
 // ---------------------------------------------------------------- CLI ------
