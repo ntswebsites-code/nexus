@@ -105,7 +105,22 @@ function assertNotImmutable(r: RunRow, action: string) {
 }
 
 async function respond(res: import('express').Response, req: import('express').Request, id: string, status = 200) {
-  res.status(status).json({ data: await runDetail(await loadRun(id), req.user!) });
+  // The write has already committed when this runs, so a transient database drop (Prisma P1001/P1002/P1017) must not
+  // turn a successful action into a 500: retry the read-back a few times before giving up.
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    try {
+      const data = await runDetail(await loadRun(id), req.user!);
+      res.status(status).json({ data });
+      return;
+    } catch (err) {
+      lastErr = err;
+      const code = (err as { code?: string } | null)?.code;
+      if (!(code === 'P1001' || code === 'P1002' || code === 'P1017')) throw err;
+      await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 // ================================================================ list and read

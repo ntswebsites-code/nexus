@@ -87,7 +87,7 @@ function Detail({ run: r, reload }: { run: NavDetail; reload: () => void }) {
                 disabled={!r.allowed.makerReview}
                 title={r.allowed.makerReview ? 'Confirms you have reviewed this NAV and sends it for release' : r.allowed.makerReviewBlockers.join('. ')}
                 confirm={`Confirm maker review of ${r.ref}? Someone else will then release it.`}
-                onRun={(key) => api.post(`${base}/maker-review`, {}, { idempotencyKey: key })}
+                onRun={(key) => api.post(`${base}/maker-review`, {}, { idempotencyKey: key }).catch((e: unknown) => { reload(); throw e; })}
                 onDone={reload}
               />
             )}
@@ -98,7 +98,7 @@ function Detail({ run: r, reload }: { run: NavDetail; reload: () => void }) {
                 disabled={!r.allowed.release}
                 title={r.allowed.release ? 'Requires a fresh authenticator code' : (r.allowed.releaseBlocker ?? undefined)}
                 confirm={`Release ${r.ref}? ${r.fundName ? `This publishes NAV per unit ${nav4(r.navPerUnit)} for ${r.fundName} to the LP portal. ` : ''}A released NAV cannot be edited.`}
-                onRun={(key) => api.post(`${base}/release`, {}, { idempotencyKey: key })}
+                onRun={(key) => api.post(`${base}/release`, {}, { idempotencyKey: key }).catch((e: unknown) => { reload(); throw e; })}
                 onDone={reload}
               />
             )}

@@ -107,8 +107,8 @@ const patchSchema = z
     version: z.number().int().optional(),
   })
   .partial();
-const submitSchema = z.object({ rationale: z.string().trim().min(3, 'A rationale is required').max(2000), version: z.number().int().optional() });
-const reasonSchema = z.object({ reason: z.string().trim().min(3, 'A reason is required').max(255), version: z.number().int().optional() });
+const submitSchema = z.object({ rationale: z.string({ error: 'A rationale is required' }).trim().min(3, 'A rationale is required').max(2000), version: z.number().int().optional() });
+const reasonSchema = z.object({ reason: z.string({ error: 'A reason is required' }).trim().min(3, 'A reason is required').max(255), version: z.number().int().optional() });
 const approveSchema = z.object({ note: z.string().trim().max(500).optional(), version: z.number().int().optional() });
 const routeSchema = z.object({ brokerId: idStr.optional(), note: z.string().trim().max(500).optional(), version: z.number().int().optional() });
 const fillSchema = z.object({
@@ -141,6 +141,17 @@ async function resolveSecurity(idOrTicker: string) {
   const s = await prisma.security.findFirst({ where: UUID.test(idOrTicker) ? { id: idOrTicker } : { ticker: idOrTicker.toUpperCase() } });
   if (!s) throw HttpError.notFound('Security not found');
   return s;
+}
+
+/** Early, field-level rejection of tickets that can never be valid: not a board-lot multiple, or absurdly large against volume. */
+function assertTicketSize(security: { boardLot: number; averageDailyVolume: Prisma.Decimal | null; ticker: string }, quantity: string | Prisma.Decimal) {
+  const qty = new D(quantity);
+  const lot = security.boardLot > 0 ? security.boardLot : 1;
+  if (!qty.mod(lot).isZero()) throw HttpError.badRequest('Validation failed', [{ path: 'quantity', message: `Quantity must be a multiple of the ${security.ticker} board lot (${lot})` }]);
+  const adv = security.averageDailyVolume;
+  if (adv && adv.gt(0) && qty.gt(adv.mul(10))) {
+    throw HttpError.badRequest('Validation failed', [{ path: 'quantity', message: `Quantity ${qty.toString()} is more than 10 times the average daily volume of ${security.ticker} (${adv.toString()}); check the size` }]);
+  }
 }
 
 async function assertBroker(brokerId: string | null | undefined) {
@@ -342,6 +353,7 @@ ordersRoutes.post('/', ...staff, requirePermission('orders.create'), validateBod
   if (security.status !== 'Active') throw HttpError.conflict(`${security.ticker} is ${security.status} and cannot be ordered`, 'security_not_tradable');
   const decision = await latestPrice(security.id);
   if (!decision) throw HttpError.conflict(`${security.ticker} has no price on file`, 'no_price');
+  assertTicketSize(security, b.quantity);
   await assertBroker(b.brokerId);
   const id = await prisma.$transaction(async (tx) => {
     const ref = await seqRef(tx, 'order', 'ORD-', 6, 1001);
@@ -412,6 +424,10 @@ ordersRoutes.patch('/:id', ...staff, requirePermission('orders.create'), validat
       changes.securityId = security.id;
       material = true;
     }
+  }
+  if (b.quantity !== undefined || security) {
+    const sec = security ?? (await resolveSecurity(o.securityId));
+    assertTicketSize(sec, b.quantity ?? o.quantity);
   }
   const set = <K extends keyof typeof b>(k: K, apply: (v: NonNullable<(typeof b)[K]>) => void, isMaterial: boolean, same: (v: NonNullable<(typeof b)[K]>) => boolean) => {
     const v = b[k];

@@ -4,6 +4,7 @@ import { writeAudit } from '../../lib/audit';
 import { SYSTEM_ACTOR_ID, systemCtx } from '../../lib/system';
 import { closePrecheck } from '../cash/cash.service';
 import { getPortfolioSummaries } from '../portfolio/portfolio.service';
+import { countUnrecordedExceedances } from '../risk/risk.service';
 import { endOfDay, ensureTask, linkDependency, resolveTaskBySource } from './tasks';
 import { FAMILY_LABEL, FAMILIES, type Family } from '../recon/recon.engine';
 
@@ -19,7 +20,8 @@ const iso = (d: Date | null | undefined) => (d ? d.toISOString().slice(0, 10) : 
 const addDays = (d: Date, n: number) => new Date(d.getTime() + n * 86_400_000);
 const pct = (num: number, den: number) => (den <= 0 ? 100 : Math.max(0, Math.min(100, Math.round((num / den) * 100))));
 const OPEN_BREAK = ['NEW', 'ASSIGNED', 'INVESTIGATING', 'PENDING_CHECKER'];
-const WORKING_ORDERS = ['AwaitingApproval', 'Approved', 'Routing', 'PartiallyFilled'];
+// Same definition as the Orders page: Working = approved, routing or partly filled. Awaiting approval is reported separately.
+const WORKING_ORDERS = ['Approved', 'Routing', 'PartiallyFilled'];
 
 const money = (v: Dec) => v.toFixed(2);
 
@@ -235,15 +237,16 @@ export async function generateRunbook(now = new Date()) {
 /** GET /dashboard/today: KPIs for the Command Centre. Sections the caller lacks permission for are returned as null. */
 export async function dashboardToday(perms: string[], now = new Date()) {
   const can = (p: string) => perms.includes(p);
-  const [portfolios, working, approvals, recon, cash, nav, risk, tasks] = await Promise.all([
+  const [portfolios, working, approvals, recon, cash, nav, risk, tasks, unrecordedBreaches] = await Promise.all([
     can('portfolio.view') || can('dashboard.view') ? getPortfolioSummaries({ status: 'Active' }) : Promise.resolve(null),
-    can('orders.view') ? prisma.order.groupBy({ by: ['status'], where: { status: { in: WORKING_ORDERS } }, _count: { _all: true } }) : Promise.resolve(null),
+    can('orders.view') ? prisma.order.groupBy({ by: ['status'], where: { status: { in: [...WORKING_ORDERS, 'AwaitingApproval'] } }, _count: { _all: true } }) : Promise.resolve(null),
     approvalQueue(perms),
     can('operations.view') ? reconSummary() : Promise.resolve(null),
     can('cash.view') ? cashPosition() : Promise.resolve(null),
     can('valuation.view') ? navStatus(now) : Promise.resolve(null),
     can('risk.view') ? prisma.riskBreach.groupBy({ by: ['status'], where: { status: { in: ['OPEN', 'ACKNOWLEDGED'] } }, _count: { _all: true } }) : Promise.resolve(null),
     can('operations.view') ? prisma.opsTask.count({ where: { status: { in: ['OPEN', 'IN_PROGRESS', 'BLOCKED'] }, dueAt: { lte: endOfDay(now) } } }) : Promise.resolve(null),
+    can('risk.view') ? countUnrecordedExceedances(now).catch(() => 0) : Promise.resolve(null),
   ]);
   const aum = portfolios
     ? Object.entries(
@@ -256,12 +259,12 @@ export async function dashboardToday(perms: string[], now = new Date()) {
   return {
     asOf: now.toISOString(),
     aum: portfolios ? { byCurrency: aum, portfolios: portfolios.length, positions: portfolios.reduce((s, p) => s + p.positionCount, 0), cashPct: portfolios.length ? portfolios.reduce((s, p) => s.add(new D(p.cashPct)), ZERO).div(portfolios.length).toFixed(2) : '0.00', warnings: portfolios.reduce((s, p) => s + p.warnings, 0) } : null,
-    ordersWorking: working ? { total: working.reduce((s, w) => s + w._count._all, 0), byStatus: Object.fromEntries(working.map((w) => [w.status, w._count._all])) } : null,
+    ordersWorking: working ? { total: working.filter((w) => WORKING_ORDERS.includes(w.status)).reduce((s, w) => s + w._count._all, 0), awaitingApproval: working.find((w) => w.status === 'AwaitingApproval')?._count._all ?? 0, byStatus: Object.fromEntries(working.filter((w) => WORKING_ORDERS.includes(w.status)).map((w) => [w.status, w._count._all])) } : null,
     breaks: recon ? { open: recon.open, high: recon.high, pendingChecker: recon.pendingChecker } : null,
     approvals,
     cash,
     nav,
-    risk: risk ? { open: risk.find((r) => r.status === 'OPEN')?._count._all ?? 0, acknowledged: risk.find((r) => r.status === 'ACKNOWLEDGED')?._count._all ?? 0 } : null,
+    risk: risk ? { open: risk.find((r) => r.status === 'OPEN')?._count._all ?? 0, acknowledged: risk.find((r) => r.status === 'ACKNOWLEDGED')?._count._all ?? 0, unrecorded: unrecordedBreaches ?? 0 } : null,
     runbookDueToday: tasks,
   };
 }
