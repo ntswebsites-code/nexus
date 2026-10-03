@@ -2311,3 +2311,105 @@ model ReconSignoff {
   @@map("recon_signoffs")
 }
 // ---- end Reconciliation ----
+
+// ---- Accounting ----
+/// Chart of accounts entry for one entity (a portfolio / the fund it backs). `code` is unique per entity.
+model AccAccount {
+  id          String   @id @default(uuid()) @db.Char(36)
+  portfolioId String   @map("portfolio_id") @db.Char(36)
+  code        String   @db.VarChar(20)
+  name        String   @db.VarChar(160)
+  /// ASSET | LIABILITY | EQUITY | INCOME | EXPENSE (assets and expenses are debit-normal)
+  type        String   @db.VarChar(12)
+  description String?  @db.VarChar(500)
+  isActive    Boolean  @default(true) @map("is_active")
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  lines AccJournalLine[]
+
+  @@unique([portfolioId, code])
+  @@index([portfolioId, type])
+  @@map("acc_accounts")
+}
+
+/// A double-entry journal. DRAFT -> PENDING_APPROVAL -> POSTED -> REVERSED (or DISCARDED before posting).
+/// Posted journals are immutable; a reversal is a new POSTED journal with the debits and credits swapped.
+model AccJournal {
+  id            String    @id @default(uuid()) @db.Char(36)
+  /// JNL-00001 ...
+  ref           String    @unique @db.VarChar(16)
+  portfolioId   String    @map("portfolio_id") @db.Char(36)
+  entryDate     DateTime  @map("entry_date") @db.Date
+  description   String    @db.VarChar(500)
+  currency      String    @default("USD") @db.Char(3)
+  /// DRAFT | PENDING_APPROVAL | POSTED | REVERSED | DISCARDED
+  status        String    @default("DRAFT") @db.VarChar(20)
+  totalDebit    Decimal   @default(0) @map("total_debit") @db.Decimal(20, 4)
+  totalCredit   Decimal   @default(0) @map("total_credit") @db.Decimal(20, 4)
+  makerId       String    @map("maker_id") @db.Char(36)
+  submittedAt   DateTime? @map("submitted_at")
+  postedBy      String?   @map("posted_by") @db.Char(36)
+  postedAt      DateTime? @map("posted_at")
+  /// Set on a reversal journal: the journal it reverses.
+  reversalOfId  String?   @map("reversal_of_id") @db.Char(36)
+  /// Set on the original once reversed: the reversing journal.
+  reversedById  String?   @map("reversed_by_id") @db.Char(36)
+  reversedAt    DateTime? @map("reversed_at")
+  reverseReason String?   @map("reverse_reason") @db.VarChar(500)
+  version       Int       @default(1)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  lines AccJournalLine[]
+
+  @@index([portfolioId, entryDate])
+  @@index([portfolioId, status])
+  @@map("acc_journals")
+}
+
+model AccJournalLine {
+  id        String  @id @default(uuid()) @db.Char(36)
+  journalId String  @map("journal_id") @db.Char(36)
+  lineNo    Int     @map("line_no")
+  accountId String  @map("account_id") @db.Char(36)
+  debit     Decimal @default(0) @db.Decimal(20, 4)
+  credit    Decimal @default(0) @db.Decimal(20, 4)
+  memo      String? @db.VarChar(255)
+
+  journal AccJournal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  account AccAccount @relation(fields: [accountId], references: [id])
+
+  @@index([journalId])
+  @@index([accountId])
+  @@map("acc_journal_lines")
+}
+
+/// A calendar-month accounting period for one entity. OPEN -> CLOSING -> CLOSED (reopen returns it to OPEN).
+model AccPeriod {
+  id            String    @id @default(uuid()) @db.Char(36)
+  portfolioId   String    @map("portfolio_id") @db.Char(36)
+  periodStart   DateTime  @map("period_start") @db.Date
+  periodEnd     DateTime  @map("period_end") @db.Date
+  /// OPEN | CLOSING | CLOSED
+  status        String    @default("OPEN") @db.VarChar(12)
+  closingBy     String?   @map("closing_by") @db.Char(36)
+  closingAt     DateTime? @map("closing_at")
+  closedBy      String?   @map("closed_by") @db.Char(36)
+  closedAt      DateTime? @map("closed_at")
+  reopenedBy    String?   @map("reopened_by") @db.Char(36)
+  reopenedAt    DateTime? @map("reopened_at")
+  reopenReason  String?   @map("reopen_reason") @db.VarChar(500)
+  /// Checklist and trial-balance totals at the moment of close.
+  closeSnapshot Json?     @map("close_snapshot")
+  createdBy     String    @map("created_by") @db.Char(36)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@unique([portfolioId, periodEnd])
+  @@index([portfolioId, status])
+  @@map("acc_periods")
+}
+
+// ---- end Accounting ----

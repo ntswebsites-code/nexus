@@ -20,6 +20,7 @@ import { portfolioRoutes } from '../modules/portfolio/portfolio.routes';
 import { ordersRoutes } from '../modules/orders';
 import { riskRoutes } from '../modules/risk/risk.routes';
 import { navRoutes } from '../modules/nav';
+import { accountingRoutes } from '../modules/accounting';
 import { reconRoutes } from '../modules/recon/recon.routes';
 
 /** `/api/v1` - SRD section 11 domain API. */
@@ -38,6 +39,8 @@ v1Router.use('/orders', ordersRoutes);
 v1Router.use('/risk', riskRoutes);
 // NAV & Valuation: /nav/runs (calculate, exceptions, maker review, release).
 v1Router.use('/nav', navRoutes);
+// Accounting & Close: /accounting/* (chart of accounts, journals, trial balance, ledger, periods and close).
+v1Router.use('/accounting', accountingRoutes);
 // Reconciliations: /recon/* (runs, breaks, sources, signoffs, account-map).
 v1Router.use('/recon', reconRoutes);
 v1Router.use('/auth', identityRoutes);

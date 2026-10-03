@@ -752,3 +752,61 @@ packages only), query-source and escalate break actions, an explicit reopen endp
 string is stored), aggregating partial fills, FX-aware trade price comparison across currencies, the NAV-close and
 Operations-runbook gating, and CSV export of breaks. The prototype's other reconciliation families (positions vs custody
 quantities, settlement fails, corporate actions) are not implemented.
+
+## Accounting & Close
+
+Page 21 `accounting` (SRD 5.A, permission `valuation.view`) and its `accounting-close` second layer, backed by the ABOR books: chart of accounts, double-entry journals, trial balance, ledger, and a month-end close. Module `backend/api/src/modules/accounting` (`accounting.engine.ts` pure rules, `accounting.service.ts` balances and checklist, `accounting.routes.ts`), mounted at `/api/v1/accounting`, admin portal staff only.
+
+### Tables (migration `20261004100000_accounting`, additive)
+
+`acc_accounts` (per entity = portfolio; unique code; type ASSET, LIABILITY, EQUITY, INCOME or EXPENSE), `acc_journals` (ref `JNL-00001`, entry date, status, totals, maker, poster, reversal links), `acc_journal_lines` (debit or credit, DECIMAL(20,4)), `acc_periods` (calendar month per entity; OPEN, CLOSING, CLOSED; close snapshot, reopen reason). The entity is the portfolio (a fund-backing portfolio stands for the fund); there is no foreign key to `portfolios`, like the NAV tables.
+
+### Rules
+
+- Journal states: DRAFT, PENDING_APPROVAL, POSTED, REVERSED, DISCARDED. A journal needs at least two lines, each exactly one positive side, debits equal to credits (Decimal maths), accounts active and belonging to the entity. Checked on create, edit, submit and post.
+- Maker-checker: the creator edits and submits; **a different user with `accounting.post` posts, with step-up MFA** (same as NAV release). The creator cannot post (403 `segregation_of_duties`). A poster can return a pending journal with a reason. Drafts and pending journals can be discarded; nothing is deleted.
+- Posted journals are immutable (409 `journal_immutable` on edit or discard). **Reverse** (`accounting.post` + step-up + reason) posts a new journal with debits and credits swapped, links both ways, and marks the original REVERSED. A reversal cannot itself be reversed.
+- Trial balance and ledger count POSTED and REVERSED journals (the reversal offsets the original). Balances are shown on the natural side per type.
+- Periods: open a month, optionally **start close** (CLOSING, posting still allowed), then **close**. Close refuses with 409 `close_blocked` and `error.details.blockers` listing every blocker: unposted journals dated in the period, open reconciliation breaks for the entity (status not MATCHED or CLOSED, run as-of date on or before period end), no RELEASED NAV run for the period-end date, trial balance not in balance. Closing needs `accounting.close` + step-up and stores the checklist and totals. A CLOSED period refuses creating, editing, posting and reversing into it (409 `period_closed`). **Reopen** needs `accounting.reopen` + step-up + a reason (5+ characters), refused while a later period is closed.
+- Mutations that create records take `Idempotency-Key`; actions accept it. Audit actions: `accounting.account_created`, `.account_updated`, `.journal_created`, `.journal_updated`, `.journal_submitted`, `.journal_returned`, `.journal_discarded`, `.journal_posted`, `.journal_reversed`, `.period_opened`, `.period_closing_started`, `.period_closed`, `.period_reopened`. Submit notifies `accounting.post` holders; close and reopen notify `accounting.close` holders.
+
+### Endpoints (`/api/v1/accounting`)
+
+| Endpoint | Permission |
+|---|---|
+| `GET /accounts`, `/journals`, `/journals/:id`, `/trial-balance?portfolioId&asOf`, `/ledger?accountId&from&to`, `/periods`, `/periods/:id` | `valuation.view` |
+| `POST /journals`, `PATCH /journals/:id`, `POST /journals/:id/submit`, `/discard`, `POST /periods`, `/periods/:id/start-close` | `valuation.view` (edit, submit and discard: creator only) |
+| `POST /accounts`, `/accounts/default-chart`, `PATCH /accounts/:id` | `accounting.post` |
+| `POST /journals/:id/post`, `/reverse` | `accounting.post` + step-up (post: not the creator) |
+| `POST /journals/:id/return` | `accounting.post` (not the creator) |
+| `POST /periods/:id/close` | `accounting.close` + step-up |
+| `POST /periods/:id/reopen` | `accounting.reopen` + step-up + reason |
+
+**New permission codes** `accounting.post`, `accounting.close`, `accounting.reopen`, added to `role-catalog.json`: `fund_accountant` gets post and close; `investment_director` gets all three; the Auditor stays read-only through `valuation.view`. Existing databases pick the grants up when `prisma/seed.ts` runs again.
+
+### Console
+
+`/ops/accounting` (nav section "Accounting", `valuation.view`): entity selector and tabs Journals (filters, New journal with a balanced line grid), Trial balance (as-of date, balanced flag), Account ledger (opening, running and closing balance), Periods and close, Chart of accounts (standard chart, new account, edit). `/ops/accounting/journals/[id]`: lines, control, history, and Submit, Post, Return, Discard, Reverse enabled from the server `allowed` flags. `/ops/accounting/periods/[id]`: the close checklist with each blocker, Start close, Close period, Reopen. `?journal=` and `?period=` deep-link from notifications. Typecheck only; no browser verification was done.
+
+### Demo seed
+
+`prisma/seed-accounting.ts` (called by `seed-uat.ts` and `seed-demo.ts`, also standalone, idempotent): adds the standard chart to each fund-backing portfolio and opens the previous and current month. It posts nothing.
+
+### Running the test
+
+```
+# disposable DB only; same steps as the other modules
+cd backend/api
+npx prisma migrate deploy --schema prisma/schema.prisma
+npx tsx --env-file-if-exists=../../.env prisma/seed.ts
+API_PORT=4181 npx tsx --env-file-if-exists=../../.env src/server.ts      # another terminal; FILE_ENCRYPTION_KEY must be set
+E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exists=../../.env scripts/test-accounting.ts
+```
+
+The script (`scripts/test-accounting.ts`) covers the engine rules, permissions, chart of accounts, validation, lifecycle, maker-checker and step-up, immutability, reversal, trial balance and ledger numbers, the 3-blocker close refusal, locking, reopen and audit. It was typechecked but **not run** (no local database was started).
+
+### Not done
+
+- No automatic journals from NAV, fees, trades or cash (all entries are manual); no multi-currency or FX revaluation; no journal attachments.
+- Close does not cover unreconciled non-entity breaks (those with no portfolio) or per-fund tax and audit steps.
+- Chart editing needs `accounting.post`; there is no separate chart-admin right.
