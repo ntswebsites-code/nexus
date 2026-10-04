@@ -46,6 +46,7 @@ import { dataRoutes } from '../modules/data-fabric';
 import { modelRoutes } from '../modules/model-governance';
 import { adminCoreRoutes } from '../modules/admin-core';
 import { shellRoutes } from '../modules/search';
+import { accountSecurityRoutes } from '../modules/account-security/security.routes';
 import { STAFF_LIST_PREFIXES, paginateData } from '../middleware/paginate';
 import { integrationsPublicRoutes } from '../modules/admin-core/integrations.routes';
 import { esignRoutes } from '../modules/esign';
@@ -116,6 +117,8 @@ v1Router.use('/model-governance', modelRoutes);
 v1Router.use('/admin-core', adminCoreRoutes);
 // Admin shell: /shell/* (global search, record detail, profile, password change, sessions, role focus).
 v1Router.use('/shell', shellRoutes);
+// Account security for every portal: /account/security (MFA status, backup codes, sessions, password change).
+v1Router.use('/account', accountSecurityRoutes);
 // Integrations (WP-8): development-only fake SSO identity provider page (404 in production). Ops API is under /admin-core/integrations.
 v1Router.use('/integrations', integrationsPublicRoutes);
 // Native e-signature: /esign/* (staff requests, signed-in signers at /me, external token signers + verifier at /public).

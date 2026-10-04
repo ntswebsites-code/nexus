@@ -3,6 +3,7 @@ import { lpPaymentConfirmationFields } from '@matanho/shared';
 import { idempotent } from '../../../lib/idempotency';
 import { requireStepUp } from '../../../middleware/requireAuth';
 import { uploadFiles } from '../../../middleware/upload';
+import { revealCallAccount } from '../services/reveal';
 import { lp, requireLp, requireLpRole } from '../lp.context';
 import { LpError, lpOk, lpPaginate, pageOf } from '../lp.http';
 import { acknowledge, callSummary, getCall, listCallDocuments, listCalls, noticeFile, uploadPaymentConfirmation } from '../services/capital';
@@ -33,6 +34,11 @@ lpCapitalRoutes.get('/capital-calls/summary', requireLp('lp.capital_calls.view')
 
 lpCapitalRoutes.get('/capital-calls/:id', requireLp('lp.capital_calls.view'), async (req, res) => {
   lpOk(req, res, await getCall(lp(req), String(req.params.id)));
+});
+
+lpCapitalRoutes.post('/capital-calls/:id/wiring/reveal', requireLp('lp.capital_calls.view'), requireLpRole('SIGNATORY'), async (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  lpOk(req, res, await revealCallAccount(req, lp(req), String(req.params.id)));
 });
 
 lpCapitalRoutes.get('/capital-calls/:id/documents', requireLp('lp.capital_calls.view'), async (req, res) => {

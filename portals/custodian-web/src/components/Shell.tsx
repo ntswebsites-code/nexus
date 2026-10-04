@@ -26,6 +26,7 @@ const NAV = [
   { href: '/history', label: 'History' },
   { href: '/users', label: 'Users and roles' },
   { href: '/notifications', label: 'Notifications' },
+  { href: '/security', label: 'Security' },
 ];
 
 export function Shell({ children }: { children: ReactNode }) {

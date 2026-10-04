@@ -36,6 +36,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { useLpFundScope, useLpPortal } from "@/components/lp-portal/lp-portal-context"
 import { lpPortalApi } from "@/lib/api/lp-portal-api"
+import { getApiErrorMessage } from "@/lib/lp-portal/use-lp-api"
 import { createIdempotencyKey, downloadBlob, formatMoneyCompact, parseDecimal } from "@/lib/lp-portal/format"
 import { titleCaseEnum } from "@/lib/lp-portal/mappers"
 import { resolveDocumentHref } from "@/lib/lp-portal/navigation"
@@ -255,6 +256,8 @@ export function LpCapitalActivityScreen({
   const [showAllCalls, setShowAllCalls] = React.useState(false)
   const [showAllDistributions, setShowAllDistributions] = React.useState(false)
   const [wiringDialogOpen, setWiringDialogOpen] = React.useState(false)
+  const [revealedAccount, setRevealedAccount] = React.useState<string | null>(null)
+  const [revealing, setRevealing] = React.useState(false)
   const [actionLoading, setActionLoading] = React.useState<string | null>(null)
   const paymentInputRef = React.useRef<HTMLInputElement>(null)
   const [paymentFile, setPaymentFile] = React.useState<File | null>(null)
@@ -1093,7 +1096,13 @@ export function LpCapitalActivityScreen({
         </DialogContent>
       </Dialog>
 
-      <Dialog open={wiringDialogOpen} onOpenChange={setWiringDialogOpen}>
+      <Dialog
+        open={wiringDialogOpen}
+        onOpenChange={(open) => {
+          setWiringDialogOpen(open)
+          if (!open) setRevealedAccount(null)
+        }}
+      >
         <DialogContent className="max-w-lg rounded-xl">
           <DialogHeader>
             <DialogTitle>Wiring instructions</DialogTitle>
@@ -1101,6 +1110,40 @@ export function LpCapitalActivityScreen({
               Call No. {selectedCall?.callNo} · {selectedCall?.fund}
             </DialogDescription>
           </DialogHeader>
+          {callDetail?.wiring ? (
+            <div className="flex items-center justify-between gap-2 rounded-lg border border-[#e5e7eb] px-3 py-2 text-[12px]" data-testid="wiring-account-row">
+              <span className="text-[#64748b]">Account number</span>
+              <span className="font-mono font-medium text-[#0f172a]" data-testid="wiring-account-value">
+                {revealedAccount ?? callDetail.wiring.accountNumberMasked}
+              </span>
+              {lpRole !== "VIEWER" ? (
+                <button
+                  type="button"
+                  disabled={revealing || !selectedCall}
+                  className="text-[11px] font-semibold text-[#2563eb] hover:underline disabled:opacity-50"
+                  onClick={async () => {
+                    if (!selectedCall) return
+                    if (revealedAccount) {
+                      setRevealedAccount(null)
+                      return
+                    }
+                    setRevealing(true)
+                    try {
+                      const res = await lpPortalApi.revealCapitalCallAccount(selectedCall.id)
+                      setRevealedAccount(res.data.accountNumber)
+                      window.setTimeout(() => setRevealedAccount(null), 30_000)
+                    } catch (err) {
+                      toast.error(getApiErrorMessage(err, "Could not reveal the account number"))
+                    } finally {
+                      setRevealing(false)
+                    }
+                  }}
+                >
+                  {revealedAccount ? "Hide" : "Reveal"}
+                </button>
+              ) : null}
+            </div>
+          ) : null}
           {callDetail?.wiring.raw ? (
             <pre className="max-h-[50vh] overflow-auto rounded-lg border border-[#e5e7eb] bg-[#f9fafb] p-3 text-[11px] leading-5 whitespace-pre-wrap text-[#374151]">
               {callDetail.wiring.raw}

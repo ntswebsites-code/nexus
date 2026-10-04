@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import type { LpAccountActivityEntry, LpLedgerDocument, LpLedgerEntryDetail } from '@matanho/shared';
 import { prisma } from '../../../lib/prisma';
 import { day } from '../lp.http';
@@ -6,13 +7,19 @@ import { LpError } from '../lp.http';
 import { VISIBLE_CALL_STATUSES, VISIBLE_DISTRIBUTION_STATUSES, callStatus, fundMap } from './common';
 import { lpDocWhere } from './documents';
 import { fixed } from './positions';
+import { presentationCurrencyOf, stampEntries } from './fx';
 
 export interface ActivityFilter {
   fundId?: string;
   from?: string;
   to?: string;
   currency?: string;
+  sortBy?: ActivitySort;
+  sortDirection?: 'asc' | 'desc';
 }
+
+export const ACTIVITY_SORTS = ['transactionDate', 'amount', 'status', 'fundName', 'entryType'] as const;
+export type ActivitySort = (typeof ACTIVITY_SORTS)[number];
 
 const structure = (operatingModel: string) => (operatingModel === 'OPEN_ENDED' ? 'Open-End' : 'Closed-End');
 const model = (operatingModel: string) => (operatingModel === 'OPEN_ENDED' ? 'OPEN_ENDED' : 'PRIVATE_CAPITAL') as 'OPEN_ENDED' | 'PRIVATE_CAPITAL';
@@ -99,18 +106,51 @@ export async function ledgerEntries(ctx: LpContext, f: ActivityFilter): Promise<
       status: d.status,
     });
   }
+  const dir = f.sortDirection === 'asc' ? 1 : -1;
+  const key = f.sortBy ?? 'transactionDate';
+  const cmp = (a: LpAccountActivityEntry, b: LpAccountActivityEntry) => {
+    if (key === 'amount') return Number(a.amount) - Number(b.amount);
+    if (key === 'status') return a.status.localeCompare(b.status);
+    if (key === 'fundName') return a.fundName.localeCompare(b.fundName);
+    if (key === 'entryType') return a.entryType.localeCompare(b.entryType);
+    return a.transactionDate.localeCompare(b.transactionDate);
+  };
   return out
     .filter((e) => (!f.from || e.transactionDate >= f.from) && (!f.to || e.transactionDate <= f.to) && (!f.currency || e.currency === f.currency.toUpperCase()))
-    .sort((a, b) => b.transactionDate.localeCompare(a.transactionDate) || a.entryId.localeCompare(b.entryId));
+    .sort((a, b) => dir * cmp(a, b) || b.transactionDate.localeCompare(a.transactionDate) || a.entryId.localeCompare(b.entryId));
+}
+
+/**
+ * Adds the original amount's conversion at the stamped transaction-date rate (BR-152, BR-171). The original
+ * amount and currency are never changed; a missing rate gives `reportingAmount: null` and a note.
+ */
+export async function withFx(ctx: LpContext, entries: LpAccountActivityEntry[]): Promise<LpAccountActivityEntry[]> {
+  const target = await presentationCurrencyOf(ctx);
+  const stamps = await stampEntries(
+    ctx,
+    target,
+    entries.map((e) => ({ entryId: e.entryId, entryType: e.entryType, currency: e.currency, txnDate: e.transactionDate })),
+  );
+  return entries.map((e) => {
+    const st = stamps.get(e.entryId);
+    if (!st) {
+      return { ...e, reportingAmount: null, reportingCurrency: e.currency, fxRate: null, fxRateDate: null, fxNote: `FX rate unavailable for ${e.currency}/${target}; original currency shown.` };
+    }
+    const amount = new Prisma.Decimal(e.amount).mul(st.rate).toDecimalPlaces(2, Prisma.Decimal.ROUND_HALF_UP).toFixed(2);
+    return { ...e, reportingAmount: amount, reportingCurrency: target, fxRate: st.rate, fxRateDate: st.rateDate, fxNote: null };
+  });
 }
 
 const csvCell = (v: string) => (/[",\r\n]/.test(v) || /^[=+\-@]/.test(v) ? `"${v.replace(/^([=+\-@])/, "'$1").replace(/"/g, '""')}"` : v);
 
+export const ACTIVITY_EXPORT_HEADER = ['entryId', 'transactionDate', 'entryType', 'fundName', 'description', 'amount', 'currency', 'status', 'reportingAmount', 'reportingCurrency', 'fxRate', 'fxRateDate'];
+export const activityExportRow = (e: LpAccountActivityEntry) => [e.entryId, e.transactionDate, e.entryType, e.fundName, e.description, e.amount, e.currency, e.status, e.reportingAmount ?? '', e.reportingCurrency ?? '', e.fxRate ?? '', e.fxRateDate ?? ''];
+
 /** CSV with formula-injection guard (leading = + - @ are quoted and prefixed). */
 export function toCsv(entries: LpAccountActivityEntry[]): string {
-  const header = ['entryId', 'transactionDate', 'entryType', 'fundName', 'description', 'amount', 'currency', 'status'];
+  const header = ACTIVITY_EXPORT_HEADER;
   const lines = entries.map((e) =>
-    [e.entryId, e.transactionDate, e.entryType, e.fundName, e.description, e.amount, e.currency, e.status].map((v) => csvCell(String(v ?? ''))).join(','),
+    activityExportRow(e).map((v) => csvCell(String(v ?? ''))).join(','),
   );
   return [header.join(','), ...lines].join('\r\n') + '\r\n';
 }

@@ -59,6 +59,8 @@ export interface LpSession {
     displayName?: string
   }
   lpRole: "VIEWER" | "SIGNATORY" | "MANAGER"
+  /** Every investor relationship this user can open (FR-LP-004); the switcher shows when there is more than one. */
+  clients?: Array<{ investorId: string; name: string }>
   presentationCurrency: string
   defaultAsOfDate: string
   defaultValuationStatus: string
@@ -104,10 +106,22 @@ export interface LpOpenEndedHistoryPoint {
   date?: string
 }
 
+export interface LpFxPresentation {
+  presentationCurrency: string
+  reportingCurrency: string
+  converted: boolean
+  rates: Array<{ from: string; to: string; rate: string; rateDate: string }>
+  note: string | null
+}
+
 export interface LpDashboardData {
   asOfDate: string
   valuationStatus: string
   kpis: LpDashboardKpis
+  /** Currency of every amount in this payload and the as-of rate used (BR-087). */
+  presentationCurrency?: string
+  reportingCurrency?: string
+  fx?: LpFxPresentation
   openEndedSummary?: LpOpenEndedSummary | null
   openEndedHistory?: { points: LpOpenEndedHistoryPoint[] }
 }
@@ -228,6 +242,12 @@ export interface LpAccountActivityEntry {
   status: string
   structure?: string
   operatingModel?: "PRIVATE_CAPITAL" | "OPEN_ENDED"
+  /** Amount in the presentation currency at the stamped transaction-date rate (BR-152). */
+  reportingAmount?: string | null
+  reportingCurrency?: string
+  fxRate?: string | null
+  fxRateDate?: string | null
+  fxNote?: string | null
 }
 
 export interface LpLedgerDocument {
@@ -397,6 +417,8 @@ export interface LpPerformanceData {
   version: string
   sourceModule: string
   reportingCurrency: string
+  presentationCurrency?: string
+  fx?: LpFxPresentation
   approvedBy: string | null
   metrics: LpPerformanceMetrics
   byFund: LpPerformanceByFundRow[]
@@ -416,6 +438,7 @@ export interface LpPerformanceHistory {
   asOfDate: string
   valuationStatus: string
   range: string
+  reportingCurrency?: string
   points: LpPerformanceHistoryPoint[]
 }
 
@@ -862,6 +885,11 @@ class LpPortalApiService {
     return apiClient.get(`${this.BASE}/capital-calls/${id}/documents`)
   }
 
+  /** BR-101: full account number, SIGNATORY or MANAGER only; every reveal is audited. */
+  revealCapitalCallAccount(id: string): Promise<LpPortalResponse<{ accountNumber: string; accountNumberMasked: string; revealedAt: string }>> {
+    return apiClient.post(`${this.BASE}/capital-calls/${id}/wiring/reveal`, {})
+  }
+
   acknowledgeCapitalCall(id: string, idempotencyKey?: string): Promise<LpPortalResponse<{ acknowledgedAt: string }>> {
     return apiClient.post(`${this.BASE}/capital-calls/${id}/acknowledge`, {}, { headers: idemHeaders(idempotencyKey) })
   }
@@ -1190,6 +1218,16 @@ class LpPortalApiService {
     return { ...res, data: items } as LpPortalResponse<LpBankInstructionChange[]>
   }
 
+  /** FR-LP-099: attach the supporting letter (PDF/PNG/JPEG) to a pending bank change. */
+  uploadBankChangeLetter(id: string, formData: FormData): Promise<LpPortalResponse<{ id: string; fileId: string; sha256: string; size: number }>> {
+    return apiClient.post(`${this.BASE}/bank-instructions/changes/${id}/letter`, formData)
+  }
+
+  /** FR-LP-095: issue a fresh invitation for a pending colleague. */
+  resendColleagueInvite(membershipId: string): Promise<LpPortalResponse<{ id: string; email: string; activationEmailSent: boolean }>> {
+    return apiClient.post(`${this.BASE}/colleagues/${membershipId}/resend`, {})
+  }
+
   submitBankInstructionChange(
     body: Record<string, unknown>,
     idempotencyKey?: string,
@@ -1260,6 +1298,7 @@ const LP_METHOD_DOMAIN: Record<string, LpDataDomain> = {
   getCapitalCall: "capital",
   getCapitalCallDocuments: "capital",
   acknowledgeCapitalCall: "capital",
+  revealCapitalCallAccount: "capital",
   uploadPaymentConfirmation: "capital",
   downloadCapitalCallNotice: "capital",
   getDistributions: "capital",
@@ -1323,6 +1362,8 @@ const LP_METHOD_DOMAIN: Record<string, LpDataDomain> = {
   revokeColleague: "organisation",
   getBankInstructionChanges: "organisation",
   submitBankInstructionChange: "organisation",
+  uploadBankChangeLetter: "organisation",
+  resendColleagueInvite: "organisation",
 
   getSettings: "settings",
   updateNotificationSettings: "settings",

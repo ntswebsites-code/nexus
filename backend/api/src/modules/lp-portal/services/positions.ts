@@ -147,10 +147,18 @@ export function consolidate(positions: FundPosition[]): Consolidated {
   };
 }
 
+/** Weakest first: a mixed view shows the weakest status among the funds at the latest as-of date (BR-094). */
+const STATUS_STRENGTH = ['ESTIMATED', 'PROVISIONAL', 'RESTATED', 'FINAL'];
+
 export function latestAsOf(positions: FundPosition[]) {
   const latest = positions.map((p) => p.asOfDate).filter(Boolean).sort().at(-1) ?? new Date().toISOString().slice(0, 10);
-  const statuses = new Set(positions.filter((p) => p.asOfDate === latest).map((p) => p.valuationStatus));
-  return { asOfDate: latest, valuationStatus: statuses.size === 1 ? [...statuses][0]! : statuses.size ? 'PROVISIONAL' : 'FINAL' };
+  const statuses = [...new Set(positions.filter((p) => p.asOfDate === latest).map((p) => p.valuationStatus))];
+  if (!statuses.length) return { asOfDate: latest, valuationStatus: 'FINAL' };
+  const rank = (s: string) => {
+    const i = STATUS_STRENGTH.indexOf(s);
+    return i < 0 ? 1 : i;
+  };
+  return { asOfDate: latest, valuationStatus: statuses.sort((a, b) => rank(a) - rank(b))[0]! };
 }
 
 /** NAV-per-unit history stored on the fund (`dealing_rules_json.navHistory`), ascending, max 24. */

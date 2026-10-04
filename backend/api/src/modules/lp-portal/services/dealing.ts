@@ -477,7 +477,10 @@ export function requestView(r: RequestRow): LpDealingRequest {
   };
 }
 
-export async function listRequests(lp: LpContext, q: { fundId?: string; type?: string; status?: string; page: number; pageSize: number }) {
+/** Server-side sort keys of the dealing history (FR-LP-062). */
+export const DEALING_SORT_FIELD: Record<string, string> = { submitted: 'createdAt', amount: 'amount', status: 'status' };
+
+export async function listRequests(lp: LpContext, q: { fundId?: string; type?: string; status?: string; sortBy?: string; sortDirection?: 'asc' | 'desc'; page: number; pageSize: number }) {
   const where: Prisma.LpDealingRequestWhereInput = {
     clientId: lp.client.id,
     fundId: fundFilter(lp, q.fundId),
@@ -489,7 +492,7 @@ export async function listRequests(lp: LpContext, q: { fundId?: string; type?: s
     prisma.lpDealingRequest.findMany({
       where,
       include: { fund: { select: { name: true } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ [DEALING_SORT_FIELD[q.sortBy ?? 'submitted'] ?? 'createdAt']: q.sortDirection ?? 'desc' } as Prisma.LpDealingRequestOrderByWithRelationInput, { id: 'asc' }],
       skip: (q.page - 1) * q.pageSize,
       take: q.pageSize,
     }),

@@ -14,6 +14,7 @@
  * - Network failures are thrown as `LP_NETWORK_ERROR`; nothing is swallowed.
  */
 import { requestStepUp } from "./step-up"
+import { getLpClientScope, setLpClientScope } from "../lp-portal/client-scope"
 
 export function apiBaseUrl(): string {
   return (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4100").replace(/\/+$/, "")
@@ -123,9 +124,12 @@ async function request<T>(
   if (body !== undefined && !isForm && !headers.has("Content-Type")) headers.set("Content-Type", "application/json")
   if (!headers.has("Accept")) headers.set("Accept", options.responseType === "blob" ? "*/*" : "application/json")
 
+  const scope = url.startsWith("/lp-portal") && !/[?&]client=/.test(url) ? getLpClientScope() : null
+  const target = scope ? `${url}${url.includes("?") ? "&" : "?"}client=${encodeURIComponent(scope)}` : url
+
   let res: Response
   try {
-    res = await fetch(`${apiBaseUrl()}${API_PREFIX}${url}`, {
+    res = await fetch(`${apiBaseUrl()}${API_PREFIX}${target}`, {
       method,
       headers,
       body: body === undefined ? undefined : isForm ? (body as FormData) : JSON.stringify(body),
@@ -145,6 +149,8 @@ async function request<T>(
   const requestId = res.headers.get("X-Request-Id") ?? undefined
 
   if (!res.ok) {
+    // A remembered relationship the user can no longer open must not lock the portal.
+    if (scope && res.status === 403 && url.startsWith("/lp-portal/session")) setLpClientScope(null)
     const text = await res.text().catch(() => "")
     const error = toError(res.status, text ? safeJson(text) : undefined, requestId)
 

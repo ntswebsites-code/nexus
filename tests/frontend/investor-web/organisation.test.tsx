@@ -157,11 +157,30 @@ describe('Organisation: colleagues and bank instructions', () => {
     await user.paste('Second Bank');
     await user.click(within(dlg).getByPlaceholderText('Account number'));
     await user.paste('000123456');
+    await user.click(within(dlg).getByPlaceholderText('Confirm account number'));
+    await user.paste('000123456');
     await user.click(within(dlg).getByRole('button', { name: 'Submit Request' }));
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Bank instruction change submitted.'));
     const [req] = expectCalled(api, `POST ${API}/bank-instructions/changes`);
     expectIdempotencyKey(req);
-    expect(req.body).toEqual({ fundId: FUND_PE.fundId, bankName: 'Second Bank', accountName: undefined, accountNumber: '000123456' });
+    expect(req.body).toEqual({ fundId: FUND_PE.fundId, bankName: 'Second Bank', accountName: undefined, accountNumber: '000123456', confirmAccountNumber: '000123456' });
+  });
+
+  it('FR-LP-099: a confirm-account-number that does not match is refused before anything is sent', async () => {
+    const api = liveApi(routes({ [`POST ${API}/bank-instructions/changes`]: ok({ id: 'b2', status: 'SUBMITTED' }, 201) }));
+    const { user } = renderLp(<LpOrganisationScreen />);
+    await ready();
+    await user.click(screen.getByRole('button', { name: 'Request Change' }));
+    const dlg = await screen.findByRole('dialog');
+    await user.click(within(dlg).getByPlaceholderText('Bank name'));
+    await user.paste('Second Bank');
+    await user.click(within(dlg).getByPlaceholderText('Account number'));
+    await user.paste('000123456');
+    await user.click(within(dlg).getByPlaceholderText('Confirm account number'));
+    await user.paste('000123457');
+    await user.click(within(dlg).getByRole('button', { name: 'Submit Request' }));
+    expect(toast.error).toHaveBeenCalledWith('The account numbers do not match.');
+    expect(api.calls(`POST ${API}/bank-instructions/changes`)).toHaveLength(0);
   });
 
   it('MFA step-up on the bank change: the MFA dialog opens and the SAME request is retried after the code', async () => {
@@ -179,6 +198,8 @@ describe('Organisation: colleagues and bank instructions', () => {
     await user.click(within(dlg).getByPlaceholderText('Bank name'));
     await user.paste('Second Bank');
     await user.click(within(dlg).getByPlaceholderText('Account number'));
+    await user.paste('000123456');
+    await user.click(within(dlg).getByPlaceholderText('Confirm account number'));
     await user.paste('000123456');
     await user.click(within(dlg).getByRole('button', { name: 'Submit Request' }));
     const mfa = await screen.findByTestId('lp-step-up-dialog');

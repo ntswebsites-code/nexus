@@ -427,3 +427,92 @@ performanceRoutes.post('/periods/:id/correct', ...canPrepare, validateBody(corre
   });
   res.status(201).json({ data: await periodDetail(row, req.user!.id) });
 });
+
+// ---------------------------------------------------------------- LP benchmark series (BR-091)
+// External benchmark points shown on the LP performance page. Only APPROVED points reach an LP; the approver must
+// differ from the preparer, and an approved point is immutable (a correction is a new point on another date).
+
+const pointBody = z
+  .object({
+    benchmarkId: z.string().trim().min(2).max(32),
+    metric: z.string().trim().min(2).max(32),
+    source: z.string().trim().min(2).max(120),
+    points: z
+      .array(z.object({ date: dateStr, label: z.string().trim().max(40).optional(), value: z.union([z.string(), z.number()]).refine((v) => Number.isFinite(Number(v)), 'Must be a number') }))
+      .min(1)
+      .max(120),
+  })
+  .strict();
+
+const pointView = (p: Prisma.BenchmarkPointGetPayload<object>) => ({
+  id: p.id,
+  benchmarkId: p.benchmarkId,
+  metric: p.metric,
+  date: iso(p.pointDate),
+  label: p.label,
+  value: p.value.toFixed(6),
+  source: p.source,
+  status: p.status,
+  makerId: p.makerId,
+  checkerId: p.checkerId,
+  approvedAt: p.approvedAt?.toISOString() ?? null,
+});
+
+performanceRoutes.get('/benchmark-points', ...canView, async (req, res) => {
+  const q = req.query as Record<string, string | undefined>;
+  const rows = await prisma.benchmarkPoint.findMany({
+    where: { ...(q.benchmarkId ? { benchmarkId: q.benchmarkId.toUpperCase() } : {}), ...(q.metric ? { metric: q.metric.toUpperCase() } : {}), ...(q.status ? { status: q.status.toUpperCase() } : {}) },
+    orderBy: [{ benchmarkId: 'asc' }, { metric: 'asc' }, { pointDate: 'asc' }],
+    take: 500,
+  });
+  res.json({ data: rows.map(pointView) });
+});
+
+performanceRoutes.post('/benchmark-points', ...canPrepare, validateBody(pointBody), idempotent('performance.benchmark_points'), async (req, res) => {
+  const b = req.body as z.infer<typeof pointBody>;
+  const benchmarkId = b.benchmarkId.toUpperCase();
+  const metric = b.metric.toUpperCase();
+  const created = await prisma.$transaction(async (tx) => {
+    const out: Prisma.BenchmarkPointGetPayload<object>[] = [];
+    for (const pt of b.points) {
+      const pointDate = new Date(`${pt.date}T00:00:00.000Z`);
+      const existing = await tx.benchmarkPoint.findUnique({ where: { benchmarkId_metric_pointDate: { benchmarkId, metric, pointDate } } });
+      if (existing?.status === 'APPROVED') throw HttpError.conflict(`${benchmarkId} ${metric} ${pt.date} is already approved and cannot be changed`, 'invalid_state');
+      const data = { label: pt.label || pt.date, value: new Prisma.Decimal(String(pt.value)), source: b.source, status: 'DRAFT', makerId: req.user!.id, checkerId: null, approvedAt: null };
+      out.push(existing ? await tx.benchmarkPoint.update({ where: { id: existing.id }, data }) : await tx.benchmarkPoint.create({ data: { benchmarkId, metric, pointDate, ...data } }));
+    }
+    await writeAudit(tx, audit(req), { action: 'performance.benchmark_points_prepared', objectType: 'benchmark_series', objectId: `${benchmarkId}:${metric}`, after: { points: out.length, source: b.source } });
+    await notifyPermission(tx, 'performance.lock', { type: 'performance.benchmark_points', title: `Benchmark points ready to approve: ${benchmarkId} ${metric}`, body: `${out.length} point(s) from ${b.source}`, link: '/ops/performance' });
+    return out;
+  });
+  res.status(201).json({ data: created.map(pointView) });
+});
+
+const pointDecision = z.object({ reason: z.string().trim().max(500).optional() }).strict();
+
+performanceRoutes.post('/benchmark-points/:id/approve', ...canLock, validateBody(pointDecision), idempotent('performance.benchmark_point_approve'), async (req, res) => {
+  const p = await prisma.benchmarkPoint.findUnique({ where: { id: param(req, 'id') } });
+  if (!p) throw HttpError.notFound('Benchmark point not found');
+  if (p.status !== 'DRAFT') throw HttpError.conflict(`This point is ${p.status}`, 'invalid_state');
+  assertSegregation(req.user!.id, p.makerId);
+  const row = await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.benchmarkPoint.updateMany({ where: { id: p.id, status: 'DRAFT' }, data: { status: 'APPROVED', checkerId: req.user!.id, approvedAt: new Date() } })).count);
+    await writeAudit(tx, audit(req), { action: 'performance.benchmark_point_approved', objectType: 'benchmark_point', objectId: p.id, after: { benchmarkId: p.benchmarkId, metric: p.metric, date: iso(p.pointDate) } });
+    return tx.benchmarkPoint.findUniqueOrThrow({ where: { id: p.id } });
+  });
+  res.json({ data: pointView(row) });
+});
+
+performanceRoutes.post('/benchmark-points/:id/reject', ...canLock, validateBody(pointDecision), idempotent('performance.benchmark_point_reject'), async (req, res) => {
+  const p = await prisma.benchmarkPoint.findUnique({ where: { id: param(req, 'id') } });
+  if (!p) throw HttpError.notFound('Benchmark point not found');
+  if (p.status !== 'DRAFT') throw HttpError.conflict(`This point is ${p.status}`, 'invalid_state');
+  const reason = (req.body as z.infer<typeof pointDecision>).reason;
+  if (!reason || reason.length < 5) throw HttpError.badRequest('Give a reason (5+ characters)');
+  const row = await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.benchmarkPoint.updateMany({ where: { id: p.id, status: 'DRAFT' }, data: { status: 'REJECTED', checkerId: req.user!.id } })).count);
+    await writeAudit(tx, audit(req), { action: 'performance.benchmark_point_rejected', objectType: 'benchmark_point', objectId: p.id, reason });
+    return tx.benchmarkPoint.findUniqueOrThrow({ where: { id: p.id } });
+  });
+  res.json({ data: pointView(row) });
+});

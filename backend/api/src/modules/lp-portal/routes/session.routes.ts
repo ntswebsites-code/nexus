@@ -84,6 +84,13 @@ export async function buildSession(ctx: LpContext): Promise<LpSession> {
       displayName: ctx.client.name,
     },
     lpRole: ctx.lpRole,
+    clients: (
+      await prisma.clientUser.findMany({
+        where: { userId: ctx.userId, revokedAt: null, status: { not: 'SUSPENDED' }, client: { archivedAt: null } },
+        include: { client: { select: { ref: true, name: true } } },
+        orderBy: { createdAt: 'asc' },
+      })
+    ).map((m) => ({ investorId: m.client.ref, name: m.client.name })),
     presentationCurrency: prefs.presentationCurrency,
     defaultAsOfDate: latest,
     defaultValuationStatus: funds.find((f) => f.asOfDate === latest)?.valuationStatus ?? 'FINAL',
@@ -126,7 +133,7 @@ export function realtimeEventsFor(type: string): string[] {
   if (type === 'service_request.created') out.push('lp_request_created');
   else if (type.startsWith('service_request')) out.push('lp_request_updated');
   if (type.startsWith('message')) out.push('lp_thread_message', 'lp_request_message');
-  if (type.startsWith('capital') || type.startsWith('distribution')) out.push('lp_capital_updated');
+  if (type.startsWith('capital') || type.startsWith('distribution') || type.startsWith('valuation')) out.push('lp_capital_updated');
   if (type.startsWith('document')) out.push('lp_document_published');
   if (type.startsWith('dealing')) out.push('lp_dealing_updated');
   return out;

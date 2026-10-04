@@ -399,8 +399,13 @@ async function main() {
     const bench = await m.get(`${LP}/performance/benchmarks`);
     check('benchmarks unconfigured, honest note', bench.body?.data?.configured === false && bench.body.data.series.length === 0 && typeof bench.body.data.note === 'string', bench.body);
     const job = await m.call('POST', `${LP}/jobs/performance-report`, { period: 'SI' }, key('job'));
-    check('performance job 202 COMPLETED', job.status === 202 && job.body?.data?.status === 'COMPLETED' && typeof job.body?.data?.downloadUrl === 'string', job.body);
-    const jobGet = await m.get(`${LP}/jobs/${job.body?.data?.jobId}`);
+    // BR-096: report jobs are asynchronous (QUEUED, then RUNNING, then COMPLETED); the screen polls the job.
+    check('performance job 202 QUEUED', job.status === 202 && job.body?.data?.status === 'QUEUED' && typeof job.body?.data?.downloadUrl === 'string', job.body);
+    let jobGet = await m.get(`${LP}/jobs/${job.body?.data?.jobId}`);
+    for (let i = 0; i < 30 && jobGet.body?.data?.status !== 'COMPLETED' && jobGet.body?.data?.status !== 'FAILED'; i++) {
+      await new Promise((r) => setTimeout(r, 300));
+      jobGet = await m.get(`${LP}/jobs/${job.body?.data?.jobId}`);
+    }
     check('job detail carries result', jobGet.body?.data?.result?.metrics?.paidIn === '290000.00' && jobGet.body?.data?.status === 'COMPLETED', jobGet.body);
     const reportPdf = await m.get(`${LP}/reports/${job.body?.data?.jobId}/download`);
     check('performance report downloads as PDF', reportPdf.status === 200 && /pdf/.test(reportPdf.headers.get('content-type') ?? '') && reportPdf.body.toString('latin1').startsWith('%PDF') && reportPdf.body.toString('latin1').includes('Paid in'), reportPdf.status);

@@ -4,11 +4,14 @@ import { param } from '../../../lib/http';
 import { requireStepUp } from '../../../middleware/requireAuth';
 import { lp, requireLp, requireLpRole } from '../lp.context';
 import { lpOk } from '../lp.http';
+import { uploadFiles } from '../../../middleware/upload';
 import {
+  attachBankChangeLetter,
   getOrganisation,
   inviteColleague,
   listBankChanges,
   listColleagues,
+  resendInvitation,
   revokeColleague,
   submitBankChange,
   updateColleague,
@@ -60,5 +63,26 @@ lpOrganisationRoutes.post(
   idempotent('lp.bank_instructions.change'),
   async (req, res) => {
     lpOk(req, res, await submitBankChange(req, lp(req)), 'Bank instruction change submitted for verification', 201);
+  },
+);
+
+lpOrganisationRoutes.post(
+  '/colleagues/:membershipId/resend',
+  requireLp('lp.organisation.manage_colleagues'),
+  requireLpRole('MANAGER'),
+  idempotent('lp.colleagues.resend', { required: false }),
+  async (req, res) => {
+    lpOk(req, res, await resendInvitation(req, lp(req), param(req, 'membershipId')), 'Invitation resent');
+  },
+);
+
+lpOrganisationRoutes.post(
+  '/bank-instructions/changes/:id/letter',
+  requireLp('lp.organisation.view'),
+  requireLpRole('SIGNATORY'),
+  requireStepUp,
+  uploadFiles('file'),
+  async (req, res) => {
+    lpOk(req, res, await attachBankChangeLetter(req, lp(req), param(req, 'id'), req.file), 'Supporting letter attached', 201);
   },
 );

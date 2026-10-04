@@ -7,6 +7,7 @@ import { LpError, lpOk, lpPaginate, pageOf } from '../lp.http';
 import { queryFund, str } from '../services/common';
 import {
   CONSENT_TEXT,
+  DOCUMENT_SORTS,
   CONSENT_TEXT_VERSION,
   documentDetail,
   documentsSummary,
@@ -23,7 +24,12 @@ export const lpDocumentsRoutes = Router();
 lpDocumentsRoutes.get('/documents', requireLp('lp.documents.view'), async (req, res) => {
   const ctx = lp(req);
   const { page, pageSize } = pageOf(req);
-  const items = await listDocuments(ctx, { fundId: queryFund(req, ctx), category: str(req.query.category), q: str(req.query.q) });
+  const sortRaw = str(req.query.sortBy);
+  const sortBy = sortRaw ? DOCUMENT_SORTS.find((k) => k.toLowerCase() === sortRaw.toLowerCase()) : undefined;
+  if (sortRaw && !sortBy) throw LpError.validation('sortBy is not valid', { sortBy: `Use one of ${DOCUMENT_SORTS.join(', ')}` });
+  const dir = str(req.query.sortDirection)?.toLowerCase();
+  if (dir && dir !== 'asc' && dir !== 'desc') throw LpError.validation('sortDirection is not valid', { sortDirection: 'Use asc or desc' });
+  const items = await listDocuments(ctx, { fundId: queryFund(req, ctx), category: str(req.query.category), q: str(req.query.q), sortBy, sortDirection: dir as 'asc' | 'desc' | undefined });
   lpOk(req, res, lpPaginate(items, page, pageSize));
 });
 

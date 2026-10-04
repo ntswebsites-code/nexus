@@ -48,6 +48,10 @@ export const LP_ERROR_CODES = [
   'LP_CALL_ALREADY_ACKNOWLEDGED',
   'LP_DOMAIN_NOT_LIVE',
   'LP_EXPORT_FAILED',
+  'LP_JOB_NOT_READY',
+  'LP_JOB_FINISHED',
+  'LP_JOB_FAILED',
+  'LP_JOB_CANCELLED',
   'LP_INTERNAL',
 ] as const;
 export type LpErrorCode = (typeof LP_ERROR_CODES)[number];

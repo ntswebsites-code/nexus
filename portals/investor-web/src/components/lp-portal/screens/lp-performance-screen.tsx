@@ -1,5 +1,7 @@
 "use client"
 
+import { kpiDefinition } from "@/lib/lp-portal/kpi-definitions"
+import { ValuationBadge } from "@/components/lp-portal/valuation-badge"
 import * as React from "react"
 import Link from "next/link"
 import {
@@ -77,7 +79,11 @@ function KpiCard({
   value,
   helper,
   trend,
+  asOf,
+  period,
 }: {
+  asOf?: string
+  period?: string
   icon: React.ReactNode
   iconBg: string
   iconColor: string
@@ -102,7 +108,7 @@ function KpiCard({
           <div className="flex items-start justify-between gap-2">
             <div className="flex min-w-0 items-center gap-1">
               <p className="truncate text-[12px] font-semibold text-[#0f172a]">{label}</p>
-              <InfoHint label={label} description={helper} />
+              <InfoHint label={label} description={kpiDefinition(label)?.definition ?? helper} formula={kpiDefinition(label)?.formula} period={period} asOf={asOf} />
             </div>
             {trend && (
               <ArrowUp className="mt-0.5 size-3.5 shrink-0 text-[#10b981]" strokeWidth={2.75} />
@@ -249,6 +255,11 @@ function SectionLink({
       <ArrowRight className="size-3.5" />
     </Link>
   )
+}
+
+/** Symbol for chart ticks: $ for USD, otherwise the currency code (BR-095). */
+function currencyMark(code: string) {
+  return code === "USD" ? "$" : `${code} `
 }
 
 export function LpPerformanceScreen() {
@@ -544,8 +555,7 @@ export function LpPerformanceScreen() {
             Valuation Status
           </span>
           <span className="mt-0.5 flex items-center gap-1.5 text-[13px] font-bold text-[#0f172a]">
-            <span className="size-2 shrink-0 rounded-full bg-[#10b981]" />
-            {valuationStatus}
+            <ValuationBadge status={valuationStatus} className="text-[13px]" />
           </span>
         </div>
       </div>
@@ -553,6 +563,8 @@ export function LpPerformanceScreen() {
       {/* KPI row */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         <KpiCard
+          asOf={asOfLabel}
+          period={apiPeriod}
           icon={<DollarSign className="size-4" strokeWidth={2.25} />}
           iconBg="bg-[#dcfce7]"
           iconColor="text-[#16a34a]"
@@ -562,6 +574,8 @@ export function LpPerformanceScreen() {
           trend
         />
         <KpiCard
+          asOf={asOfLabel}
+          period={apiPeriod}
           icon={<BarChart3 className="size-4" strokeWidth={2.25} />}
           iconBg="bg-[#ffedd5]"
           iconColor="text-[#ea580c]"
@@ -571,6 +585,8 @@ export function LpPerformanceScreen() {
           trend
         />
         <KpiCard
+          asOf={asOfLabel}
+          period={apiPeriod}
           icon={<Coins className="size-4" strokeWidth={2.25} />}
           iconBg="bg-[#dbeafe]"
           iconColor="text-[#2563eb]"
@@ -580,6 +596,8 @@ export function LpPerformanceScreen() {
           trend
         />
         <KpiCard
+          asOf={asOfLabel}
+          period={apiPeriod}
           icon={<SlidersHorizontal className="size-4" strokeWidth={2.25} />}
           iconBg="bg-[#ffedd5]"
           iconColor="text-[#ea580c]"
@@ -589,6 +607,8 @@ export function LpPerformanceScreen() {
           trend
         />
         <KpiCard
+          asOf={asOfLabel}
+          period={apiPeriod}
           icon={<Crosshair className="size-4" strokeWidth={2.25} />}
           iconBg="bg-[#dbeafe]"
           iconColor="text-[#2563eb]"
@@ -597,6 +617,8 @@ export function LpPerformanceScreen() {
           helper={`As of ${asOfLabel}`}
         />
         <KpiCard
+          asOf={asOfLabel}
+          period={apiPeriod}
           icon={<Landmark className="size-4" strokeWidth={2.25} />}
           iconBg="bg-[#dbeafe]"
           iconColor="text-[#1d4ed8]"
@@ -703,13 +725,13 @@ export function LpPerformanceScreen() {
                 <YAxis
                   domain={[0, chartYMax]}
                   ticks={Array.from({ length: 6 }, (_, i) => (chartYMax / 5) * i)}
-                  tickFormatter={(v) => (v === 0 ? "$0" : `$${Number(v.toPrecision(3))}M`)}
+                  tickFormatter={(v) => (v === 0 ? "0" : `${currencyMark(reportingCurrency)}${Number(v.toPrecision(3))}M`)}
                   tick={{ fontSize: 10, fill: "#9ca3af" }}
                   axisLine={false}
                   tickLine={false}
                   width={48}
                   label={{
-                    value: "USD (Millions)",
+                    value: `${reportingCurrency} (Millions)`,
                     position: "insideTopLeft",
                     offset: 0,
                     dy: -12,
@@ -883,7 +905,7 @@ export function LpPerformanceScreen() {
                 </h2>
                 <InfoHint label="Capital Activity" description="Capital calls and distributions over time." />
               </div>
-              <p className="mt-1 text-[11px] text-[#9ca3af]">USD (Millions)</p>
+              <p className="mt-1 text-[11px] text-[#9ca3af]">{reportingCurrency} (Millions)</p>
             </div>
             <span className="shrink-0 pt-0.5 text-[12px] text-[#9ca3af]">Since Inception</span>
           </div>

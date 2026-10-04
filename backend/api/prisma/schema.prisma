@@ -33,6 +33,7 @@ model User {
   sessions       Session[]
   roles          UserRole[]
   mfaFactors     UserMfaFactor[]
+  mfaBackupCodes UserMfaBackupCode[]
   passwordResets PasswordReset[]
   notifications  Notification[]
   clientLinks    ClientUser[]
@@ -286,7 +287,7 @@ model Document {
   label             String?   @db.VarChar(120)
   /// Public | Client | Internal | Restricted
   classification    String    @default("Internal") @db.VarChar(16)
-  /// Draft | In review | Approved | Published | Superseded | Restricted
+  /// Draft | In review | Approved | Published | Restated | Superseded | Restricted
   status            String    @default("Draft") @db.VarChar(24)
   ownerName         String?   @map("owner_name") @db.VarChar(120)
   relatedType       String?   @map("related_type") @db.VarChar(32)
@@ -755,6 +756,8 @@ model BankInstruction {
   label         String?   @db.VarChar(128)
   currency      String?   @db.Char(3)
   isDefault     Boolean   @default(false) @map("is_default")
+  /// Signed letter or bank confirmation the LP attached to a change request (FR-LP-099).
+  supportingLetterFileId String? @map("supporting_letter_file_id") @db.Char(36)
   createdAt     DateTime  @default(now()) @map("created_at")
 
   client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
@@ -6159,3 +6162,66 @@ model PmCashflowScenario {
   @@map("pm_cashflow_scenarios")
 }
 // ---- end ResearchPortfolioDepth ----
+
+// ---- LpPortalRemainder ----
+// Package S6: transaction-date FX stamps for LP-visible records (BR-152, BR-171), stored approved benchmark
+// points (BR-091) and MFA backup codes (FR-LP-102 / FR-AUTH-018).
+
+/// FX rate captured once for a derived LP record (call, payment, distribution, dealing request) at its transaction date.
+/// Never rewritten by later rate changes (BR-152: ledger rows are never restated by later FX).
+model LpFxStamp {
+  id           String   @id @default(uuid()) @db.Char(36)
+  clientId     String   @map("client_id") @db.Char(36)
+  /// Allocation / payment / dealing request id, with ":paid" for a distribution payout.
+  entryId      String   @map("entry_id") @db.VarChar(80)
+  entryType    String   @map("entry_type") @db.VarChar(32)
+  fromCurrency String   @map("from_currency") @db.Char(3)
+  toCurrency   String   @map("to_currency") @db.Char(3)
+  rate         Decimal  @db.Decimal(20, 10)
+  /// Date of the stored fx_rates row actually used (latest on or before txn_date).
+  rateDate     DateTime @map("rate_date") @db.Date
+  txnDate      DateTime @map("txn_date") @db.Date
+  source       String   @default("fx_rates") @db.VarChar(24)
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@unique([clientId, entryId, toCurrency])
+  @@index([clientId])
+  @@map("lp_fx_stamps")
+}
+
+/// One point of an externally sourced benchmark series. Only APPROVED points are shown to LPs (BR-091); the
+/// approver must differ from the maker.
+model BenchmarkPoint {
+  id          String    @id @default(uuid()) @db.Char(36)
+  benchmarkId String    @map("benchmark_id") @db.VarChar(32)
+  metric      String    @db.VarChar(32)
+  pointDate   DateTime  @map("point_date") @db.Date
+  label       String    @db.VarChar(40)
+  value       Decimal   @db.Decimal(20, 6)
+  source      String    @db.VarChar(120)
+  /// DRAFT | APPROVED | REJECTED
+  status      String    @default("DRAFT") @db.VarChar(12)
+  makerId     String    @map("maker_id") @db.Char(36)
+  checkerId   String?   @map("checker_id") @db.Char(36)
+  approvedAt  DateTime? @map("approved_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  @@unique([benchmarkId, metric, pointDate])
+  @@index([status])
+  @@map("benchmark_points")
+}
+
+/// Single-use recovery code for a user with an enrolled authenticator (stored as SHA-256).
+model UserMfaBackupCode {
+  id        String    @id @default(uuid()) @db.Char(36)
+  userId    String    @map("user_id") @db.Char(36)
+  codeHash  String    @map("code_hash") @db.Char(64)
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("user_mfa_backup_codes")
+}
+// ---- end LpPortalRemainder ----

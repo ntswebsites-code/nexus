@@ -168,7 +168,10 @@ export function LpOrganisationScreen() {
     bankName: "",
     accountName: "",
     accountNumber: "",
+    confirmAccountNumber: "",
   })
+  const [bankLetter, setBankLetter] = React.useState<File | null>(null)
+  const [resendingId, setResendingId] = React.useState<string | null>(null)
 
   React.useEffect(() => {
     if (colleagues.length && !selectedId) setSelectedId(colleagues[0].id)
@@ -235,22 +238,50 @@ export function LpOrganisationScreen() {
     }
   }
 
+  const handleResend = async (membershipId: string) => {
+    setResendingId(membershipId)
+    try {
+      await lpPortalApi.resendColleagueInvite(membershipId)
+      toast.success("Invitation resent.")
+      await reload()
+    } catch (err) {
+      toast.error(getApiErrorMessage(err, "Failed to resend the invitation"))
+    } finally {
+      setResendingId(null)
+    }
+  }
+
   const handleBankChangeSubmit = async () => {
     if (!bankChangeForm.fundId || !bankChangeForm.bankName.trim() || !bankChangeForm.accountNumber.trim()) {
       toast.error("Fund, bank name, and account number are required.")
       return
     }
+    if (bankChangeForm.confirmAccountNumber.replace(/\s+/g, "") !== bankChangeForm.accountNumber.replace(/\s+/g, "")) {
+      toast.error("The account numbers do not match.")
+      return
+    }
     setBankChangeSubmitting(true)
     try {
-      await lpPortalApi.submitBankInstructionChange(
+      const submitted = await lpPortalApi.submitBankInstructionChange(
         {
           fundId: bankChangeForm.fundId,
           bankName: bankChangeForm.bankName.trim(),
           accountName: bankChangeForm.accountName.trim() || undefined,
           accountNumber: bankChangeForm.accountNumber.trim(),
+          confirmAccountNumber: bankChangeForm.confirmAccountNumber.trim(),
         },
         createIdempotencyKey(),
       )
+      if (bankLetter && submitted?.data?.id) {
+        const form = new FormData()
+        form.append("file", bankLetter)
+        try {
+          await lpPortalApi.uploadBankChangeLetter(submitted.data.id, form)
+        } catch (err) {
+          toast.error(getApiErrorMessage(err, "The change was submitted but the letter could not be attached"))
+        }
+      }
+      setBankLetter(null)
       toast.success("Bank instruction change submitted.")
       setBankChangeOpen(false)
       setBankChangeForm({
@@ -258,6 +289,7 @@ export function LpOrganisationScreen() {
         bankName: "",
         accountName: "",
         accountNumber: "",
+        confirmAccountNumber: "",
       })
       await reload()
     } catch (err) {
@@ -467,6 +499,11 @@ export function LpOrganisationScreen() {
                               </button>
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="rounded-xl">
+                              {user.status === "Invited" ? (
+                                <DropdownMenuItem disabled={!canManage || resendingId === user.id} onClick={() => void handleResend(user.id)}>
+                                  {resendingId === user.id ? "Resending…" : "Resend invitation"}
+                                </DropdownMenuItem>
+                              ) : null}
                               <DropdownMenuItem
                                 disabled={!canManage || revokingId === user.id || user.status === "Revoked"}
                                 className="text-red-600 focus:text-red-600"
@@ -628,6 +665,24 @@ export function LpOrganisationScreen() {
               onChange={(e) => setBankChangeForm((f) => ({ ...f, accountNumber: e.target.value }))}
               disabled={bankChangeSubmitting}
             />
+            <Input
+              placeholder="Confirm account number"
+              aria-label="Confirm account number"
+              value={bankChangeForm.confirmAccountNumber}
+              onChange={(e) => setBankChangeForm((f) => ({ ...f, confirmAccountNumber: e.target.value }))}
+              disabled={bankChangeSubmitting}
+            />
+            <label className="grid gap-1 text-[11px] font-medium text-[#374151]">
+              Supporting letter (PDF, PNG or JPEG, optional)
+              <input
+                type="file"
+                accept="application/pdf,image/png,image/jpeg"
+                aria-label="Supporting letter"
+                disabled={bankChangeSubmitting}
+                onChange={(e) => setBankLetter(e.target.files?.[0] ?? null)}
+                className="text-[12px]"
+              />
+            </label>
           </div>
           <DialogFooter>
             <Button

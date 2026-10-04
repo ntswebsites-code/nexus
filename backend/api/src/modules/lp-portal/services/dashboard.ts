@@ -6,6 +6,7 @@ import { assertFund, type LpContext } from '../lp.context';
 import { VISIBLE_CALL_STATUSES, VISIBLE_DISTRIBUTION_STATUSES, callStatus, fundNames, fundScopeWhere } from './common';
 import { lpDocWhere } from './documents';
 import { visibleNoticeWhere } from './notices';
+import { presentPositions } from './fx';
 import { consolidate, fixed, latestAsOf, loadPositions, navHistory, portfolioCompanyCount } from './positions';
 
 const ZERO = new Prisma.Decimal(0);
@@ -13,7 +14,8 @@ const maxZero = (v: Prisma.Decimal) => (v.lt(0) ? ZERO : v);
 
 export async function getDashboard(ctx: LpContext, fundId?: string): Promise<LpDashboardData> {
   assertFund(ctx, fundId);
-  const positions = await loadPositions(ctx, fundId);
+  const raw = await loadPositions(ctx, fundId);
+  const { positions, fx, rates } = await presentPositions(ctx, raw);
   const c = consolidate(positions);
   const { asOfDate, valuationStatus } = latestAsOf(positions);
   const pcFunds = positions.filter((p) => !p.isOpenEnded).map((p) => p.fund.id);
@@ -21,6 +23,9 @@ export async function getDashboard(ctx: LpContext, fundId?: string): Promise<LpD
   const data: LpDashboardData = {
     asOfDate,
     valuationStatus,
+    presentationCurrency: fx.presentationCurrency,
+    reportingCurrency: fx.reportingCurrency,
+    fx,
     kpis: {
       totalCommitment: fixed(c.committed),
       paidIn: fixed(c.paidIn),
@@ -44,7 +49,9 @@ export async function getDashboard(ctx: LpContext, fundId?: string): Promise<LpD
           ytdReturn: oe.ytdReturn as string,
         }
       : null,
-    openEndedHistory: { points: oe ? navHistory(oe.fund) : [] },
+    openEndedHistory: {
+      points: oe ? navHistory(oe.fund).map((pt) => ({ ...pt, navPerUnit: new Prisma.Decimal(pt.navPerUnit).mul(rates.get(oe.fund.id) ?? 1).toFixed(8) })) : [],
+    },
   };
   return data;
 }

@@ -1,5 +1,8 @@
 "use client"
 
+import { InfoHint } from "@/components/lp-portal/info-hint"
+import { kpiDefinition } from "@/lib/lp-portal/kpi-definitions"
+import { ValuationBadge } from "@/components/lp-portal/valuation-badge"
 import * as React from "react"
 import Link from "next/link"
 import {
@@ -188,9 +191,12 @@ function EndValueLabel({
 }
 
 export function LpPortalDashboardScreen() {
-  const { selectedFund, asOfDate, funds, presentationCurrency } = useLpPortal()
+  const { selectedFund, asOfDate, funds, presentationCurrency: preferredCurrency } = useLpPortal()
   const { fundId } = useLpFundScope()
   const { data, loading, error, reload } = useLpDashboardBundle()
+  // BR-087: amounts arrive already converted; the payload names the currency (and any missing-rate note).
+  const presentationCurrency = data?.dashboard.reportingCurrency ?? preferredCurrency
+  const fxNote = data?.dashboard.fx?.note ?? null
   const [period, setPeriod] = React.useState<ChartPeriod>("SI")
   const [documents, setDocuments] = React.useState<ReturnType<typeof mapDocumentRow>[]>([])
   const [documentsLoading, setDocumentsLoading] = React.useState(true)
@@ -505,14 +511,13 @@ export function LpPortalDashboardScreen() {
                 <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", kpi.iconBg, kpi.iconColor)}>
                   <Icon className="size-[18px]" strokeWidth={2} />
                 </span>
-                <button
-                  type="button"
-                  className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[#94a3b8] transition-colors hover:bg-slate-100 hover:text-slate-600"
-                  aria-label={`${kpi.label} information`}
-                  title={kpi.label}
-                >
-                  <Info className="size-3.5" strokeWidth={2} />
-                </button>
+                <InfoHint
+                  label={kpi.label}
+                  description={kpiDefinition(kpi.label)?.definition}
+                  formula={kpiDefinition(kpi.label)?.formula}
+                  period="Since inception"
+                  asOf={formattedDate}
+                />
               </div>
               <span className="mt-2 block text-[13px] font-medium leading-4 text-[#475569]">{kpi.label}</span>
               <p className="mt-3 text-[24px] font-bold leading-7 tracking-[-0.03em] text-[#0f172a]">{kpi.value}</p>
@@ -540,7 +545,8 @@ export function LpPortalDashboardScreen() {
               <p className="mt-1 text-[11px] leading-4 text-[#64748b]">
                 Since Inception <span className="mx-1 text-[#cbd5e1]">•</span> As of {formattedDate}{" "}
                 <span className="mx-1 text-[#cbd5e1]">•</span> Valuation:{" "}
-                <span className="font-semibold text-[#334155]">{valuationStatus}</span>
+                <ValuationBadge status={valuationStatus} className="text-[11px]" />
+                {fxNote ? <span className="ml-2 text-[#b45309]" data-testid="lp-fx-note">{fxNote}</span> : null}
               </p>
             </div>
             <div className="flex items-center gap-1 rounded-full border border-[#e2e8f0] bg-white p-0.5">

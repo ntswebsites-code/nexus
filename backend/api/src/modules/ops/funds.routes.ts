@@ -7,7 +7,7 @@ import { writeAudit } from '../../lib/audit';
 import { expectVersion, param } from '../../lib/http';
 import { validateBody } from '../../middleware/validate';
 import { requirePermission } from '../../middleware/requireAuth';
-import { D, ZERO, assertUpdated, audit, dateInput, isoDay, money, moneyInput, optionalMoneyInput, seqRef, storeWire, wireInput, wireView } from './ops.common';
+import { D, ZERO, assertUpdated, notifyClientMembers, audit, dateInput, isoDay, money, moneyInput, optionalMoneyInput, seqRef, storeWire, wireInput, wireView } from './ops.common';
 import { idempotent } from '../../lib/idempotency';
 
 /** `/ops/funds`, `/ops/commitments`: fund master data, commitments and open-ended holdings. */
@@ -165,6 +165,57 @@ const fundPatchSchema = fundSchema
   .partial()
   .extend({ totalNav: optionalMoneyInput.nullable().optional(), navPerUnit: optionalMoneyInput.nullable().optional(), version: z.number().int().optional() });
 
+/**
+ * Valuation status machine (SRD 5B BR-143): ESTIMATED -> PROVISIONAL -> FINAL, and FINAL -> RESTATED only through
+ * `POST /funds/:id/restate` (reason required). A RESTATED fund may be re-confirmed FINAL but never goes back to a draft status.
+ */
+export function valuationTransitionError(from: string, to: string): string | null {
+  if (to === 'RESTATED') return 'Use the restate action (with a reason) to mark a valuation as restated';
+  if (from === 'RESTATED' && (to === 'ESTIMATED' || to === 'PROVISIONAL')) return 'A restated valuation cannot return to an estimate; publish a new FINAL valuation';
+  return null;
+}
+
+const restateSchema = z.object({
+  reason: z.string().trim().min(10).max(500),
+  navPerUnit: optionalMoneyInput.nullable().optional(),
+  totalNav: optionalMoneyInput.nullable().optional(),
+  asOfDate: dateInput.optional(),
+  /** Published LP documents superseded by this restatement; they are labelled RESTATED in the portal. */
+  documentIds: z.array(z.string().uuid()).max(100).optional(),
+  version: z.number().int().optional(),
+});
+
+opsFundsRoutes.post('/funds/:id/restate', requirePermission('funds.manage'), validateBody(restateSchema), idempotent('ops.post.funds_id_restate', { required: false }), async (req, res) => {
+  const f = await loadFund(param(req, 'id'));
+  expectVersion(req, f.version);
+  if (f.valuationStatus !== 'FINAL' && f.valuationStatus !== 'RESTATED') throw HttpError.conflict('Only a FINAL valuation can be restated', 'invalid_state');
+  const b = req.body as z.infer<typeof restateSchema>;
+  const data: Prisma.FundUpdateManyMutationInput = { valuationStatus: 'RESTATED', version: { increment: 1 } };
+  if (b.navPerUnit !== undefined) data.navPerUnit = b.navPerUnit === null ? null : new D(b.navPerUnit);
+  if (b.totalNav !== undefined) data.totalNav = b.totalNav === null ? null : new D(b.totalNav);
+  if (b.asOfDate !== undefined) data.asOfDate = b.asOfDate;
+  let marked = 0;
+  await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.fund.updateMany({ where: { id: f.id, version: f.version }, data })).count);
+    if (b.documentIds?.length) {
+      marked = (await tx.document.updateMany({ where: { id: { in: b.documentIds }, fundId: f.id, status: 'Published' }, data: { status: 'Restated' } })).count;
+    }
+    await writeAudit(tx, audit(req), {
+      action: 'fund.valuation_restated',
+      objectType: 'fund',
+      objectId: f.id,
+      reason: b.reason,
+      before: { valuationStatus: f.valuationStatus, navPerUnit: f.navPerUnit?.toString() ?? null, totalNav: f.totalNav?.toString() ?? null, version: f.version },
+      after: { valuationStatus: 'RESTATED', navPerUnit: b.navPerUnit, totalNav: b.totalNav, asOfDate: b.asOfDate, documentsMarked: marked },
+    });
+    const holders = await tx.fundCommitment.findMany({ where: { fundId: f.id, status: { in: ['ACTIVE', 'PENDING'] } }, select: { clientId: true } });
+    for (const clientId of new Set(holders.map((h) => h.clientId))) {
+      await notifyClientMembers(tx, clientId, { type: 'valuation.restated', title: `Valuation restated - ${f.name}`, body: b.reason, link: '/lp-portal/performance', email: true });
+    }
+  });
+  res.json({ data: detail(await loadFund(f.id)), documentsMarked: marked });
+});
+
 opsFundsRoutes.patch('/funds/:id', requirePermission('funds.manage'), validateBody(fundPatchSchema), idempotent('ops.patch.funds_id', { required: false }), async (req, res) => {
   const f = await loadFund(param(req, 'id'));
   expectVersion(req, f.version);
@@ -182,7 +233,11 @@ opsFundsRoutes.patch('/funds/:id', requirePermission('funds.manage'), validateBo
   if (b.navPerUnit !== undefined) data.navPerUnit = b.navPerUnit === null ? null : new D(b.navPerUnit);
   if (b.totalNav !== undefined) data.totalNav = b.totalNav === null ? null : new D(b.totalNav);
   if (b.asOfDate !== undefined) data.asOfDate = b.asOfDate;
-  if (b.valuationStatus !== undefined) data.valuationStatus = b.valuationStatus;
+  if (b.valuationStatus !== undefined && b.valuationStatus !== f.valuationStatus) {
+    const bad = valuationTransitionError(f.valuationStatus, b.valuationStatus);
+    if (bad) throw HttpError.badRequest(bad);
+    data.valuationStatus = b.valuationStatus;
+  }
   if (b.dealingRules !== undefined) {
     const current = (f.dealingRulesJson && typeof f.dealingRulesJson === 'object' ? f.dealingRulesJson : {}) as Record<string, unknown>;
     data.dealingRulesJson = { ...current, ...b.dealingRules } as Prisma.InputJsonValue;

@@ -38,7 +38,7 @@ type DocRow = Prisma.DocumentGetPayload<{ include: ReturnType<typeof lpDocInclud
 /** Published to this client, and either fund-less or in the member's fund scope. */
 export function lpDocWhere(ctx: LpContext, fundId?: string): Prisma.DocumentWhereInput {
   return {
-    status: 'Published',
+    status: { in: ['Published', 'Restated'] },
     publications: { some: { clientId: ctx.client.id, withdrawnAt: null } },
     ...fundScopeWhere(ctx, fundId),
   };
@@ -74,7 +74,7 @@ function docView(d: DocRow, names: Map<string, string>, files: Map<string, { siz
     period: d.period ?? (d.year ? String(d.year) : null),
     publishedDate: day(publishedAt(d)),
     version: `${v?.version ?? d.version}.0`,
-    status: needsSignature ? 'REQUIRES_SIGNATURE' : 'PUBLISHED',
+    status: needsSignature ? 'REQUIRES_SIGNATURE' : d.status === 'Restated' ? 'RESTATED' : 'PUBLISHED',
     accessScope: d.fundId ? 'INVESTOR_ACCOUNT' : 'INVESTOR_ORGANISATION',
     checksumSha256: v?.sha256 ?? '',
     permissions: ['VIEW', 'DOWNLOAD', ...(needsSignature ? ['SIGN'] : [])],
@@ -87,7 +87,9 @@ function docView(d: DocRow, names: Map<string, string>, files: Map<string, { siz
   };
 }
 
-export async function listDocuments(ctx: LpContext, q: { fundId?: string; category?: string; q?: string }) {
+export const DOCUMENT_SORTS = ['publishedAt', 'name', 'fundName'] as const;
+
+export async function listDocuments(ctx: LpContext, q: { fundId?: string; category?: string; q?: string; sortBy?: string; sortDirection?: 'asc' | 'desc' }) {
   const search = q.q?.trim();
   const rows = await prisma.document.findMany({
     where: {
@@ -103,8 +105,14 @@ export async function listDocuments(ctx: LpContext, q: { fundId?: string; catego
     const cat = q.category.toUpperCase();
     docs = docs.filter((d) => docCategory(d) === cat);
   }
-  docs.sort((a, b) => publishedAt(b).getTime() - publishedAt(a).getTime());
   const [names, files] = await Promise.all([fundNames(docs.map((d) => d.fundId)), filesFor(docs)]);
+  const dir = q.sortDirection === 'asc' ? 1 : -1;
+  const by = q.sortBy ?? 'publishedAt';
+  const fundOf = (d: DocRow) => (d.fundId ? (names.get(d.fundId) ?? '') : (d.relatedLabel ?? 'All funds'));
+  docs.sort((a, b) => {
+    const primary = by === 'name' ? a.name.localeCompare(b.name) : by === 'fundName' ? fundOf(a).localeCompare(fundOf(b)) : publishedAt(a).getTime() - publishedAt(b).getTime();
+    return dir * primary || publishedAt(b).getTime() - publishedAt(a).getTime() || a.id.localeCompare(b.id);
+  });
   return docs.map((d) => docView(d, names, files));
 }
 

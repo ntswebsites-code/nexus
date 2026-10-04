@@ -68,8 +68,8 @@ async function mfaInfo(ctx: LpContext): Promise<LpSettings['mfa']> {
     enabled: !!factor,
     enabledAt: factor?.verifiedAt?.toISOString() ?? null,
     manageUrl: '/lp-portal/settings?tab=security',
-    sessionsUrl: null,
-    passwordUrl: '/reset-password',
+    sessionsUrl: '/lp-portal/settings?tab=security',
+    passwordUrl: '/lp-portal/settings?tab=security',
   };
 }
 

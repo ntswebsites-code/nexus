@@ -8,6 +8,7 @@ import { lp, requireLp, requireLpRole } from '../lp.context';
 import { dateQuery } from '../services/common';
 import { LpError, lpList, lpOk, pageOf } from '../lp.http';
 import {
+  DEALING_SORT_FIELD,
   bankAccounts,
   estimateRedemption,
   estimateSubscription,
@@ -19,6 +20,7 @@ import {
   submitRedemption,
   submitSubscription,
 } from '../services/dealing';
+import { revealBankAccount } from '../services/reveal';
 import { requireFeature } from '../../../middleware/feature';
 
 /** Domain `dealing`: subscriptions and redemptions (WS2, after J3). */
@@ -44,6 +46,11 @@ lpDealingRoutes.get('/dealing/bank-accounts', requireLp('lp.dealing.view'), asyn
   lpOk(req, res, await bankAccounts(lp(req), str(req.query.fundId)));
 });
 
+lpDealingRoutes.post('/dealing/bank-accounts/:id/reveal', requireLp('lp.dealing.view'), requireLpRole('SIGNATORY'), async (req, res) => {
+  res.setHeader('Cache-Control', 'private, no-store');
+  lpOk(req, res, await revealBankAccount(req, lp(req), String(req.params.id)));
+});
+
 lpDealingRoutes.get('/dealing/overview', requireLp('lp.dealing.view'), async (req, res) => {
   lpOk(req, res, await overview(lp(req), str(req.query.fundId)));
 });
@@ -54,7 +61,19 @@ lpDealingRoutes.get('/dealing/rules', requireLp('lp.dealing.view'), async (req, 
 
 lpDealingRoutes.get('/dealing/requests', requireLp('lp.dealing.view'), async (req, res) => {
   const { page, pageSize } = pageOf(req);
-  const { items, total } = await listRequests(lp(req), { fundId: str(req.query.fundId), type: str(req.query.type), status: str(req.query.status), page, pageSize });
+  const sortBy = str(req.query.sortBy)?.toLowerCase();
+  if (sortBy && !(sortBy in DEALING_SORT_FIELD)) throw LpError.validation('sortBy is not valid', { sortBy: `Use one of ${Object.keys(DEALING_SORT_FIELD).join(', ')}` });
+  const dir = str(req.query.sortDirection)?.toLowerCase();
+  if (dir && dir !== 'asc' && dir !== 'desc') throw LpError.validation('sortDirection is not valid', { sortDirection: 'Use asc or desc' });
+  const { items, total } = await listRequests(lp(req), {
+    fundId: str(req.query.fundId),
+    type: str(req.query.type),
+    status: str(req.query.status),
+    sortBy,
+    sortDirection: dir as 'asc' | 'desc' | undefined,
+    page,
+    pageSize,
+  });
   lpOk(req, res, lpList(items, page, pageSize, total));
 });
 

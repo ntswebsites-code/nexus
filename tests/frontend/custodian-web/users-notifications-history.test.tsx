@@ -226,7 +226,7 @@ describe('custodian shell', () => {
     renderPortal(<HistoryPage />);
     expect(await screen.findByText(/Sam Submitter · Stanbic Custodial Services · submitter/)).toBeInTheDocument();
     const nav = screen.getByRole('navigation', { name: 'Main' });
-    expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual(['Dashboard', 'Executions', 'Bulk upload', 'Day-end', 'Statements and holdings', 'History', 'Users and roles', 'Notifications7']);
+    expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual(['Dashboard', 'Executions', 'Bulk upload', 'Day-end', 'Statements and holdings', 'History', 'Users and roles', 'Notifications7', 'Security']);
     expect(within(nav).getByRole('link', { name: 'Notifications7' })).toHaveAttribute('href', '/notifications');
   });
 

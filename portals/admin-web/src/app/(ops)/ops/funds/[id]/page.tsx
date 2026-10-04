@@ -46,6 +46,7 @@ function FundDetail({ fund, reload }: { fund: Fund; reload: () => void }) {
   const canManage = useCan('funds.manage');
   const [editing, setEditing] = useState(false);
   const [adding, setAdding] = useState(false);
+  const [restating, setRestating] = useState(false);
   const [editingCommitment, setEditingCommitment] = useState<FundCommitment | null>(null);
   const commitments = fund.commitments ?? [];
   const active = commitments.filter((c) => c.status !== 'CLOSED');
@@ -66,6 +67,11 @@ function FundDetail({ fund, reload }: { fund: Fund; reload: () => void }) {
               <button className="ops-btn" type="button" onClick={() => setEditing(true)}>
                 Edit fund
               </button>
+              {(fund.valuationStatus === 'FINAL' || fund.valuationStatus === 'RESTATED') && (
+                <button className="ops-btn" type="button" onClick={() => setRestating(true)}>
+                  Restate valuation
+                </button>
+              )}
               <button className="ops-btn primary" type="button" onClick={() => setAdding(true)}>
                 Add commitment
               </button>
@@ -162,6 +168,40 @@ function FundDetail({ fund, reload }: { fund: Fund; reload: () => void }) {
           }
         >
           <FundFields fund={fund} />
+        </FormModal>
+      )}
+      {restating && (
+        <FormModal
+          kicker={`Valuation · ${fund.shortName}`}
+          title="Restate valuation"
+          submitLabel="Restate"
+          onClose={() => setRestating(false)}
+          onDone={reload}
+          onSubmit={(fd, key) => {
+            const reason = str(fd, 'reason');
+            if (reason.trim().length < 10) throw new Error('Give a reason of at least 10 characters.');
+            return api.post(
+              ops(`/funds/${encodeURIComponent(fund.id)}/restate`),
+              { reason, navPerUnit: optStr(fd, 'navPerUnit'), totalNav: optStr(fd, 'totalNav'), asOfDate: optStr(fd, 'asOfDate'), version: fund.version },
+              { idempotencyKey: key },
+            );
+          }}
+        >
+          <p>Investors see the valuation labelled RESTATED and are notified with your reason. A restatement is audited and cannot return to an estimate.</p>
+          <FieldGrid>
+            <Field label="Reason" span={2}>
+              <textarea className="ops-input" name="reason" rows={3} required minLength={10} maxLength={500} />
+            </Field>
+            <Field label="Restated NAV per unit (optional)">
+              <input className="ops-input" name="navPerUnit" inputMode="decimal" />
+            </Field>
+            <Field label="Restated total NAV (optional)">
+              <input className="ops-input" name="totalNav" inputMode="decimal" />
+            </Field>
+            <Field label="As of (optional)">
+              <input className="ops-input" name="asOfDate" type="date" />
+            </Field>
+          </FieldGrid>
         </FormModal>
       )}
       {adding && (

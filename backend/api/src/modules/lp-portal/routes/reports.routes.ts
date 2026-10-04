@@ -4,7 +4,7 @@ import { prisma } from '../../../lib/prisma';
 import { writeAudit } from '../../../lib/audit';
 import { param } from '../../../lib/http';
 import { lp, requireLp } from '../lp.context';
-import { day, lpOk } from '../lp.http';
+import { LpError, day, lpOk } from '../lp.http';
 import { lpAudit, queryFund } from '../services/common';
 import { docCategory, lpDocInclude, lpDocWhere, sendDocument } from '../services/documents';
 import { loadPerformanceJob, renderPerformanceReport } from '../services/performance';
@@ -85,6 +85,9 @@ lpReportsRoutes.get('/reports/:jobId/download', requireLp('lp.documents.download
   const jobId = param(req, 'jobId');
   const job = await loadPerformanceJob(ctx, jobId);
   if (job) {
+    if (job.status !== 'COMPLETED') {
+      throw new LpError(job.status === 'FAILED' || job.status === 'CANCELLED' ? 410 : 409, job.status === 'FAILED' ? 'LP_JOB_FAILED' : job.status === 'CANCELLED' ? 'LP_JOB_CANCELLED' : 'LP_JOB_NOT_READY', job.status === 'FAILED' ? (job.errorMessage ?? 'This report failed') : job.status === 'CANCELLED' ? 'This report was cancelled' : 'This report is still being prepared');
+    }
     const pdf = renderPerformanceReport(ctx.client.name, job);
     const reqFundId = typeof job.request.fundId === 'string' ? job.request.fundId : null;
     const fund = reqFundId ? await prisma.fund.findUnique({ where: { id: reqFundId }, select: { shortName: true, ref: true } }) : null;

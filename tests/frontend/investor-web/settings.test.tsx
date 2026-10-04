@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LpSettingsScreen } from '@/components/lp-portal/screens/lp-settings-screen';
 import { toast } from 'sonner';
-import { ok, fail, screen, waitFor, expectCalled, expectNoUnmocked } from '../_helpers';
+import { ok, fail, raw, screen, waitFor, expectCalled, expectNoUnmocked } from '../_helpers';
 import { API, liveApi, renderLp } from './_lp';
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() } }));
@@ -66,6 +66,8 @@ describe('Settings', () => {
     liveApi(routes({ [`PATCH ${API}/settings/display`]: fail(422, 'VALIDATION_ERROR', 'Check the display settings', { defaultAsOfPreference: 'Use one of LATEST' }) }));
     const { user } = renderLp(<LpSettingsScreen />);
     await ready();
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Documents published email' })).not.toBeChecked());
+    await user.click(screen.getByRole('switch', { name: 'Documents published email' }));
     await user.click(screen.getByRole('button', { name: /Save Changes/ }));
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(toast.success).not.toHaveBeenCalled();
@@ -77,16 +79,63 @@ describe('Settings', () => {
     expect(await screen.findByText(/Could not load settings/)).toBeInTheDocument();
   });
 
-  it('security buttons without a URL are disabled (sessions); those with a URL open it safely', async () => {
-    liveApi(routes());
-    const open = vi.spyOn(window, 'open').mockImplementation(() => null);
+  it('FR-LP-102: Manage, Review and Change open the MFA, sessions and password panels in the page', async () => {
+    const api = liveApi(
+      routes({
+        'GET /api/v1/account/security': raw({
+          data: {
+            email: 'lp@alpha.test',
+            mfa: { enrolled: true, enrolledAt: '2026-05-01T00:00:00Z', required: true, backupCodesRemaining: 7 },
+            sessions: [
+              { id: 's1', current: true, createdAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-10-04T08:00:00Z', userAgent: 'Chrome on Windows', ip: '10.0.0.1' },
+              { id: 's2', current: false, createdAt: '2026-10-01T00:00:00Z', lastUsedAt: '2026-10-03T08:00:00Z', userAgent: 'Safari on iPhone', ip: '10.0.0.2' },
+            ],
+          },
+        }),
+        'POST /api/v1/account/security/sessions/revoke-others': raw({ data: { ok: true, revoked: 1 } }),
+      }),
+    );
     const { user } = renderLp(<LpSettingsScreen />);
     await ready();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Manage' })).toBeEnabled());
-    expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled();
+    await user.click(screen.getByRole('button', { name: 'Manage' }));
+    expect(await screen.findByTestId('lp-mfa-panel')).toBeInTheDocument();
+    expect(await screen.findByText('7')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Review' }));
+    const sessions = await screen.findByTestId('lp-sessions-panel');
+    expect(sessions).toHaveTextContent('Safari on iPhone');
+    expect(sessions).toHaveTextContent('This browser');
+    await user.click(screen.getByRole('button', { name: 'Sign out other sessions' }));
+    await waitFor(() => expect(api.calls('POST /api/v1/account/security/sessions/revoke-others')).toHaveLength(1));
     await user.click(screen.getByRole('button', { name: 'Change' }));
-    expect(open).toHaveBeenCalledWith('/reset-password', '_blank', 'noopener,noreferrer');
-    open.mockRestore();
+    expect(await screen.findByTestId('lp-password-panel')).toBeInTheDocument();
+  });
+
+  it('FR-LP-104: Save is disabled until something changes, Discard restores the saved values', async () => {
+    liveApi(routes());
+    const { user } = renderLp(<LpSettingsScreen />);
+    await ready();
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Documents published email' })).not.toBeChecked());
+    expect(screen.getByRole('button', { name: /Save Changes/ })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Discard' })).toBeDisabled();
+    await user.click(screen.getByRole('switch', { name: 'Documents published email' }));
+    expect(screen.getByRole('button', { name: /Save Changes/ })).toBeEnabled();
+    await user.click(screen.getByRole('button', { name: 'Discard' }));
+    expect(screen.getByRole('switch', { name: 'Documents published email' })).not.toBeChecked();
+    expect(screen.getByRole('button', { name: /Save Changes/ })).toBeDisabled();
+  });
+
+  it('FR-LP-104: unsaved changes register a leave-page warning, none when nothing changed', async () => {
+    liveApi(routes());
+    const { user } = renderLp(<LpSettingsScreen />);
+    await ready();
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Documents published email' })).not.toBeChecked());
+    const clean = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(clean);
+    expect(clean.defaultPrevented).toBe(false);
+    await user.click(screen.getByRole('switch', { name: 'Documents published email' }));
+    const dirty = new Event('beforeunload', { cancelable: true });
+    window.dispatchEvent(dirty);
+    expect(dirty.defaultPrevented).toBe(true);
   });
 
   it.each([['LATEST'], ['LATEST_FINAL'], ['QUARTER_END']])('SETTINGS-ASOF %s from the API is saved back unchanged and accepted by the backend', async (pref) => {
@@ -94,6 +143,7 @@ describe('Settings', () => {
     const { user } = renderLp(<LpSettingsScreen />);
     await ready();
     await waitFor(() => expect(screen.getByText('Enabled')).toBeInTheDocument());
+    await user.click(screen.getByRole('switch', { name: 'Documents published email' }));
     await user.click(screen.getByRole('button', { name: /Save Changes/ }));
     await waitFor(() => expect(toast.success).toHaveBeenCalled());
     const [d] = expectCalled(api, `PATCH ${API}/settings/display`);
@@ -119,6 +169,8 @@ describe('Settings', () => {
     for (let i = 0; i < count; i++) {
       await user.click(screen.getAllByRole('combobox')[2]);
       await user.click((await screen.findAllByRole('option'))[i]);
+      // Save is only enabled for a change (FR-LP-104); the switch makes the form dirty whichever option was saved before.
+      await user.click(screen.getByRole('switch', { name: 'Documents published email' }));
       await user.click(screen.getByRole('button', { name: /Save Changes/ }));
       await waitFor(() => expect(api.calls(`PATCH ${API}/settings/display`)).toHaveLength(i + 1));
       seen.push((api.calls(`PATCH ${API}/settings/display`)[i].body as Record<string, string>).defaultAsOfPreference);

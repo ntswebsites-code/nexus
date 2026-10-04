@@ -19,6 +19,7 @@ import { lpPortalApi, type LpSettings } from "@/lib/api/lp-portal-api"
 import { useLpSettings } from "@/lib/lp-portal/hooks"
 import { getApiErrorMessage } from "@/lib/lp-portal/use-lp-api"
 import { cn } from "@/lib/utils"
+import { LpSecurityPanels, type SecurityPanel } from "@/components/lp-portal/lp-security-panels"
 
 type EmailPrefKey = keyof Pick<
   LpSettings["notifications"],
@@ -81,6 +82,39 @@ export function LpSettingsScreen() {
   const [asOfDefault, setAsOfDefault] = React.useState("latest-final")
   const [digest, setDigest] = React.useState("daily")
   const [saving, setSaving] = React.useState(false)
+  const [panel, setPanel] = React.useState<SecurityPanel | null>(null)
+
+  const resetFromSettings = React.useCallback(() => {
+    if (!settings) return
+    setNotifications(settings.notifications)
+    setDisplayCurrency(settings.presentationCurrency)
+    setAsOfDefault(mapAsOfFromApi(settings.defaultAsOfPreference))
+    setDigest(settings.notifications.digest ?? "daily")
+  }, [settings])
+
+  // FR-LP-104: Save is enabled only when something changed, Discard restores the saved values and leaving warns.
+  const dirty = React.useMemo(() => {
+    if (!settings) return false
+    const saved = settings.notifications as unknown as Record<string, unknown>
+    const now = notifications as unknown as Record<string, unknown>
+    const prefsChanged = Object.keys(now).some((k) => k !== "digest" && (now[k] ?? true) !== (saved[k] ?? true))
+    return (
+      prefsChanged ||
+      digest !== (settings.notifications.digest ?? "daily") ||
+      displayCurrency !== settings.presentationCurrency ||
+      asOfDefault !== mapAsOfFromApi(settings.defaultAsOfPreference)
+    )
+  }, [settings, notifications, digest, displayCurrency, asOfDefault])
+
+  React.useEffect(() => {
+    if (!dirty) return
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ""
+    }
+    window.addEventListener("beforeunload", warn)
+    return () => window.removeEventListener("beforeunload", warn)
+  }, [dirty])
 
   React.useEffect(() => {
     if (!settings) return
@@ -106,10 +140,6 @@ export function LpSettingsScreen() {
       for (const key of keys) next[key] = !allOn
       return next
     })
-  }
-
-  const openExternal = (url?: string | null) => {
-    if (url) window.open(url, "_blank", "noopener,noreferrer")
   }
 
   const save = async () => {
@@ -145,15 +175,26 @@ export function LpSettingsScreen() {
             Notification preferences, security controls, and display defaults for your portal.
           </p>
         </div>
-        <Button
-          type="button"
-          disabled={saving || loading}
-          className="h-10 rounded-full bg-[#2563eb] px-5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#1d4ed8]"
-          onClick={() => void save()}
-        >
-          {saving ? <Loader2 className="size-4 animate-spin" /> : null}
-          Save Changes
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            disabled={!dirty || saving}
+            className="h-10 rounded-full border-[#e5e7eb] px-4 text-[13px] font-medium shadow-none"
+            onClick={resetFromSettings}
+          >
+            Discard
+          </Button>
+          <Button
+            type="button"
+            disabled={saving || loading || !dirty}
+            className="h-10 rounded-full bg-[#2563eb] px-5 text-[13px] font-semibold text-white shadow-sm hover:bg-[#1d4ed8]"
+            onClick={() => void save()}
+          >
+            {saving ? <Loader2 className="size-4 animate-spin" /> : null}
+            Save Changes
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -282,9 +323,9 @@ export function LpSettingsScreen() {
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!settings?.mfa.manageUrl}
+                  aria-expanded={panel === "mfa"}
                   className="h-8 rounded-full border-[#e5e7eb] px-3 text-[11px] font-medium shadow-none"
-                  onClick={() => openExternal(settings?.mfa.manageUrl)}
+                  onClick={() => setPanel(panel === "mfa" ? null : "mfa")}
                 >
                   Manage
                 </Button>
@@ -292,14 +333,14 @@ export function LpSettingsScreen() {
               <li className="flex items-center justify-between gap-3 rounded-xl border border-[#e5e7eb] px-3 py-3">
                 <div>
                   <p className="text-[12px] font-semibold text-[#111827]">Active sessions</p>
-                  <p className="mt-0.5 text-[11px] text-[#6b7280]">Managed by platform auth</p>
+                  <p className="mt-0.5 text-[11px] text-[#6b7280]">Devices signed in to your account</p>
                 </div>
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!settings?.mfa.sessionsUrl}
+                  aria-expanded={panel === "sessions"}
                   className="h-8 rounded-full border-[#e5e7eb] px-3 text-[11px] font-medium shadow-none"
-                  onClick={() => openExternal(settings?.mfa.sessionsUrl)}
+                  onClick={() => setPanel(panel === "sessions" ? null : "sessions")}
                 >
                   Review
                 </Button>
@@ -307,19 +348,20 @@ export function LpSettingsScreen() {
               <li className="flex items-center justify-between gap-3 rounded-xl border border-[#e5e7eb] px-3 py-3">
                 <div>
                   <p className="text-[12px] font-semibold text-[#111827]">Password</p>
-                  <p className="mt-0.5 text-[11px] text-[#6b7280]">Change via account settings</p>
+                  <p className="mt-0.5 text-[11px] text-[#6b7280]">Change your sign-in password</p>
                 </div>
                 <Button
                   type="button"
                   variant="outline"
-                  disabled={!settings?.mfa.passwordUrl}
+                  aria-expanded={panel === "password"}
                   className="h-8 rounded-full border-[#e5e7eb] px-3 text-[11px] font-medium shadow-none"
-                  onClick={() => openExternal(settings?.mfa.passwordUrl)}
+                  onClick={() => setPanel(panel === "password" ? null : "password")}
                 >
                   Change
                 </Button>
               </li>
             </ul>
+            {panel ? <LpSecurityPanels key={panel} panel={panel} onChanged={() => void reload()} /> : null}
           </section>
 
           <section className="rounded-xl border border-[#e5e7eb] bg-white p-5 shadow-[0_1px_2px_rgba(15,23,42,0.04)]">

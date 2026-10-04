@@ -8,6 +8,7 @@ import { LpError } from '../lp.http';
 import type { LpContext } from '../lp.context';
 import { VISIBLE_CALL_STATUSES, VISIBLE_DISTRIBUTION_STATUSES, asRecord, jsonDec, lpAudit } from './common';
 import { renderStatementPdf } from './statement-pdf';
+import { presentPositions } from './fx';
 import { consolidate, fixed, latestAsOf, loadPositions, type FundPosition } from './positions';
 
 const ZERO = new Prisma.Decimal(0);
@@ -29,7 +30,7 @@ function byFundRow(p: FundPosition): LpPerformanceByFundRow {
 }
 
 export async function getPerformance(ctx: LpContext, fundId: string | undefined, period: string): Promise<LpPerformanceData> {
-  const positions = await loadPositions(ctx, fundId);
+  const { positions, fx } = await presentPositions(ctx, await loadPositions(ctx, fundId));
   const c = consolidate(positions);
   const { asOfDate, valuationStatus } = latestAsOf(positions);
   const oe = positions.find((p) => p.isOpenEnded && p.holding);
@@ -41,7 +42,9 @@ export async function getPerformance(ctx: LpContext, fundId: string | undefined,
     calculationDate: new Date().toISOString().slice(0, 10),
     version: '1',
     sourceModule: 'fund_commitments.metrics_json + platform capital records',
-    reportingCurrency: ctx.client.baseCurrency,
+    reportingCurrency: fx.reportingCurrency,
+    presentationCurrency: fx.presentationCurrency,
+    fx,
     approvedBy: null,
     metrics: {
       totalCommitment: fixed(c.committed),
@@ -69,9 +72,9 @@ export async function getPerformance(ctx: LpContext, fundId: string | undefined,
 }
 
 export async function getByFund(ctx: LpContext) {
-  const positions = await loadPositions(ctx);
+  const { positions, fx } = await presentPositions(ctx, await loadPositions(ctx));
   const { asOfDate, valuationStatus } = latestAsOf(positions);
-  return { asOfDate, valuationStatus, funds: positions.map(byFundRow) };
+  return { asOfDate, valuationStatus, reportingCurrency: fx.reportingCurrency, fx, funds: positions.map(byFundRow) };
 }
 
 const monthLabel = (d: Date) => d.toLocaleString('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' });
@@ -84,6 +87,7 @@ const monthLabel = (d: Date) => d.toLocaleString('en-US', { month: 'short', year
 export async function getHistory(ctx: LpContext, fundId: string | undefined, range: string): Promise<LpPerformanceHistory> {
   const positions = (await loadPositions(ctx, fundId)).filter((p) => !p.isOpenEnded);
   const { asOfDate, valuationStatus } = latestAsOf(positions);
+  const { rates, fx } = await presentPositions(ctx, positions);
   const fundIds = positions.map((p) => p.fund.id);
   const [payments, dists] = fundIds.length
     ? await Promise.all([
@@ -131,26 +135,59 @@ export async function getHistory(ctx: LpContext, fundId: string | undefined, ran
     points.push({ date: iso, label: isNow ? 'Now' : monthLabel(at), nav: nav as string, paidIn: fixed(paidIn), distributions: fixed(dist) });
     if (isNow) break;
   }
-  return { asOfDate, valuationStatus, range: range.toUpperCase() || 'SI', points };
+  // One aggregate series can only be converted with one rate: when the funds convert at different rates the points stay in the original currency.
+  const factors = [...new Set([...rates.values()].map((r) => r.toFixed(10)))];
+  const uniform = fx.converted && factors.length === 1 && rates.size === positions.length;
+  const f = uniform ? new Prisma.Decimal(factors[0]!) : new Prisma.Decimal(1);
+  const out = uniform
+    ? points.map((pt) => ({ ...pt, nav: pt.nav === null ? pt.nav : fixed(new Prisma.Decimal(pt.nav).mul(f)), paidIn: fixed(new Prisma.Decimal(pt.paidIn).mul(f)), distributions: fixed(new Prisma.Decimal(pt.distributions).mul(f)) }))
+    : points;
+  const currencies = [...new Set(positions.map((p) => p.fund.currency.toUpperCase()))];
+  return { asOfDate, valuationStatus, range: range.toUpperCase() || 'SI', reportingCurrency: uniform ? fx.presentationCurrency : currencies.length === 1 ? currencies[0]! : ctx.client.baseCurrency, points: out };
 }
 
-export function getBenchmarks(metric: string, benchmarkId: string, asOfDate: string): LpBenchmarkSeries {
+/**
+ * BR-091: a benchmark series exists only when approved points are stored for the pair (benchmark id, metric). The
+ * platform never generates a series; with no approved points the answer is `configured: false`.
+ */
+export async function getBenchmarks(metric: string, benchmarkId: string, asOfDate: string): Promise<LpBenchmarkSeries> {
+  const points = await prisma.benchmarkPoint.findMany({ where: { benchmarkId, metric, status: 'APPROVED' }, orderBy: { pointDate: 'asc' }, take: 240 });
+  if (!points.length) {
+    return {
+      metric,
+      benchmarkId,
+      asOfDate,
+      valuationStatus: 'UNAVAILABLE',
+      configured: false,
+      series: [],
+      source: null,
+      approvedAt: null,
+      note: `No approved ${benchmarkId} series is configured for ${metric}.`,
+    };
+  }
+  const approvedAt = points.map((p) => p.approvedAt).filter((d): d is Date => !!d).sort((a, b) => b.getTime() - a.getTime())[0] ?? null;
   return {
     metric,
     benchmarkId,
     asOfDate,
-    valuationStatus: 'UNAVAILABLE',
-    configured: false,
-    series: [],
-    source: null,
-    approvedAt: null,
-    note: `No approved ${benchmarkId} series is configured for ${metric}.`,
+    valuationStatus: 'FINAL',
+    configured: true,
+    series: points.map((p) => ({ date: p.pointDate.toISOString().slice(0, 10), label: p.label, value: p.value.toFixed(6) })),
+    source: points[points.length - 1]!.source,
+    approvedAt: approvedAt ? approvedAt.toISOString() : null,
+    note: null,
   };
 }
 
-// ── Report jobs (synchronous; persisted on `settings` keyed by job id) ─────
+// ── Report jobs (asynchronous; persisted on `settings` keyed by job id) ─────
+//
+// BR-096: QUEUED -> RUNNING -> COMPLETED | FAILED, and QUEUED/RUNNING -> CANCELLED. Every move is a compare-and-set on the
+// stored status, so a late worker can never overwrite a cancellation. The request captures fund, period, benchmark and
+// as-of date. A job left QUEUED/RUNNING by a restart is picked up again by the next status read (STALE_JOB_MS).
 
 const JOB_KEY = 'lp.job';
+export const JOB_STATES = ['QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED'] as const;
+const STALE_JOB_MS = 30_000;
 
 interface StoredJob {
   clientId: string;
@@ -159,29 +196,80 @@ interface StoredJob {
   status: string;
   request: Record<string, unknown>;
   result: unknown;
+  errorMessage?: string | null;
   createdAt: string;
+  startedAt?: string | null;
   completedAt: string | null;
 }
 
-export async function createPerformanceJob(req: Request, ctx: LpContext, input: { fundId?: string; period: string }) {
-  const result = await getPerformance(ctx, input.fundId, input.period);
+/** Compare-and-set on `$.status`; true when this caller made the move. */
+async function moveJob(jobId: string, from: string[], patch: Partial<StoredJob>): Promise<boolean> {
+  const row = await prisma.setting.findUnique({ where: { ownerId_key: { ownerId: jobId, key: JOB_KEY } } });
+  if (!row) return false;
+  const cur = row.value as unknown as StoredJob;
+  if (!from.includes(cur.status)) return false;
+  const next = { ...cur, ...patch };
+  const res = await prisma.setting.updateMany({
+    where: { ownerId: jobId, key: JOB_KEY, value: { path: '$.status', equals: cur.status } },
+    data: { value: next as unknown as Prisma.InputJsonValue },
+  });
+  return res.count === 1;
+}
+
+/** Runs one job to a terminal state. Safe to call twice: only the caller that wins QUEUED -> RUNNING computes. */
+export async function runPerformanceJob(ctx: LpContext, jobId: string): Promise<void> {
+  const row = await prisma.setting.findUnique({ where: { ownerId_key: { ownerId: jobId, key: JOB_KEY } } });
+  const job = row?.value as unknown as StoredJob | undefined;
+  if (!job) return;
+  const started = new Date().toISOString();
+  const stale = job.status === 'RUNNING' && job.startedAt && Date.now() - new Date(job.startedAt).getTime() > STALE_JOB_MS;
+  if (!(await moveJob(jobId, stale ? ['RUNNING'] : ['QUEUED'], { status: 'RUNNING', startedAt: started }))) return;
+  try {
+    const fundId = typeof job.request.fundId === 'string' ? job.request.fundId : undefined;
+    const period = typeof job.request.period === 'string' ? job.request.period : 'SI';
+    const result = await getPerformance(ctx, fundId, period);
+    const benchmarkId = typeof job.request.benchmarkId === 'string' ? job.request.benchmarkId : null;
+    const withBenchmark = benchmarkId ? { ...result, benchmark: await getBenchmarks('NET_IRR', benchmarkId, result.asOfDate) } : result;
+    await moveJob(jobId, ['RUNNING'], { status: 'COMPLETED', result: withBenchmark, errorMessage: null, completedAt: new Date().toISOString() });
+  } catch (err) {
+    await moveJob(jobId, ['RUNNING'], { status: 'FAILED', errorMessage: err instanceof Error ? err.message.slice(0, 300) : 'Report generation failed', completedAt: new Date().toISOString() });
+  }
+}
+
+export async function createPerformanceJob(req: Request, ctx: LpContext, input: { fundId?: string; period: string; benchmarkId?: string; asOfDate?: string }) {
   const jobId = randomUUID();
   const now = new Date().toISOString();
   const job: StoredJob = {
     clientId: ctx.client.id,
     userId: ctx.userId,
     jobType: 'PERFORMANCE_REPORT',
-    status: 'COMPLETED',
-    request: { fundId: input.fundId ?? null, period: input.period },
-    result,
+    status: 'QUEUED',
+    request: { fundId: input.fundId ?? null, period: input.period, benchmarkId: input.benchmarkId ?? null, asOfDate: input.asOfDate ?? null },
+    result: null,
+    errorMessage: null,
     createdAt: now,
-    completedAt: now,
+    startedAt: null,
+    completedAt: null,
   };
   await prisma.$transaction(async (tx) => {
     await tx.setting.create({ data: { ownerId: jobId, key: JOB_KEY, value: job as unknown as Prisma.InputJsonValue } });
     await writeAudit(tx, lpAudit(req), { action: 'lp_report.requested', objectType: 'lp_job', objectId: jobId, after: { jobType: job.jobType, ...job.request } });
   });
+  setImmediate(() => {
+    void runPerformanceJob(ctx, jobId).catch(() => undefined);
+  });
   return { jobId, status: job.status, createdAt: now, downloadUrl: reportDownloadPath(jobId) };
+}
+
+/** Cancels a job that has not finished; a finished job answers 409. */
+export async function cancelPerformanceJob(req: Request, ctx: LpContext, jobId: string): Promise<LpJobStatus> {
+  const job = await loadPerformanceJob(ctx, jobId);
+  if (!job) throw new LpError(404, 'LP_NOT_FOUND', 'Job not found');
+  if (!(await moveJob(jobId, ['QUEUED', 'RUNNING'], { status: 'CANCELLED', completedAt: new Date().toISOString() }))) {
+    throw new LpError(409, 'LP_JOB_FINISHED', 'This report is no longer running');
+  }
+  await prisma.$transaction((tx) => writeAudit(tx, lpAudit(req), { action: 'lp_report.cancelled', objectType: 'lp_job', objectId: jobId, after: { clientId: ctx.client.id } }));
+  return getJob(ctx, jobId);
 }
 
 /** A performance job this client owns, or null when the id is not a job (it may still be a published report document). */
@@ -249,15 +337,21 @@ export function renderPerformanceReport(clientName: string, job: StoredJob): Buf
 }
 
 export async function getJob(ctx: LpContext, jobId: string): Promise<LpJobStatus> {
-  const job = await loadPerformanceJob(ctx, jobId);
+  let job = await loadPerformanceJob(ctx, jobId);
   if (!job) throw new LpError(404, 'LP_NOT_FOUND', 'Job not found');
+  // Pick up a job a restart left behind.
+  const age = Date.now() - new Date(job.startedAt ?? job.createdAt).getTime();
+  if ((job.status === 'QUEUED' || job.status === 'RUNNING') && age > STALE_JOB_MS) {
+    await runPerformanceJob(ctx, jobId);
+    job = (await loadPerformanceJob(ctx, jobId)) ?? job;
+  }
   return {
     jobId,
     jobType: job.jobType,
     status: job.status,
     result: job.result,
-    downloadUrl: reportDownloadPath(jobId),
-    errorMessage: null,
+    downloadUrl: job.status === 'COMPLETED' ? reportDownloadPath(jobId) : null,
+    errorMessage: job.errorMessage ?? null,
     createdAt: job.createdAt,
     completedAt: job.completedAt,
   };

@@ -1,6 +1,7 @@
 import { Prisma } from '@prisma/client';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
+import { z } from 'zod';
 import {
   acceptInvitationSchema,
   forgotPasswordSchema,
@@ -24,6 +25,7 @@ import { createSession, destroyUserSessions, hashToken, setSessionCookie } from 
 import { hashPassword, verifyPassword } from '../../auth/password';
 import { loadAuthUser } from '../../services/authService';
 import { maybeCompleteActivation } from '../kyc/kyc.service';
+import { hashBackupCode, normaliseBackupCode } from '../account-security/security.routes';
 import { lpInviteSettingKey, takeInviteGrant } from './invite-grant';
 
 const limiter = rateLimit({
@@ -77,6 +79,25 @@ identityRoutes.post('/mfa/verify', limiter, requireAuthAllowMfaPending, validate
       data: { mfaPending: false, mfaVerifiedAt: new Date() },
     });
     await writeAudit(tx, ctx(req), { action: 'auth.mfa.verified', objectType: 'user', objectId: user.id });
+  });
+  res.json({ user } satisfies AuthResponse);
+});
+
+const recoverSchema = z.object({ code: z.string().trim().min(8).max(16) });
+
+/** Completes sign-in with a single-use backup code when the authenticator is not at hand. */
+identityRoutes.post('/mfa/recover', limiter, requireAuthAllowMfaPending, validateBody(recoverSchema), async (req, res) => {
+  const user = req.user!;
+  const verified = await prisma.userMfaFactor.findFirst({ where: { userId: user.id, verifiedAt: { not: null } }, select: { id: true } });
+  const raw = (req.body as z.infer<typeof recoverSchema>).code;
+  if (!verified || normaliseBackupCode(raw).length !== 10) throw new HttpError(401, 'invalid_mfa_code', 'That backup code is not valid.');
+  const row = await prisma.userMfaBackupCode.findFirst({ where: { userId: user.id, codeHash: hashBackupCode(raw), usedAt: null } });
+  if (!row) throw new HttpError(401, 'invalid_mfa_code', 'That backup code is not valid.');
+  await prisma.$transaction(async (tx) => {
+    const claimed = await tx.userMfaBackupCode.updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: new Date() } });
+    if (claimed.count !== 1) throw new HttpError(401, 'invalid_mfa_code', 'That backup code is not valid.');
+    await tx.session.update({ where: { id: req.authSession!.id }, data: { mfaPending: false, mfaVerifiedAt: new Date() } });
+    await writeAudit(tx, ctx(req), { action: 'auth.mfa.backup_code_used', objectType: 'user', objectId: user.id });
   });
   res.json({ user } satisfies AuthResponse);
 });

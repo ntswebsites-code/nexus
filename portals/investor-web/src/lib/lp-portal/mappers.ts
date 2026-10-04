@@ -144,8 +144,10 @@ export function mapAccountActivityRow(entry: LpAccountActivityEntry, investor = 
     reference: entry.entryId,
     currency: entry.currency,
     originalAmount: parseDecimal(entry.amount),
-    reportingAmount: parseDecimal(entry.amount),
-    exchangeRate: 1,
+    // BR-152: the API stamps the transaction-date rate; without one the original amount stays (never a silent conversion).
+    reportingAmount: entry.reportingAmount != null ? parseDecimal(entry.reportingAmount) : parseDecimal(entry.amount),
+    reportingCurrency: entry.reportingCurrency ?? entry.currency,
+    exchangeRate: entry.fxRate != null ? Number(entry.fxRate) : 1,
     status: titleCaseEnum(entry.status) as
       | "Posted"
       | "Settled"
@@ -157,7 +159,11 @@ export function mapAccountActivityRow(entry: LpAccountActivityEntry, investor = 
     postedBy: "System",
     notes: entry.description,
     documents: [] as Array<{ name: string; date: string; size: string }>,
-    fxNote: "No FX required",
+    fxNote:
+      entry.fxNote ??
+      (entry.fxRate != null && Number(entry.fxRate) !== 1
+        ? `Converted at ${Number(entry.fxRate).toFixed(4)} (rate of ${entry.fxRateDate ?? entry.transactionDate})`
+        : "No FX required"),
   }
 }
 

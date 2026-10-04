@@ -59,6 +59,8 @@ export interface LpSession {
     displayName?: string
   }
   lpRole: "VIEWER" | "SIGNATORY" | "MANAGER"
+  /** Every investor relationship this user can open (FR-LP-004). */
+  clients?: Array<{ investorId: string; name: string }>
   presentationCurrency: string
   defaultAsOfDate: string
   defaultValuationStatus: string
@@ -104,10 +106,22 @@ export interface LpOpenEndedHistoryPoint {
   date?: string
 }
 
+export interface LpFxPresentation {
+  presentationCurrency: string
+  reportingCurrency: string
+  converted: boolean
+  rates: Array<{ from: string; to: string; rate: string; rateDate: string }>
+  note: string | null
+}
+
 export interface LpDashboardData {
   asOfDate: string
   valuationStatus: string
   kpis: LpDashboardKpis
+  /** Currency of every amount in this payload and the as-of rate used (BR-087). */
+  presentationCurrency?: string
+  reportingCurrency?: string
+  fx?: LpFxPresentation
   openEndedSummary?: LpOpenEndedSummary | null
   openEndedHistory?: { points: LpOpenEndedHistoryPoint[] }
 }
@@ -228,6 +242,12 @@ export interface LpAccountActivityEntry {
   status: string
   structure?: string
   operatingModel?: "PRIVATE_CAPITAL" | "OPEN_ENDED"
+  /** Amount in the presentation currency at the stamped transaction-date rate (BR-152). */
+  reportingAmount?: string | null
+  reportingCurrency?: string
+  fxRate?: string | null
+  fxRateDate?: string | null
+  fxNote?: string | null
 }
 
 export interface LpLedgerDocument {
@@ -397,6 +417,8 @@ export interface LpPerformanceData {
   version: string
   sourceModule: string
   reportingCurrency: string
+  presentationCurrency?: string
+  fx?: LpFxPresentation
   approvedBy: string | null
   metrics: LpPerformanceMetrics
   byFund: LpPerformanceByFundRow[]
@@ -416,6 +438,7 @@ export interface LpPerformanceHistory {
   asOfDate: string
   valuationStatus: string
   range: string
+  reportingCurrency?: string
   points: LpPerformanceHistoryPoint[]
 }
 

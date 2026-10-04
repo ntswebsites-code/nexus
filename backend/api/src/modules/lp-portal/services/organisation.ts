@@ -4,9 +4,10 @@ import type { LpBankInstructionChange, LpColleague, LpOrganisation, LpRole } fro
 import { prisma } from '../../../lib/prisma';
 import { writeAudit } from '../../../lib/audit';
 import { enqueue } from '../../../lib/outbox';
-import { encryptField, maskIdentifier } from '../../../lib/crypto';
+import { encryptField, maskIdentifier, sha256Hex } from '../../../lib/crypto';
+import { storeFile } from '../../../lib/storage';
 import { createInvitation } from '../../identity/invitations';
-import { lpInviteSettingKey, saveInviteGrant } from '../../identity/invite-grant';
+import { lpInviteSettingKey, saveInviteGrant, takeInviteGrant } from '../../identity/invite-grant';
 import { LpError } from '../lp.http';
 import { LP_ROLE_BY_INVESTOR_ROLE, assertFund, type LpContext } from '../lp.context';
 import { asRecord, fundNames, lpAudit, str } from './common';
@@ -208,6 +209,7 @@ export async function inviteColleague(req: Request, ctx: LpContext) {
     invitedById: ctx.userId,
     status: 'INVITED',
     email,
+    activationEmailSent: true,
     expiresAt: out.expiresAt.toISOString(),
   };
 }
@@ -345,6 +347,8 @@ export async function submitBankChange(req: Request, ctx: LpContext): Promise<Lp
   const bankName = str(b.bankName);
   const accountNumber = str(b.accountNumber)?.replace(/\s+/g, '');
   const accountName = str(b.accountName);
+  const confirmAccount = str(b.confirmAccountNumber)?.replace(/\s+/g, '');
+  if (confirmAccount !== undefined && confirmAccount !== accountNumber) fieldErrors.confirmAccountNumber = 'Account numbers do not match';
   const currency = str(b.currency ?? b.currencyCode)?.toUpperCase();
   if (!bankName || bankName.length > 120) fieldErrors.bankName = 'Required (max 120 characters)';
   if (!accountNumber || !/^[A-Za-z0-9-]{4,40}$/.test(accountNumber)) fieldErrors.accountNumber = 'Enter a valid account number or IBAN';
@@ -398,4 +402,45 @@ export async function submitBankChange(req: Request, ctx: LpContext): Promise<Lp
     submittedAt: row.createdAt.toISOString(),
     status: 'PENDING_VERIFICATION',
   };
+}
+
+/** FR-LP-099: attach the supporting letter to a change that is still pending verification. */
+export async function attachBankChangeLetter(req: Request, ctx: LpContext, changeId: string, file: Express.Multer.File | undefined) {
+  if (!file) throw LpError.validation('Choose the supporting letter to upload', { file: 'Required' });
+  if (!['application/pdf', 'image/png', 'image/jpeg'].includes(file.mimetype)) throw new LpError(415, 'LP_UNSUPPORTED_MEDIA', 'The letter must be a PDF, PNG or JPEG file');
+  const row = await prisma.bankInstruction.findFirst({ where: { id: changeId, clientId: ctx.client.id, status: 'Pending verification' } });
+  if (!row) throw new LpError(404, 'LP_NOT_FOUND', 'Bank instruction change not found or no longer pending');
+  assertFund(ctx, row.fundId);
+  const sha = sha256Hex(file.buffer);
+  const stored = await prisma.$transaction(async (tx) => {
+    const f = await storeFile({ name: file.originalname || 'bank-letter', mime: file.mimetype, data: file.buffer, uploadedById: ctx.userId }, tx);
+    await tx.bankInstruction.update({ where: { id: row.id }, data: { supportingLetterFileId: f.id } });
+    await writeAudit(tx, lpAudit(req), { action: 'bank_instruction.letter_attached', objectType: 'bank_instruction', objectId: row.id, after: { fileId: f.id, sha256: sha, size: file.size } });
+    return f;
+  });
+  return { id: row.id, fileId: stored.id, sha256: sha, size: file.size };
+}
+
+/** FR-LP-095: issue a fresh invitation (new link, new 7-day expiry) for a pending colleague; the old link stops working. */
+export async function resendInvitation(req: Request, ctx: LpContext, invitationId: string) {
+  const old = await prisma.invitation.findFirst({ where: { id: invitationId, clientId: ctx.client.id, portal: 'investor', acceptedAt: null, revokedAt: null } });
+  if (!old) throw new LpError(404, 'LP_NOT_FOUND', 'Invitation not found or already accepted');
+  const out = await prisma.$transaction(async (tx) => {
+    await tx.invitation.update({ where: { id: old.id }, data: { revokedAt: new Date() } });
+    const { invitation } = await createInvitation(tx, {
+      email: old.email,
+      name: old.name,
+      portal: 'investor',
+      roleKeys: (old.roleKeys as string[]) ?? [],
+      clientId: ctx.client.id,
+      scope: old.scope,
+      invitedById: ctx.userId,
+      context: `${ctx.client.name}'s investor portal`,
+    });
+    const grant = await takeInviteGrant(tx, old.id);
+    if (grant) await saveInviteGrant(tx, invitation.id, grant);
+    await writeAudit(tx, lpAudit(req), { action: 'lp_colleague.invitation_resent', objectType: 'invitation', objectId: invitation.id, before: { previousInvitationId: old.id }, after: { email: old.email, expiresAt: invitation.expiresAt.toISOString() } });
+    return invitation;
+  });
+  return { id: out.id, email: out.email, status: 'INVITED', activationEmailSent: true, expiresAt: out.expiresAt.toISOString() };
 }

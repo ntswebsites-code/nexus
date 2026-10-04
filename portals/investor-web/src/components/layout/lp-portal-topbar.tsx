@@ -1,5 +1,7 @@
 "use client"
 
+import { setLpClientScope } from "@/lib/lp-portal/client-scope"
+import { ValuationBadge } from "@/components/lp-portal/valuation-badge"
 import * as React from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -143,6 +145,7 @@ function PortalSearch({ mobile = false }: { mobile?: boolean }) {
 export function LpPortalTopbar() {
   const [mobileNavigationOpen, setMobileNavigationOpen] = React.useState(false)
   const {
+    session,
     client,
     funds,
     selectedFundId,
@@ -156,6 +159,7 @@ export function LpPortalTopbar() {
   } = useLpPortal()
 
   const orgName = client?.legalName ?? "LP Portal"
+  const clientOptions = session?.clients ?? []
   const sessionUser = useSessionUser()
   const userName = sessionUser?.name ?? "Investor"
   const userRole = sessionUser?.roles.find((r) => r.portal === "investor")?.label ?? "Investor portal"
@@ -229,7 +233,26 @@ export function LpPortalTopbar() {
         <div className="hidden min-w-0 items-center gap-2 sm:flex">
           <div className="min-w-0 leading-tight">
             <p className="truncate text-xs font-semibold text-foreground">LP Portal</p>
-            <p className="truncate text-[10px] text-muted-foreground">{orgName}</p>
+            {clientOptions.length > 1 ? (
+              <select
+                aria-label="Investor relationship"
+                data-testid="lp-client-switcher"
+                className="max-w-[180px] truncate rounded border border-border bg-background text-[10px] text-muted-foreground"
+                value={session?.client.investorId ?? ""}
+                onChange={(e) => {
+                  setLpClientScope(e.target.value)
+                  window.location.reload()
+                }}
+              >
+                {clientOptions.map((c) => (
+                  <option key={c.investorId} value={c.investorId}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <p className="truncate text-[10px] text-muted-foreground">{orgName}</p>
+            )}
           </div>
         </div>
 
@@ -271,10 +294,7 @@ export function LpPortalTopbar() {
 
           <div className="hidden h-9 min-w-[108px] flex-col justify-center rounded-full border border-border bg-background px-3 lg:flex">
             <span className="text-[7px] font-medium uppercase tracking-wide text-muted-foreground">Valuation</span>
-            <span className="flex items-center gap-1.5 text-[10px] font-bold text-foreground">
-              <i className="size-1.5 rounded-full bg-emerald-500" />
-              {valuationStatus}
-            </span>
+            <ValuationBadge status={valuationStatus} className="text-[10px]" />
           </div>
 
           <DropdownMenu>
