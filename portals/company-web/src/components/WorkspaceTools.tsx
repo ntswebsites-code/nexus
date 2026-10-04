@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createInvesteeApi, InvesteeApiError, loadPlatformFlags, setStepUpHandler, type InvesteeApi } from '@/lib/investee/api';
 import { StepUpDialog } from '@/components/StepUpDialog';
 import { useSessionUser } from '@matanho/portal-kit/session';
@@ -101,7 +101,8 @@ export function WorkspaceTools() {
   const run = useCallback(async <T,>(label: string, fn: () => Promise<T>): Promise<T | undefined> => {
     try {
       const out = await fn();
-      setMsg({ kind: 'ok', text: label });
+      // An empty label means a silent background load: it must not overwrite the confirmation of the user's last action.
+      if (label) setMsg({ kind: 'ok', text: label });
       return out;
     } catch (e) {
       setMsg({ kind: 'err', text: e instanceof InvesteeApiError ? e.describe() : 'Something went wrong' });
@@ -163,7 +164,7 @@ interface TabProps { api: InvesteeApi; run: Run }
 function useLoad<T>(api: InvesteeApi, run: Run, path: string) {
   const [data, setData] = useState<T | null>(null);
   const load = useCallback(async () => {
-    const out = await run('Loaded', () => api.workspace<T>('GET', path));
+    const out = await run('', () => api.workspace<T>('GET', path));
     if (out) setData(out);
   }, [api, run, path]);
   useEffect(() => {
@@ -193,12 +194,25 @@ function CapTab({ api, run }: TabProps) {
       reload();
     }
   }
-  const decide = async (id: string, decision: 'APPROVE' | 'REJECT') => {
-    if (await run(decision === 'APPROVE' ? 'Approved' : 'Rejected', () => api.workspace('POST', `/cap-table/transactions/${id}/decide`, { decision }))) reload();
+  // One decision per transaction at a time: a double click must not send the request twice.
+  const inFlight = useRef(new Set<string>());
+  const once = async (id: string, fn: () => Promise<void>) => {
+    if (inFlight.current.has(id)) return;
+    inFlight.current.add(id);
+    try {
+      await fn();
+    } finally {
+      inFlight.current.delete(id);
+    }
   };
-  const withdraw = async (id: string) => {
-    if (await run('Transaction withdrawn', () => api.workspace('POST', `/cap-table/transactions/${id}/withdraw`, {}))) reload();
-  };
+  const decide = (id: string, decision: 'APPROVE' | 'REJECT') =>
+    once(id, async () => {
+      if (await run(decision === 'APPROVE' ? 'Approved' : 'Rejected', () => api.workspace('POST', `/cap-table/transactions/${id}/decide`, { decision }))) reload();
+    });
+  const withdraw = (id: string) =>
+    once(id, async () => {
+      if (await run('Transaction withdrawn', () => api.workspace('POST', `/cap-table/transactions/${id}/withdraw`, {}))) reload();
+    });
   async function download(id: string) {
     const out = await run('Link ready', () => api.workspace<{ url: string }>('GET', `/cap-table/certificates/${id}/download-url`));
     if (out) window.open(out.url, '_blank', 'noopener');

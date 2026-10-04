@@ -4,7 +4,7 @@ import { useRef, useState, type FormEvent } from 'react';
 import { ApiError } from '@matanho/shared';
 import { Badge, Card, ControlRow, Empty, Notice, PageHead, Field } from '@/components/ui';
 import { can, useMe } from '@/components/Shell';
-import { custodian, downloadText, errorText, fmtDateTime, fmtNum, useIdempotencyKey, useLoad } from '@/lib/api';
+import { custodian, downloadText, errorText, fmtDateTime, fmtNum, fmtQty, useIdempotencyKey, useLoad } from '@/lib/api';
 
 interface Report {
   valid: boolean;
@@ -139,7 +139,7 @@ export default function BulkUploadPage() {
           )}
           {report.totals && (
             <p>
-              Totals in the file: {report.totals.count} rows, quantity {fmtNum(report.totals.quantity, 2)}, notional {fmtNum(report.totals.notional)}.
+              Totals in the file: {report.totals.count} rows, quantity {fmtQty(report.totals.quantity)}, notional {fmtNum(report.totals.notional)}.
             </p>
           )}
           {report.control && Object.keys(report.control).length > 0 && (

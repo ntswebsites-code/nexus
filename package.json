@@ -31,12 +31,25 @@
     "db:deploy": "npm run db:deploy -w @matanho/api",
     "db:seed": "npm run db:seed -w @matanho/api",
     "db:studio": "npm run db:studio -w @matanho/api",
-    "legacy:extract": "node tools/extract-legacy.mjs"
+    "legacy:extract": "node tools/extract-legacy.mjs",
+    "test:frontend": "vitest run --silent --reporter=dot",
+    "test:frontend:admin": "vitest run --silent --reporter=dot --project admin-web",
+    "test:frontend:investor": "vitest run --silent --reporter=dot --project investor-web",
+    "test:frontend:onboarding": "vitest run --silent --reporter=dot --project onboarding-web",
+    "test:frontend:company": "vitest run --silent --reporter=dot --project company-web",
+    "test:frontend:custodian": "vitest run --silent --reporter=dot --project custodian-web",
+    "test:frontend:portal-kit": "vitest run --silent --reporter=dot --project portal-kit",
+    "test:frontend:shared": "vitest run --silent --reporter=dot --project shared"
   },
   "devDependencies": {
+    "@testing-library/dom": "^10.4.2",
+    "@testing-library/jest-dom": "^7.0.1",
+    "@testing-library/react": "^16.3.3",
+    "@testing-library/user-event": "^14.6.7",
     "concurrently": "^9.2.0",
+    "jsdom": "^29.1.1",
     "parse5": "^8.0.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "vitest": "^5.0.3"
   }
 }
-

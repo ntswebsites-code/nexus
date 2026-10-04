@@ -37,12 +37,15 @@ export function FieldInput({
   value,
   onChange,
   error,
+  warning,
   onFile,
 }: {
   field: Field;
   value: string;
   onChange: (v: string) => void;
   error?: string;
+  /** Advisory note that does not block the applicant. */
+  warning?: string;
   onFile?: boolean;
 }) {
   const id = `f-${field.key}`;
@@ -76,6 +79,10 @@ export function FieldInput({
       {error ? (
         <small id={`${id}-err`} className="err">
           {error}
+        </small>
+      ) : warning ? (
+        <small id={`${id}-warn`} className="warn" role="status">
+          {warning}
         </small>
       ) : null}
     </label>

@@ -688,7 +688,9 @@ export function createInvesteeHost(api: InvesteeApi, ui: () => InvesteeRuntimeUI
     if (!statements) return { error: `${type} reports cannot be submitted to the live API yet.` };
     const keyIn = String(report.periodKey ?? '');
     let period: { periodStart: string; periodEnd: string; label: string } | null;
-    if (keyIn) {
+    // With live reporting requests the period must be one of them; a calendar-index fallback would post for a period nobody asked for.
+    if (keyIn || payload?.reportingRequests) {
+      if (!keyIn) return { error: 'Choose a reporting period that has an open request.' };
       const row = payload?.reportingRequests?.find((r) => r.reportingPeriod === keyIn);
       if (!row) return { error: 'There is no open reporting request for the selected period.' };
       const [y, m] = keyIn.split('-').map(Number);

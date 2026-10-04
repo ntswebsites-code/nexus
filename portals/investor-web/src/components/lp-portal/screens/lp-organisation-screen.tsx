@@ -38,7 +38,7 @@ import { getApiErrorMessage } from "@/lib/lp-portal/use-lp-api"
 import { cn } from "@/lib/utils"
 
 type Role = "Investor Admin" | "Viewer" | "Signatory"
-type UserStatus = "Active" | "Invited" | "Suspended"
+type UserStatus = "Active" | "Invited" | "Suspended" | "Revoked"
 type BankStatus =
   | "Active"
   | "Submitted"
@@ -76,6 +76,7 @@ const USER_STATUS: Record<UserStatus, string> = {
   Active: "bg-[#dcfce7] text-[#15803d]",
   Invited: "bg-[#e0f2fe] text-[#0369a1]",
   Suspended: "bg-[#fee2e2] text-[#b91c1c]",
+  Revoked: "bg-[#f3f4f6] text-[#6b7280]",
 }
 
 const BANK_STATUS: Record<BankStatus, string> = {
@@ -96,6 +97,8 @@ function mapColleagueStatus(status: string): UserStatus {
   const s = status.toUpperCase()
   if (s === "INVITED") return "Invited"
   if (s === "SUSPENDED") return "Suspended"
+  // The API reports a removed colleague as REVOKED; it must not fall through to "Active".
+  if (s === "REVOKED") return "Revoked"
   return "Active"
 }
 
@@ -465,7 +468,7 @@ export function LpOrganisationScreen() {
                             </DropdownMenuTrigger>
                             <DropdownMenuContent align="end" className="rounded-xl">
                               <DropdownMenuItem
-                                disabled={!canManage || revokingId === user.id}
+                                disabled={!canManage || revokingId === user.id || user.status === "Revoked"}
                                 className="text-red-600 focus:text-red-600"
                                 onClick={() => void handleRevoke(user.id)}
                               >

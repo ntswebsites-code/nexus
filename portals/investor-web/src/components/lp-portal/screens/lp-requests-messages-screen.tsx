@@ -54,7 +54,7 @@ import {
   leaveLpThreadRoom,
   subscribeLpRealtime,
 } from "@/lib/lp-portal/realtime"
-import { getApiErrorMessage } from "@/lib/lp-portal/use-lp-api"
+import { getApiErrorMessage, getApiFieldErrors } from "@/lib/lp-portal/use-lp-api"
 import { cn } from "@/lib/utils"
 
 type PortalTab = "requests" | "messages"
@@ -132,6 +132,14 @@ const PRIORITY_DOT: Record<Priority, string> = {
   High: "bg-[#ef4444]",
   Medium: "bg-[#f97316]",
   Low: "bg-[#22c55e]",
+}
+
+/** "Check the request details: subject At most 200 characters" instead of only the generic summary. */
+function withFieldErrors(message: string, fieldErrors?: Record<string, string>): string {
+  const detail = Object.entries(fieldErrors ?? {})
+    .map(([field, text]) => `${field}: ${text}`)
+    .join("; ")
+  return detail ? `${message} (${detail})` : message
 }
 
 function mapPriorityToApi(priority: Priority): string {
@@ -448,9 +456,15 @@ export function LpRequestsMessagesScreen({
     }
   }
 
+  // A request thread's `relatedId` is the request REFERENCE ("REQ-1082"), while the table rows are
+  // keyed by request id; match on either so a conversation and its request always open together
+  // (LPC-022: the detail panel kept showing the first row for a conversation about another request).
+  const requestForLink = (link: string) => requests.find((r) => r.id === link || r.reference === link)
+
   const selectRequest = (id: string) => {
     setSelectedRequestId(id)
-    const linked = conversations.find((c) => c.requestId === id)
+    const ref = requests.find((r) => r.id === id)?.reference
+    const linked = conversations.find((c) => c.requestId === id || (ref && c.requestId === ref))
     if (linked) setActiveConversationId(linked.id)
   }
 
@@ -486,7 +500,7 @@ export function LpRequestsMessagesScreen({
       })
       setFormFiles([])
     } catch (err) {
-      toast.error(getApiErrorMessage(err, "Failed to submit request"))
+      toast.error(withFieldErrors(getApiErrorMessage(err, "Failed to submit request"), getApiFieldErrors(err)))
     } finally {
       setSubmitting(false)
     }
@@ -855,7 +869,7 @@ export function LpRequestsMessagesScreen({
                         type="button"
                         onClick={() => {
                           setActiveConversationId(conv.id)
-                          setSelectedRequestId(conv.requestId)
+                          setSelectedRequestId(requestForLink(conv.requestId)?.id ?? selectedRequestId)
                         }}
                         className={cn(
                           "w-full border-b border-[#f3f4f6] px-3 py-3 text-left transition last:border-0",
@@ -922,7 +936,7 @@ export function LpRequestsMessagesScreen({
                       </button>
                       <span>{activeConversation.fund}</span>
                       <span className="font-mono text-[#9ca3af]">
-                        {requests.find((r) => r.id === activeConversation.requestId)?.reference}
+                        {requestForLink(activeConversation.requestId)?.reference}
                       </span>
                     </div>
                   </div>

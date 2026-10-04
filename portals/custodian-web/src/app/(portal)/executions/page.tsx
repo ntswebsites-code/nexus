@@ -3,7 +3,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { Badge, Card, Empty, Field, Loading, Modal, Notice, PageHead } from '@/components/ui';
 import { can, useMe } from '@/components/Shell';
-import { custodian, errorText, fmtDate, fmtDateTime, fmtNum, useIdempotencyKey, useInitialParam, useLoad, type Execution, type StatusEvent } from '@/lib/api';
+import { custodian, errorText, fmtDate, fmtDateTime, fmtNum, fmtQty, useIdempotencyKey, useInitialParam, useLoad, type Execution, type StatusEvent } from '@/lib/api';
 
 const STATUSES = ['Received', 'Matched', 'Exception', 'Queried', 'Superseded'];
 const CURRENCIES = ['USD', 'ZWG', 'ZAR'];
@@ -54,6 +54,7 @@ export default function ExecutionsPage() {
           )
         }
       />
+      {!canSubmit && <Notice kind="info">Your access is read-only: your role cannot submit, amend or cancel executions. An approver in your organisation can change your access under Users and roles.</Notice>}
       {flash && <Notice kind="ok">{flash}</Notice>}
       <Card>
         <div className="cx-filters">
@@ -103,7 +104,7 @@ export default function ExecutionsPage() {
                     <td>
                       {e.side} {e.ticker}
                     </td>
-                    <td className="num">{fmtNum(e.quantity, 0)}</td>
+                    <td className="num">{fmtQty(e.quantity)}</td>
                     <td className="num">
                       {fmtNum(e.price, 4)} {e.currency}
                     </td>

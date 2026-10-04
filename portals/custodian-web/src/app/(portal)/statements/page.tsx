@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { ApiError } from '@matanho/shared';
 import { Badge, Card, Empty, Field, Loading, Modal, Notice, PageHead } from '@/components/ui';
 import { can, useMe } from '@/components/Shell';
-import { custodian, downloadText, errorText, fmtDate, fmtDateTime, fmtNum, useIdempotencyKey, useLoad } from '@/lib/api';
+import { custodian, downloadText, errorText, fmtDate, fmtDateTime, fmtNum, fmtQty, useIdempotencyKey, useLoad } from '@/lib/api';
 
 type Format = 'CSV' | 'MT940' | 'JSON';
 interface FileRow {
@@ -127,6 +127,7 @@ export default function StatementsPage() {
       {err && <Notice kind="error">{err}</Notice>}
       {ok && <Notice kind="ok">{ok}</Notice>}
       {feed.data?.adapterError && <Notice kind="warn">{feed.data.adapterError}</Notice>}
+      {!canUpload && <Notice kind="info">Your access is read-only: your role cannot upload statements. You can still see the files and holdings below.</Notice>}
       {canUpload && (
         <Card title="Upload a statement">
           <div className="cx-form">
@@ -291,7 +292,7 @@ function HoldingsTable({ items }: { items: Holding[] }) {
               <td>{h.accountRef}</td>
               <td>{h.ticker}</td>
               <td>{h.isin ?? ''}</td>
-              <td className="num">{fmtNum(h.quantity, 0)}</td>
+              <td className="num">{fmtQty(h.quantity)}</td>
               <td className="num">{h.price ? fmtNum(h.price, 4) : ''}</td>
               <td className="num">{h.marketValue ? fmtNum(h.marketValue) : ''}</td>
               <td>{h.currency}</td>

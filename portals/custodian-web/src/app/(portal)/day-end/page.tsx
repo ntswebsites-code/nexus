@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from 'react';
 import { Badge, Card, ControlRow, Empty, Field, Loading, Modal, Notice, PageHead } from '@/components/ui';
 import { can, useMe } from '@/components/Shell';
-import { custodian, errorText, fmtDate, fmtDateTime, fmtNum, todayIso, useIdempotencyKey, useLoad, type Controls, type DayEnd } from '@/lib/api';
+import { custodian, errorText, fmtDate, fmtDateTime, fmtNum, fmtQty, todayIso, useIdempotencyKey, useLoad, type Controls, type DayEnd } from '@/lib/api';
 
 interface Detail {
   package: DayEnd;
@@ -51,6 +51,7 @@ export default function DayEndPage() {
           )
         }
       />
+      {!canPrepare && <Notice kind="info">Your access is read-only: your role cannot prepare or submit day-end packages. An approver in your organisation can change your access under Users and roles.</Notice>}
       {flash && <Notice kind={flash.kind}>{flash.text}</Notice>}
       <Card>
         <Loading loading={list.loading && !list.data} error={list.error} />
@@ -97,6 +98,14 @@ export default function DayEndPage() {
                         <button type="button" className="cx-btn sm primary" onClick={() => void act(p, 'approve')}>
                           Approve
                         </button>
+                      )}
+                      {canApprove && me.role === 'approver' && p.status === 'Received' && p.submittedById === me.user.id && (
+                        <>
+                          <button type="button" className="cx-btn sm" disabled aria-describedby={`why-${p.id}`}>
+                            Approve
+                          </button>
+                          <small id={`why-${p.id}`}>You prepared this package; a different approver must approve it.</small>
+                        </>
                       )}
                       {canPrepare && ['Received', 'Approved', 'Accepted'].includes(p.status) && (
                         <button type="button" className="cx-btn sm" onClick={() => setModal({ kind: 'new', supersede: p })}>
@@ -316,7 +325,7 @@ function NewPackage({ supersede, accounts, onClose, onDone }: { supersede?: DayE
                   <td>{t.accountRef}</td>
                   <td>{t.currency ?? ''}</td>
                   <td className="num">{t.executions}</td>
-                  <td className="num">{fmtNum(t.quantity, 2)}</td>
+                  <td className="num">{fmtQty(t.quantity)}</td>
                   <td className="num">{fmtNum(t.notional)}</td>
                   <td>{t.packages.map((p) => `${p.ref} (${p.status})`).join(', ')}</td>
                 </tr>

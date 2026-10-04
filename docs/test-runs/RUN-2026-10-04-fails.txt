@@ -1,0 +1,95 @@
+##### test-accounting
+  FAIL  open a period -> 201 OPEN 2026-09-01..2026-09-30 {"error":{"code":"duplicate_period","message":"Period 2026-09 already exists for this entity"},"success":false,"code":"duplicate_period","message":"Period 2026-09 already ex
+##### test-ai-reporting
+  FAIL  triage stored: HIGH (PEP, no funds source), advisory, with flags and next steps {"data":{"id":"f20c6b32-02fb-4717-aa29-a7fceb53a890","riskBand":"MEDIUM","summary":"Triage Co 10163c (KYC-10163c): 0 of 8 checks recorded, com
+##### test-cash
+  FAIL  only the checker approval is left {"portfolioId":"f21f6809-9b30-420a-bba4-419d5914f3d8","periodEnd":"2026-10-03","closeId":"466c81fd-65ec-4347-8544-559692f199c1","closeStatus":"PREPARED","items":[{"key":"STATEMENT_COVERAGE
+  FAIL  close succeeds -> CLOSED {"error":{"code":"close_blocked","message":"The cash period cannot be closed: 1 blocker","details":{"blockers":["No NAV run exists for 2026-10-03; calculate, review and release the period-end NAV f
+  FAIL  audit cash.close_closed written 
+  FAIL  a journal dated in the closed period -> 409 period_closed {"data":{"id":"2da76bc6-761b-4125-b933-7c2c9f9c2294","ref":"CJ-00011","portfolioId":"f21f6809-9b30-420a-bba4-419d5914f3d8","portfolioRef":"CAP-dc6a6c","portfolioNam
+  FAIL  reopen -> PREPARED, approval cleared, journals allowed again {"error":{"code":"invalid_state","message":"The close is APPROVED; only a CLOSED period can be reopened"},"success":false,"code":"invalid_state","message":"The c
+  FAIL  audit cash.close_reopened carries the reason 
+##### test-custodian-ops
+  FAIL  bulk: batch list shows accepted and rejected {"items":[{"id":"077a05ce-97c1-477d-ae96-61a9484dd127","ref":"CBT-10003","fileName":"executions-c28432.csv","rowCount":3,"acceptedCount":3,"duplicateCount":0,"rejectedCount":0,"
+  FAIL  amend: approver without submit permission -> 403 {"execution":{"id":"f1decf11-b1b4-432c-b499-c2e31790e9a4","ref":"CEX-100001","tradeRef":"B1-c28432","executionAt":"2026-10-03T18:28:49.925Z","accountRef":"OPS-001","ticker":
+  FAIL  history: submitted then amended with the field change {"execution":{"id":"f1decf11-b1b4-432c-b499-c2e31790e9a4","ref":"CEX-100001","tradeRef":"B1-c28432","executionAt":"2026-10-03T18:28:49.925Z","accountRef":"OPS-001","tic
+  FAIL  day-end: matching declared totals submit; controls report quantity and notional {"error":{"code":"control_total_mismatch","message":"Declared control totals do not match the executions received (notional declared 370.00, r
+  FAIL  day-end: second user approves {"error":{"code":"invalid_transition","message":"Only submitted packages can be approved (this one is draft)"},"success":false,"code":"invalid_transition","message":"Only submitted packages ca
+  FAIL  approved day-end freezes executions (execution_locked) {"execution":{"id":"86178b5e-6450-4cfd-8923-94606c8fc93a","ref":"CEX-100004","tradeRef":"S1-c28432","executionAt":"2026-10-03T18:28:49.925Z","accountRef":"OPS-001","ti
+  FAIL  day-end history: created, submitted, approved by your organisation {"package":{"id":"48ceb7b2-5c32-4a7b-873a-8e7f3f65d6ff","ref":"CDE-10002"},"events":[{"action":"created","status":null,"reason":null,"by":"Your organisatio
+##### test-ibor-performance
+  FAIL  all controls are done on the live view and the draft is lockable by someone else {"data":{"id":"f6b4e103-fe39-4bfd-8123-b2952bff514f","ref":"PRF-1001","portfolioId":"365e5cf4-fd90-4a82-be0a-af2b742e714b","portfolioRef":"IP
+  FAIL  a different person with step-up locks it -> LOCKED (Official) {"error":{"code":"controls_not_clear","message":"1 official-return control(s) are not done","details":{"controls":[{"key":"ibor","title":"IBOR positions reconci
+  FAIL  audit performance.period_locked by the checker 
+  FAIL  a locked period cannot be recomputed -> 409 period_immutable 
+  FAIL  preparing the same period again points at the correction path 
+  FAIL  correction -> new DRAFT version 2 linked to the Official period {"error":{"code":"invalid_state","message":"PRF-1001 is DRAFT; only an Official (locked) period needs a correction"},"success":false,"code":"invalid_state","m
+  FAIL  the Official version is untouched until the correction is locked 
+##### test-investee-workspace
+  FAIL  each signer has a link [0,0]
+  FAIL  the signer page shows the request without a session {"error":{"code":"unauthorized","message":"Authentication required"},"success":false,"code":"unauthorized","message":"Authentication required"}
+  FAIL  signing needs explicit consent {"error":{"code":"unauthorized","message":"Authentication required"},"success":false,"code":"unauthorized","message":"Authentication required"}
+  FAIL  the first signer signs {"error":{"code":"unauthorized","message":"Authentication required"},"success":false,"code":"unauthorized","message":"Authentication required"}
+  FAIL  a signer cannot sign twice {"error":{"code":"unauthorized","message":"Authentication required"},"success":false,"code":"unauthorized","message":"Authentication required"}
+  FAIL  the last signature completes the request {"error":{"code":"unauthorized","message":"Authentication required"},"success":false,"code":"unauthorized","message":"Authentication required"}
+  FAIL  the earlier link stops working after a reminder {"error":{"code":"unauthorized","message":"Authentication required"},"success":false,"code":"unauthorized","message":"Authentication required"}
+  FAIL  a voided request cannot be signed {"error":{"code":"unauthorized","message":"Authentication required"},"success":false,"code":"unauthorized","message":"Authentication required"}
+  FAIL  a share link is issued once {"success":true,"message":"Share link created","data":{"emailed":false,"id":"4d106ff2-8fd3-4755-bb8f-d729908ff302","documentId":"41ad2fb3-b559-4812-ad4f-f99005e2ef21","documentName":"Vault note 
+  FAIL  the link serves a watermarked file without a session "<!DOCTYPE html><html><head><meta charSet=\"utf-8\"/><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"/><"
+  FAIL  the access is counted {"success":true,"message":"OK","data":{"links":[{"id":"4d106ff2-8fd3-4755-bb8f-d729908ff302","documentId":"41ad2fb3-b559-4812-ad4f-f99005e2ef21","documentName":"Vault note 4c4fb1","recipient":"Auditor
+  FAIL  a revoked link answers 410 404
+##### test-nav
+  FAIL  STALE_PRICE: 10 days old, not material {"id":"12f0cf27-2f02-4ad7-b052-382fd3d6b3eb","type":"STALE_PRICE","securityId":"045b56eb-cd79-483c-849d-24e30aa16a70","ticker":"NVST-B49E60","detail":"NVST-B49E60: price dated 2026-09
+##### test-opsctl
+  FAIL  approval needs step-up MFA -> 401 {"data":{"id":"4babd4cb-3b89-4f5c-8948-f173c2c94be9","ref":"PRB-00001","kind":"AMOUNT_DIFF","label":"OCC3f59bb Bravo Capital 3f59bb: expected 10000.00 USD in, received 9500.00 (short by 50
+  FAIL  independent checker approves -> RESOLVED, item ACCEPTED {"error":{"code":"invalid_transition","message":"PRB-00001 is resolved; only a resolution awaiting a checker can be approved"},"success":false,"code":"invalid_transit
+##### test-orders-pm-wiring
+  FAIL  a sell fill records the realised gain: 500 x (6 - 4) = 1,000.00 at average cost {"method":"AVG_COST","currency":"USD","proceeds":"3000.00","costBasis":"2272.73","fees":"5.00","gain":"727.27","netOfFees":"722.27","fills":[{
+  FAIL  settlement books investments out at cost 2,000.00 and the gain 1,000.00 to 4300 [["5100","5","0"],["1100","0","2272.727"],["4300","0","727.273"],["1000","2995","0"]]
+##### test-orders
+  FAIL  liquidity Fail: 150 is not a multiple of the board lot 100 
+##### test-recon-ops
+  FAIL  setting a tolerance needs step-up MFA {"data":{"id":"8ebac750-43cb-4f2e-aea4-0ece8cb1ee08","family":"CASH","familyLabel":"Cash","scope":"*","counterparty":null,"effectiveFrom":"2026-10-06","status":"FUTURE","price":null,"c
+  FAIL  checker sets a future-dated tolerance (201) {"error":{"code":"tolerance_exists","message":"A tolerance row already exists for this family, scope and date"},"success":false,"code":"tolerance_exists","message":"A tolerance r
+  FAIL  maker without recon.signoff cannot set tolerances -> 403 {"data":{"id":"90e497b6-b7b5-42eb-a234-e3015559666b","family":"CASH","familyLabel":"Cash","scope":"*","counterparty":null,"effectiveFrom":"2026-10-07","status":"FUTU
+##### test-recon
+  FAIL  a closed break is no longer overdue and allows no action {"assign":false,"investigate":false,"resolve":false,"approve":false,"reject":false,"reopen":true,"query":false,"escalate":false,"attachEvidence":false,"approveBlocke
+##### test-wp6
+  FAIL  registry: CROSS_TABLE needs a registry reference dataset and column 
+  FAIL  run-now re-dates the window to the previous month {"error":{"code":"idempotency_key_required","message":"Idempotency-Key header is required"},"success":false,"code":"idempotency_key_required","message":"Idempotency-Key hea
+##### test-ws1
+  FAIL  realtime polling info {"success":true,"data":{"enabled":true,"transport":"polling","streamUrl":"/api/v1/lp-portal/realtime/stream","pollingIntervalMs":15000,"events":["lp_notification","lp_notice_updated","lp_request_creat
+##### test-ws4
+  FAIL  submit -> ONB reference {"error":{"code":"incomplete_application","message":"Complete the missing items before submitting","details":{"fields":["At least one director, trustee or governing person"],"evidence":[]}},"success
+  FAIL  second submit -> 409 already_submitted {"error":{"code":"incomplete_application","message":"Complete the missing items before submitting","details":{"fields":["At least one director, trustee or governing person"],"evidence
+  FAIL  KYC case created in Screening null
+##### test-admin-shell
+  PASS  new password signs in
+TypeError: Cannot read properties of undefined (reading 'find')
+    at main (/app/backend/api/scripts/test-admin-shell.ts:224:108)
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+##### test-onboarding
+    address: '127.0.0.1',
+    port: 4100
+  }
+}
+##### test-investee-remainders
+Refusing to run: set E2E_CONFIRM=local
+##### test-esign
+ok  live adapter is a clear NotConfigured stub
+ok  consent text binds name, reference and document hash
+
+8 e-sign checks passed
+##### test-esign-depth
+ok  seal: fields are stamped on the original pages and the seal still verifies structurally
+ok  placeholders: labelled boxes on the real PDF, out-of-range pages ignored
+
+10 e-sign depth checks passed
+##### test-market-data
+
+market-data/custodian-feed offline checks: 99 passed, 0 failed
+##### test-object-storage
+  ok  s3: bucket mapping and content-type / sha256 metadata
+  ok  s3: path-style presigned GET
+  ok  storage key <-> bucket mapping (legacy keys stay in documents)
+object-storage: 7 groups passed

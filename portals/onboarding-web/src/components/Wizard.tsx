@@ -168,7 +168,6 @@ export function Wizard() {
     if (stepKey === 'kyc') need(KYC_FIELDS);
     if (stepKey === 'tax') {
       need([...TAX_FIELDS, ...BANK_FIELDS]);
-      if (!e.bankHolder && !holderMatches(form.legalName ?? '', form.bankHolder ?? '')) e.bankHolder = 'Account holder should match the legal name; Compliance will review a mismatch';
     }
     if (stepKey === 'ownership') {
       const named = owners.filter((o) => o.name.trim());
@@ -293,8 +292,10 @@ export function Wizard() {
   const [title, help] = STEP_HELP[STEPS[step]!.key];
   const pct = Math.round(((step + 1) / STEPS.length) * 100);
   const key = STEPS[step]!.key;
+  // A bank-holder name that differs from the legal name is advisory only (Compliance reviews it): it never blocks Continue.
+  const holderWarning = !errors.bankHolder && (form.bankHolder ?? '').trim() && !holderMatches(form.legalName ?? '', form.bankHolder ?? '') ? 'Account holder should match the legal name; Compliance will review a mismatch.' : undefined;
   const field = (f: Field, extra?: { onFile?: boolean }) =>
-    f.entityOnly && !entity ? null : <FieldInput key={f.key} field={f} value={form[f.key] ?? ''} error={errors[f.key]} onChange={(v) => setField(f.key, v)} onFile={extra?.onFile} />;
+    f.entityOnly && !entity ? null : <FieldInput key={f.key} field={f} value={form[f.key] ?? ''} error={errors[f.key]} warning={f.key === 'bankHolder' ? holderWarning : undefined} onChange={(v) => setField(f.key, v)} onFile={extra?.onFile} />;
   const doneSlots = evidence.filter((r) => r.name).length;
 
   return (

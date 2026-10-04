@@ -31,7 +31,8 @@ export function EsignScreen() {
   const [status, setStatus] = useState('');
   const [q, setQ] = useState('');
   const [draftQ, setDraftQ] = useState('');
-  const res = useResource<ListResponse>(() => apiRequest<ListResponse>('GET', esign(`/requests${qs({ status, q })}`)), [status, q]);
+  // A signer without esign.view only gets the inbox below, so do not ask for every request (it would be refused).
+  const res = useResource<ListResponse>(() => (can ? apiRequest<ListResponse>('GET', esign(`/requests${qs({ status, q })}`)) : Promise.resolve({ data: [], counts: {} })), [status, q, can]);
   const [openId, setOpenId] = useState<string | null>(null);
   const mine = useResource<{ id: string; actionable: boolean }[]>(() => apiRequest<{ data: { id: string; actionable: boolean }[] }>('GET', esign('/me/requests')).then((r) => r.data), []);
   const [wizard, setWizard] = useState(false);

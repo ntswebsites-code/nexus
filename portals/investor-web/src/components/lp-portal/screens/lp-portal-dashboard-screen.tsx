@@ -49,6 +49,7 @@ import {
 import { useLpDashboardBundle } from "@/lib/lp-portal/hooks"
 import {
   mapDashboardAction,
+  titleCaseEnum,
   mapDocumentRow,
   mapHistoryChartPoint,
   mapOpenEndedHistoryPoint,
@@ -90,7 +91,7 @@ function actionDisplayLabel(action: LpDashboardAction): string {
   const upper = action.type.toUpperCase()
   if (upper.includes("SUBSCRIPTION") || upper.includes("SIGN")) return "Review & Sign"
   if (upper.includes("KYC")) return "Update"
-  return action.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  return titleCaseEnum(action.type)
 }
 
 function Panel({
@@ -355,7 +356,7 @@ export function LpPortalDashboardScreen() {
         const upper = item.type.toUpperCase()
         return {
           id: item.id,
-          type: item.type.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+          type: titleCaseEnum(item.type),
           fund: fundNameById.get(item.fundId) ?? item.fundId,
           amount: parseDecimal(row.amount) === 0 ? "-" : formatMoney(row.amount, presentationCurrency),
           date: row.at,

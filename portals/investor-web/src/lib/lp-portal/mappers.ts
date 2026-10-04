@@ -18,6 +18,16 @@ import type {
 import { daysUntil, formatDate, formatFileSize, formatMoneyCompact, parseDecimal } from "@/lib/lp-portal/format"
 import type { LpFund } from "@/lib/lp-portal/types"
 
+/**
+ * "AWAITING_FUNDS" -> "Awaiting Funds". The API sends enum values in upper case; lower-casing
+ * first is what lets the status badges, filters and counts (which compare against title-case
+ * labels) match. Without it the UI showed "AWAITING FUNDS" and the "Awaiting Funds" filter,
+ * badge colour and counts never matched.
+ */
+export function titleCaseEnum(value: string): string {
+  return value.toLowerCase().replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 export function mapSessionFund(fund: LpSessionFund): LpFund {
   return {
     id: fund.fundId,
@@ -94,7 +104,7 @@ export function mapDealingRequestRow(req: LpDealingRequest, fundNameLookup?: Rec
     amount: parseDecimal(req.amount),
     units: parseDecimal(req.units),
     unitsEstimated: req.isEstimate,
-    status: req.status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) as
+    status: titleCaseEnum(req.status) as
       | "Submitted"
       | "Awaiting Funds"
       | "Allocated"
@@ -129,14 +139,14 @@ export function mapAccountActivityRow(entry: LpAccountActivityEntry, investor = 
     effectiveDate: formatDate(entry.transactionDate),
     fund: entry.fundName,
     fundId: entry.fundId,
-    type: entry.description || entry.entryType.replace(/_/g, " "),
+    type: entry.description || titleCaseEnum(entry.entryType),
     kind: mapActivityEntryKind(entry.entryType),
     reference: entry.entryId,
     currency: entry.currency,
     originalAmount: parseDecimal(entry.amount),
     reportingAmount: parseDecimal(entry.amount),
     exchangeRate: 1,
-    status: entry.status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) as
+    status: titleCaseEnum(entry.status) as
       | "Posted"
       | "Settled"
       | "Under Review"
@@ -160,8 +170,9 @@ export function mapDocumentCategory(category: string): string {
     LEGAL: "Legal",
     GOVERNANCE: "Governance",
     MANUAL: "Other",
+    DISTRIBUTIONS: "Distributions",
   }
-  return map[category] ?? category.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  return map[category] ?? titleCaseEnum(category)
 }
 
 export function mapDocumentRow(doc: LpDocument) {
@@ -179,7 +190,7 @@ export function mapDocumentRow(doc: LpDocument) {
     publishedAt: doc.publishedDate,
     version: doc.version,
     accessScope: doc.accessScope.replace(/_/g, " "),
-    status: doc.status.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+    status: titleCaseEnum(doc.status),
     fileKind,
     fileSize: formatFileSize(doc.fileSizeBytes),
     pages: doc.pageCount ?? 1,
@@ -209,7 +220,7 @@ const NOTICE_KIND_LABELS: Record<string, string> = {
 
 export function mapNoticeKind(notice: LpNotice): string {
   const key = (notice.kind ?? notice.category ?? "POLICY").toUpperCase()
-  return NOTICE_KIND_LABELS[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  return NOTICE_KIND_LABELS[key] ?? titleCaseEnum(key)
 }
 
 export function mapNoticeStatus(notice: LpNotice): "Unread" | "Opened" | "Acknowledged" {
@@ -256,7 +267,7 @@ export function mapServiceRequestRow(req: LpServiceRequest) {
   return {
     id: req.id,
     reference: req.reference,
-    type: req.type.replace(/_/g, " "),
+    type: titleCaseEnum(req.type),
     apiType: req.type,
     fund: req.fundName,
     fundId: req.fundId,
@@ -328,7 +339,7 @@ export function mapDashboardAction(action: LpDashboardAction, funds: LpFund[] = 
   return {
     title: action.title,
     fund: fundName,
-    label: action.label ?? action.type.replace(/_/g, " "),
+    label: action.label ?? titleCaseEnum(action.type),
     amount: action.amount ? formatMoneyCompact(action.amount) : undefined,
     due: action.dueDate ? `Due ${formatDate(action.dueDate)}` : "",
     href: action.href,
@@ -383,7 +394,8 @@ export function mapPerformanceStructure(row: { structure?: string; operatingMode
 export const API_DOC_CATEGORY: Record<string, string> = {
   Statements: "QUARTERLY_STATEMENT",
   "Capital Calls": "CALL_NOTICE",
-  Distributions: "MANUAL",
+  Distributions: "DISTRIBUTIONS",
+  Other: "MANUAL",
   "Fund Reports": "PERFORMANCE_REPORT",
   Tax: "TAX",
   Legal: "LEGAL",

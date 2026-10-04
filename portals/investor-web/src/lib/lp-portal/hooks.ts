@@ -24,17 +24,26 @@ export function useAsyncData<T>(
   const [loading, setLoading] = React.useState(enabled)
   const [error, setError] = React.useState<string | null>(null)
 
+  // Only the most recent load may write state. The screens mount before the session (as-of date,
+  // fund scope) has loaded, so a second load follows the first; without this a slow first response
+  // could land after the second and overwrite fresh data with data for the wrong scope.
+  const latest = React.useRef(0)
+
   const reload = React.useCallback(async () => {
     if (!enabled) return
+    const mine = ++latest.current
     setLoading(true)
     setError(null)
     try {
-      setData(await fetcher())
+      const result = await fetcher()
+      if (mine === latest.current) setData(result)
     } catch (err) {
-      setError(getApiErrorMessage(err))
-      setData(null)
+      if (mine === latest.current) {
+        setError(getApiErrorMessage(err))
+        setData(null)
+      }
     } finally {
-      setLoading(false)
+      if (mine === latest.current) setLoading(false)
     }
   }, [enabled, ...deps])
 

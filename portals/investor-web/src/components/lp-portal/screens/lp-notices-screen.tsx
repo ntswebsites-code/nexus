@@ -134,7 +134,11 @@ export function LpNoticesScreen({ initialNoticeId }: { initialNoticeId?: string 
     [notices],
   )
 
-  const selected = detail ?? filtered.find((n) => n.id === selectedId) ?? filtered[0] ?? null
+  // Only use the fetched detail when it is for the notice that is selected. While the next notice is
+  // loading `detail` still holds the previous one; using it made the effect below reset selectedId
+  // back to the previous notice, so clicking another notice never changed the view.
+  const selected =
+    (detail && detail.id === selectedId ? detail : null) ?? filtered.find((n) => n.id === selectedId) ?? filtered[0] ?? null
 
   React.useEffect(() => {
     if (selected && selected.id !== selectedId) setSelectedId(selected.id)

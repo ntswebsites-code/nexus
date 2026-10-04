@@ -279,7 +279,8 @@ export function LpSubscriptionsRedemptionsScreen({
       ...prev,
       fundId: dealingFundId,
       shareClass: overview.shareClass,
-      currency: currency,
+      // Subscriptions are in the fund's own currency (the API rejects any other), not the display currency.
+      currency: openEndedFunds.find((f) => f.id === dealingFundId)?.currency || prev.currency || currency,
       fundingDate: prev.fundingDate || rules?.nextEligibleDealingDate || overview.asOfDate,
       bankId: prev.bankId || banks.find((b) => b.isDefault)?.id || banks[0]?.id || "",
     }))
@@ -287,7 +288,7 @@ export function LpSubscriptionsRedemptionsScreen({
       ...prev,
       earliestDealingDate: prev.earliestDealingDate || rules?.nextEligibleDealingDate || overview.asOfDate,
     }))
-  }, [overview, dealingFundId, banks, currency, rules])
+  }, [overview, dealingFundId, banks, currency, rules, openEndedFunds])
 
   const subAmount = Number(subscription.amount) || 0
 
@@ -649,8 +650,7 @@ export function LpSubscriptionsRedemptionsScreen({
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="USD">USD</SelectItem>
-                          <SelectItem value="GBP">GBP</SelectItem>
+                          <SelectItem value={subscription.currency || "USD"}>{subscription.currency || "USD"}</SelectItem>
                         </SelectContent>
                       </Select>
                       <Input

@@ -37,6 +37,7 @@ import {
 import { useLpFundScope, useLpPortal } from "@/components/lp-portal/lp-portal-context"
 import { lpPortalApi } from "@/lib/api/lp-portal-api"
 import { createIdempotencyKey, downloadBlob, formatMoneyCompact, parseDecimal } from "@/lib/lp-portal/format"
+import { titleCaseEnum } from "@/lib/lp-portal/mappers"
 import { resolveDocumentHref } from "@/lib/lp-portal/navigation"
 import { useLpCapitalCallDetail, useLpCapitalCalls, useLpDistributions } from "@/lib/lp-portal/hooks"
 import { cn } from "@/lib/utils"
@@ -459,7 +460,7 @@ export function LpCapitalActivityScreen({
   const timelineSteps = React.useMemo(() => {
     if (callDetail?.timeline?.length) {
       return callDetail.timeline.map((step) => ({
-        label: step.code.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        label: titleCaseEnum(step.code),
         detail: step.at ? new Date(step.at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : step.completed ? "Complete" : "Pending",
         state: step.completed ? ("complete" as const) : ("pending" as const),
       }))
@@ -516,6 +517,17 @@ export function LpCapitalActivityScreen({
           View and manage capital calls and distributions across your investments.
         </p>
       </div>
+
+      {error ? (
+        // One of the two lists failed while the other loaded: say so instead of showing an empty
+        // table that looks like "no capital calls".
+        <div role="alert" className="flex items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <span>{error}</span>
+          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => { void reloadCalls(); void reloadDistributions() }}>
+            Try Again
+          </Button>
+        </div>
+      ) : null}
 
       <div className="border-b border-slate-200">
         <div className="flex gap-6">

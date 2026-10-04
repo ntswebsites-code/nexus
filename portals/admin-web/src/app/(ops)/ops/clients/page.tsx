@@ -256,6 +256,7 @@ function Client360({ id, canEdit, onChanged }: { id: string; canEdit: boolean; o
                             <td>{a.currency}</td>
                             <td><Tone value={a.status} /></td>
                             <td>
+                              {a.status === 'PENDING_APPROVAL' && <ActionButton label="Approve" primary requires="cash.approve" confirm="Approve this cash account? A different person from the one who prepared it must approve." onRun={(k) => rawPost(`/api/v1/cash-accounts/${a.id}/approve`, {}, k)} onDone={done} />}
                               {canEdit && a.status === 'DRAFT' && <ActionButton label="Submit for approval" onRun={(k) => rawPost(`/api/v1/cash-accounts/${a.id}/submit`, {}, k)} onDone={done} />}
                             </td>
                           </tr>

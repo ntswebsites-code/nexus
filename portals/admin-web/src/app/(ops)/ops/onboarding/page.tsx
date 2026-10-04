@@ -333,6 +333,7 @@ function RiskFactorsCard() {
   return (
     <Card title="Risk scoring configuration">
       <p className="ops-muted">Points added to a case score for each factor that applies. A score at or above the High threshold rates the case High, at or above Medium rates it Medium. Changes apply to ratings proposed from now on.</p>
+      {!canEdit && <p className="ops-muted">Needs onboarding.approve to change the scoring.</p>}
       <Loaded res={res} what="risk factors">
         {(r) => (
           <>
@@ -367,7 +368,7 @@ function RiskFactorsCard() {
                         <td>{f.defaultPoints ?? '-'}</td>
                         <td>{f.enabled ? 'Yes' : 'No'}</td>
                         <td>{f.updatedBy ?? '-'}</td>
-                        <td>{canEdit && <button className="ops-btn small" type="button" onClick={() => setEdit({ key: f.key, label: f.label, points: f.points, enabled: f.enabled, threshold: t === null ? null : Number(t), isThreshold: false })}>Edit</button>}</td>
+                        <td><button className="ops-btn small" type="button" disabled={!canEdit} title={canEdit ? undefined : 'Needs the onboarding.approve permission'} onClick={() => setEdit({ key: f.key, label: f.label, points: f.points, enabled: f.enabled, threshold: t === null ? null : Number(t), isThreshold: false })}>Edit</button></td>
                       </tr>
                     );
                   })}

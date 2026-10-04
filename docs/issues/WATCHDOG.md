@@ -22,3 +22,4 @@ Workflow run: wf_2828facf-e30 (qa-fixes)
 - 2026-10-03 20:11 | F4 | result recorded, committed 967de92; F5 started | F3,F5 in progress, no failures, no action
 - 2026-10-03 20:23 | F3,F5 | F5 committed 86f10d6, F3 c0ed442; wave 1 complete 5/5; F6,F7 started | (d) note: F2/F3 report backend tsc errors only in seed-research-privates.ts (nextRef missing, F5 file) and company-web type-check against older portal-kit (worktree layout); verify after merge. No relaunch.
 - 2026-10-03 20:32 | F6,F7 | committed a4f85c1, eb13203; F8,F9 started (base 37668ec) | no failures, no action
+- 2026-10-03 20:46 | FINAL | F8 2158bd7, F9 8352c2b committed; journal 9/9 results, 0 failed, no relaunches needed. Commits: F1 184c74c F2 6837f0a F3 c0ed442 F4 967de92 F5 86f10d6 F6 a4f85c1 F7 eb13203 | verify portal builds + seed-research-privates nextRef tsc after merge

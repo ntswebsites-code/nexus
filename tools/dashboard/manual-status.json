@@ -2,7 +2,28 @@
   "notes": [],
   "tasks": {},
   "addTasks": [],
-  "issues": {},
+  "issues": {
+    "ADB-012": {
+      "state": "partially_fixed",
+      "stateNote": "mechanism and most call sites done; /ops/clients drawer actions and New client still hidden without clients.edit (FE-admin-b.md)"
+    },
+    "ADB-019": {
+      "state": "partially_fixed",
+      "stateNote": "rules run and JSON text fixed; 12 securities still lack ISIN (no verified real ISINs)"
+    },
+    "ADB-028": {
+      "state": "partially_fixed",
+      "stateNote": "(a) and (c) fixed; (b)(d)(e) works as reported or dev-mode behaviour"
+    },
+    "LPC-024": {
+      "state": "partially_fixed",
+      "stateNote": "fixed except legacy Signature required actions (needs esign/seed owner)"
+    },
+    "INO-029": {
+      "state": "needs_decision",
+      "stateNote": "resume returns to step 1 not fixed, declared low value; owner decision"
+    }
+  },
   "agents": {},
   "stages": {},
   "project": {}

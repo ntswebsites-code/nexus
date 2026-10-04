@@ -152,6 +152,66 @@ function parseFixes(text, group) {
   return out;
 }
 
+// ---- issue-state derivation from FIXES-F*.md (first pass + "Rework round"), REVIEW tables and test-run records ----
+function expandIds(s) {
+  const ids = []; const re = /\b(ADA|ADB|LPC|INO)-(\d{3})((?:\s*\/\s*\d{3})*)/g; let m;
+  while ((m = re.exec(s || ''))) { ids.push(`${m[1]}-${m[2]}`); for (const n of (m[3].match(/\d{3}/g) || [])) ids.push(`${m[1]}-${n}`); }
+  return ids;
+}
+function classifyFix(s) {
+  s = String(s || '').toLowerCase();
+  const pats = [['partial', /mostly|partly|partial/], ['not-a-defect', /not[- ]a[- ]defect/], ['not-fixed', /not[- ]fixed/], ['fixed', /fixed/], ['needs-other', /needs[- ]other/]];
+  let best = null;
+  for (const [k, re] of pats) { const m = s.match(re); if (m && (!best || m.index < best.i)) best = { k, i: m.index }; }
+  return best ? best.k : null;
+}
+const REWORK_NEGATIVE = /\bnot done\b|\bremains?\b|\bleft\b|\bnot fixed\b|\bnot touched\b|\bnot edited\b|\bnot mine\b|\bnot browser|\(not run\)|\bneeds e2e/i;
+// Reads one FIXES-F*.md into facts: base[id] = {status, notDone}; rework[id] = [{negative}]
+function collectFixFacts(text, facts) {
+  let rework = false; let cur = null;
+  const flush = () => {
+    if (!cur) return;
+    const all = [cur.heading, ...cur.body].join('\n');
+    for (const id of cur.ids) {
+      if (!cur.rework) {
+        const st = classifyFix(cur.statusLine != null ? cur.statusLine : cur.heading) || (/\bchang|replaced|added|\bnow\b/i.test(all) ? 'fixed' : null);
+        if (!facts.base[id]) facts.base[id] = { status: st, notDone: /\bnot done\b|not built|no api/i.test(all) };
+      } else (facts.rework[id] ||= []).push({ negative: REWORK_NEGATIVE.test(all) });
+    }
+    cur = null;
+  };
+  for (const raw of String(text || '').split(/\r?\n/)) {
+    if (/^#{1,4}\s+rework round/i.test(raw)) { flush(); rework = true; continue; }
+    const h = raw.match(/^#{2,4}\s+(.*)$/); const bl = rework ? raw.match(/^[-*]\s+(.*)$/) : null;
+    const lead = h ? h[1] : bl ? bl[1] : null;
+    if (lead !== null) {
+      const c = lead.indexOf(':'); const idsText = rework ? lead.slice(0, c > 0 && c < 160 ? c : 160) : lead;
+      const ids = expandIds(idsText);
+      if (ids.length && (rework || /^(?:ISS-)?(?:ADA|ADB|LPC|INO)-\d{3}/.test(lead))) { flush(); cur = { ids, heading: lead, body: [], rework, statusLine: null }; continue; }
+      if (h) { flush(); continue; }
+    }
+    if (cur) { cur.body.push(raw); const sm = raw.match(/^[-*\s]*\**status\**\s*:\s*(.*)$/i); if (sm && !cur.rework) cur.statusLine = sm[1]; }
+  }
+  flush();
+}
+// "ADB-001, 002, 003 ... ADA-006 (note), ADA-007 and ADA-009": ids with bare numbers carry the previous prefix; "028(c)" sub-items are skipped
+function scanIdList(s) {
+  s = String(s || '').replace(/\b(?:(?:ADA|ADB|LPC|INO)-)?\d{3}\(\w\)/g, ' ').replace(/\([^)]*\)/g, ' ');
+  const ids = []; let pre = null; const re = /\b(ADA|ADB|LPC|INO)-(\d{3})\b|(?<![\w-])(\d{3})\b/g; let m;
+  while ((m = re.exec(s))) { if (m[1]) { pre = m[1]; ids.push(`${m[1]}-${m[2]}`); } else if (pre) ids.push(`${pre}-${m[3]}`); }
+  return ids;
+}
+function parseTestRun(text, name) {
+  const ids = new Set(); const t = String(text || '');
+  const passing = /\b\d+ passed, 0 failed\b|all passing/i.test(t);
+  if (/^FE-/.test(name) && passing) {
+    const sec = t.match(/##\s+Issue ids with regression tests\s*\r?\n([\s\S]*?)(?=\r?\n##\s|$)/i);
+    if (sec) scanIdList(sec[1]).forEach((i) => ids.add(i));
+  }
+  if (/^TRIAGE-/.test(name)) for (const l of t.split(/\r?\n/)) if (/\b0 fail/i.test(l)) expandIds(l).forEach((i) => ids.add(i));
+  return ids;
+}
+
 function parseRetest(text, file, mtime) {
   const hist = [];
   for (const raw of (text || '').split(/\r?\n/)) {
@@ -301,11 +361,16 @@ async function build() {
     addSource(`docs/issues/${f.name} (newest: ${f.where})`, f.path);
     const text = readText(f.path) || ''; const g = (f.name.match(/F\d+/) || [null])[0];
     const perIssue = {};
-    for (const l of text.split(/\r?\n/)) { const m = l.match(/\b((?:ADA|ADB|LPC|INO)-\d{3})\b.*?\b(OK|REWORK)\b/); if (m) perIssue[m[1]] = m[2]; }
+    const flags = {};
+    for (const l of text.split(/\r?\n/)) {
+      const tb = l.match(/^\|([^|]*)\|([^|]*)\|/);
+      if (tb && expandIds(tb[1]).length) { const rw = /REWORK/.test(tb[2]); for (const id of expandIds(tb[1])) { perIssue[id] = rw ? 'REWORK' : 'OK'; flags[id] = { rework: rw, partial: /partial/i.test(tb[2]) }; } continue; }
+      const m = l.match(/\b((?:ADA|ADB|LPC|INO)-\d{3})\b.*?\b(OK|REWORK)\b/); if (m && !perIssue[m[1]]) perIssue[m[1]] = m[2];
+    }
     const all = [...text.matchAll(/\b(REWORK|OK)\b/g)].map((m) => m[1]);
     const vm = text.match(/verdict\W+(OK|REWORK)\b/i);
     const verdict = vm ? vm[1].toUpperCase() : all.includes('REWORK') ? 'REWORK' : all.length ? 'OK' : 'unknown';
-    reviews.push({ group: g, file: f.name, where: f.where, verdict, perIssue, updatedAt: iso(f.mtimeMs), excerpt: text.trim().slice(0, 1200) });
+    reviews.push({ group: g, file: f.name, where: f.where, verdict, perIssue, flags, updatedAt: iso(f.mtimeMs), excerpt: text.trim().slice(0, 1200) });
   }
   const retestAll = [];
   for (const f of newestFiles(/^RETEST(-.*)?\.md$/)) { addSource(`docs/issues/${f.name} (newest: ${f.where})`, f.path); retestAll.push(...parseRetest(readText(f.path), f.name, f.mtimeMs)); }
@@ -347,6 +412,18 @@ async function build() {
     workflows.push({ id: wf, journalModifiedAt: iso(js.mtimeMs), agents: wfAgents.length, launchFailures, active: wfAgents.filter((x) => x.status === 'active').length });
   }
 
+  // ----- issue facts: FIXES (main checkout first, then worktree copies), rework sections, supervisor flags, automated test records -----
+  function allCopies(re, sub) {
+    const out = []; const dirs = [{ dir: D(sub), where: 'main checkout' }, ...worktrees.filter((w) => !w.isMain).map((w) => ({ dir: path.join(w.path, ...sub.split('/')), where: w.name }))];
+    for (const { dir, where } of dirs) { let names = []; try { names = fs.readdirSync(dir); } catch { continue; } for (const n of names) if (re.test(n)) { const p = path.join(dir, n); const st = stat(p); if (st) out.push({ name: n, path: p, where }); } }
+    return out;
+  }
+  const facts = { base: {}, rework: {} };
+  for (const f of allCopies(/^FIXES-F\d+\.md$/, 'docs/issues')) collectFixFacts(readText(f.path), facts);
+  const autoPass = {};
+  for (const f of allCopies(/^(FE|TRIAGE)-.*\.md$/, 'docs/test-runs')) { addSource(`docs/test-runs/${f.name} (${f.where})`, f.path); for (const id of parseTestRun(readText(f.path), f.name)) (autoPass[id] ||= new Set()).add(f.name); }
+  const reviewFlag = (id) => { for (const r of reviews) if (r.flags && r.flags[id]) return r.flags[id]; return null; };
+
   // ----- issue state derivation -----
   const retestByIssue = {}; for (const r of retestAll) (retestByIssue[r.id] ||= []).push(r);
   for (const i of issues) {
@@ -357,13 +434,22 @@ async function build() {
     const last = hist[hist.length - 1];
     i.reviewVerdict = reviews.find((r) => r.perIssue[i.id])?.perIssue[i.id] || null;
     let state = 'open';
-    if (fx && fx.status === 'fixed') state = 'fixed_awaiting_retest';
-    else if (fx && fx.status === 'not-a-defect') state = 'not_a_defect';
+    const fact = facts.base[i.id]; const rwk = facts.rework[i.id] || []; const reworked = rwk.some((e) => !e.negative); const rf = reviewFlag(i.id);
+    let fstat = fact ? fact.status : (fx ? fx.status : null); const notes = [];
+    if ((fstat === 'needs-other' || fstat === 'partial') && reworked) { fstat = 'fixed'; notes.push('resolved in rework round'); }
+    if (fstat === 'fixed' && rf && rf.partial && !(reworked && !(fact && fact.notDone))) { fstat = 'partial'; notes.push('supervisor: partial'); }
+    if (rf && rf.rework) notes.push(reworked ? 'supervisor REWORK, rework round recorded' : 'supervisor REWORK pending');
+    if (fstat === 'fixed') { if (autoPass[i.id]) { state = 'passed_automated'; notes.push('passing automated test: ' + [...autoPass[i.id]].join(', ')); } else state = 'fixed_awaiting_retest'; }
+    else if (fstat === 'partial') state = 'partially_fixed';
+    else if (fstat === 'not-a-defect') state = 'not_a_defect';
+    i.stateNote = notes.join('; ') || null;
+    if (false && fx && fx.status === 'fixed') state = 'fixed_awaiting_retest';
+    // (legacy status mapping replaced by the facts-based derivation above)
     if (last) {
       const fixNewer = fx && fx.status === 'fixed' && fx.mtime && last.at && fx.mtime > last.at;
       if (last.result === 'PASS') state = 'passed'; else if (!fixNewer) state = 'failed';
     }
-    i.state = state; i.fixStatus = fx ? fx.status : null;
+    i.state = state; i.fixStatus = fstat || (fx ? fx.status : null);
     i.rootCause = fx ? fx.rootCause : null; i.fixFiles = fx ? fx.files : []; i.howToRetest = fx ? fx.howToRetest : null;
     i.updatedAt = iso(Math.max(ms(fx?.mtime), ms(last?.at)) || null);
   }
@@ -399,7 +485,7 @@ async function build() {
       const fixedN = gi.filter((i) => i.fix && i.fix.status).length;
       let state = stateFromText(row.State);
       if (gi.length) {
-        const resolved = gi.filter((i) => ['passed', 'not_a_defect'].includes(i.state)).length;
+        const resolved = gi.filter((i) => ['passed', 'passed_automated', 'not_a_defect'].includes(i.state)).length;
         if (counts('failed')) state = 'failed';
         else if (resolved === gi.length) state = 'passed';
         else if (gi.every((i) => i.state !== 'open')) state = 'awaiting_retest';
@@ -409,7 +495,7 @@ async function build() {
       const t = addTask({ id: `A-${gid}`, title: `${gid} ${label}`, description: `${groups[gid]?.title || label}. Issues: ${row.Issues}. Owns: ${groups[gid]?.owns || 'see FIX-GROUPS.md'}`.slice(0, 1500),
         stage: 'qa-fix', workstream: 'A', agent: ag.id, state, issueIds: gi.map((i) => i.id), files: wt ? wt.files.slice(0, 300) : [],
         startedAt: ag.startedAt, updatedAt: iso(Math.max(ms(ag.lastActivityAt), ms(ag.lastCommitAt), ms(boardTime)) || null),
-        verification: gi.length ? `${fixedN} of ${gi.length} issues have a FIXES entry; ${counts('passed')} re-tested PASS; ${counts('failed')} FAIL; ${counts('not_a_defect')} not a defect` : 'no issues mapped from FIX-GROUPS.md',
+        verification: gi.length ? `${fixedN} of ${gi.length} issues have a FIXES entry; ${counts('passed') + counts('passed_automated')} passed (retest or automated test); ${counts('failed')} FAIL; ${counts('not_a_defect')} not a defect` : 'no issues mapped from FIX-GROUPS.md',
         source: 'STATUS-BOARD.md + FIXES/RETEST files', boardState: row.State });
       ag.currentTask = t.id; ag.completed = gi.filter((i) => i.fix).map((i) => i.id); ag.queued = gi.filter((i) => !i.fix).map((i) => i.id);
     } else {

@@ -53,15 +53,22 @@ export function useLoad<T>(fn: () => Promise<T>, deps: unknown[] = []) {
   const [loading, setLoading] = useState(true);
   const fnRef = useRef(fn);
   fnRef.current = fn;
+  const seq = useRef(0);
   const reload = useCallback(async () => {
+    // Only the latest request may update the screen: a slower, older response (for example the unfiltered list
+    // fetched before a ?status= filter was applied) must not overwrite the newer one.
+    const mine = ++seq.current;
     setLoading(true);
     try {
-      setData(await fnRef.current());
+      const result = await fnRef.current();
+      if (mine !== seq.current) return;
+      setData(result);
       setError(null);
     } catch (e) {
+      if (mine !== seq.current) return;
       setError(errorText(e));
     } finally {
-      setLoading(false);
+      if (mine === seq.current) setLoading(false);
     }
   }, []);
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -167,6 +174,14 @@ const tz = 'Africa/Harare';
 export const fmtDateTime = (iso: string) => new Date(iso).toLocaleString('en-GB', { timeZone: tz, dateStyle: 'medium', timeStyle: 'short' });
 export const fmtDate = (iso: string) => new Date(iso.length === 10 ? `${iso}T00:00:00Z` : iso).toLocaleDateString('en-GB', { timeZone: iso.length === 10 ? 'UTC' : tz, dateStyle: 'medium' });
 export const fmtNum = (v: string | number, dp = 2) => Number(v).toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+/** Quantities keep every decimal the API sent (up to 8) and are grouped in thousands; never rounded to a whole number. */
+export function fmtQty(v: string | number): string {
+  const [int = '0', frac = ''] = String(v).trim().split('.');
+  const neg = int.startsWith('-');
+  const grouped = int.replace('-', '').replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  const f = frac.replace(/0+$/, '');
+  return `${neg ? '-' : ''}${grouped}${f ? `.${f}` : ''}`;
+}
 export const todayIso = () => new Date(Date.now() + 2 * 3_600_000).toISOString().slice(0, 10);
 
 /** Downloads text as a file from the browser (client-side templates). */

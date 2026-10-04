@@ -49,15 +49,16 @@ const EMAIL_PREF_ROWS: Array<{ label: string; emailKeys: EmailPrefKey[]; inAppKe
   { label: "Requests & messages", emailKeys: ["emailMessages"], inAppKeys: ["inAppMessages"] },
 ]
 
+// The backend accepts LATEST | LATEST_FINAL | QUARTER_END (settings.routes.ts AS_OF).
 function mapAsOfFromApi(api?: string): string {
-  if (api === "LATEST_ANY") return "latest-any"
-  if (api === "PRIOR_MONTH_END") return "month-end"
-  return "latest-final"
+  if (api === "LATEST_FINAL") return "latest-final"
+  if (api === "QUARTER_END") return "quarter-end"
+  return "latest-any"
 }
 
 function mapAsOfToApi(ui: string): string {
-  if (ui === "latest-any") return "LATEST_ANY"
-  if (ui === "month-end") return "PRIOR_MONTH_END"
+  if (ui === "latest-final") return "LATEST_FINAL"
+  if (ui === "quarter-end") return "QUARTER_END"
   return "LATEST"
 }
 
@@ -337,9 +338,7 @@ export function LpSettingsScreen() {
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="USD">USD</SelectItem>
-                    <SelectItem value="EUR">EUR</SelectItem>
-                    <SelectItem value="GBP">GBP</SelectItem>
-                    <SelectItem value="ZAR">ZAR</SelectItem>
+                    <SelectItem value="ZIG">ZIG</SelectItem>
                   </SelectContent>
                 </Select>
                 <p className="mt-1.5 flex items-start gap-1.5 text-[11px] leading-4 text-[#9ca3af]">
@@ -358,7 +357,7 @@ export function LpSettingsScreen() {
                   <SelectContent>
                     <SelectItem value="latest-final">Latest FINAL valuation</SelectItem>
                     <SelectItem value="latest-any">Latest available (incl. provisional)</SelectItem>
-                    <SelectItem value="month-end">Prior month-end FINAL</SelectItem>
+                    <SelectItem value="quarter-end">Latest quarter-end</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

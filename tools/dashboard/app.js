@@ -8,11 +8,11 @@
   const NOW_OFFSET = (() => { const v = qs.get('now'); if (!v) return 0; if (/^[+-]?\d+(\.\d+)?$/.test(v)) return Number(v) * 60000; const t = Date.parse(v); return t ? t - Date.now() : 0; })();
   const now = () => Date.now() + NOW_OFFSET;
 
-  const STATE_LABEL = { not_started: 'Not started', in_progress: 'In progress', awaiting_retest: 'Awaiting re-test', passed: 'Passed', failed: 'Failed', blocked: 'Blocked' };
+  const STATE_LABEL = { not_started: 'Not started', in_progress: 'In progress', awaiting_retest: 'Awaiting verification', passed: 'Passed', failed: 'Failed', blocked: 'Blocked' };
   const STATE_ORDER = { failed: 0, blocked: 1, in_progress: 2, awaiting_retest: 3, not_started: 4, passed: 5 };
-  const ISSUE_STATE_LABEL = { open: 'Open', fixed_awaiting_retest: 'Fixed, awaiting re-test', passed: 'Passed', failed: 'Re-test failed', not_a_defect: 'Not a defect' };
-  const ISSUE_STATE_CLASS = { open: 'not_started', fixed_awaiting_retest: 'awaiting_retest', passed: 'passed', failed: 'failed', not_a_defect: 'not_started' };
-  const ISSUE_STATE_ORDER = { failed: 0, open: 1, fixed_awaiting_retest: 2, not_a_defect: 3, passed: 4 };
+  const ISSUE_STATE_LABEL = { open: 'Open', needs_decision: 'Needs decision', partially_fixed: 'Partially fixed', fixed_awaiting_retest: 'Fixed, awaiting verification', passed_automated: 'Passed automated test', passed: 'Passed', failed: 'Verification failed', not_a_defect: 'Not a defect' };
+  const ISSUE_STATE_CLASS = { open: 'not_started', needs_decision: 'not_started', partially_fixed: 'in_progress', fixed_awaiting_retest: 'awaiting_retest', passed_automated: 'passed', passed: 'passed', failed: 'failed', not_a_defect: 'not_started' };
+  const ISSUE_STATE_ORDER = { failed: 0, open: 1, needs_decision: 2, partially_fixed: 3, fixed_awaiting_retest: 4, not_a_defect: 5, passed_automated: 6, passed: 7 };
   const SEV_ORDER = { critical: 0, major: 1, minor: 2 };
   const AGENT_LABEL = { active: 'Active', done: 'Done', failed: 'Failed', queued: 'Queued', stalled: 'Stalled' };
   const AGENT_CLASS = { active: 'in_progress', done: 'passed', failed: 'failed', queued: 'not_started', stalled: 'blocked' };
@@ -93,7 +93,7 @@
     const key = p.get('sort') || 'severity'; const dir = p.get('dir') || 'asc';
     rows = sortRows(rows, key, dir, { severity: (i) => SEV_ORDER[i.severity] * 10 + ISSUE_STATE_ORDER[i.state], state: (i) => ISSUE_STATE_ORDER[i.state], title: (i) => i.title.toLowerCase(), group: (i) => i.group || '', updated: (i) => i.updatedAt || '', id: (i) => i.id, default: (i) => SEV_ORDER[i.severity] });
     const sevO = [['critical', 'Critical'], ['major', 'Major'], ['minor', 'Minor']];
-    const stO = [['open_all', 'Open or re-test failed'], ...Object.keys(ISSUE_STATE_LABEL).map((s) => [s, ISSUE_STATE_LABEL[s]])];
+    const stO = [['open_all', 'Open or verification failed'], ...Object.keys(ISSUE_STATE_LABEL).map((s) => [s, ISSUE_STATE_LABEL[s]])];
     const bar = `<div class="filters" role="search" aria-label="Filter issues">${select('sev', 'Severity', sevO, f.sev)}${select('istate', 'Issue state', stO, f.istate)}${select('group', 'Fix group', uniq(issues.map((i) => i.group)).map((g) => [g, g]), f.group)}${search(r)}${reset(r)}</div>`;
     const body = rows.map((i) => `<tr data-href="#/issue/${encodeURIComponent(i.id)}"><td><a class="t" href="#/issue/${encodeURIComponent(i.id)}">${esc(i.id)}</a></td><td>${esc(i.title)}</td><td>${sevBadge(i.severity)}</td><td>${issueBadge(i.state)}</td><td>${i.group ? link('#/task/A-' + i.group, i.group) : unknown}</td><td>${timeCell(i.updatedAt)}</td></tr>`).join('');
     return `${bar}<div class="count" role="status">${rows.length} of ${issues.length} issues</div><div class="tablewrap"><table><thead><tr>${th('Issue', 'id', r, 'severity')}${th('Title', 'title', r, 'severity')}${th('Severity', 'severity', r, 'severity')}${th('State', 'state', r, 'severity')}${th('Group', 'group', r, 'severity')}${th('Updated', 'updated', r, 'severity')}</tr></thead><tbody>${body}</tbody></table>${rows.length ? '' : '<div class="empty">No issues match these filters.</div>'}</div>`;

@@ -2,7 +2,7 @@
 
 import { Badge, Card, Empty, Loading, PageHead, Stat } from '@/components/ui';
 import { can, useMe } from '@/components/Shell';
-import { custodian, fmtDate, fmtDateTime, fmtNum, useLoad, type DayEnd, type Execution } from '@/lib/api';
+import { custodian, fmtDate, fmtDateTime, fmtNum, fmtQty, useLoad, type DayEnd, type Execution } from '@/lib/api';
 
 interface Dashboard {
   counterparty: { ref: string; name: string; accounts: string[] };
@@ -79,7 +79,7 @@ export default function DashboardPage() {
                     <td>
                       {e.side} {e.ticker}
                     </td>
-                    <td className="num">{fmtNum(e.quantity, 0)}</td>
+                    <td className="num">{fmtQty(e.quantity)}</td>
                     <td className="num">
                       {fmtNum(e.price, 4)} {e.currency}
                     </td>

@@ -46,6 +46,7 @@ a{color:var(--accent)}
 .field input:focus,.field select:focus,.field textarea:focus,.row input:focus{outline:2px solid rgba(31,94,255,.35);border-color:var(--accent)}
 .has-error input,.has-error select,.has-error textarea{border-color:var(--bad)}
 .err{color:var(--bad);font-size:12px;font-weight:500;margin:4px 0}
+.field small.warn{color:var(--warn);font-size:12px;font-weight:500;margin:4px 0}
 .alert{border-radius:12px;padding:11px 14px;margin:0 0 14px;font-size:13px}
 .alert.info{background:#eef3ff;color:#1b3a8a}.alert.ok{background:#e8f6f1;color:#0d5f49}.alert.error{background:#fdecef;color:#8d2336}
 .btn{border:1px solid var(--line);background:#fff;border-radius:10px;padding:9px 16px;font-weight:600;text-decoration:none;color:var(--ink);display:inline-block}
