@@ -83,6 +83,10 @@ No browser testing (typecheck, builds and API scripts only) · long tasks on the
 - Verified without a browser: API typecheck, 5 portal builds, 39 API flow scripts on the UAT host (all pass), 1,447 frontend tests (all pass).
 - Not yet deployed: uat-rc10 (round 4 + fixes + tests). Not yet done: turn live-data flags on in UAT.
 
+## 6c. Round 6 (remaining-feature packages S1-S8) - done 2026-10-04
+
+S1 operations controls, S2 reconciliation and cash depth, S3 import/export framework, S4 research/private markets/portfolios/IBOR, S5 orders/valuation/scenarios, S6 LP portal remainder, S7 investee and deals (API only: company-web UI is still the V8 mock runtime for these), S8 platform tooling. Final verification: API tsc clean, 5 portal builds OK, 1,612 frontend tests pass, 48 API flow scripts pass (3,729 checks). NOT done: deploy uat-rc10, live-data flags on UAT, MinIO switch, real vendors. See docs/HANDOFF-NEXT-AGENT.md.
+
 ## 7. Round 4 outstanding feature packages (delegated)
 
 | Pkg | Scope | State |
