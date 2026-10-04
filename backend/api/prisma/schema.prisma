@@ -5795,3 +5795,105 @@ model ReconCounterpartImport {
   @@map("counterpart_imports")
 }
 // ---- end ReconCashDepth ----
+
+// ---- ImportExport ----
+// Package S3: the shared import framework (preview, dry-run, per-row errors, audited commit) and the staff ledger view
+// with immutable FX stamps and maker-checker corrections (build-plan S3 and S10). Logical references only.
+
+/// One uploaded import file and what became of it. PREVIEWED (nothing written yet) -> COMMITTED, or REJECTED (file-level
+/// failure such as a control-total mismatch; it can never be committed). The file itself is kept in the encrypted store.
+model ImportBatch {
+  id          String    @id @default(uuid()) @db.Char(36)
+  /// IMP-000001 ...
+  ref         String    @unique @db.VarChar(16)
+  /// orders | margin-statement | risk-positions | risk-limits | pm-funds | pm-commitments | pm-valuations
+  kind        String    @db.VarChar(24)
+  filename    String    @db.VarChar(200)
+  /// csv | xlsx | json
+  format      String    @db.VarChar(8)
+  sha256      String    @db.Char(64)
+  fileId      String?   @map("file_id") @db.Char(36)
+  status      String    @default("PREVIEWED") @db.VarChar(12)
+  rowCount    Int       @map("row_count")
+  validCount  Int       @map("valid_count")
+  errorCount  Int       @map("error_count")
+  /// Control totals supplied with the file and what the rows add up to.
+  controlJson Json?     @map("control_json")
+  /// Row errors (first 200) and the first rows as validated, for the preview screen.
+  errorsJson  Json?     @map("errors_json")
+  previewJson Json?     @map("preview_json")
+  resultJson  Json?     @map("result_json")
+  createdBy   String    @map("created_by") @db.Char(36)
+  createdAt   DateTime  @default(now()) @map("created_at")
+  committedBy String?   @map("committed_by") @db.Char(36)
+  committedAt DateTime? @map("committed_at")
+
+  @@index([kind, createdAt])
+  @@index([kind, sha256])
+  @@map("import_batches")
+}
+
+/// FX stamp on one derived ledger entry: the rate and rate date used to state the amount in the reporting currency.
+/// Values never change; a correction adds a higher `version` and marks the older one SUPERSEDED.
+model LedgerFxStamp {
+  id                String   @id @default(uuid()) @db.Char(36)
+  entryId           String   @map("entry_id") @db.VarChar(80)
+  entryType         String   @map("entry_type") @db.VarChar(32)
+  clientId          String   @map("client_id") @db.Char(36)
+  fundId            String   @map("fund_id") @db.Char(36)
+  txnDate           DateTime @map("txn_date") @db.Date
+  currency          String   @db.Char(3)
+  reportingCurrency String   @map("reporting_currency") @db.Char(3)
+  rate              Decimal  @db.Decimal(20, 10)
+  rateDate          DateTime @map("rate_date") @db.Date
+  /// FX_RATES (looked up) | CORRECTION (approved restamp)
+  source            String   @default("FX_RATES") @db.VarChar(16)
+  amount            Decimal  @db.Decimal(20, 4)
+  reportingAmount   Decimal  @map("reporting_amount") @db.Decimal(20, 4)
+  version           Int      @default(1)
+  /// ACTIVE | SUPERSEDED
+  status            String   @default("ACTIVE") @db.VarChar(12)
+  correctionId      String?  @map("correction_id") @db.Char(36)
+  stampedBy         String?  @map("stamped_by") @db.Char(36)
+  stampedAt         DateTime @default(now()) @map("stamped_at")
+
+  @@unique([entryId, reportingCurrency, version])
+  @@index([clientId, fundId])
+  @@index([txnDate])
+  @@map("ledger_fx_stamps")
+}
+
+/// A correction to the ledger view, never an edit: FX_RESTAMP replaces the active stamp with one at a chosen rate;
+/// AMOUNT_ADJUSTMENT adds a separate correcting line. Proposed by a maker, decided by a different person.
+model LedgerCorrection {
+  id                String    @id @default(uuid()) @db.Char(36)
+  /// LCR-0001 ...
+  ref               String    @unique @db.VarChar(16)
+  entryId           String    @map("entry_id") @db.VarChar(80)
+  entryType         String    @map("entry_type") @db.VarChar(32)
+  clientId          String    @map("client_id") @db.Char(36)
+  fundId            String    @map("fund_id") @db.Char(36)
+  /// FX_RESTAMP | AMOUNT_ADJUSTMENT
+  kind              String    @db.VarChar(20)
+  currency          String    @db.Char(3)
+  reportingCurrency String    @default("USD") @map("reporting_currency") @db.Char(3)
+  newRate           Decimal?  @map("new_rate") @db.Decimal(20, 10)
+  newRateDate       DateTime? @map("new_rate_date") @db.Date
+  /// Signed amount in the entry currency (AMOUNT_ADJUSTMENT).
+  adjustmentAmount  Decimal?  @map("adjustment_amount") @db.Decimal(20, 4)
+  reason            String    @db.VarChar(500)
+  /// PENDING_APPROVAL | APPROVED | REJECTED
+  status            String    @default("PENDING_APPROVAL") @db.VarChar(20)
+  makerId           String    @map("maker_id") @db.Char(36)
+  checkerId         String?   @map("checker_id") @db.Char(36)
+  decidedAt         DateTime? @map("decided_at")
+  decisionNote      String?   @map("decision_note") @db.VarChar(500)
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+  version           Int       @default(1)
+
+  @@index([entryId])
+  @@index([status, createdAt])
+  @@map("ledger_corrections")
+}
+// ---- end ImportExport ----

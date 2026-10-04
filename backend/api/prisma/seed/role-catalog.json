@@ -53,7 +53,9 @@
         "model.approve",
         "esign.view",
         "esign.manage",
-        "esign.void"
+        "esign.void",
+        "ledger.view",
+        "ledger.approve"
       ]
     },
     {
@@ -178,7 +180,8 @@
         "model.approve",
         "esign.view",
         "esign.manage",
-        "esign.void"
+        "esign.void",
+        "ledger.view"
       ]
     },
     {
@@ -224,7 +227,9 @@
         "financing.manage",
         "data.manage",
         "esign.view",
-        "esign.manage"
+        "esign.manage",
+        "ledger.view",
+        "ledger.correct"
       ]
     },
     {
@@ -271,7 +276,9 @@
         "private.mark.approve",
         "data.manage",
         "reports.submit",
-        "esign.view"
+        "esign.view",
+        "ledger.view",
+        "ledger.correct"
       ]
     },
     {
@@ -323,7 +330,8 @@
         "dealing.view",
         "term_sheets.view",
         "custodian.view",
-        "esign.view"
+        "esign.view",
+        "ledger.view"
       ]
     },
     {

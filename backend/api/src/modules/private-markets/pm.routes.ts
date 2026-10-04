@@ -17,6 +17,7 @@ import { carryingValue, postPmCashflow, postPmMark } from './pm.postings';
 import { actorName } from '../../lib/http';
 import { storeFile } from '../../lib/storage';
 import { uploadFiles, uploadedFiles } from '../../middleware/upload';
+import { sendTable } from '../../lib/tabular';
 import { resolveFxRate } from '../portfolio/portfolio.service';
 
 /**
@@ -268,6 +269,60 @@ privateMarketsRoutes.get('/summary', ...canView, validateQuery(z.object({ portfo
       upcomingCashflows: upcoming.map((f) => ({ ...flowView(f, usr), commitmentRef: cmap.get(f.commitmentId)?.ref ?? null, fundName: cmap.get(f.commitmentId)?.fundName ?? null, portfolioRef: cmap.get(f.commitmentId)?.portfolioRef ?? null })),
     },
   });
+});
+
+// ================================================================ look-through (FR-PM-003)
+
+/**
+ * The underlying exposures behind the private book: one row per active commitment, stated in the report currency, with
+ * its share of total private NAV. The screen and the CSV/XLSX export both read this function, so the file's rows are the
+ * table's rows. A fund with no FX rate to the report currency is listed with blank converted figures and counted in
+ * `fxMissing` rather than silently dropped.
+ */
+async function lookThrough(portfolioId?: string) {
+  const pid = await portfolioFilter(portfolioId);
+  const commitments = await prisma.pmCommitment.findMany({ where: { status: 'ACTIVE', ...(pid ? { portfolioId: pid } : {}) }, orderBy: { ref: 'asc' } });
+  const v = await commitmentViews(commitments);
+  const rates = await reportRates(v.rows.map((r) => r.currency));
+  const rate = (ccy: string | null) => ((ccy ?? REPORT_CCY) === REPORT_CCY ? new D(1) : (rates.get(ccy ?? '') ?? null));
+  const totalNav = v.rows.reduce((sum, r) => { const rt = rate(r.currency); return rt ? sum.add(new D(r.nav ?? 0).mul(rt)) : sum; }, ZERO);
+  const rows = v.rows.map((r) => {
+    const rt = rate(r.currency);
+    const navR = rt ? new D(r.nav ?? 0).mul(rt) : null;
+    const unfR = rt ? new D(r.unfunded ?? 0).mul(rt) : null;
+    return {
+      commitmentRef: r.ref,
+      fundRef: r.fundRef,
+      fundName: r.fundName,
+      manager: r.manager,
+      strategy: r.strategy,
+      vintage: r.vintage,
+      portfolioRef: r.portfolioRef,
+      currency: r.currency,
+      nav: r.nav,
+      navAsOf: r.navAsOf,
+      markStale: r.markStale,
+      unfunded: r.unfunded,
+      navReport: navR ? navR.toFixed(2) : null,
+      unfundedReport: unfR ? unfR.toFixed(2) : null,
+      exposureReport: navR && unfR ? navR.add(unfR).toFixed(2) : null,
+      pctOfNav: navR && totalNav.gt(0) ? navR.div(totalNav).mul(100).toFixed(2) : null,
+    };
+  });
+  return { reportCurrency: REPORT_CCY, totalNavReport: totalNav.toFixed(2), fxMissing: rows.filter((r) => r.navReport === null).map((r) => r.currency).filter((x, i, a) => x && a.indexOf(x) === i), rows };
+}
+
+privateMarketsRoutes.get('/lookthrough', ...canView, validateQuery(z.object({ portfolioId: z.string().optional() })), async (req, res) => {
+  res.json({ data: await lookThrough(query<{ portfolioId?: string }>(req).portfolioId) });
+});
+
+privateMarketsRoutes.get('/lookthrough/export', ...canView, validateQuery(z.object({ portfolioId: z.string().optional(), format: z.enum(['csv', 'xlsx']).default('csv') })), async (req, res) => {
+  const { portfolioId, format } = query<{ portfolioId?: string; format: 'csv' | 'xlsx' }>(req);
+  const lt = await lookThrough(portfolioId);
+  const head = ['Commitment', 'Fund', 'Fund name', 'Manager', 'Strategy', 'Vintage', 'Portfolio', 'Currency', 'NAV', 'NAV as of', 'Unfunded', `NAV ${lt.reportCurrency}`, `Unfunded ${lt.reportCurrency}`, `Exposure ${lt.reportCurrency}`, '% of private NAV'];
+  const rows = lt.rows.map((r) => [r.commitmentRef, r.fundRef, r.fundName, r.manager, r.strategy, r.vintage, r.portfolioRef, r.currency, r.nav, r.navAsOf, r.unfunded, r.navReport, r.unfundedReport, r.exposureReport, r.pctOfNav]);
+  await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'pm.lookthrough_exported', objectType: 'private_book', objectId: portfolioId ?? 'all', after: { format, rows: rows.length, portfolioId: portfolioId ?? null, totalNavReport: lt.totalNavReport } }));
+  sendTable(res, format, `private-lookthrough-${new Date().toISOString().slice(0, 10)}`, head, rows, 'Look-through');
 });
 
 // ================================================================ funds

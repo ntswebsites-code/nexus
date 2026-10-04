@@ -7,6 +7,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
+import { sendTable } from '../../lib/tabular';
 import { nextRef } from '../../lib/refs';
 import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
@@ -325,6 +326,44 @@ riskRoutes.post('/monitor', ...canManage, validateBody(monitorBody), idempotent(
 riskRoutes.get('/portfolios/:portfolioId/limits', ...canView, async (req, res) => {
   const result = await checkLimitsForPortfolio(param(req, 'portfolioId'));
   res.json({ data: { asOf: result.asOf, evaluations: result.evaluations } });
+});
+
+// ================================================================ compliance report (FR-RSK-013)
+
+const reportQuery = z.object({ asOf: dateStr.optional(), portfolioId: id36.optional(), format: z.enum(['json', 'csv', 'xlsx']).default('json') });
+
+/**
+ * The limit book against live positions as of a date: every ACTIVE limit that applies to each portfolio with its measured
+ * value, headroom and state, plus any breach recorded for it that day. Read from the same evaluation the pre-trade check
+ * and the monitor use, so the figures equal the limit book at that time. JSON feeds the on-screen/printed report; CSV and
+ * XLSX are the download. Every generation is audited.
+ */
+riskRoutes.get('/compliance-report', ...canView, validateQuery(reportQuery), async (req, res) => {
+  const f = query<z.infer<typeof reportQuery>>(req);
+  const asOfDay = f.asOf ?? new Date().toISOString().slice(0, 10);
+  if (asOfDay > new Date().toISOString().slice(0, 10)) throw HttpError.badRequest('Validation failed', [{ path: 'asOf', message: 'The as-of date cannot be in the future' }]);
+  const asOf = f.asOf ? new Date(`${f.asOf}T23:59:59.000Z`) : new Date();
+  const portfolios = f.portfolioId ? [await loadPortfolio(f.portfolioId)] : await prisma.portfolio.findMany({ where: { status: 'Active' }, orderBy: { ref: 'asc' }, take: 200 });
+  const lines: { portfolioRef: string; portfolioName: string; limitRef: string; metric: string; metricLabel: string; scope: string; breachAction: string; threshold: string; value: string; headroom: string; state: string; recordedBreach: string | null }[] = [];
+  const problems: string[] = [];
+  for (const p of portfolios) {
+    const r = await checkLimitsForPortfolio(p.id, null, { asOf });
+    r.valuationWarnings.forEach((w) => problems.push(`${p.ref}: ${w}`));
+    const recorded = await prisma.riskBreach.findMany({ where: { portfolioId: p.id, detectedOn: toDate(asOfDay) }, select: { limitId: true, status: true } });
+    for (const e of r.evaluations) {
+      const floor = e.metric === 'CASH_FLOOR_PCT';
+      const headroom = floor ? new D(e.value).sub(e.threshold) : new D(e.threshold).sub(e.value);
+      lines.push({ portfolioRef: p.ref, portfolioName: p.name, limitRef: e.ref, metric: e.metric, metricLabel: METRIC_LABEL[e.metric], scope: e.scopeType, breachAction: e.breachAction, threshold: e.threshold, value: e.value, headroom: headroom.toFixed(4), state: e.state, recordedBreach: recorded.find((b) => b.limitId === e.limitId)?.status ?? null });
+    }
+  }
+  const summary = { portfolios: portfolios.length, limitsChecked: lines.length, breaches: lines.filter((l) => l.state === 'BREACH').length, warnings: lines.filter((l) => l.state === 'WARNING').length };
+  await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'risk.compliance_report', objectType: 'compliance_report', objectId: f.portfolioId ?? 'all', after: { asOf: asOfDay, format: f.format, ...summary } }));
+  if (f.format === 'json') {
+    res.json({ data: { asOf: asOfDay, generatedAt: new Date().toISOString(), portfolioId: f.portfolioId ?? null, summary, lines, problems } });
+    return;
+  }
+  const head = ['As of', 'Portfolio', 'Portfolio name', 'Limit', 'Metric', 'Scope', 'Breach action', 'Threshold %', 'Measured %', 'Headroom %', 'State', 'Recorded breach'];
+  sendTable(res, f.format, `compliance-report-${asOfDay}`, head, lines.map((l) => [asOfDay, l.portfolioRef, l.portfolioName, l.limitRef, l.metricLabel, l.scope, l.breachAction, l.threshold, l.value, l.headroom, l.state, l.recordedBreach ?? '']), 'Compliance report');
 });
 
 // ================================================================ pre-trade check (read only)

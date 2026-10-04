@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api, apiRequest, qs, v1 } from '@/ops/api';
+import { api, apiDownload, apiRequest, qs, v1 } from '@/ops/api';
 import {
   bpsText,
   ControlList,
@@ -270,11 +270,19 @@ function ReturnsTab({ tab, portfolioId, from, to, benchmarkId }: { tab: Tab; por
 // ================================================================ attribution and contributions
 
 function AttributionTab({ tab, portfolioId, from, to, benchmarkId }: { tab: Tab; portfolioId: string; from: string; to: string; benchmarkId: string }) {
+  const [exportError, setExportError] = useState<string | null>(null);
+  const exportFile = (format: 'csv' | 'xlsx') =>
+    void apiDownload(v1(`/performance/attribution/export${qs({ portfolioId, from, to, benchmarkId, format })}`), `attribution.${format}`).then(() => setExportError(null), (e: Error) => setExportError(e.message));
   const res = useResource<Attribution>(() => api.get<Attribution>(v1(`/performance/attribution${qs({ portfolioId, from, to, benchmarkId })}`)), [portfolioId, from, to, benchmarkId]);
   return (
     <Loaded res={res} what="the attribution">
       {(a) => (
         <>
+          <div className="ops-actions" style={{ marginBottom: 10 }}>
+            <button className="ops-btn" type="button" onClick={() => exportFile('csv')}>Export CSV</button>
+            <button className="ops-btn" type="button" onClick={() => exportFile('xlsx')}>Export XLSX</button>
+          </div>
+          {exportError && <Alert>{exportError}</Alert>}
           {tab === 'attribution' && (
             <Card title="Brinson attribution by sector">
               {!a.benchmark ? (

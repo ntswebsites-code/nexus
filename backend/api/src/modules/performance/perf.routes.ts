@@ -5,6 +5,8 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
+import { sha256Hex } from '../../lib/crypto';
+import { sendTable } from '../../lib/tabular';
 import { nextRef } from '../../lib/refs';
 import { param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
@@ -87,6 +89,34 @@ performanceRoutes.get('/returns', ...canView, validateQuery(windowQuery), async 
 performanceRoutes.get('/attribution', ...canView, validateQuery(windowQuery), async (req, res) => {
   const { p, start, end, c } = await live(query<z.infer<typeof windowQuery>>(req));
   res.json({ data: { portfolioId: p.id, portfolioName: p.name, periodStart: start, periodEnd: end, ...headline(c), ...c.attribution, contributions: c.contributions } });
+});
+
+const attributionExportQuery = windowQuery.extend({ format: z.enum(['csv', 'xlsx']).default('csv') });
+
+/**
+ * FR-PERF-005: the displayed attribution as CSV or XLSX. One row per sector segment, a TOTAL row, then one row per
+ * holding's contribution, all for the selected portfolio and period, with the weights as shown. Audited with the
+ * file's content hash so the exact numbers handed out can be shown later.
+ */
+performanceRoutes.get('/attribution/export', ...canView, validateQuery(attributionExportQuery), async (req, res) => {
+  const { format, ...f } = query<z.infer<typeof attributionExportQuery>>(req);
+  const { p, start, end, c } = await live(f);
+  const head = ['Portfolio', 'Period start', 'Period end', 'Section', 'Name', 'Sector', 'Avg weight %', 'Benchmark weight %', 'Return %', 'Benchmark return %', 'Allocation bps', 'Selection bps', 'Interaction bps', 'Total bps', 'Contribution bps'];
+  const base = [p.ref, start, end];
+  const rows: string[][] = [];
+  for (const sg of c.attribution.segments) rows.push([...base, 'SECTOR', sg.sector, sg.sector, sg.avgWeightPct, sg.benchWeightPct, sg.portfolioReturnPct ?? '', sg.benchmarkReturnPct ?? '', String(sg.allocationBps), String(sg.selectionBps), String(sg.interactionBps), String(sg.totalBps), '']);
+  const t = c.attribution.totals;
+  rows.push([...base, 'TOTAL', 'Total', '', '', '', pct6(c.twr), c.benchTwr === null ? '' : pct6(c.benchTwr), String(t.allocationBps), String(t.selectionBps), String(t.interactionBps), String(t.explainedBps), '']);
+  for (const k of c.contributions) rows.push([...base, 'HOLDING', k.ticker, k.sector, k.avgWeightPct, k.benchWeightPct ?? '', k.returnPct ?? '', '', '', '', '', '', String(k.contributionBps)]);
+  await prisma.$transaction((tx) =>
+    writeAudit(tx, audit(req), {
+      action: 'performance.attribution_exported',
+      objectType: 'portfolio',
+      objectId: p.id,
+      after: { portfolio: p.ref, periodStart: start, periodEnd: end, benchmark: c.attribution.benchmark?.code ?? null, format, rows: rows.length, sha256: sha256Hex(JSON.stringify([head, rows])), calcHash: c.hash },
+    }),
+  );
+  sendTable(res, format, `attribution-${p.ref}-${start}-${end}`, head, rows, 'Attribution');
 });
 
 const summaryQuery = z.object({ from: dateStr.optional(), to: dateStr.optional() });

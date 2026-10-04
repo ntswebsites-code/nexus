@@ -59,7 +59,10 @@ export const NAV: { section: string; items: NavItem[] }[] = [
   },
   {
     section: 'Cash',
-    items: [{ href: '/ops/cash', label: 'Cash & Ledgers', perms: ['cash.view'] }],
+    items: [
+      { href: '/ops/cash', label: 'Cash & Ledgers', perms: ['cash.view'] },
+      { href: '/ops/ledger', label: 'Ledger & FX stamps', perms: ['ledger.view'] },
+    ],
   },
   {
     section: 'Risk & compliance',
@@ -82,6 +85,7 @@ export const NAV: { section: string; items: NavItem[] }[] = [
     items: [
       { href: '/ops/operations', label: 'Operations control', perms: ['operations.view'] },
       { href: '/ops/reconciliation', label: 'Reconciliations', perms: ['operations.view'] },
+      { href: '/ops/imports', label: 'Data imports', perms: ['orders.create', 'risk.manage', 'financing.manage', 'portfolio.manage'] },
       { href: '/ops/payments-recon', label: 'Payments & close controls', perms: ['operations.view'] },
       { href: '/ops/corporate-actions', label: 'Corporate actions', perms: ['operations.view'] },
     ],

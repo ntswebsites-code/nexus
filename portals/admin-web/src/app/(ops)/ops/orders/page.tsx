@@ -3,12 +3,12 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
-import { api, apiRequest, qs, v1 } from '@/ops/api';
+import { api, apiDownload, apiRequest, qs, v1 } from '@/ops/api';
 import { formatDecimal } from '@/ops/money';
 import { bp, OrderStatusBadge, price6, shares, SideTag, STATUS_LABEL, type OrdersList } from '@/ops/orders';
 import { useCan } from '@/ops/session';
 import type { PortfolioSummary, SecurityRow } from '@/ops/types';
-import { Card, Empty, Field, formatDateTime, Loaded, PageHeader, useResource } from '@/ops/ui';
+import { Alert, Card, Empty, Field, formatDateTime, Loaded, PageHeader, useResource } from '@/ops/ui';
 
 const PAGE = 25;
 const STATUS_OPTIONS = ['Working', 'AwaitingApproval', 'Approved', 'Routing', 'PartiallyFilled', 'Filled', 'Rejected', 'Cancelled', 'Draft', 'Validated'];
@@ -32,6 +32,10 @@ export default function OrdersBlotterPage() {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [offset, setOffset] = useState(0);
+  const [exportError, setExportError] = useState<string | null>(null);
+  // The file carries the same filters as the table (FR-OMS-012/020), not just the visible page.
+  const exportFile = (format: 'csv' | 'xlsx') =>
+    void apiDownload(v1(`/orders/export${qs({ status, portfolioId, securityId, from, to, format })}`), `order-blotter.${format}`).then(() => setExportError(null), (e: Error) => setExportError(e.message));
 
   const portfolios = useResource<PortfolioSummary[]>(() => api.get<PortfolioSummary[]>(v1('/portfolios')), []);
   const securities = useResource<SecurityRow[]>(() => api.get<SecurityRow[]>(v1('/securities?limit=200')), []);
@@ -51,13 +55,23 @@ export default function OrdersBlotterPage() {
         title="Orders"
         subtitle="Order blotter: pre-trade checked, approved by a second person, routed to the broker and filled."
         actions={
-          canCreate && (
-            <Link className="ops-btn primary" href="/ops/orders/new">
-              New order
-            </Link>
-          )
+          <>
+            <button className="ops-btn" type="button" onClick={() => exportFile('csv')}>Export CSV</button>
+            <button className="ops-btn" type="button" onClick={() => exportFile('xlsx')}>Export XLSX</button>
+            {canCreate && (
+              <Link className="ops-btn" href="/ops/imports">
+                Import orders
+              </Link>
+            )}
+            {canCreate && (
+              <Link className="ops-btn primary" href="/ops/orders/new">
+                New order
+              </Link>
+            )}
+          </>
         }
       />
+      <Alert>{exportError}</Alert>
 
       <Loaded res={orders} what="orders">
         {(list) => (

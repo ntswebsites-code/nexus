@@ -6,6 +6,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { idempotent } from '../../lib/idempotency';
+import { sendTable } from '../../lib/tabular';
 import { enqueue } from '../../lib/outbox';
 import { expectVersion, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
@@ -137,14 +138,14 @@ const listQuery = z.object({
 
 const j = (v: unknown) => v as Prisma.InputJsonValue;
 
-async function resolveSecurity(idOrTicker: string) {
+export async function resolveSecurity(idOrTicker: string) {
   const s = await prisma.security.findFirst({ where: UUID.test(idOrTicker) ? { id: idOrTicker } : { ticker: idOrTicker.toUpperCase() } });
   if (!s) throw HttpError.notFound('Security not found');
   return s;
 }
 
 /** Early, field-level rejection of tickets that can never be valid: not a board-lot multiple, or absurdly large against volume. */
-function assertTicketSize(security: { boardLot: number; averageDailyVolume: Prisma.Decimal | null; ticker: string }, quantity: string | Prisma.Decimal) {
+export function assertTicketSize(security: { boardLot: number; averageDailyVolume: Prisma.Decimal | null; ticker: string }, quantity: string | Prisma.Decimal) {
   const qty = new D(quantity);
   const lot = security.boardLot > 0 ? security.boardLot : 1;
   if (!qty.mod(lot).isZero()) throw HttpError.badRequest('Validation failed', [{ path: 'quantity', message: `Quantity must be a multiple of the ${security.ticker} board lot (${lot})` }]);
@@ -161,7 +162,7 @@ async function assertBroker(brokerId: string | null | undefined) {
   return b;
 }
 
-async function latestPrice(securityId: string) {
+export async function latestPrice(securityId: string) {
   return (await latestPrices([securityId], new Date())).get(securityId)?.latestDec ?? null;
 }
 
@@ -274,9 +275,8 @@ async function precheckFor(o: OrderRow, excludeSelf: boolean): Promise<{ result:
 
 // ---------------------------------------------------------------- list
 
-ordersRoutes.get('/', ...staff, requirePermission('orders.view'), validateQuery(listQuery), async (req, res) => {
-  const f = query<z.infer<typeof listQuery>>(req);
-  const me = req.user!.id;
+/** The blotter's WHERE clause for the active filters; the list and the CSV/XLSX export share it so a file matches the screen. */
+async function blotterWhere(f: z.infer<typeof listQuery>, me: string): Promise<{ and: Prisma.OrderWhereInput[]; where: Prisma.OrderWhereInput }> {
   const and: Prisma.OrderWhereInput[] = [{ OR: [{ status: { notIn: ['Draft', 'Validated'] } }, { makerId: me }] }];
   if (f.status) {
     const list = f.status.split(',').map((s) => s.trim()).filter(Boolean);
@@ -296,7 +296,13 @@ ordersRoutes.get('/', ...staff, requirePermission('orders.view'), validateQuery(
   if (f.mine) and.push({ makerId: me });
   if (f.from) and.push({ createdAt: { gte: new Date(`${f.from}T00:00:00.000Z`) } });
   if (f.to) and.push({ createdAt: { lt: new Date(new Date(`${f.to}T00:00:00.000Z`).getTime() + 86_400_000) } });
-  const where: Prisma.OrderWhereInput = { AND: and };
+  return { and, where: { AND: and } };
+}
+
+ordersRoutes.get('/', ...staff, requirePermission('orders.view'), validateQuery(listQuery), async (req, res) => {
+  const f = query<z.infer<typeof listQuery>>(req);
+  const me = req.user!.id;
+  const { and, where } = await blotterWhere(f, me);
 
   const [total, rows, grouped, filled] = await Promise.all([
     prisma.order.count({ where }),
@@ -331,6 +337,25 @@ ordersRoutes.get('/', ...staff, requirePermission('orders.view'), validateQuery(
   });
 });
 
+// ---------------------------------------------------------------- export (FR-OMS-012/020)
+
+const EXPORT_MAX = 20_000;
+const exportQuery = listQuery.omit({ limit: true, offset: true }).extend({ format: z.enum(['csv', 'xlsx']).default('csv') });
+
+ordersRoutes.get('/export', ...staff, requirePermission('orders.view'), validateQuery(exportQuery), async (req, res) => {
+  const { format, ...f } = query<z.infer<typeof exportQuery>>(req);
+  const { where } = await blotterWhere({ ...f, limit: 50, offset: 0 }, req.user!.id);
+  const total = await prisma.order.count({ where });
+  if (total > EXPORT_MAX) throw HttpError.badRequest(`${total} orders match; narrow the filters to ${EXPORT_MAX} or fewer`);
+  const rows = await prisma.order.findMany({ where, orderBy: [{ createdAt: 'desc' }], take: EXPORT_MAX });
+  const l = await lookups(rows);
+  const views = rows.map((o) => orderView(o, l));
+  const head = ['Order', 'Status', 'Portfolio', 'Portfolio name', 'Ticker', 'Security', 'Side', 'Quantity', 'Filled', 'Order type', 'Limit price', 'TIF', 'Currency', 'Average price', 'Slippage bp', 'Maker', 'Created'];
+  const table = views.map((o) => [o.ref, o.status, o.portfolio.ref, o.portfolio.name, o.security.ticker, o.security.name, o.side, o.quantity, o.filledQty, o.orderType, o.limitPrice ?? '', o.tif, o.currency, o.avgPrice ?? '', o.slippageBp ?? '', o.maker?.name ?? '', o.createdAt instanceof Date ? o.createdAt.toISOString() : String(o.createdAt)]);
+  await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'orders.blotter_exported', objectType: 'order_blotter', objectId: 'blotter', after: { format, rows: table.length, filters: f } }));
+  sendTable(res, format, `order-blotter-${new Date().toISOString().slice(0, 10)}`, head, table, 'Order blotter');
+});
+
 // ---------------------------------------------------------------- what-if check
 
 ordersRoutes.post('/precheck', ...staff, requirePermission('orders.create'), validateBody(precheckSchema), async (req, res) => {
@@ -346,6 +371,45 @@ ordersRoutes.post('/precheck', ...staff, requirePermission('orders.create'), val
 
 // ---------------------------------------------------------------- create / read / patch
 
+/** Creates one Draft order and its audit event (call inside the transaction). Shared by the ticket and the CSV/JSON import. */
+export async function createDraftOrder(
+  tx: Prisma.TransactionClient,
+  req: Request,
+  b: { side: 'BUY' | 'SELL'; quantity: string; orderType: 'MARKET' | 'LIMIT'; limitPrice?: string | null; tif: string; urgency: string; brokerId?: string | null; rationale?: string | null },
+  portfolio: { id: string; ref: string },
+  security: { id: string; ticker: string; currency: string },
+  decision: Prisma.Decimal,
+  extraAudit: Record<string, unknown> = {},
+) {
+  const ref = await seqRef(tx, 'order', 'ORD-', 6, 1001);
+  const o = await tx.order.create({
+    data: {
+      ref,
+      portfolioId: portfolio.id,
+      securityId: security.id,
+      side: b.side,
+      quantity: new D(b.quantity),
+      orderType: b.orderType,
+      limitPrice: b.orderType === 'LIMIT' ? new D(b.limitPrice!) : null,
+      tif: b.tif,
+      urgency: b.urgency,
+      brokerId: b.brokerId ?? null,
+      rationale: b.rationale ?? null,
+      currency: security.currency,
+      decisionPrice: decision,
+      status: 'Draft',
+      makerId: req.user!.id,
+    },
+  });
+  await writeAudit(tx, audit(req), {
+    action: 'order.created',
+    objectType: 'order',
+    objectId: o.id,
+    after: { ref, status: 'Draft', portfolio: portfolio.ref, security: security.ticker, side: b.side, quantity: b.quantity, orderType: b.orderType, limitPrice: b.limitPrice ?? null, ...extraAudit },
+  });
+  return o;
+}
+
 ordersRoutes.post('/', ...staff, requirePermission('orders.create'), validateBody(createSchema), idempotent('orders.create'), async (req, res) => {
   const b = req.body as z.infer<typeof createSchema>;
   const portfolio = await loadPortfolio(b.portfolioId);
@@ -355,35 +419,7 @@ ordersRoutes.post('/', ...staff, requirePermission('orders.create'), validateBod
   if (!decision) throw HttpError.conflict(`${security.ticker} has no price on file`, 'no_price');
   assertTicketSize(security, b.quantity);
   await assertBroker(b.brokerId);
-  const id = await prisma.$transaction(async (tx) => {
-    const ref = await seqRef(tx, 'order', 'ORD-', 6, 1001);
-    const o = await tx.order.create({
-      data: {
-        ref,
-        portfolioId: portfolio.id,
-        securityId: security.id,
-        side: b.side,
-        quantity: new D(b.quantity),
-        orderType: b.orderType,
-        limitPrice: b.orderType === 'LIMIT' ? new D(b.limitPrice!) : null,
-        tif: b.tif,
-        urgency: b.urgency,
-        brokerId: b.brokerId ?? null,
-        rationale: b.rationale ?? null,
-        currency: security.currency,
-        decisionPrice: decision,
-        status: 'Draft',
-        makerId: req.user!.id,
-      },
-    });
-    await writeAudit(tx, audit(req), {
-      action: 'order.created',
-      objectType: 'order',
-      objectId: o.id,
-      after: { ref, status: 'Draft', portfolio: portfolio.ref, security: security.ticker, side: b.side, quantity: b.quantity, orderType: b.orderType, limitPrice: b.limitPrice ?? null },
-    });
-    return o.id;
-  });
+  const id = await prisma.$transaction(async (tx) => (await createDraftOrder(tx, req, b, portfolio, security, decision)).id);
   await respond(res, req, id, 201);
 });
 

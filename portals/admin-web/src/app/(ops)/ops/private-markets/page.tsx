@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
-import { api, qs, v1 } from '@/ops/api';
+import { api, apiDownload, qs, v1 } from '@/ops/api';
+import { ImportPanel } from '@/ops/imports';
 import { AccessDenied, DataTable, label, m2, PortfolioSelect, ReasonModal, Tag, Tile, today, usePortfolios } from '@/ops/rp';
 import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
@@ -134,7 +135,7 @@ interface Summary {
   upcomingCashflows: Cashflow[];
 }
 
-type Tab = 'overview' | 'funds' | 'marks' | 'clients';
+type Tab = 'overview' | 'funds' | 'marks' | 'clients' | 'lookthrough' | 'import';
 const xr = (v: string | null) => (v === null ? '—' : `${v}x`);
 const irr = (v: string | null) => (v === null ? '—' : `${v}%`);
 
@@ -172,9 +173,9 @@ export default function PrivateMarketsPage() {
         </div>
       </Card>
       <div role="tablist" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        {(['overview', 'funds', 'marks', 'clients'] as Tab[]).map((t) => (
+        {(['overview', 'funds', 'marks', 'clients', 'lookthrough', 'import'] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`ops-btn${tab === t ? ' primary' : ''}`} type="button" onClick={() => setTab(t)}>
-            {t === 'overview' ? 'Overview' : t === 'funds' ? 'Funds' : t === 'marks' ? 'NAV marks' : 'By client'}
+            {t === 'overview' ? 'Overview' : t === 'funds' ? 'Funds' : t === 'marks' ? 'NAV marks' : t === 'clients' ? 'By client' : t === 'lookthrough' ? 'Look-through' : 'Import'}
           </button>
         ))}
       </div>
@@ -182,10 +183,60 @@ export default function PrivateMarketsPage() {
       {tab === 'clients' && <ClientsTab onOpen={(id) => setOpen({ kind: 'commitment', id })} />}
       {tab === 'funds' && <FundsTab onOpen={(id) => setOpen({ kind: 'fund', id })} portfolios={portfolios} onChanged={summary.reload} />}
       {tab === 'marks' && <MarksTab onOpen={(id) => setOpen({ kind: 'mark', id })} />}
+      {tab === 'lookthrough' && <LookThroughTab portfolioId={portfolioId} />}
+      {tab === 'import' && <ImportPanel only={['pm-funds', 'pm-commitments', 'pm-valuations']} onCommitted={summary.reload} />}
       {open?.kind === 'commitment' && <CommitmentModal id={open.id} onClose={() => setOpen(null)} onChanged={summary.reload} onOpenMark={(id) => setOpen({ kind: 'mark', id })} />}
       {open?.kind === 'fund' && <FundModal id={open.id} portfolios={portfolios} onClose={() => setOpen(null)} onChanged={summary.reload} onOpenCommitment={(id) => setOpen({ kind: 'commitment', id })} />}
       {open?.kind === 'mark' && <MarkModal id={open.id} onClose={() => setOpen(null)} onChanged={summary.reload} />}
     </>
+  );
+}
+
+interface LookThrough {
+  reportCurrency: string;
+  totalNavReport: string;
+  fxMissing: string[];
+  rows: { commitmentRef: string; fundRef: string; fundName: string; manager: string | null; strategy: string | null; vintage: number | null; portfolioRef: string | null; currency: string; nav: string | null; navAsOf: string | null; markStale: boolean; unfunded: string | null; navReport: string | null; unfundedReport: string | null; exposureReport: string | null; pctOfNav: string | null }[];
+}
+
+/** Underlying exposures behind the private book (FR-PM-003), with the same rows available as CSV or XLSX. */
+function LookThroughTab({ portfolioId }: { portfolioId: string }) {
+  const res = useResource<LookThrough>(() => api.get<LookThrough>(P(`/lookthrough${qs({ portfolioId })}`)), [portfolioId]);
+  const [error, setError] = useState<string | null>(null);
+  const download = (format: 'csv' | 'xlsx') => void apiDownload(P(`/lookthrough/export${qs({ portfolioId, format })}`), `private-lookthrough.${format}`).then(() => setError(null), (e: Error) => setError(e.message));
+  return (
+    <Card title="Look-through" actions={<span className="ops-actions"><button className="ops-btn" type="button" onClick={() => download('csv')}>Export CSV</button><button className="ops-btn" type="button" onClick={() => download('xlsx')}>Export XLSX</button></span>}>
+      <Alert>{error}</Alert>
+      <Loaded res={res} what="the look-through">
+        {(lt) => (
+          <>
+            <p className="ops-muted" style={{ marginTop: 0 }}>Total private NAV {m2(lt.totalNavReport)} {lt.reportCurrency}.</p>
+            {lt.fxMissing.length > 0 && <Alert kind="warn">No FX rate to {lt.reportCurrency} for {lt.fxMissing.join(', ')}; those lines show no converted figures and are left out of the total.</Alert>}
+            {lt.rows.length === 0 ? (
+              <Empty>No active commitments.</Empty>
+            ) : (
+              <DataTable head={['Commitment', 'Fund', 'Manager', 'Strategy', 'Vintage', 'Ccy', 'NAV', 'Unfunded', `NAV ${lt.reportCurrency}`, `Exposure ${lt.reportCurrency}`, '% of NAV']}>
+                {lt.rows.map((r) => (
+                  <tr key={r.commitmentRef}>
+                    <td>{r.commitmentRef}</td>
+                    <td>{r.fundName}<span className="ops-sub">{r.fundRef}</span></td>
+                    <td>{r.manager ?? ''}</td>
+                    <td>{r.strategy ?? ''}</td>
+                    <td>{r.vintage ?? ''}</td>
+                    <td>{r.currency}</td>
+                    <td className="r">{r.nav ? m2(r.nav) : '—'}{r.markStale && <span className="ops-sub">mark is stale</span>}</td>
+                    <td className="r">{r.unfunded ? m2(r.unfunded) : '—'}</td>
+                    <td className="r">{r.navReport ? m2(r.navReport) : '—'}</td>
+                    <td className="r">{r.exposureReport ? m2(r.exposureReport) : '—'}</td>
+                    <td className="r">{r.pctOfNav ?? '—'}</td>
+                  </tr>
+                ))}
+              </DataTable>
+            )}
+          </>
+        )}
+      </Loaded>
+    </Card>
   );
 }
 

@@ -19,6 +19,8 @@ import { opsRoutes } from '../modules/ops/ops.routes';
 import { custodianRoutes } from '../modules/custodian/custodian.routes';
 import { portfolioRoutes } from '../modules/portfolio/portfolio.routes';
 import { ordersRoutes } from '../modules/orders';
+import { importsRoutes } from '../modules/imports/imports.routes';
+import { ledgerRoutes } from '../modules/ledger/ledger.routes';
 import { riskRoutes } from '../modules/risk/risk.routes';
 import { navRoutes } from '../modules/nav';
 import { accountingRoutes } from '../modules/accounting';
@@ -64,6 +66,8 @@ v1Router.use('/custodian', custodianRoutes);
 v1Router.use('/', portfolioRoutes);
 // Orders (OMS): /orders (auth applied per route).
 v1Router.use('/orders', ordersRoutes);
+v1Router.use('/imports', importsRoutes);
+v1Router.use('/ledger', ledgerRoutes);
 // Risk & Compliance: /risk/* (limits, breaches, scenarios, runs, cases, monitor).
 v1Router.use('/risk', riskRoutes);
 // NAV & Valuation: /nav/runs (calculate, exceptions, maker review, release).

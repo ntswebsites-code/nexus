@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { api, apiRequest, qs, v1 } from '@/ops/api';
+import { ImportPanel } from '@/ops/imports';
 import { AccessDenied, DataTable, label, m2, PortfolioSelect, ReasonModal, ratioText, Tag, Tile, today, usePortfolios, useSecurities } from '@/ops/rp';
 import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
@@ -150,7 +151,7 @@ interface Summary {
   watchlist: Facility[];
 }
 
-type Tab = 'facilities' | 'calls' | 'pools' | 'rules';
+type Tab = 'facilities' | 'calls' | 'pools' | 'rules' | 'import';
 const OPEN = ['ISSUED', 'ACKNOWLEDGED', 'DISPUTED', 'PENDING_CHECK'];
 
 export default function FinancingPage() {
@@ -193,9 +194,9 @@ export default function FinancingPage() {
         )}
       </Loaded>
       <div role="tablist" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        {(['facilities', 'calls', 'pools', 'rules'] as Tab[]).map((t) => (
+        {(['facilities', 'calls', 'pools', 'rules', 'import'] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`ops-btn${tab === t ? ' primary' : ''}`} type="button" onClick={() => setTab(t)}>
-            {t === 'facilities' ? 'Facilities' : t === 'calls' ? 'Margin calls' : t === 'pools' ? 'Collateral pools' : 'Haircuts & eligibility'}
+            {t === 'facilities' ? 'Facilities' : t === 'calls' ? 'Margin calls' : t === 'pools' ? 'Collateral pools' : t === 'rules' ? 'Haircuts & eligibility' : 'Margin statement import'}
           </button>
         ))}
       </div>
@@ -203,6 +204,7 @@ export default function FinancingPage() {
       {tab === 'calls' && <CallsTab key={tick} onOpen={(id) => setOpen({ kind: 'call', id })} />}
       {tab === 'pools' && <PoolsTab key={tick} onOpen={(id) => setOpen({ kind: 'pool', id })} onChanged={bump} />}
       {tab === 'rules' && <RulesTab key={tick} onChanged={bump} />}
+      {tab === 'import' && <ImportPanel only={['margin-statement']} onCommitted={bump} />}
       {open?.kind === 'facility' && <FacilityModal id={open.id} onClose={() => setOpen(null)} onChanged={bump} onOpenCall={(id) => setOpen({ kind: 'call', id })} />}
       {open?.kind === 'call' && <CallModal id={open.id} onClose={() => setOpen(null)} onChanged={bump} />}
       {open?.kind === 'pool' && <PoolModal id={open.id} onClose={() => setOpen(null)} onChanged={bump} />}

@@ -6,12 +6,14 @@ import { useCan } from '@/ops/session';
 import { Alert, ActionButton, PageHeader } from '@/ops/ui';
 import { BreachesTab } from '@/ops/risk/BreachesTab';
 import { CasesTab } from '@/ops/risk/CasesTab';
+import { ComplianceReportTab } from '@/ops/risk/ComplianceReportTab';
+import { ImportPanel } from '@/ops/imports';
 import { risk, TabBar } from '@/ops/risk/common';
 import { LimitsTab } from '@/ops/risk/LimitsTab';
 import { ScenariosTab } from '@/ops/risk/ScenariosTab';
 import type { MonitorSummary } from '@/ops/risk/types';
 
-type Tab = 'limits' | 'breaches' | 'scenarios' | 'cases';
+type Tab = 'limits' | 'breaches' | 'scenarios' | 'cases' | 'report' | 'import';
 
 export default function RiskPage() {
   const canView = useCan('risk.view', 'risk.manage');
@@ -66,6 +68,8 @@ export default function RiskPage() {
           { key: 'breaches', label: 'Breaches' },
           { key: 'scenarios', label: 'Scenarios' },
           { key: 'cases', label: 'Cases' },
+          { key: 'report', label: 'Compliance report' },
+          ...(canManage ? [{ key: 'import' as const, label: 'Import positions and limits' }] : []),
         ]}
       />
       {tab === 'limits' && <LimitsTab key={stamp} canManage={canManage} />}
@@ -80,6 +84,8 @@ export default function RiskPage() {
         />
       )}
       {tab === 'scenarios' && <ScenariosTab canManage={canManage} />}
+      {tab === 'report' && <ComplianceReportTab />}
+      {tab === 'import' && canManage && <ImportPanel only={['risk-positions', 'risk-limits']} onCommitted={() => setStamp((n) => n + 1)} />}
       {tab === 'cases' && <CasesTab key={stamp} canManage={canManage} initialQuery={caseQuery} />}
     </>
   );
