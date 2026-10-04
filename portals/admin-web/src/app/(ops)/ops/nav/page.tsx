@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api, apiRequest, qs, v1 } from '@/ops/api';
 import { NavStatusBadge, NAV_STATUS_LABEL, money2, nav4, pct4, type NavDetail, type NavList } from '@/ops/nav';
+import { NavHistoryModal, NavPolicyModal } from '@/ops/nav-depth';
 import { useCan } from '@/ops/session';
 import type { PortfolioSummary } from '@/ops/types';
 import { Card, Empty, Field, FieldGrid, FormModal, formatDate, Loaded, PageHeader, optStr, str, useResource } from '@/ops/ui';
@@ -24,7 +25,11 @@ function Tile({ label, value, hint, onClick, active }: { label: string; value: s
 
 export default function NavRunsPage() {
   const router = useRouter();
+  // Preparing a run needs valuation.run on top of the read permission (FR-VAL-009).
   const canView = useCan('valuation.view');
+  const canRunPerm = useCan('valuation.run');
+  const canRun = canView && canRunPerm;
+  const [panel, setPanel] = useState<'history' | 'policy' | null>(null);
   const [portfolioId, setPortfolioId] = useState('');
   const [status, setStatus] = useState('');
   const [from, setFrom] = useState('');
@@ -49,13 +54,24 @@ export default function NavRunsPage() {
         title="NAV & valuation"
         subtitle="Daily NAV runs: valued from positions, cash, prices and FX, checked for exceptions, maker reviewed and released by a second person."
         actions={
-          canView && (
-            <button className="ops-btn primary" type="button" onClick={() => setCreating(true)}>
-              New NAV run
+          <>
+            <button className="ops-btn" type="button" onClick={() => setPanel('history')}>
+              NAV history
             </button>
-          )
+            <button className="ops-btn" type="button" onClick={() => setPanel('policy')}>
+              Valuation policy
+            </button>
+            {canRun && (
+              <button className="ops-btn primary" type="button" onClick={() => setCreating(true)}>
+                New NAV run
+              </button>
+            )}
+          </>
         }
       />
+
+      {panel === 'history' && <NavHistoryModal portfolioId={portfolioId} onClose={() => setPanel(null)} />}
+      {panel === 'policy' && <NavPolicyModal onClose={() => setPanel(null)} />}
 
       <Loaded res={runs} what="NAV runs">
         {(list) => (

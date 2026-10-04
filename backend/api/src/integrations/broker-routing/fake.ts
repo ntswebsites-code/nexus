@@ -36,7 +36,7 @@ export class FakeBrokerRouting implements BrokerRoutingAdapter {
     await prisma.integrationInbox.update({ where: { id: row.id }, data: { status: 'SETTLED', processedAt: new Date(), payload: JSON.parse(JSON.stringify({ ...p, fill })) } });
     return { status: 'FILLED' as const, fills: [fill] };
   }
-  async parseContractNote(i: { brokerCode: string; filename: string; content: string; format?: 'CSV' | 'JSON' }) {
+  async parseContractNote(i: { brokerCode: string; filename: string; content: string; format?: 'CSV' | 'JSON' | 'TEXT' }) {
     return parseContractNoteText(i.content, i.format);
   }
   async parseExecutionReport({ raw }: { raw: string }) {

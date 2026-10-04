@@ -36,8 +36,10 @@ export interface OrderRow {
   security: { id: string; ticker: string; name: string; market: string; currency: string; boardLot: number; status: string; sector: string | null };
   side: 'BUY' | 'SELL';
   quantity: string;
-  orderType: 'MARKET' | 'LIMIT';
+  orderType: 'MARKET' | 'LIMIT' | 'STOP_LIMIT';
   limitPrice: string | null;
+  stopPrice: string | null;
+  priceOverrideReason: string | null;
   tif: string;
   urgency: string;
   broker: { id: string; name: string } | null;
@@ -268,6 +270,19 @@ export function CheckList({ result, at }: { result: PreTradeResult; at?: string 
     </div>
   );
 }
+
+/** FR-OMS-018: a limit price further than this percent from the last price needs an override reason. */
+export const PRICE_TOLERANCE_PCT = 10;
+
+/** Percent distance of a limit price from the last price; null when either is not a usable number. */
+export function priceDeviationPct(limit: string, last: string | null | undefined): number | null {
+  const l = Number(limit);
+  const p = Number(last);
+  if (!limit || !last || !Number.isFinite(l) || !Number.isFinite(p) || p <= 0) return null;
+  return ((l - p) / p) * 100;
+}
+
+export const ORDER_TYPE_LABEL: Record<string, string> = { MARKET: 'Market', LIMIT: 'Limit', STOP_LIMIT: 'Stop limit' };
 
 export const ACTION_LABEL: Record<string, string> = {
   'order.created': 'Created',

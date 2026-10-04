@@ -22,6 +22,8 @@ import {
   evaluateMeasure,
   measureBook,
   runScenarioMaths,
+  SCENARIO_THRESHOLD_DEFAULTS,
+  type ScenarioThresholds,
   severityFor,
   type Book,
   type Evaluation,
@@ -346,6 +348,30 @@ export async function runMonitor(actx: AuditContext, opts: { portfolioId?: strin
 
 // ---------------------------------------------------------------- scenarios
 
+/** Policy keys for the BR-029 scenario thresholds. A missing or invalid row falls back to the default. */
+export const SCENARIO_THRESHOLD_KEYS = {
+  liquidityEscalate: 'scenario_liq_escalate',
+  liquidityReview: 'scenario_liq_review',
+  lossEscalatePct: 'scenario_loss_escalate_pct',
+  lossReviewPct: 'scenario_loss_review_pct',
+} as const;
+
+export async function loadScenarioThresholds(): Promise<ScenarioThresholds> {
+  const rows = await prisma.policy.findMany({ where: { key: { in: Object.values(SCENARIO_THRESHOLD_KEYS) } } });
+  const out: ScenarioThresholds = { ...SCENARIO_THRESHOLD_DEFAULTS };
+  for (const [field, key] of Object.entries(SCENARIO_THRESHOLD_KEYS) as [keyof ScenarioThresholds, string][]) {
+    const row = rows.find((r) => r.key === key);
+    if (!row) continue;
+    if (row.value === null && (field === 'lossEscalatePct' || field === 'lossReviewPct')) {
+      out[field] = null;
+      continue;
+    }
+    const v = Number(row.value);
+    if (Number.isFinite(v) && v >= 0) out[field] = v;
+  }
+  return out;
+}
+
 /** Runs scenario maths for one portfolio against the ACTIVE limits that apply to it. Stores nothing. */
 export async function computeScenario(portfolioIdOrRef: string, shocks: Partial<Shocks>, asOf?: Date): Promise<{ portfolioId: string; result: ScenarioResult }> {
   const date = asOf ?? new Date();
@@ -355,7 +381,7 @@ export async function computeScenario(portfolioIdOrRef: string, shocks: Partial<
     bookFromSnapshot(snap),
     shocks,
     limits.map((l) => ({ ref: l.ref, metric: l.metric as RiskMetric, threshold: l.threshold, breachAction: l.breachAction })),
-    { asOf: snap.asOf, warnings: snap.warnings },
+    { asOf: snap.asOf, warnings: snap.warnings, thresholds: await loadScenarioThresholds() },
   );
   return { portfolioId: snap.portfolio.id, result };
 }

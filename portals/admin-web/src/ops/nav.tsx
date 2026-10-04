@@ -6,6 +6,19 @@ import { formatDecimal } from './money';
 
 export type NavStatus = 'DRAFT' | 'EXCEPTIONS_OPEN' | 'MAKER_REVIEWED' | 'RELEASED' | 'SUPERSEDED';
 
+export interface NavExternal {
+  nav: string;
+  abor: string;
+  variance: string;
+  variancePct: string | null;
+  tolerance: string;
+  state: 'Agree' | 'Variance';
+  source: string | null;
+  note: string | null;
+  recordedByName: string | null;
+  recordedAt: string | null;
+}
+
 export interface NavRunRow {
   id: string;
   ref: string;
@@ -43,6 +56,8 @@ export interface NavRunRow {
   checkerName: string | null;
   releasedAt: string | null;
   notes: string | null;
+  /** FR-VAL-017: the administrator NAV, variance and state; absent until one is recorded. */
+  external?: NavExternal | null;
   createdAt: string | null;
   updatedAt: string | null;
 }
@@ -102,6 +117,10 @@ export interface NavDetail extends NavRunRow {
     makerReviewBlockers: string[];
     release: boolean;
     releaseBlocker: string | null;
+    /** FR-VAL-009: set when the user's role lacks valuation.run / valuation.maker ("Not permitted for <Role>"). */
+    runBlocker?: string | null;
+    makerBlocker?: string | null;
+    recordExternal?: boolean;
   };
   fundUpdate?: Record<string, unknown> | null;
 }

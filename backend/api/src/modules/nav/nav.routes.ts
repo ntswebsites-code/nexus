@@ -14,14 +14,17 @@ import { loadPortfolio } from '../portfolio/portfolio.service';
 import { postNavJournals } from '../wiring/autojournals';
 import { ensureTask } from '../wiring/tasks';
 import { reconGate } from '../recon/recon.service';
-import { stageFor } from './nav.engine';
+import { NAV_EXTERNAL_TOL_DEFAULT, NAV_EXTERNAL_TOL_KEY, NAV_SETTING_DEFAULTS, NAV_SETTING_KEYS, stageFor } from './nav.engine';
 import {
   EDITABLE,
   REPLACEABLE,
   allowedActions,
   createVersion,
+  externalView,
   isoDay,
+  loadExternalTolerance,
   loadRun,
+  loadSettings,
   openCounts,
   recomputeTotals,
   runDetail,
@@ -32,8 +35,8 @@ import {
 
 /**
  * NAV & Valuation (SRD 11.3 `/nav/*`, 5.A.18, 6.11 FR-VAL-001..005, 7.8). Admin-portal staff only; auth per route.
- * `valuation.view` reads and prepares (create, recalculate, edit inputs, resolve exceptions, maker review);
- * `valuation.release` + step-up MFA releases, and the releaser must differ from the maker reviewer (BR-001).
+ * `valuation.view` reads; `valuation.run` prepares (create, recalculate, edit inputs, resolve exceptions, record the external NAV);
+ * `valuation.maker` does the maker review; `valuation.release` + step-up MFA releases, and the releaser must differ from the maker reviewer (BR-001).
  * A released run is immutable and updates the linked fund (NAV per unit, NAV date, valuation status FINAL).
  * Mounted at `/api/v1/nav`.
  */
@@ -42,6 +45,9 @@ export const navRoutes = Router();
 const D = Prisma.Decimal;
 const staff = [requireAuth, requirePortalAccess('admin')];
 const canView = [...staff, requirePermission('valuation.view')];
+/** FR-VAL-009: preparing a NAV (create, recalculate, inputs, exceptions, external figure) needs valuation.run; maker review needs valuation.maker. */
+const canRun = [...staff, requirePermission('valuation.view'), requirePermission('valuation.run')];
+const canMaker = [...staff, requirePermission('valuation.view'), requirePermission('valuation.maker')];
 const canRelease = [...staff, requirePermission('valuation.view'), requirePermission('valuation.release')];
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -186,12 +192,126 @@ navRoutes.get('/runs/:id/pack', ...canView, async (req, res) => {
   });
 });
 
+// ================================================================ history and policy (FR-VAL-015)
+
+const historyQuery = z.object({ portfolioId: z.string().trim().max(36).optional(), fundId: z.string().trim().max(36).optional(), limit: z.coerce.number().int().min(1).max(200).default(60) });
+
+/**
+ * Prior official NAVs: the released (and superseded) runs, newest NAV date first, with the day-on-day move of NAV per unit
+ * (else NAV), the number of runs made for that date (re-runs), who prepared, reviewed and released it, the evidence pack
+ * link and the External NAV variance where one is recorded.
+ */
+navRoutes.get('/history', ...canView, validateQuery(historyQuery), async (req, res) => {
+  const f = query<z.infer<typeof historyQuery>>(req);
+  const where: Prisma.NavRunWhereInput = { status: { in: ['RELEASED', 'SUPERSEDED'] } };
+  if (f.portfolioId) where.portfolioId = UUID.test(f.portfolioId) ? f.portfolioId : ((await prisma.portfolio.findUnique({ where: { ref: f.portfolioId }, select: { id: true } }))?.id ?? '0');
+  if (f.fundId) where.fundId = UUID.test(f.fundId) ? f.fundId : ((await prisma.fund.findUnique({ where: { ref: f.fundId }, select: { id: true } }))?.id ?? '0');
+  const rows = await prisma.navRun.findMany({ where, orderBy: [{ navDate: 'desc' }, { version: 'desc' }], take: f.limit });
+  const views = await runViews(rows);
+  const official = rows.filter((r) => r.status === 'RELEASED');
+  const dateKey = (r: { portfolioId: string; navDate: Date }) => `${r.portfolioId}|${isoDay(r.navDate)}`;
+  const rerunCount = new Map<string, number>();
+  for (const r of rows) rerunCount.set(dateKey(r), (rerunCount.get(dateKey(r)) ?? 0) + 1);
+  const data = rows.map((r) => {
+    const v = views.find((x) => x.id === r.id)!;
+    // The previous official NAV of the same portfolio (older date) for the move.
+    const prev = official.filter((o) => o.portfolioId === r.portfolioId && o.navDate.getTime() < r.navDate.getTime()).sort((a, b) => b.navDate.getTime() - a.navDate.getTime())[0];
+    const basis = r.navPerUnit && prev?.navPerUnit ? { a: r.navPerUnit, b: prev.navPerUnit } : prev ? { a: r.nav, b: prev.nav } : null;
+    return {
+      ...v,
+      official: r.status === 'RELEASED',
+      runsForDate: rerunCount.get(dateKey(r)) ?? 1,
+      previousNavDate: prev ? isoDay(prev.navDate) : null,
+      movePct: basis && !basis.b.isZero() ? basis.a.sub(basis.b).div(basis.b).mul(100).toDecimalPlaces(4).toFixed(4) : null,
+      moveBasis: basis ? (r.navPerUnit && prev?.navPerUnit ? 'NAV per unit' : 'NAV') : null,
+      packUrl: `/api/v1/nav/runs/${r.id}/pack`,
+    };
+  });
+  res.json({ data, total: data.length });
+});
+
+const POLICY_FIELDS = {
+  staleDays: { key: NAV_SETTING_KEYS.staleDays, label: 'Stale price (days)', unit: 'days', help: 'A price older than this at the NAV date raises a stale-price exception.', max: 60 },
+  priceMovePct: { key: NAV_SETTING_KEYS.priceMovePct, label: 'Price move tolerance (%)', unit: '%', help: 'A move above this versus the previous run raises a tolerance exception.', max: 100 },
+  tolerancePct: { key: NAV_SETTING_KEYS.tolerancePct, label: 'Materiality (% of position)', unit: '%', help: 'A difference above this percent of the position value is material.', max: 100 },
+  toleranceAbs: { key: NAV_SETTING_KEYS.toleranceAbs, label: 'Materiality (base currency)', unit: 'amount', help: 'A difference above this amount is material.', max: 1_000_000_000 },
+  externalToleranceAbs: { key: NAV_EXTERNAL_TOL_KEY, label: 'External NAV tolerance (base currency)', unit: 'amount', help: 'External NAV agrees with ABOR when the absolute variance is within this amount.', max: 1_000_000_000 },
+} as const;
+type PolicyField = keyof typeof POLICY_FIELDS;
+
+async function policyValues(): Promise<Record<PolicyField, { value: number; default: number; custom: boolean }>> {
+  const s = await loadSettings();
+  const ext = await loadExternalTolerance();
+  const rows = await prisma.policy.findMany({ where: { key: { in: Object.values(POLICY_FIELDS).map((f) => f.key) } }, select: { key: true } });
+  const custom = (key: string) => rows.some((r) => r.key === key);
+  return {
+    staleDays: { value: s.staleDays, default: NAV_SETTING_DEFAULTS.staleDays, custom: custom(POLICY_FIELDS.staleDays.key) },
+    priceMovePct: { value: s.priceMovePct, default: NAV_SETTING_DEFAULTS.priceMovePct, custom: custom(POLICY_FIELDS.priceMovePct.key) },
+    tolerancePct: { value: s.tolerancePct, default: NAV_SETTING_DEFAULTS.tolerancePct, custom: custom(POLICY_FIELDS.tolerancePct.key) },
+    toleranceAbs: { value: s.toleranceAbs, default: NAV_SETTING_DEFAULTS.toleranceAbs, custom: custom(POLICY_FIELDS.toleranceAbs.key) },
+    externalToleranceAbs: { value: ext, default: NAV_EXTERNAL_TOL_DEFAULT, custom: custom(POLICY_FIELDS.externalToleranceAbs.key) },
+  };
+}
+
+/** The valuation policy panel: price hierarchy, stale-price and materiality thresholds, override governance. */
+navRoutes.get('/policy', ...canView, async (req, res) => {
+  const values = await policyValues();
+  res.json({
+    data: {
+      thresholds: (Object.keys(POLICY_FIELDS) as PolicyField[]).map((k) => ({ field: k, label: POLICY_FIELDS[k].label, unit: POLICY_FIELDS[k].unit, help: POLICY_FIELDS[k].help, ...values[k] })),
+      priceHierarchy: [
+        { rank: 1, source: 'Latest price on or before the NAV date', detail: 'The most recent price in the security price history for each position, with its source and date shown on every NAV line.' },
+        { rank: 2, source: 'Foreign exchange', detail: 'The latest FX rate on or before the NAV date converts each position to the portfolio base currency; a missing rate is an exception, never a silent zero.' },
+        { rank: 3, source: 'No price', detail: 'A position without a usable price is excluded from the valuation, lowers price coverage and raises a material exception that needs a rationale and evidence.' },
+      ],
+      governance: [
+        'Preparing a NAV (create, recalculate, edit inputs, resolve exceptions, record the external NAV) needs valuation.run.',
+        'Maker review needs valuation.maker and is blocked while a material exception is open.',
+        'Release needs valuation.release and a fresh authenticator code; the releaser must differ from the maker reviewer.',
+        'A material exception can only be resolved with a rationale and an evidence reference; every resolution is audited.',
+        'Open Critical or High reconciliation breaks on the portfolio block release.',
+        'A released run is immutable; a correction is a new version that supersedes it.',
+      ],
+      canEdit: req.user!.permissions.includes('valuation.release'),
+    },
+  });
+});
+
+const policyBody = z
+  .object({
+    staleDays: z.number().int().min(0).max(60).optional(),
+    priceMovePct: z.number().min(0).max(100).optional(),
+    tolerancePct: z.number().min(0).max(100).optional(),
+    toleranceAbs: z.number().min(0).max(1_000_000_000).optional(),
+    externalToleranceAbs: z.number().min(0).max(1_000_000_000).optional(),
+    reason: z.string().trim().min(5, 'Give a reason (5+ characters)').max(300),
+  })
+  .strict()
+  .refine((b) => (Object.keys(POLICY_FIELDS) as PolicyField[]).some((k) => b[k] !== undefined), 'Change at least one threshold');
+
+navRoutes.put('/policy', ...canRelease, requireStepUp, validateBody(policyBody), idempotent('nav.policy', { required: false }), async (req, res) => {
+  const b = req.body as z.infer<typeof policyBody>;
+  const before = await policyValues();
+  await prisma.$transaction(async (tx) => {
+    const changed: Record<string, { from: number; to: number }> = {};
+    for (const k of Object.keys(POLICY_FIELDS) as PolicyField[]) {
+      const v = b[k];
+      if (v === undefined || v === before[k].value) continue;
+      await tx.policy.upsert({ where: { key: POLICY_FIELDS[k].key }, create: { key: POLICY_FIELDS[k].key, value: v, updatedBy: req.user!.id }, update: { value: v, updatedBy: req.user!.id } });
+      changed[k] = { from: before[k].value, to: v };
+    }
+    await writeAudit(tx, audit(req), { action: 'nav.policy_updated', objectType: 'nav_policy', objectId: 'valuation', before: Object.fromEntries(Object.entries(changed).map(([k, c]) => [k, c.from])), after: Object.fromEntries(Object.entries(changed).map(([k, c]) => [k, c.to])), reason: b.reason });
+  });
+  const values = await policyValues();
+  res.json({ data: { thresholds: (Object.keys(POLICY_FIELDS) as PolicyField[]).map((k) => ({ field: k, label: POLICY_FIELDS[k].label, unit: POLICY_FIELDS[k].unit, help: POLICY_FIELDS[k].help, ...values[k] })) } });
+});
+
 // ================================================================ create / recalculate
 
 const navIo = (i: Record<string, unknown>) => i;
 const navOut = (r: { ref: string; version: number; nav: unknown; units: unknown; navPerUnit: unknown; marketValue: unknown; cash: unknown; fees: unknown; priceCoverage: unknown; positionCount: number; status: string }) => ({ ref: r.ref, version: r.version, nav: r.nav, units: r.units, navPerUnit: r.navPerUnit, marketValue: r.marketValue, cash: r.cash, fees: r.fees, priceCoverage: r.priceCoverage, positionCount: r.positionCount, status: r.status });
 
-navRoutes.post('/runs', ...canView, validateBody(createSchema), idempotent('nav.create'), async (req, res) => {
+navRoutes.post('/runs', ...canRun, validateBody(createSchema), idempotent('nav.create'), async (req, res) => {
   const b = req.body as z.infer<typeof createSchema>;
   const navDate = toDate(b.navDate);
   if (navDate.getTime() > today().getTime()) throw HttpError.badRequest('Validation failed', [{ path: 'navDate', message: 'The NAV date cannot be in the future' }]);
@@ -206,7 +326,7 @@ navRoutes.post('/runs', ...canView, validateBody(createSchema), idempotent('nav.
   await respond(res, req, run.id, 201);
 });
 
-navRoutes.post('/runs/:id/recalculate', ...canView, idempotent('nav.recalculate', { required: false }), async (req, res) => {
+navRoutes.post('/runs/:id/recalculate', ...canRun, idempotent('nav.recalculate', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   assertNotImmutable(r, 'recalculated');
   await assertModelUsable('NAV_VALUATION');
@@ -215,9 +335,47 @@ navRoutes.post('/runs/:id/recalculate', ...canView, idempotent('nav.recalculate'
   await respond(res, req, run.id, 201);
 });
 
+// ================================================================ external NAV vs ABOR (FR-VAL-017)
+
+const externalSchema = z
+  .object({
+    externalNav: amount(4).refine((v) => v.gt(0), 'The external NAV must be above zero'),
+    source: z.string().trim().min(2, 'Name the source (administrator, statement)').max(80),
+    note: z.string().trim().max(255).nullish(),
+  })
+  .strict();
+
+/**
+ * Records the administrator's NAV against a run. ABOR is this run's own NAV; variance = external - ABOR and the state is
+ * Agree when the absolute variance is within the `nav_external_tolerance_abs` policy. Allowed on a released run (the
+ * administrator figure usually arrives after release); the figure is replaced, with the previous one kept in the audit.
+ */
+navRoutes.put('/runs/:id/external-nav', ...canRun, validateBody(externalSchema), idempotent('nav.external', { required: false }), async (req, res) => {
+  const r = await loadRun(param(req, 'id'));
+  if (r.status === 'SUPERSEDED') throw new HttpError(409, 'run_immutable', `${r.ref} is SUPERSEDED; record the external NAV on the current version`);
+  const b = req.body as z.infer<typeof externalSchema>;
+  const tol = await loadExternalTolerance();
+  await prisma.$transaction(async (tx) => {
+    await tx.navRun.update({ where: { id: r.id }, data: { externalNav: b.externalNav, externalNavSource: b.source, externalNavNote: b.note ?? null, externalNavBy: req.user!.id, externalNavAt: new Date() } });
+    const after = externalView({ ...r, externalNav: b.externalNav, externalNavSource: b.source, externalNavNote: b.note ?? null, externalNavBy: req.user!.id, externalNavAt: new Date() }, tol);
+    await writeAudit(tx, audit(req), {
+      action: 'nav.external_recorded',
+      objectType: 'nav_run',
+      objectId: r.id,
+      before: { externalNav: r.externalNav?.toFixed(2) ?? null, source: r.externalNavSource },
+      after: { externalNav: b.externalNav.toFixed(2), source: b.source, abor: r.nav.toFixed(2), variance: after?.variance ?? null, state: after?.state ?? null, tolerance: tol.toFixed(2) },
+      reason: b.note ?? null,
+    });
+    if (after?.state === 'Variance') {
+      await notifyPermission(tx, 'valuation.release', { type: 'nav.external_variance', title: `NAV ${r.ref} differs from the external NAV by ${after.variance}`, body: `ABOR ${after.abor} vs external ${after.nav} (${b.source}); tolerance ${after.tolerance} ${r.baseCurrency}.`, link: `/ops/nav/${r.id}` });
+    }
+  });
+  await respond(res, req, r.id);
+});
+
 // ================================================================ inputs and exceptions
 
-navRoutes.patch('/runs/:id/inputs', ...canView, validateBody(patchSchema), idempotent('nav.patch.runs_id_inputs', { required: false }), async (req, res) => {
+navRoutes.patch('/runs/:id/inputs', ...canRun, validateBody(patchSchema), idempotent('nav.patch.runs_id_inputs', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   assertNotImmutable(r, 'edited');
   if (!(EDITABLE as readonly string[]).includes(r.status)) throw HttpError.conflict(`${r.ref} is ${r.status}; inputs can only be edited in DRAFT or EXCEPTIONS_OPEN`, 'run_not_editable');
@@ -264,7 +422,7 @@ navRoutes.patch('/runs/:id/inputs', ...canView, validateBody(patchSchema), idemp
   await respond(res, req, r.id);
 });
 
-navRoutes.patch('/runs/:id/exceptions/:exId', ...canView, validateBody(resolveSchema), idempotent('nav.patch.runs_id_exceptions_exid', { required: false }), async (req, res) => {
+navRoutes.patch('/runs/:id/exceptions/:exId', ...canRun, validateBody(resolveSchema), idempotent('nav.patch.runs_id_exceptions_exid', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   assertNotImmutable(r, 'changed');
   if (!(EDITABLE as readonly string[]).includes(r.status)) throw HttpError.conflict(`${r.ref} is ${r.status}; exceptions can only be resolved in DRAFT or EXCEPTIONS_OPEN`, 'run_not_editable');
@@ -293,7 +451,7 @@ navRoutes.patch('/runs/:id/exceptions/:exId', ...canView, validateBody(resolveSc
 
 // ================================================================ maker review and release
 
-navRoutes.post('/runs/:id/maker-review', ...canView, idempotent('nav.maker_review', { required: false }), async (req, res) => {
+navRoutes.post('/runs/:id/maker-review', ...canMaker, idempotent('nav.maker_review', { required: false }), async (req, res) => {
   const r = await loadRun(param(req, 'id'));
   assertNotImmutable(r, 'reviewed');
   if (!(EDITABLE as readonly string[]).includes(r.status)) throw HttpError.conflict(`${r.ref} is ${r.status}; it must be DRAFT or EXCEPTIONS_OPEN for maker review`, 'invalid_state');

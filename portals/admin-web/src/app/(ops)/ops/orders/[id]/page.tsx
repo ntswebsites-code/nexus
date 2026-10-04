@@ -5,10 +5,13 @@ import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { api, v1 } from '@/ops/api';
 import { formatDecimal } from '@/ops/money';
+import { PostTradeCard } from '@/ops/order-posttrade';
 import {
   ACTION_LABEL,
   bp,
   CheckList,
+  ORDER_TYPE_LABEL,
+  PRICE_TOLERANCE_PCT,
   OrderStatusBadge,
   price6,
   shares,
@@ -61,7 +64,7 @@ function Detail({ order: o, reload }: { order: OrderDetail; reload: () => void }
         }
         subtitle={
           <>
-            <SideTag side={o.side} /> {shares(o.quantity)} {o.security.ticker} · {o.orderType === 'LIMIT' ? `limit ${price6(o.limitPrice)}` : 'market'} {o.currency} · {o.tif}
+            <SideTag side={o.side} /> {shares(o.quantity)} {o.security.ticker} · {o.orderType === 'STOP_LIMIT' ? `stop ${price6(o.stopPrice)} limit ${price6(o.limitPrice)}` : o.orderType === 'LIMIT' ? `limit ${price6(o.limitPrice)}` : 'market'} {o.currency} · {o.tif}
           </>
         }
         actions={
@@ -127,6 +130,10 @@ function Detail({ order: o, reload }: { order: OrderDetail; reload: () => void }
             ['Market', `${o.security.market}${o.security.sector ? ` · ${o.security.sector}` : ''}`],
             ['Quantity', shares(o.quantity)],
             ['Filled', `${shares(o.filledQty)} (${shares(o.remainingQty)} remaining)`],
+            ['Order type', ORDER_TYPE_LABEL[o.orderType] ?? o.orderType],
+            ...(o.orderType === 'STOP_LIMIT' ? ([['Stop price', `${price6(o.stopPrice)} ${o.currency}`]] as [string, string][]) : []),
+            ...(o.orderType !== 'MARKET' ? ([['Limit price', `${price6(o.limitPrice)} ${o.currency}`]] as [string, string][]) : []),
+            ...(o.priceOverrideReason ? ([[`Price override (beyond ${PRICE_TOLERANCE_PCT}%)`, o.priceOverrideReason]] as [string, string][]) : []),
             ['Decision price', `${price6(o.decisionPrice)} ${o.currency}`],
             ['Average fill price', o.avgPrice ? `${price6(o.avgPrice)} ${o.currency}` : '—'],
             ['Slippage', bp(o.slippageBp)],
@@ -271,6 +278,10 @@ function Detail({ order: o, reload }: { order: OrderDetail; reload: () => void }
         )}
       </Card>
 
+      {(o.fills.length > 0 || ['Routing', 'PartiallyFilled', 'Filled', 'Settled'].includes(o.status)) && (
+        <PostTradeCard orderId={o.id} status={o.status} brokerId={o.broker?.id ?? null} brokerName={o.broker?.name ?? null} onChanged={reload} />
+      )}
+
       {o.instruction && (
         <Card title="Broker instruction">
           <DefinitionList
@@ -357,7 +368,9 @@ function Detail({ order: o, reload }: { order: OrderDetail; reload: () => void }
 
 function EditModal({ order: o, base, onClose, onDone }: { order: OrderDetail; base: string; onClose: () => void; onDone: () => void }) {
   const brokers = useResource<BrokerOption[]>(() => api.get<BrokerOption[]>(v1('/brokers')), []);
-  const [type, setType] = useState(o.orderType);
+  const [type, setType] = useState<'MARKET' | 'LIMIT' | 'STOP_LIMIT'>(o.orderType);
+  const [reason, setReason] = useState(o.priceOverrideReason ?? '');
+  const priced = type !== 'MARKET';
   return (
     <FormModal
       kicker="Order"
@@ -372,7 +385,9 @@ function EditModal({ order: o, base, onClose, onDone }: { order: OrderDetail; ba
           {
             quantity: str(fd, 'quantity'),
             orderType: type,
-            limitPrice: type === 'LIMIT' ? str(fd, 'limitPrice') : null,
+            limitPrice: priced ? str(fd, 'limitPrice') : null,
+            stopPrice: type === 'STOP_LIMIT' ? str(fd, 'stopPrice') : null,
+            priceOverrideReason: priced && reason.trim() ? reason.trim() : null,
             tif: str(fd, 'tif'),
             urgency: str(fd, 'urgency'),
             brokerId: optStr(fd, 'brokerId') ?? null,
@@ -387,14 +402,25 @@ function EditModal({ order: o, base, onClose, onDone }: { order: OrderDetail; ba
           <input className="ops-input" name="quantity" required inputMode="numeric" pattern="\d+" defaultValue={String(Number(o.quantity))} />
         </Field>
         <Field label="Order type">
-          <select className="ops-input" value={type} onChange={(e) => setType(e.target.value as 'MARKET' | 'LIMIT')}>
+          <select className="ops-input" value={type} onChange={(e) => setType(e.target.value as 'MARKET' | 'LIMIT' | 'STOP_LIMIT')}>
             <option value="MARKET">Market</option>
             <option value="LIMIT">Limit</option>
+            <option value="STOP_LIMIT">Stop limit</option>
           </select>
         </Field>
         <Field label="Limit price">
-          <input className="ops-input" name="limitPrice" inputMode="decimal" disabled={type !== 'LIMIT'} required={type === 'LIMIT'} defaultValue={o.limitPrice ? price6(o.limitPrice).replace(/,/g, '') : ''} />
+          <input className="ops-input" name="limitPrice" inputMode="decimal" disabled={!priced} required={priced} defaultValue={o.limitPrice ? price6(o.limitPrice).replace(/,/g, '') : ''} />
         </Field>
+        {type === 'STOP_LIMIT' && (
+          <Field label="Stop price">
+            <input className="ops-input" name="stopPrice" inputMode="decimal" required defaultValue={o.stopPrice ? price6(o.stopPrice).replace(/,/g, '') : ''} />
+          </Field>
+        )}
+        {priced && (
+          <Field label="Price override reason" span={2} hint="Needed when the limit is more than 10% from the last price">
+            <input className="ops-input" value={reason} maxLength={255} onChange={(e) => setReason(e.target.value)} />
+          </Field>
+        )}
         <Field label="Time in force">
           <select className="ops-input" name="tif" defaultValue={o.tif}>
             <option value="DAY">Day</option>

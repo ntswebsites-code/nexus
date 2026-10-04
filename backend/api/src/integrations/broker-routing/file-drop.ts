@@ -14,7 +14,7 @@ export class FileDropBrokerRouting implements BrokerRoutingAdapter {
   async fetchFills() {
     return { status: 'WORKING' as const, fills: [] };
   }
-  async parseContractNote(i: { brokerCode: string; filename: string; content: string; format?: 'CSV' | 'JSON' }) {
+  async parseContractNote(i: { brokerCode: string; filename: string; content: string; format?: 'CSV' | 'JSON' | 'TEXT' }) {
     return parseContractNoteText(i.content, i.format);
   }
   async parseExecutionReport({ raw }: { raw: string }) {

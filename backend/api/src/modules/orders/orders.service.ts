@@ -65,7 +65,10 @@ const q = (v: Dec) => v.toDecimalPlaces(6, D.ROUND_HALF_UP).toString();
 
 /** Reference price for reservation and checks: the limit, else the decision price. */
 export const referencePrice = (o: Pick<OrderRow, 'orderType' | 'limitPrice' | 'decisionPrice'>): Dec =>
-  o.orderType === 'LIMIT' && o.limitPrice ? o.limitPrice : o.decisionPrice;
+  isLimited(o.orderType) && o.limitPrice ? o.limitPrice : o.decisionPrice;
+
+/** LIMIT and STOP_LIMIT both carry a limit price that caps the fill price. */
+export const isLimited = (orderType: string): boolean => orderType === 'LIMIT' || orderType === 'STOP_LIMIT';
 
 /** BR-017 slippage in bp, positive = worse than the decision price (paid more on a buy, received less on a sell). */
 export function slippageBp(side: string, avgPrice: Dec | null, decisionPrice: Dec): number | null {
@@ -120,6 +123,8 @@ export function orderView(o: OrderRow, l: Lookups) {
     quantity: q(o.quantity),
     orderType: o.orderType,
     limitPrice: p6(o.limitPrice),
+    stopPrice: p6(o.stopPrice),
+    priceOverrideReason: o.priceOverrideReason,
     tif: o.tif,
     urgency: o.urgency,
     broker: o.brokerId ? (l.brokers.get(o.brokerId) ? { id: o.brokerId, name: l.brokers.get(o.brokerId)!.name } : { id: o.brokerId, name: 'Unknown broker' }) : null,
@@ -201,7 +206,12 @@ export function buildInstruction(
   note?: string | null,
 ): InstructionPayload {
   const remaining = o.quantity.sub(o.filledQty);
-  const price = o.orderType === 'LIMIT' && o.limitPrice ? `LIMIT ${p6(o.limitPrice)} ${security.currency}` : 'MARKET (at best)';
+  const price =
+    o.orderType === 'STOP_LIMIT' && o.limitPrice && o.stopPrice
+      ? `STOP LIMIT: stop ${p6(o.stopPrice)}, limit ${p6(o.limitPrice)} ${security.currency}`
+      : o.orderType === 'LIMIT' && o.limitPrice
+        ? `LIMIT ${p6(o.limitPrice)} ${security.currency}`
+        : 'MARKET (at best)';
   const fields = {
     orderRef: o.ref,
     side: o.side,

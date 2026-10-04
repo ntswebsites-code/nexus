@@ -13,7 +13,7 @@ export const ALL_PERMS = [
   'funds.manage', 'funds.view', 'notices.create', 'notices.publish', 'notices.view', 'operations.view', 'operations.task.manage',
   'orders.approve', 'orders.create', 'orders.route', 'orders.view', 'portfolio.manage', 'portfolio.view',
   'private.mark.approve', 'recon.manage', 'recon.signoff', 'reports.approve', 'reports.create', 'reports.view',
-  'research.edit', 'risk.manage', 'risk.view', 'term_sheets.approve', 'term_sheets.create', 'term_sheets.view', 'valuation.release', 'valuation.view',
+  'research.edit', 'risk.manage', 'risk.view', 'term_sheets.approve', 'term_sheets.create', 'term_sheets.view', 'valuation.maker', 'valuation.release', 'valuation.run', 'valuation.view',
 ];
 
 export const without = (...drop: string[]) => ALL_PERMS.filter((p) => !drop.includes(p));

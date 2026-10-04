@@ -1888,9 +1888,13 @@ model Order {
   /// BUY | SELL
   side           String    @db.VarChar(4)
   quantity       Decimal   @db.Decimal(24, 6)
-  /// MARKET | LIMIT
-  orderType      String    @map("order_type") @db.VarChar(8)
+  /// MARKET | LIMIT | STOP_LIMIT
+  orderType      String    @map("order_type") @db.VarChar(12)
   limitPrice     Decimal?  @map("limit_price") @db.Decimal(20, 6)
+  /// STOP_LIMIT only: the trigger price (FR-OMS-018).
+  stopPrice      Decimal?  @map("stop_price") @db.Decimal(20, 6)
+  /// Why a limit price more than 10 percent from the last price was accepted (FR-OMS-018).
+  priceOverrideReason String? @map("price_override_reason") @db.VarChar(255)
   /// DAY | GTC | IOC
   tif            String    @default("DAY") @db.VarChar(8)
   /// Low | Normal | High
@@ -2139,6 +2143,12 @@ model NavRun {
   notes         String?   @db.VarChar(2000)
   /// Cash by currency and the tolerance settings applied to this calculation.
   detail        Json?
+  /// FR-VAL-017: the administrator / external NAV recorded against this run; variance = external - ABOR (this run's NAV).
+  externalNav       Decimal?  @map("external_nav") @db.Decimal(20, 4)
+  externalNavSource String?   @map("external_nav_source") @db.VarChar(80)
+  externalNavNote   String?   @map("external_nav_note") @db.VarChar(255)
+  externalNavBy     String?   @map("external_nav_by") @db.Char(36)
+  externalNavAt     DateTime? @map("external_nav_at")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 

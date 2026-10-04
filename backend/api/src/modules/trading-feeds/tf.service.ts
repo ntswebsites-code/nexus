@@ -7,7 +7,7 @@ import { SYSTEM_ACTOR_ID, systemCtx } from '../../lib/system';
 import { enqueue } from '../../lib/outbox';
 import { assertSegregation, assertUpdated, notifyPermission } from '../ops/ops.common';
 import { applyFillTx } from '../orders/orders.fill';
-import { FeedParseError, brokerRoutingMode, getBrokerRoutingAdapter, orderRefForBrokerRef, type FixExecutionReport } from '../../integrations/broker-routing';
+import { FeedParseError, brokerRoutingMode, extractPdfText, getBrokerRoutingAdapter, orderRefForBrokerRef, type FixExecutionReport } from '../../integrations/broker-routing';
 import { getMarketDataAdapter, marketDataMode } from '../../integrations/market-data';
 import { hararePartsOf } from '../../integrations/common';
 import { ELECTION_OPTIONS, type CaType } from '../corporate-actions/ca.engine';
@@ -151,7 +151,7 @@ export interface NoteResult {
   lines: { ref: string | null; tradeRef: string; outcome: string; reason?: string; detail?: string; orderRef?: string | null }[];
 }
 
-export async function ingestContractNote(input: { brokerId: string; filename: string; content: string; format?: 'CSV' | 'JSON'; userId: string; ctx: AuditContext }): Promise<NoteResult> {
+export async function ingestContractNote(input: { brokerId: string; filename: string; content: string; format?: 'CSV' | 'JSON' | 'TEXT' | 'PDF'; userId: string; ctx: AuditContext }): Promise<NoteResult> {
   const broker = await prisma.broker.findUnique({ where: { id: input.brokerId } });
   if (!broker) throw HttpError.notFound('Broker not found');
   if (broker.status !== 'Active') throw HttpError.conflict('Broker is not active', 'broker_inactive');
@@ -164,7 +164,10 @@ export async function ingestContractNote(input: { brokerId: string; filename: st
 
   let parsed;
   try {
-    parsed = await adapter.parseContractNote({ brokerCode: broker.name, filename, content: input.content, format: input.format });
+    // PDF notes arrive base64 encoded; the text layer is read here and handed to the adapter as narrative TEXT.
+    const text = input.format === 'PDF' ? extractPdfText(Buffer.from(input.content, 'base64')) : input.content;
+    parsed = await adapter.parseContractNote({ brokerCode: broker.name, filename, content: text, format: input.format === 'PDF' ? 'TEXT' : input.format });
+    if (input.format === 'PDF') parsed = { ...parsed, format: 'PDF' as const };
   } catch (e) {
     if (!(e instanceof FeedParseError)) throw e;
     const data = { brokerId: broker.id, adapter: adapterName, filename, format: input.format ?? 'CSV', sha256: digest, status: 'Failed', error: trunc(e.message, 500), uploadedBy: input.userId };

@@ -319,7 +319,7 @@ async function main() {
     check('liquidity Review: 15% of average daily volume', checkOf(advReview.vr, 'liquidity')?.result === 'Review' && advReview.vr.body.data.precheck.overall === 'Review', checkOf(advReview.vr, 'liquidity'));
     const advFail = await makeValidated(pm, ticket({ portfolioId: pfChk.id, securityId: secC.id, quantity: 30000 }));
     check('liquidity Fail: 30% of average daily volume', checkOf(advFail.vr, 'liquidity')?.result === 'Fail', checkOf(advFail.vr, 'liquidity'));
-    const priceFar = await makeValidated(pm, ticket({ portfolioId: pfChk.id, orderType: 'LIMIT', limitPrice: '12.5', quantity: 100 }));
+    const priceFar = await makeValidated(pm, ticket({ portfolioId: pfChk.id, orderType: 'LIMIT', limitPrice: '12.5', priceOverrideReason: 'Tolerance test: 25% above the last price', quantity: 100 }));
     check('price Review: limit 25% above the last price', checkOf(priceFar.vr, 'price')?.result === 'Review', checkOf(priceFar.vr, 'price'));
     const concentration = checkOf(mandReview.vr, 'concentration');
     check('concentration reports the post-trade weight', concentration && /40\.00%/.test(concentration.detail), concentration);

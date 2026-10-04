@@ -36,7 +36,7 @@ export interface ContractNoteLine {
   executedAt: string;
 }
 export interface ParsedContractNote {
-  format: 'CSV' | 'JSON';
+  format: 'CSV' | 'JSON' | 'TEXT' | 'PDF';
   lines: ContractNoteLine[];
 }
 /** A FIX ExecutionReport (35=8). execType OTHER = acknowledgement, cancel or reject: nothing to fill. */
@@ -57,8 +57,8 @@ export interface FixExecutionReport {
 export interface BrokerRoutingAdapter extends AdapterBase {
   routeOrder(order: RoutedOrder): Promise<BrokerAck>;
   fetchFills(input: { brokerOrderRef: string }): Promise<{ status: 'WORKING' | 'FILLED'; fills: BrokerFill[] }>;
-  /** Parses a broker contract note (CSV or JSON text). Throws FeedParseError when the file is malformed. */
-  parseContractNote(input: { brokerCode: string; filename: string; content: string; format?: 'CSV' | 'JSON' }): Promise<ParsedContractNote>;
+  /** Parses a broker contract note (CSV, JSON, or narrative TEXT such as the text layer of a PDF note). Throws FeedParseError when the file is malformed. */
+  parseContractNote(input: { brokerCode: string; filename: string; content: string; format?: 'CSV' | 'JSON' | 'TEXT' }): Promise<ParsedContractNote>;
   /** Parses one raw FIX ExecutionReport. Throws FeedParseError when it is malformed or its checksum fails. */
   parseExecutionReport(input: { raw: string }): Promise<FixExecutionReport>;
   /** Raw FIX ExecutionReports waiting at the broker session (the fake sender generates them for routed orders; file-drop has none). */

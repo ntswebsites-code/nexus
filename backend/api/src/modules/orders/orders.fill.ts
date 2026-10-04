@@ -40,7 +40,7 @@ export async function applyFillTx(tx: Prisma.TransactionClient, ctx: AuditContex
   const { quantity: qty, price, fees, executedAt } = f;
   const remaining = o.quantity.sub(o.filledQty);
   if (qty.gt(remaining)) throw new HttpError(409, 'overfill', `Fill of ${qty.toString()} exceeds the remaining ${remaining.toString()} on this order`);
-  if (o.orderType === 'LIMIT' && o.limitPrice) {
+  if ((o.orderType === 'LIMIT' || o.orderType === 'STOP_LIMIT') && o.limitPrice) {
     const breach = o.side === 'BUY' ? price.gt(o.limitPrice) : price.lt(o.limitPrice);
     if (breach) throw new HttpError(409, 'limit_breach', `A ${o.side} fill at ${price.toString()} is outside the ${o.limitPrice.toString()} limit`);
   }

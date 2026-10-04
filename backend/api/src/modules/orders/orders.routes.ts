@@ -15,8 +15,9 @@ import { D, ZERO, assertSegregation, assertUpdated, audit, notifyPermission, seq
 import { getBrokerList, latestPrices, loadPortfolio } from '../portfolio/portfolio.service';
 import { ensureOrderReservation, orderCashView, releaseOrderCash, reserveOrderCash, syncOrderReservation } from '../cash/cash.orders';
 import { settleOrder } from './orders.settle';
+import { postTradeView } from './orders.posttrade';
 import { applyFillTx } from './orders.fill';
-import { ADV_SANITY_MULTIPLE, RESERVING_STATUSES, estimateFee, runPreTradeChecks, type PreTradeResult } from './orders.checks';
+import { ADV_SANITY_MULTIPLE, PRICE_TOLERANCE_PCT, RESERVING_STATUSES, estimateFee, runPreTradeChecks, type PreTradeResult } from './orders.checks';
 import {
   CANCELLABLE,
   allowedActions,
@@ -42,6 +43,7 @@ import {
  *   POST   /precheck                         orders.create    what-if pre-trade check (writes nothing)
  *   POST   /                                 orders.create    Draft (Idempotency-Key required)
  *   GET    /:id                              orders.view      detail, fills, instruction, timeline, allowed actions
+ *   GET    /:id/post-trade                   orders.view      allocation, slippage, contract-note match (FR-OMS-011)
  *   PATCH  /:id                              orders.create    maker, Draft/Validated only (If-Match / version)
  *   POST   /:id/validate                     orders.create    maker; runs the checks, Draft <-> Validated
  *   POST   /:id/submit                       orders.create    maker; rationale; reserves cash for buys
@@ -81,18 +83,22 @@ const ticketFields = {
   securityId: idStr,
   side: z.enum(['BUY', 'SELL']),
   quantity: qtyInput,
-  orderType: z.enum(['MARKET', 'LIMIT']),
+  orderType: z.enum(['MARKET', 'LIMIT', 'STOP_LIMIT']),
   limitPrice: priceInput.nullish(),
+  stopPrice: priceInput.nullish(),
+  priceOverrideReason: z.string().trim().max(255).nullish(),
   tif: z.enum(['DAY', 'GTC', 'IOC']).default('DAY'),
   urgency: z.enum(['Low', 'Normal', 'High']).default('Normal'),
   brokerId: idStr.nullish(),
   rationale: z.string().trim().max(2000).nullish(),
 };
-const limitRule = (b: { orderType?: string; limitPrice?: string | null }) => b.orderType !== 'LIMIT' || !!b.limitPrice;
-const limitMsg = { message: 'A limit price is required for a LIMIT order', path: ['limitPrice'] };
+const limitRule = (b: { orderType?: string; limitPrice?: string | null }) => b.orderType === 'MARKET' || !!b.limitPrice;
+const limitMsg = { message: 'A limit price is required for a LIMIT or STOP_LIMIT order', path: ['limitPrice'] };
+const stopRule = (b: { orderType?: string; stopPrice?: string | null }) => b.orderType !== 'STOP_LIMIT' || !!b.stopPrice;
+const stopMsg = { message: 'A stop price is required for a STOP_LIMIT order', path: ['stopPrice'] };
 
-const createSchema = z.object(ticketFields).refine(limitRule, limitMsg);
-const precheckSchema = z.object({ ...ticketFields, rationale: z.any().optional() }).refine(limitRule, limitMsg);
+const createSchema = z.object(ticketFields).refine(limitRule, limitMsg).refine(stopRule, stopMsg);
+const precheckSchema = z.object({ ...ticketFields, rationale: z.any().optional() }).refine(limitRule, limitMsg).refine(stopRule, stopMsg);
 const patchSchema = z
   .object({
     portfolioId: ticketFields.portfolioId,
@@ -101,6 +107,8 @@ const patchSchema = z
     quantity: ticketFields.quantity,
     orderType: ticketFields.orderType,
     limitPrice: priceInput.nullable(),
+    stopPrice: priceInput.nullable(),
+    priceOverrideReason: z.string().trim().max(255).nullable(),
     tif: z.enum(['DAY', 'GTC', 'IOC']),
     urgency: z.enum(['Low', 'Normal', 'High']),
     brokerId: idStr.nullable(),
@@ -153,6 +161,40 @@ export function assertTicketSize(security: { boardLot: number; averageDailyVolum
   if (adv && adv.gt(0) && qty.gt(adv.mul(ADV_SANITY_MULTIPLE))) {
     throw HttpError.badRequest('Validation failed', [{ path: 'quantity', message: `Quantity ${qty.toString()} is more than ${ADV_SANITY_MULTIPLE} times the average daily volume of ${security.ticker} (${adv.toString()}); check the size` }]);
   }
+}
+
+/**
+ * FR-OMS-018 price rules, as field errors: a limit price more than 10 percent from the last price needs an override reason
+ * (returned so the caller stores it; null when the price is within tolerance), and a STOP_LIMIT stop price must sit on the
+ * trigger side of the limit (buy: stop <= limit; sell: stop >= limit).
+ */
+export function assertTicketPrice(
+  t: { orderType: string; side: string; limitPrice?: Prisma.Decimal | string | null; stopPrice?: Prisma.Decimal | string | null; priceOverrideReason?: string | null },
+  last: Prisma.Decimal | null,
+): string | null {
+  if (t.orderType === 'MARKET') return null;
+  const errors: { path: string; message: string }[] = [];
+  const limit = t.limitPrice ? new D(t.limitPrice) : null;
+  const stop = t.stopPrice ? new D(t.stopPrice) : null;
+  if (!limit) errors.push({ path: 'limitPrice', message: 'A limit price is required for a LIMIT or STOP_LIMIT order' });
+  if (t.orderType === 'STOP_LIMIT' && !stop) errors.push({ path: 'stopPrice', message: 'A stop price is required for a STOP_LIMIT order' });
+  if (t.orderType === 'STOP_LIMIT' && limit && stop) {
+    if (t.side === 'BUY' && stop.gt(limit)) errors.push({ path: 'stopPrice', message: 'For a buy stop-limit the stop price must not be above the limit price' });
+    if (t.side === 'SELL' && stop.lt(limit)) errors.push({ path: 'stopPrice', message: 'For a sell stop-limit the stop price must not be below the limit price' });
+  }
+  let reason: string | null = null;
+  if (limit && last && last.gt(0)) {
+    const dev = limit.sub(last).div(last).mul(100);
+    if (dev.abs().gt(PRICE_TOLERANCE_PCT)) {
+      const given = (t.priceOverrideReason ?? '').trim();
+      if (given.length < 5) {
+        errors.push({ path: 'limitPrice', message: `Price is ${dev.toDecimalPlaces(2).toString()}% from the last price ${last.toString()}; more than ${PRICE_TOLERANCE_PCT}% needs an override reason` });
+        errors.push({ path: 'priceOverrideReason', message: `Give a reason (at least 5 characters) for a price more than ${PRICE_TOLERANCE_PCT}% from the last price` });
+      } else reason = given.slice(0, 255);
+    }
+  }
+  if (errors.length) throw HttpError.badRequest('Validation failed', errors);
+  return reason;
 }
 
 async function assertBroker(brokerId: string | null | undefined) {
@@ -364,7 +406,8 @@ ordersRoutes.post('/precheck', ...staff, requirePermission('orders.create'), val
   const security = await resolveSecurity(b.securityId);
   const last = await latestPrice(security.id);
   if (!last) throw HttpError.conflict(`${security.ticker} has no price on file`, 'no_price');
-  const price = b.orderType === 'LIMIT' ? new D(b.limitPrice!) : last;
+  assertTicketPrice(b, last);
+  const price = b.orderType !== 'MARKET' ? new D(b.limitPrice!) : last;
   const result = await runPreTradeChecks(portfolio.id, { securityId: security.id, side: b.side, quantity: b.quantity, price });
   res.json({ data: { ...result, decisionPrice: last.toString() } });
 });
@@ -375,7 +418,7 @@ ordersRoutes.post('/precheck', ...staff, requirePermission('orders.create'), val
 export async function createDraftOrder(
   tx: Prisma.TransactionClient,
   req: Request,
-  b: { side: 'BUY' | 'SELL'; quantity: string; orderType: 'MARKET' | 'LIMIT'; limitPrice?: string | null; tif: string; urgency: string; brokerId?: string | null; rationale?: string | null },
+  b: { side: 'BUY' | 'SELL'; quantity: string; orderType: 'MARKET' | 'LIMIT' | 'STOP_LIMIT'; limitPrice?: string | null; stopPrice?: string | null; priceOverrideReason?: string | null; tif: string; urgency: string; brokerId?: string | null; rationale?: string | null },
   portfolio: { id: string; ref: string },
   security: { id: string; ticker: string; currency: string },
   decision: Prisma.Decimal,
@@ -390,7 +433,9 @@ export async function createDraftOrder(
       side: b.side,
       quantity: new D(b.quantity),
       orderType: b.orderType,
-      limitPrice: b.orderType === 'LIMIT' ? new D(b.limitPrice!) : null,
+      limitPrice: b.orderType !== 'MARKET' ? new D(b.limitPrice!) : null,
+      stopPrice: b.orderType === 'STOP_LIMIT' && b.stopPrice ? new D(b.stopPrice) : null,
+      priceOverrideReason: b.orderType !== 'MARKET' ? (b.priceOverrideReason ?? null) : null,
       tif: b.tif,
       urgency: b.urgency,
       brokerId: b.brokerId ?? null,
@@ -405,7 +450,7 @@ export async function createDraftOrder(
     action: 'order.created',
     objectType: 'order',
     objectId: o.id,
-    after: { ref, status: 'Draft', portfolio: portfolio.ref, security: security.ticker, side: b.side, quantity: b.quantity, orderType: b.orderType, limitPrice: b.limitPrice ?? null, ...extraAudit },
+    after: { ref, status: 'Draft', portfolio: portfolio.ref, security: security.ticker, side: b.side, quantity: b.quantity, orderType: b.orderType, limitPrice: b.limitPrice ?? null, stopPrice: b.stopPrice ?? null, priceOverrideReason: b.priceOverrideReason ?? null, ...extraAudit },
   });
   return o;
 }
@@ -418,8 +463,9 @@ ordersRoutes.post('/', ...staff, requirePermission('orders.create'), validateBod
   const decision = await latestPrice(security.id);
   if (!decision) throw HttpError.conflict(`${security.ticker} has no price on file`, 'no_price');
   assertTicketSize(security, b.quantity);
+  const override = assertTicketPrice(b, decision);
   await assertBroker(b.brokerId);
-  const id = await prisma.$transaction(async (tx) => (await createDraftOrder(tx, req, b, portfolio, security, decision)).id);
+  const id = await prisma.$transaction(async (tx) => (await createDraftOrder(tx, req, { ...b, priceOverrideReason: override }, portfolio, security, decision)).id);
   await respond(res, req, id, 201);
 });
 
@@ -427,6 +473,13 @@ ordersRoutes.get('/:id', ...staff, requirePermission('orders.view'), async (req,
   const o = await loadOrderRow(param(req, 'id'));
   if (!visibleTo(o, req.user!.id)) throw HttpError.notFound('Order not found');
   res.json({ data: await detail(req, o) });
+});
+
+/** FR-OMS-011: allocation, slippage and contract-note match for the fills of one order. */
+ordersRoutes.get('/:id/post-trade', ...staff, requirePermission('orders.view'), async (req, res) => {
+  const o = await loadOrderRow(param(req, 'id'));
+  if (!visibleTo(o, req.user!.id)) throw HttpError.notFound('Order not found');
+  res.json({ data: await postTradeView(o) });
 });
 
 ordersRoutes.patch('/:id', ...staff, requirePermission('orders.create'), validateBody(patchSchema), idempotent('orders.patch.id', { required: false }), async (req, res) => {
@@ -492,10 +545,31 @@ ordersRoutes.patch('/:id', ...staff, requirePermission('orders.create'), validat
     data.rationale = b.rationale;
     changes.rationale = b.rationale;
   }
+  if (b.stopPrice !== undefined && !(b.stopPrice === null ? o.stopPrice === null : o.stopPrice?.eq(b.stopPrice))) {
+    data.stopPrice = b.stopPrice === null ? null : new D(b.stopPrice);
+    changes.stopPrice = b.stopPrice;
+    material = true;
+  }
   const orderType = (data.orderType as string | undefined) ?? o.orderType;
   const limit = data.limitPrice === undefined ? o.limitPrice : (data.limitPrice as Prisma.Decimal | null);
-  if (orderType === 'LIMIT' && !limit) throw HttpError.badRequest('Validation failed', [{ path: 'limitPrice', message: 'A limit price is required for a LIMIT order' }]);
-  if (orderType === 'MARKET' && limit) data.limitPrice = null;
+  const stop = data.stopPrice === undefined ? o.stopPrice : (data.stopPrice as Prisma.Decimal | null);
+  if (orderType === 'MARKET') {
+    if (limit) data.limitPrice = null;
+    if (stop) data.stopPrice = null;
+    if (o.priceOverrideReason) data.priceOverrideReason = null;
+  } else {
+    if (orderType !== 'STOP_LIMIT' && stop) data.stopPrice = null;
+    const secId = (data.securityId as string | undefined) ?? o.securityId;
+    const reasonIn = b.priceOverrideReason !== undefined ? b.priceOverrideReason : o.priceOverrideReason;
+    const priceTouched = [b.limitPrice, b.stopPrice, b.orderType, b.priceOverrideReason, b.side, b.securityId].some((v) => v !== undefined);
+    if (priceTouched) {
+      const override = assertTicketPrice({ orderType, side: (data.side as string | undefined) ?? o.side, limitPrice: limit, stopPrice: orderType === 'STOP_LIMIT' ? stop : null, priceOverrideReason: reasonIn }, await latestPrice(secId));
+      if (override !== o.priceOverrideReason) {
+        data.priceOverrideReason = override;
+        changes.priceOverrideReason = override;
+      }
+    }
+  }
 
   if (!Object.keys(changes).length) return respond(res, req, o.id);
   // A material edit invalidates the stored check: a Validated order drops back to Draft.

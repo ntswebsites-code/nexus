@@ -5,6 +5,7 @@ import { api, apiRequest } from '../api';
 import { formatDecimal, formatMoney } from '../money';
 import { ActionButton, Alert, Card, DateText, Empty, Field, FieldGrid, Loaded, useAction, useResource } from '../ui';
 import { risk, Tone, usePortfolioOptions } from './common';
+import { ThresholdsCard } from './ThresholdsCard';
 import { metricShort, type Preset, type RiskRun, type RiskScenario, type ScenarioResult, type Shocks } from './types';
 
 const BLANK: Shocks = { equityPct: 0, fxPct: 0, ratePctPoints: 0, durationYears: 1, redemptionPct: 0 };
@@ -78,6 +79,7 @@ export function ScenariosTab({ canManage }: { canManage: boolean }) {
 
   return (
     <>
+      <ThresholdsCard />
       <Card title="Scenario lab">
         <p className="ops-muted" style={{ marginTop: 0 }}>
           Deterministic stress test of a portfolio at its latest prices. Equity shock applies to equity-like holdings, the FX shock to ZWG against USD, the rate shock to fixed income through the duration, and redemptions to

@@ -45,11 +45,11 @@ export function checkMatch(o: OrderFacts, l: LineFacts, opts: { force?: boolean 
   if (!WORKING.includes(o.status)) return { reason: 'ORDER_NOT_WORKING', detail: `The order is ${o.status}; only Routing or PartiallyFilled orders take fills` };
   const remaining = o.quantity.sub(o.filledQty);
   if (l.quantity.gt(remaining)) return { reason: 'OVERFILL', detail: `The line fills ${l.quantity.toString()} but only ${remaining.toString()} remains on the order` };
-  if (o.orderType === 'LIMIT' && o.limitPrice) {
+  if ((o.orderType === 'LIMIT' || o.orderType === 'STOP_LIMIT') && o.limitPrice) {
     const breach = o.side === 'BUY' ? l.price.gt(o.limitPrice) : l.price.lt(o.limitPrice);
     if (breach) return { reason: 'LIMIT_BREACH', detail: `The price ${l.price.toString()} is outside the ${o.limitPrice.toString()} limit` };
   }
-  if (!opts.force && o.orderType !== 'LIMIT' && o.decisionPrice.gt(0)) {
+  if (!opts.force && o.orderType === 'MARKET' && o.decisionPrice.gt(0)) {
     const dev = l.price.sub(o.decisionPrice).abs().div(o.decisionPrice).mul(100);
     if (dev.gt(PRICE_DEVIATION_PCT)) return { reason: 'PRICE_DEVIATION', detail: `The price ${l.price.toString()} is ${dev.toFixed(1)}% away from the decision price ${o.decisionPrice.toString()}` };
   }

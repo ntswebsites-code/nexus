@@ -31,6 +31,16 @@ export const NAV_SETTING_KEYS = {
   toleranceAbs: 'nav_tolerance_abs',
 } as const;
 
+/** FR-VAL-017: policy key and default (base currency) for the External NAV vs ABOR tolerance. */
+export const NAV_EXTERNAL_TOL_KEY = 'nav_external_tolerance_abs';
+export const NAV_EXTERNAL_TOL_DEFAULT = 5_000;
+
+/** FR-VAL-017: variance = external NAV - ABOR value (2 dp); state Agree when |variance| <= tolerance, else Variance. */
+export function externalVariance(abor: Dec, external: Dec, tolerance: Dec): { variance: Dec; state: 'Agree' | 'Variance' } {
+  const variance = m2(external.sub(abor));
+  return { variance, state: variance.abs().lte(tolerance) ? 'Agree' : 'Variance' };
+}
+
 export const NAV_STATUSES = ['DRAFT', 'EXCEPTIONS_OPEN', 'MAKER_REVIEWED', 'RELEASED', 'SUPERSEDED'] as const;
 export type NavStatus = (typeof NAV_STATUSES)[number];
 export const EXCEPTION_TYPES = ['STALE_PRICE', 'MISSING_PRICE', 'MISSING_FX', 'TOLERANCE', 'NEGATIVE_CASH'] as const;

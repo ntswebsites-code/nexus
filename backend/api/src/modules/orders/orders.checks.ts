@@ -34,6 +34,8 @@ export const FEE_ESTIMATE_PCT = 0.75;
 /** Orders in these states hold cash (buys) or shares (sells) against the portfolio. */
 /** Order create/edit refuses a quantity above this many times the average daily volume (a sanity bound; the pre-trade liquidity check still judges 10%/25% of volume). */
 export const ADV_SANITY_MULTIPLE = 10;
+/** FR-OMS-018: a limit price further than this percent from the last price needs an override reason. */
+export const PRICE_TOLERANCE_PCT = 10;
 
 export const RESERVING_STATUSES = ['AwaitingApproval', 'Approved', 'Routing', 'PartiallyFilled'] as const;
 
@@ -292,7 +294,7 @@ export async function runPreTradeChecks(portfolioIdOrRef: string, input: PreTrad
       checks.push({ key: 'price', label: 'Price', result: 'Fail', detail: `${security.ticker} has no price on file.` });
     } else {
       const dev = price.sub(last.latestDec).div(last.latestDec).mul(HUNDRED);
-      const far = dev.abs().gt(10);
+      const far = dev.abs().gt(PRICE_TOLERANCE_PCT);
       checks.push({
         key: 'price',
         label: 'Price',

@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { inflateSync } from 'node:zlib';
 import { dayFromIso, isoDay } from '../common';
 import type { ContractNoteLine, FixExecutionReport, ParsedContractNote } from './types';
 
@@ -128,9 +130,10 @@ function validate(raw: RawLine, where: string, problems: string[]): ContractNote
   return { tradeRef, orderRef: orderRef || undefined, brokerOrderRef: brokerOrderRef || undefined, ticker, side: side!, quantity, price, fees, tradeDate, executedAt };
 }
 
-export function parseContractNoteText(content: string, format?: 'CSV' | 'JSON'): ParsedContractNote {
+export function parseContractNoteText(content: string, format?: 'CSV' | 'JSON' | 'TEXT'): ParsedContractNote {
   const trimmed = content.trim();
   if (!trimmed) throw new FeedParseError('The contract note is empty');
+  if (format === 'TEXT') return parseNarrativeNote(trimmed);
   const fmt: 'CSV' | 'JSON' = format ?? (trimmed.startsWith('{') || trimmed.startsWith('[') ? 'JSON' : 'CSV');
   const raws: { raw: RawLine; where: string }[] = [];
   const problems: string[] = [];
@@ -256,3 +259,153 @@ export function parseFixMessage(raw: string): FixExecutionReport {
 }
 
 export const tradeDateOf = (iso: string) => isoDay(new Date(iso));
+
+// ------------------------------------------------------------------ narrative text and PDF (FR-OMS-011 parsing hook)
+
+const NARRATIVE_LABELS: [RegExp, keyof RawLine][] = [
+  [/^(trade|execution|exec|deal|confirmation|contract note)\s*(ref(erence)?|no|number|id)$/, 'tradeRef'],
+  [/^broker\s*(order\s*)?(ref(erence)?|id)$/, 'brokerOrderRef'],
+  [/^(order\s*ref(erence)?|our\s*ref(erence)?|your\s*ref(erence)?|client\s*order\s*id)$/, 'orderRef'],
+  [/^(security|symbol|ticker|instrument|counter)$/, 'ticker'],
+  [/^(side|buy\s*\/\s*sell|b\s*\/\s*s|transaction(\s*type)?|action)$/, 'side'],
+  [/^(quantity|qty|units|shares|no of shares|number of shares|volume)$/, 'quantity'],
+  [/^(price|average price|avg price|execution price|deal price|trade price)$/, 'price'],
+  [/^(commission|fees|charges|brokerage|total charges|total fees)$/, 'fees'],
+  [/^(trade date|deal date|date|execution date)$/, 'tradeDate'],
+];
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/** YYYY-MM-DD, DD/MM/YYYY, DD-MM-YYYY, DD Mon YYYY, or an ISO date-time. Empty string when it cannot be read. */
+function narrativeDate(v: string): string {
+  const s = v.trim();
+  let m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = /^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})$/.exec(s);
+  if (m) return `${m[3]}-${m[2]!.padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
+  m = /^(\d{1,2})\s+([A-Za-z]{3})[a-z]*\.?,?\s+(\d{4})$/.exec(s);
+  if (m) {
+    const mi = MONTHS.indexOf(m[2]!.toLowerCase());
+    if (mi >= 0) return `${m[3]}-${String(mi + 1).padStart(2, '0')}-${m[1]!.padStart(2, '0')}`;
+  }
+  return '';
+}
+
+/**
+ * Reads a narrative contract note (the text layer of a PDF, or pasted text): one "Label: value" per line, labels matched
+ * case-insensitively against common broker wording. A repeated field starts the next trade. A note without a trade
+ * reference gets one derived from its content hash, so re-uploading the same note is caught as a duplicate.
+ */
+export function parseNarrativeNote(text: string): ParsedContractNote {
+  const blocks: RawLine[] = [];
+  let cur: RawLine = {};
+  const problems: string[] = [];
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const m = /^([A-Za-z][A-Za-z /.\-]{1,40}?)\s*(?::|\t|\s{2,})\s*(.+)$/.exec(line);
+    if (!m) continue;
+    const label = m[1]!.toLowerCase().replace(/[.\-]/g, ' ').replace(/\s+/g, ' ').trim();
+    const hit = NARRATIVE_LABELS.find(([re]) => re.test(label));
+    if (!hit) continue;
+    const key = hit[1];
+    let value = m[2]!.trim();
+    if (key === 'ticker') {
+      const paren = /\(([A-Za-z0-9.\-_]{1,32})\)\s*$/.exec(value);
+      value = paren ? paren[1]! : value.split(/\s+/)[0]!;
+    } else if (key === 'quantity' || key === 'price' || key === 'fees') {
+      value = value.replace(/^[A-Za-z]{3}\s+(?=[\d])/, '').replace(/[A-Za-z$]{1,4}\s*$/, '').replace(/,/g, '').trim();
+    } else if (key === 'tradeDate') value = narrativeDate(value) || value;
+    if (cur[key] !== undefined) {
+      blocks.push(cur);
+      cur = {};
+    }
+    cur[key] = value;
+  }
+  if (Object.keys(cur).length) blocks.push(cur);
+  if (!blocks.length) throw new FeedParseError('No trade fields were found in the note text (expected lines such as "Order reference: ORD-001234", "Quantity: 100", "Price: 1.25")');
+  const digest = createHash('sha256').update(text.trim()).digest('hex').slice(0, 12).toUpperCase();
+  const lines: ContractNoteLine[] = [];
+  blocks.forEach((raw, i) => {
+    if (!raw.tradeRef) raw.tradeRef = `NOTE-${digest}${blocks.length > 1 ? `-${i + 1}` : ''}`;
+    const l = validate(raw, `trade ${i + 1}`, problems);
+    if (l) lines.push(l);
+  });
+  if (problems.length) throw new FeedParseError(`Contract note rejected: ${problems[0]}${problems.length > 1 ? ` (and ${problems.length - 1} more)` : ''}`, problems.slice(0, 20));
+  return { format: 'TEXT', lines };
+}
+
+function pdfString(raw: string): string {
+  return raw
+    .replace(/\\([nrtbf])/g, (_m, c: string) => ({ n: '\n', r: '\r', t: '\t', b: '\b', f: '\f' })[c] ?? '')
+    .replace(/\\([()\\])/g, '$1')
+    .replace(/\\([0-7]{1,3})/g, (_m, o: string) => String.fromCharCode(parseInt(o, 8)));
+}
+
+/** Text of one decoded PDF content stream: strings shown by Tj, TJ, ' and ", a new line at each positioning operator. */
+function contentStreamText(src: string): string {
+  const out: string[] = [];
+  let line = '';
+  let pending: string[] = [];
+  let inArray = false;
+  const tokens = src.match(/\((?:\\.|[^\\()])*\)|<[0-9A-Fa-f\s]*>|\[|\]|-?\d*\.?\d+|[A-Za-z'"*]+/g) ?? [];
+  for (const t of tokens) {
+    if (t.startsWith('(')) pending.push(pdfString(t.slice(1, -1)));
+    else if (t.startsWith('<')) {
+      const hex = t.slice(1, -1).replace(/\s+/g, '');
+      if (hex.length % 2 === 0 && hex.length) pending.push(Buffer.from(hex, 'hex').toString('latin1'));
+    } else if (t === '[') inArray = true;
+    else if (t === ']') inArray = false;
+    else if (/^-?\d*\.?\d+$/.test(t)) {
+      if (inArray && Number(t) < -250) pending.push(' ');
+    } else if (t === 'Tj' || t === 'TJ' || t === "'" || t === '"') {
+      line += pending.join('');
+      pending = [];
+      if (t === "'" || t === '"') {
+        out.push(line);
+        line = '';
+      }
+    } else if (t === 'T*' || t === 'Td' || t === 'TD' || t === 'Tm' || t === 'ET') {
+      if (line) out.push(line);
+      line = '';
+      pending = [];
+    } else pending = [];
+  }
+  if (line) out.push(line);
+  return out.join('\n');
+}
+
+/**
+ * Text layer of a PDF (FR-OMS-011 hook): content streams are located, inflated when FlateDecode, and their text-showing
+ * operators read. Handles ordinary text PDFs from broker back-office systems; scanned images, encrypted files and fonts
+ * with custom encodings yield no text and are rejected with a message asking for CSV/JSON or manual entry.
+ */
+export function extractPdfText(buf: Buffer): string {
+  if (buf.length < 8 || buf.subarray(0, 5).toString('latin1') !== '%PDF-') throw new FeedParseError('The file is not a PDF');
+  const raw = buf.toString('latin1');
+  if (/\/Encrypt\b/.test(raw)) throw new FeedParseError('The PDF is encrypted; upload the contract note as CSV/JSON or enter the fill by hand');
+  const parts: string[] = [];
+  const re = /stream\r?\n/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(raw))) {
+    const start = m.index + m[0].length;
+    const end = raw.indexOf('endstream', start);
+    if (end < 0) break;
+    const dictStart = raw.lastIndexOf('obj', m.index);
+    const dict = raw.slice(Math.max(0, dictStart), m.index);
+    let data: Buffer = buf.subarray(start, end);
+    if (/FlateDecode/.test(dict)) {
+      try {
+        data = inflateSync(data);
+      } catch {
+        re.lastIndex = end + 9;
+        continue;
+      }
+    }
+    const body = data.toString('latin1');
+    if (/\b(Tj|TJ)\b/.test(body)) parts.push(contentStreamText(body));
+    re.lastIndex = end + 9;
+  }
+  const text = parts.join('\n').trim();
+  if (!text) throw new FeedParseError('No readable text in the PDF (a scan or an embedded-font file); upload the contract note as CSV/JSON or enter the fill by hand');
+  return text;
+}

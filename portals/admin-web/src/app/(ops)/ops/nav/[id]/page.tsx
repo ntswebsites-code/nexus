@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api, v1 } from '@/ops/api';
 import { EXCEPTION_LABEL, money2, NavStatusBadge, nav4, pct4, StageBar, units6, type NavDetail, type NavException, type NavPack } from '@/ops/nav';
+import { ExternalNavCard } from '@/ops/nav-depth';
 import { useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, DefinitionList, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
 
@@ -68,9 +69,14 @@ function Detail({ run: r, reload }: { run: NavDetail; reload: () => void }) {
             <button className="ops-btn" type="button" onClick={() => setDialog('pack')}>
               Preview pack
             </button>
-            {r.allowed.editInputs && (
-              <button className="ops-btn" type="button" onClick={() => setDialog('inputs')}>
+            {(r.allowed.editInputs || (r.allowed.runBlocker && (r.status === 'DRAFT' || r.status === 'EXCEPTIONS_OPEN'))) && (
+              <button className="ops-btn" type="button" disabled={!r.allowed.editInputs} title={r.allowed.editInputs ? undefined : (r.allowed.runBlocker ?? undefined)} onClick={() => setDialog('inputs')}>
                 Edit inputs
+              </button>
+            )}
+            {!r.allowed.recalculate && r.allowed.runBlocker && ['DRAFT', 'EXCEPTIONS_OPEN', 'MAKER_REVIEWED'].includes(r.status) && (
+              <button className="ops-btn" type="button" disabled title={r.allowed.runBlocker}>
+                Recalculate
               </button>
             )}
             {r.allowed.recalculate && (
@@ -135,6 +141,8 @@ function Detail({ run: r, reload }: { run: NavDetail; reload: () => void }) {
         <Tile label="Open exceptions" value={String(r.openExceptions)} hint={`${r.openMaterialExceptions} material`} tone={r.openMaterialExceptions > 0 ? 'warn' : undefined} />
       </div>
 
+      <ExternalNavCard run={r} base={base} canRecord={!!r.allowed.recordExternal} blocker={r.allowed.runBlocker ?? null} onChanged={reload} />
+
       <Card title="NAV bridge">
         <div className="ops-table-wrap">
           <table className="ops-table">
@@ -198,8 +206,8 @@ function Detail({ run: r, reload }: { run: NavDetail; reload: () => void }) {
                       <span className={`ops-badge ${e.status === 'OPEN' ? (e.material ? 'red' : 'amber') : 'green'}`}>{e.status === 'OPEN' ? 'open' : 'resolved'}</span>
                     </td>
                     <td className="r">
-                      {e.status === 'OPEN' && r.allowed.resolve && (
-                        <button className="ops-btn small" type="button" onClick={() => setDialog({ resolve: e })}>
+                      {e.status === 'OPEN' && (r.allowed.resolve || (r.allowed.runBlocker && (r.status === 'DRAFT' || r.status === 'EXCEPTIONS_OPEN'))) && (
+                        <button className="ops-btn small" type="button" disabled={!r.allowed.resolve} title={r.allowed.resolve ? undefined : (r.allowed.runBlocker ?? undefined)} onClick={() => setDialog({ resolve: e })}>
                           Resolve
                         </button>
                       )}

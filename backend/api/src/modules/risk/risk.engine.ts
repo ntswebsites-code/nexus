@@ -208,6 +208,21 @@ export interface ScenarioInputLimit {
 
 export type ScenarioStatus = 'Escalate' | 'Review' | 'Within';
 
+/**
+ * BR-029: the scenario state thresholds are policy parameters (stored in `policies`, edited on the Risk page).
+ * Liquidity coverage below `liquidityEscalate` is Escalate, below `liquidityReview` is Review. A post-shock loss of at
+ * least `lossEscalatePct` percent of NAV is Escalate, of at least `lossReviewPct` is Review; a null loss threshold is off.
+ * The shipped defaults keep the original rule (1.0x / 1.1x, no loss test); the SRD reference values are 1.25x / 1.5x and 8% / 5%.
+ */
+export interface ScenarioThresholds {
+  liquidityEscalate: number;
+  liquidityReview: number;
+  lossEscalatePct: number | null;
+  lossReviewPct: number | null;
+}
+export const SCENARIO_THRESHOLD_DEFAULTS: ScenarioThresholds = { liquidityEscalate: 1.0, liquidityReview: 1.1, lossEscalatePct: null, lossReviewPct: null };
+const xfmt = (n: number) => (Number.isInteger(n) ? n.toFixed(1) : String(n));
+
 export interface ScenarioResult {
   asOf: string;
   baseCurrency: string;
@@ -229,6 +244,8 @@ export interface ScenarioResult {
     status: ScenarioStatus;
   };
   limitChecks: { ref: string; metric: RiskMetric; threshold: string; value: string; state: LimitState; breachAction: string }[];
+  /** The thresholds this result was judged against (BR-029). */
+  thresholds: ScenarioThresholds;
   status: ScenarioStatus;
   reasons: string[];
   warnings: string[];
@@ -240,11 +257,12 @@ export interface ScenarioResult {
  * Per holding: post = value x localFactor x fxFactor, where localFactor is (1 + equityPct/100) for equity-like
  * holdings, max(0, 1 - duration x ratePctPoints/100) for fixed income and 1 otherwise. Cash is only affected by FX.
  * Liquid assets = post-shock cash + post-shock fixed income. Redemption amount = redemptionPct x post-shock NAV.
- * Coverage = liquid assets / redemption amount: below 1.0 Escalate, below 1.1 Review.
+ * Coverage = liquid assets / redemption amount, judged against the configurable thresholds (default: below 1.0 Escalate, below 1.1 Review; BR-029).
  * Limit checks re-measure the post-shock book against the ACTIVE limits supplied: any breach Escalate, any warning Review.
  * Overall status is the worst of liquidity and limit checks.
  */
-export function runScenarioMaths(book: Book, shocksIn: Partial<Shocks>, limits: ScenarioInputLimit[], meta: { asOf: string; warnings?: string[] }): ScenarioResult {
+export function runScenarioMaths(book: Book, shocksIn: Partial<Shocks>, limits: ScenarioInputLimit[], meta: { asOf: string; warnings?: string[]; thresholds?: Partial<ScenarioThresholds> }): ScenarioResult {
+  const th: ScenarioThresholds = { ...SCENARIO_THRESHOLD_DEFAULTS, ...(meta.thresholds ?? {}) };
   const shocks: Shocks = { ...DEFAULT_SHOCKS, ...shocksIn };
   const pre = bookTotal(book);
   const notes: string[] = [];
@@ -300,13 +318,23 @@ export function runScenarioMaths(book: Book, shocksIn: Partial<Shocks>, limits: 
   const reasons: string[] = [];
   if (redemption.gt(ZERO)) {
     coverage = w4(liquid.div(redemption));
-    if (coverage.lt(1)) {
+    if (coverage.lt(th.liquidityEscalate)) {
       liqStatus = 'Escalate';
-      reasons.push(`Liquidity coverage ${coverage.toFixed(4)}x is below 1.0x (liquid assets cannot meet the redemption)`);
-    } else if (coverage.lt('1.1')) {
+      reasons.push(`Liquidity coverage ${coverage.toFixed(4)}x is below ${xfmt(th.liquidityEscalate)}x${th.liquidityEscalate <= 1 ? ' (liquid assets cannot meet the redemption)' : ' (escalation threshold)'}`);
+    } else if (coverage.lt(th.liquidityReview)) {
       liqStatus = 'Review';
-      reasons.push(`Liquidity coverage ${coverage.toFixed(4)}x is within 10% of the 1.0x minimum`);
+      reasons.push(`Liquidity coverage ${coverage.toFixed(4)}x is below the ${xfmt(th.liquidityReview)}x review threshold (escalates below ${xfmt(th.liquidityEscalate)}x)`);
     }
+  }
+
+  // loss against NAV (BR-029): off unless a threshold is configured
+  let lossStatus: ScenarioStatus = 'Within';
+  if (th.lossEscalatePct !== null && lossPct.gte(th.lossEscalatePct)) {
+    lossStatus = 'Escalate';
+    reasons.push(`Loss of ${w4(lossPct).toFixed(4)}% of NAV is at or above the ${th.lossEscalatePct}% escalation threshold`);
+  } else if (th.lossReviewPct !== null && lossPct.gte(th.lossReviewPct)) {
+    lossStatus = 'Review';
+    reasons.push(`Loss of ${w4(lossPct).toFixed(4)}% of NAV is at or above the ${th.lossReviewPct}% review threshold`);
   }
 
   // limits on the post-shock book
@@ -328,7 +356,8 @@ export function runScenarioMaths(book: Book, shocksIn: Partial<Shocks>, limits: 
   }
 
   const rank = { Within: 0, Review: 1, Escalate: 2 } as const;
-  const status: ScenarioStatus = rank[liqStatus] >= rank[limStatus] ? liqStatus : limStatus;
+  const worstOf = (a: ScenarioStatus, b: ScenarioStatus): ScenarioStatus => (rank[a] >= rank[b] ? a : b);
+  const status: ScenarioStatus = worstOf(worstOf(liqStatus, limStatus), lossStatus);
 
   return {
     asOf: meta.asOf,
@@ -347,6 +376,7 @@ export function runScenarioMaths(book: Book, shocksIn: Partial<Shocks>, limits: 
       status: liqStatus,
     },
     limitChecks,
+    thresholds: th,
     status,
     reasons,
     warnings: meta.warnings ?? [],

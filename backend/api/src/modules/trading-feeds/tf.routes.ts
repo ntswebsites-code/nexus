@@ -66,8 +66,9 @@ tradingFeedsRoutes.get('/overview', ...canView, async (_req, res) => {
 const uploadSchema = z.object({
   brokerId: idStr,
   filename: z.string().trim().min(1).max(200),
-  content: z.string().min(1).max(1_000_000),
-  format: z.enum(['CSV', 'JSON']).optional(),
+  content: z.string().min(1).max(3_000_000),
+  /** PDF: `content` is the file, base64 encoded. TEXT: the narrative text of a note. */
+  format: z.enum(['CSV', 'JSON', 'TEXT', 'PDF']).optional(),
 });
 
 tradingFeedsRoutes.post('/contract-notes', ...canManage, validateBody(uploadSchema), idempotent('trading_feeds.contract_note', { required: false }), async (req, res) => {

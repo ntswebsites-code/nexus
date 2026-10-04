@@ -7,11 +7,14 @@ import { nextRef } from '../../lib/refs';
 import { audit } from '../ops/ops.common';
 import { getPortfolioSnapshot, latestPrices, loadPortfolio } from '../portfolio/portfolio.service';
 import {
+  NAV_EXTERNAL_TOL_DEFAULT,
+  NAV_EXTERNAL_TOL_KEY,
   NAV_SETTING_DEFAULTS,
   NAV_SETTING_KEYS,
   NAV_STAGES,
   businessDaysBetween,
   daysBetween,
+  externalVariance,
   isMaterial,
   isStale,
   movePct,
@@ -48,6 +51,31 @@ export async function loadSettings(): Promise<NavSettings> {
     if (Number.isFinite(v) && v >= 0) out[field] = v;
   }
   return out;
+}
+
+export async function loadExternalTolerance(): Promise<number> {
+  const row = await prisma.policy.findUnique({ where: { key: NAV_EXTERNAL_TOL_KEY } });
+  const v = row ? Number(row.value) : NaN;
+  return Number.isFinite(v) && v >= 0 ? v : NAV_EXTERNAL_TOL_DEFAULT;
+}
+
+/** The external NAV block of a run: the administrator figure, ABOR (this run's NAV), variance and state; null until one is recorded. */
+export function externalView(r: RunRow, tolerance: number, names?: Map<string, string>) {
+  if (!r.externalNav) return null;
+  const v = externalVariance(r.nav, r.externalNav, new D(tolerance));
+  return {
+    nav: r.externalNav.toFixed(2),
+    abor: r.nav.toFixed(2),
+    variance: v.variance.toFixed(2),
+    variancePct: r.nav.isZero() ? null : v.variance.div(r.nav).mul(100).toDecimalPlaces(4).toFixed(4),
+    tolerance: tolerance.toFixed(2),
+    state: v.state,
+    source: r.externalNavSource,
+    note: r.externalNavNote,
+    recordedBy: r.externalNavBy,
+    recordedByName: r.externalNavBy ? (names?.get(r.externalNavBy) ?? null) : null,
+    recordedAt: iso(r.externalNavAt),
+  };
 }
 
 // ---------------------------------------------------------------- calculation
@@ -389,7 +417,8 @@ async function names(userIds: (string | null | undefined)[]) {
 }
 
 export async function runViews(rows: RunRow[]) {
-  const users = await names(rows.flatMap((r) => [r.makerId, r.reviewerId, r.checkerId]));
+  const users = await names(rows.flatMap((r) => [r.makerId, r.reviewerId, r.checkerId, r.externalNavBy]));
+  const extTol = await loadExternalTolerance();
   const pf = await prisma.portfolio.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.portfolioId))] } }, select: { id: true, ref: true, name: true } });
   const funds = await prisma.fund.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.fundId).filter((x): x is string => !!x))] } }, select: { id: true, ref: true, name: true } });
   const exc = rows.length
@@ -425,6 +454,7 @@ export async function runViews(rows: RunRow[]) {
       navPerUnit: r.navPerUnit ? r.navPerUnit.toFixed(4) : null,
       priceCoverage: r.priceCoverage.toFixed(4),
       positionCount: r.positionCount,
+      external: externalView(r, extTol, users),
       openExceptions: count((e) => e.status === 'OPEN'),
       openMaterialExceptions: count((e) => e.status === 'OPEN' && e.material),
       totalExceptions: count(() => true),
@@ -459,24 +489,35 @@ export async function openCounts(runId: string) {
   return { open: open.length, material: open.filter((e) => e.material).length };
 }
 
-export function allowedActions(r: RunRow, c: { open: number; material: number }, user: { id: string; permissions: string[] }) {
+/** FR-VAL-009: the tooltip for an action the user's roles do not allow ("Not permitted for <Role>"). */
+export function notPermitted(user: { roles?: { portal: string; label: string }[] }): string {
+  const role = user.roles?.find((x) => x.portal === 'admin')?.label ?? user.roles?.[0]?.label ?? 'your role';
+  return `Not permitted for ${role}`;
+}
+
+export function allowedActions(r: RunRow, c: { open: number; material: number }, user: { id: string; permissions: string[]; roles?: { portal: string; label: string }[] }) {
   const editable = (EDITABLE as readonly string[]).includes(r.status);
   const replaceable = (REPLACEABLE as readonly string[]).includes(r.status);
+  const canRun = user.permissions.includes('valuation.run');
+  const canMaker = user.permissions.includes('valuation.maker');
   const blockers: string[] = [];
   if (c.material > 0) blockers.push(`${c.material} material exception${c.material === 1 ? '' : 's'} still open`);
   if (r.fundId && !(r.units && r.units.gt(0))) blockers.push('Units are required for a fund NAV');
   return {
-    recalculate: replaceable,
-    editInputs: editable,
-    resolve: editable,
-    makerReview: editable && blockers.length === 0,
-    makerReviewBlockers: editable ? blockers : [],
+    recalculate: replaceable && canRun,
+    editInputs: editable && canRun,
+    resolve: editable && canRun,
+    makerReview: editable && blockers.length === 0 && canMaker,
+    makerReviewBlockers: editable ? (canMaker ? blockers : [notPermitted(user), ...blockers]) : [],
+    runBlocker: canRun ? null : notPermitted(user),
+    makerBlocker: canMaker ? null : notPermitted(user),
+    recordExternal: r.status !== 'SUPERSEDED' && canRun,
     release: r.status === 'MAKER_REVIEWED' && user.permissions.includes('valuation.release') && r.reviewerId !== user.id,
     releaseBlocker:
       r.status !== 'MAKER_REVIEWED'
         ? null
         : !user.permissions.includes('valuation.release')
-          ? 'You do not hold the release permission'
+          ? notPermitted(user)
           : r.reviewerId === user.id
             ? 'A different person from the maker reviewer must release'
             : null,
@@ -489,7 +530,7 @@ export const stageBar = (stage: string, status: string) => {
   return NAV_STAGES.map((k, i) => ({ key: k, label: labels[k], state: status === 'SUPERSEDED' ? 'skipped' : i < idx ? 'done' : i === idx ? 'current' : 'todo' }));
 };
 
-export async function runDetail(r: RunRow, user: { id: string; permissions: string[] }) {
+export async function runDetail(r: RunRow, user: { id: string; permissions: string[]; roles?: { portal: string; label: string }[] }) {
   const [view] = await runViews([r]);
   const [lines, exceptions, counts, versions, events] = await Promise.all([
     prisma.navRunLine.findMany({ where: { runId: r.id }, orderBy: { ticker: 'asc' } }),

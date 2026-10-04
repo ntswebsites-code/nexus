@@ -14,8 +14,8 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { audit } from '../ops/ops.common';
 import { loadPortfolio } from '../portfolio/portfolio.service';
-import { PRESETS, RISK_METRICS, DEFAULT_SHOCKS, METRIC_LABEL } from './risk.engine';
-import { checkLimitsForPortfolio, computeScenario, runMonitor } from './risk.service';
+import { PRESETS, RISK_METRICS, DEFAULT_SHOCKS, METRIC_LABEL, SCENARIO_THRESHOLD_DEFAULTS } from './risk.engine';
+import { SCENARIO_THRESHOLD_KEYS, checkLimitsForPortfolio, computeScenario, loadScenarioThresholds, runMonitor } from './risk.service';
 import { computeVar } from './risk.var';
 
 /**
@@ -582,6 +582,54 @@ riskRoutes.delete('/scenarios/:id', ...canManage, idempotent('risk.delete.scenar
     await writeAudit(tx, audit(req), { action: 'risk.scenario_deleted', objectType: 'risk_scenario', objectId: s.id, before: { name: s.name, shocks: s.shocks } });
   });
   res.json({ data: { id: s.id, deleted: true } });
+});
+
+// ---- BR-029: scenario state thresholds as policy parameters
+
+const thresholdView = async () => ({
+  thresholds: await loadScenarioThresholds(),
+  defaults: SCENARIO_THRESHOLD_DEFAULTS,
+  reference: { liquidityEscalate: 1.25, liquidityReview: 1.5, lossEscalatePct: 8, lossReviewPct: 5, note: 'SRD BR-029 reference values; set them here to adopt them.' },
+  canEdit: false,
+});
+
+riskRoutes.get('/scenario-thresholds', ...canView, async (req, res) => {
+  res.json({ data: { ...(await thresholdView()), canEdit: req.user!.permissions.includes('risk.manage') } });
+});
+
+const thresholdBody = z
+  .object({
+    liquidityEscalate: z.number().min(0.1).max(10).optional(),
+    liquidityReview: z.number().min(0.1).max(10).optional(),
+    lossEscalatePct: z.number().gt(0).max(100).nullable().optional(),
+    lossReviewPct: z.number().gt(0).max(100).nullable().optional(),
+    reason: z.string().trim().min(5, 'Give a reason (5+ characters)').max(300),
+  })
+  .strict()
+  .refine((b) => ['liquidityEscalate', 'liquidityReview', 'lossEscalatePct', 'lossReviewPct'].some((k) => (b as Record<string, unknown>)[k] !== undefined), 'Change at least one threshold');
+
+riskRoutes.put('/scenario-thresholds', ...canManage, requireStepUp, validateBody(thresholdBody), idempotent('risk.scenario_thresholds', { required: false }), async (req, res) => {
+  const b = req.body as z.infer<typeof thresholdBody>;
+  const before = await loadScenarioThresholds();
+  const next = { ...before };
+  for (const k of ['liquidityEscalate', 'liquidityReview'] as const) if (b[k] !== undefined) next[k] = b[k]!;
+  for (const k of ['lossEscalatePct', 'lossReviewPct'] as const) if (b[k] !== undefined) next[k] = b[k]!;
+  const problems: { path: string; message: string }[] = [];
+  if (next.liquidityEscalate > next.liquidityReview) problems.push({ path: 'liquidityEscalate', message: 'The escalation coverage must not be above the review coverage (escalate is the lower, worse level)' });
+  if (next.lossEscalatePct !== null && next.lossReviewPct !== null && next.lossReviewPct > next.lossEscalatePct) problems.push({ path: 'lossReviewPct', message: 'The review loss must not be above the escalation loss' });
+  if (next.lossEscalatePct === null && next.lossReviewPct !== null && b.lossEscalatePct !== undefined) problems.push({ path: 'lossEscalatePct', message: 'Set an escalation loss as well as a review loss, or clear both' });
+  if (problems.length) throw HttpError.badRequest('Validation failed', problems);
+  await prisma.$transaction(async (tx) => {
+    for (const k of Object.keys(SCENARIO_THRESHOLD_KEYS) as (keyof typeof SCENARIO_THRESHOLD_KEYS)[]) {
+      if (b[k] === undefined) continue;
+      const key = SCENARIO_THRESHOLD_KEYS[k];
+      const v = next[k];
+      if (v === null) await tx.policy.deleteMany({ where: { key } });
+      else await tx.policy.upsert({ where: { key }, create: { key, value: v, updatedBy: req.user!.id }, update: { value: v, updatedBy: req.user!.id } });
+    }
+    await writeAudit(tx, audit(req), { action: 'risk.scenario_thresholds_updated', objectType: 'risk_policy', objectId: 'scenario_thresholds', before, after: next, reason: b.reason });
+  });
+  res.json({ data: { ...(await thresholdView()), canEdit: true } });
 });
 
 const runBody = z.object({ portfolioId: id36, asOf: dateStr.optional() }).strict();
