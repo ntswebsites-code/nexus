@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { api, v1 } from '@/ops/api';
 import { CommandPanels } from '@/ops/commandpanels';
+import { InvestmentPackButton } from '@/ops/investment-pack';
 import { Tile, moneyFmt } from '@/ops/operations';
 import { Card, Empty, formatDateTime, Loaded, PageHeader, useResource } from '@/ops/ui';
 
@@ -32,9 +33,12 @@ export default function CommandCentrePage() {
         title="Today"
         subtitle="Decisions, risk and exceptions that need you, aggregated live from portfolios, orders, reconciliations, cash, NAV and the approval queues."
         actions={
-          <button className="ops-btn" type="button" onClick={today.reload}>
-            Refresh
-          </button>
+          <>
+            <InvestmentPackButton />
+            <button className="ops-btn" type="button" onClick={today.reload}>
+              Refresh
+            </button>
+          </>
         }
       />
       <Loaded res={today} what="today's figures">
@@ -54,6 +58,8 @@ export default function CommandCentrePage() {
             <Card title="What needs action now">
               {t.approvals.items.length === 0 ? (
                 <Empty>Your role has no approval queues.</Empty>
+              ) : t.approvals.total === 0 ? (
+                <Empty>Nothing needs your decision.</Empty>
               ) : (
                 <table className="ops-table">
                   <thead>

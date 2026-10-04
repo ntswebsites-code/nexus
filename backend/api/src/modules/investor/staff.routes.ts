@@ -13,6 +13,7 @@ import { signedDownloadUrl } from '../../lib/storage';
 import { validateBody } from '../../middleware/validate';
 import { requireAnyPermission, requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { capitalView, requestInclude, requestView, snapshotInclude, threadInclude, threadView } from './investor.service';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 
 /** Staff side of investor services (admin portal): capital notices, snapshots, requests, messages. */
 export const investorStaffRoutes = Router();
@@ -56,13 +57,13 @@ async function findCapital(refOrId: string) {
 investorStaffRoutes.get('/capital-events', requireAnyPermission('cash.view', 'clients.view'), async (req, res) => {
   const client = typeof req.query.clientId === 'string' ? await clientByRef(req.query.clientId) : null;
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-  const rows = await prisma.capitalEvent.findMany({
-    where: { ...(client ? { clientId: client.id } : {}), ...(status ? { status } : {}) },
-    include: capitalInclude,
-    orderBy: { createdAt: 'desc' },
-    take: 500,
-  });
-  res.json({ data: rows.map(staffCapitalView), total: rows.length });
+  const where = { ...(client ? { clientId: client.id } : {}), ...(status ? { status } : {}) };
+  const pg = sqlPage(req, 500);
+  const [rows, total] = await Promise.all([
+    prisma.capitalEvent.findMany({ where, include: capitalInclude, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.capitalEvent.count({ where }),
+  ]);
+  res.json(pageEnvelope(pg, rows.map(staffCapitalView), total));
 });
 
 const capitalSchema = z.object({
@@ -438,15 +439,19 @@ investorStaffRoutes.post('/snapshots/:id/publish', requirePermission('reports.cr
 investorStaffRoutes.get('/service-requests', requirePermission('clients.view'), async (req, res) => {
   const client = typeof req.query.clientId === 'string' ? await clientByRef(req.query.clientId) : null;
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
-  const rows = await prisma.serviceRequest.findMany({
-    where: { ...(client ? { clientId: client.id } : {}), ...(status ? { status } : {}) },
-    include: { ...requestInclude, client: { select: { ref: true, name: true } } },
-    orderBy: { createdAt: 'desc' },
-    take: 500,
-  });
-  res.json({
-    data: rows.map((r) => ({ ...requestView(r), uuid: r.id, clientId: r.client.ref, client: r.client.name, slaDueAt: r.slaDueAt, breached: !!r.slaDueAt && r.status !== 'Closed' && r.slaDueAt < new Date() })),
-  });
+  const where = { ...(client ? { clientId: client.id } : {}), ...(status ? { status } : {}) };
+  const pg = sqlPage(req, 500);
+  const [rows, total] = await Promise.all([
+    prisma.serviceRequest.findMany({ where, include: { ...requestInclude, client: { select: { ref: true, name: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.serviceRequest.count({ where }),
+  ]);
+  res.json(
+    pageEnvelope(
+      pg,
+      rows.map((r) => ({ ...requestView(r), uuid: r.id, clientId: r.client.ref, client: r.client.name, slaDueAt: r.slaDueAt, breached: !!r.slaDueAt && r.status !== 'Closed' && r.slaDueAt < new Date() })),
+      total,
+    ),
+  );
 });
 
 const staffRequestSchema = z.object({

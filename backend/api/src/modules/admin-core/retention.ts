@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { setting } from '../../lib/settings';
 import { acquireJob, finishJob, releaseJob } from '../../lib/jobs';
+import { enforceSchedules } from '../../lib/retention-schedule';
 
 /**
  * Scheduled retention purge (SRD 7.13). Reads the admin-core retention settings and removes only operational
@@ -20,6 +21,9 @@ export interface PurgeResult {
   auditRetentionYears: number;
   auditFloor: string;
   documentsEligibleForDisposal: number;
+  /** FR-DOC-017: documents raised to their schedule minimum, and past-retention documents blocked by a legal hold. */
+  documentsRaisedToSchedule: number;
+  documentsHeldPastRetention: number;
   dqExceptionsDeleted: number;
   /** Periods applied (settings read at run time). */
   applied: { sessionDays: number; notificationDays: number; outboxDays: number; idempotencyDays: number; dqExceptionDays: number };
@@ -60,6 +64,7 @@ export async function runRetentionPurge(opts: { dryRun?: boolean; triggeredBy?: 
 
   const count = async <T>(del: () => Promise<{ count: number }>, cnt: () => Promise<number>): Promise<number> => (dryRun ? cnt() : (await del()).count);
 
+  const sched = await enforceSchedules(dryRun);
   const result: PurgeResult = {
     dryRun,
     sessionsDeleted: await count(
@@ -94,7 +99,9 @@ export async function runRetentionPurge(opts: { dryRun?: boolean; triggeredBy?: 
     applied: { sessionDays, notificationDays, outboxDays, idempotencyDays, dqExceptionDays },
     auditRetentionYears: auditYears,
     auditFloor: new Date(now - auditYears * 365 * day).toISOString().slice(0, 10),
-    documentsEligibleForDisposal: await prisma.document.count({ where: { status: 'Superseded', updatedAt: { lt: docCut } } }),
+    documentsEligibleForDisposal: Math.max(sched.eligible, await prisma.document.count({ where: { status: 'Superseded', updatedAt: { lt: docCut } } })),
+    documentsRaisedToSchedule: sched.raised,
+    documentsHeldPastRetention: sched.heldPastRetention,
   };
   await prisma.purgeRun.update({ where: { id: run.id }, data: { finishedAt: new Date(), result: result as never } });
   return result;

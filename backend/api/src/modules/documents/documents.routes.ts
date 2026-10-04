@@ -6,6 +6,7 @@ import { HttpError } from '../../lib/errors';
 import { writeAudit } from '../../lib/audit';
 import { enqueue } from '../../lib/outbox';
 import { nextRef } from '../../lib/refs';
+import { enforcedRetention } from '../../lib/retention-schedule';
 import { policy } from '../../lib/policy';
 import { actorName, ctx, expectVersion, param } from '../../lib/http';
 import { fmtDate, fmtSize } from '../../lib/format';
@@ -13,6 +14,7 @@ import { signedDownloadUrl, storeFile } from '../../lib/storage';
 import { validateBody } from '../../middleware/validate';
 import { uploadFiles, uploadedFiles } from '../../middleware/upload';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 
 /** `/api/v1/documents` - staff document lifecycle: draft → review → approved → published (SRD 8.1 / 9.4). */
 export const documentsRoutes = Router();
@@ -94,17 +96,17 @@ documentsRoutes.get('/', requirePermission('documents.view'), async (req, res) =
   const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
   const status = typeof req.query.status === 'string' ? req.query.status : undefined;
   const client = await clientByRef(typeof req.query.clientId === 'string' ? req.query.clientId : undefined);
-  const rows = await prisma.document.findMany({
-    where: {
-      ...(status ? { status } : {}),
-      ...(client ? { OR: [{ clientId: client.id }, { publications: { some: { clientId: client.id } } }] } : {}),
-      ...(q ? { AND: [{ OR: [{ name: { contains: q } }, { ref: { contains: q } }, { relatedLabel: { contains: q } }] }] } : {}),
-    },
-    include: staffInclude,
-    orderBy: { createdAt: 'desc' },
-    take: 500,
-  });
-  res.json({ data: await Promise.all(rows.map(staffView)), total: rows.length });
+  const where: Prisma.DocumentWhereInput = {
+    ...(status ? { status } : {}),
+    ...(client ? { OR: [{ clientId: client.id }, { publications: { some: { clientId: client.id } } }] } : {}),
+    ...(q ? { AND: [{ OR: [{ name: { contains: q } }, { ref: { contains: q } }, { relatedLabel: { contains: q } }] }] } : {}),
+  };
+  const pg = sqlPage(req, 500);
+  const [rows, total] = await Promise.all([
+    prisma.document.findMany({ where, include: staffInclude, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.document.count({ where }),
+  ]);
+  res.json(pageEnvelope(pg, await Promise.all(rows.map(staffView)), total));
 });
 
 documentsRoutes.get('/:id', requirePermission('documents.view'), async (req, res) => {
@@ -149,7 +151,7 @@ documentsRoutes.post('/', requirePermission('documents.edit'), uploadFiles('file
         documentDate: b.documentDate ?? null,
         year: (b.documentDate ?? new Date()).getFullYear(),
         requiresSignature: b.requiresSignature,
-        retentionYears: b.retentionYears,
+        retentionYears: await enforcedRetention(b.type, b.classification, b.retentionYears, tx),
         makerId: req.user!.id,
         createdBy: req.user!.id,
         versions: { create: { version: 1, fileId: stored.id, sha256: stored.sha256, uploadedById: req.user!.id } },

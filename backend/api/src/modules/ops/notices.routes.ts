@@ -10,6 +10,7 @@ import { requirePermission } from '../../middleware/requireAuth';
 import { validateBody } from '../../middleware/validate';
 import { nextNoticeRef, noticeRecipients } from '../lp-portal/services/notices';
 import { idempotent } from '../../lib/idempotency';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 
 /**
  * `/api/v1/ops/notices` - LP notices authored by staff (SRD 5B notices, DEV-PLAN WS1).
@@ -114,14 +115,14 @@ async function transition(tx: Prisma.TransactionClient, n: LpNotice, from: strin
 
 opsNoticesRoutes.get('/', requirePermission('notices.view'), async (req, res) => {
   const status = typeof req.query.status === 'string' ? req.query.status.toUpperCase() : undefined;
-  const rows = await prisma.lpNotice.findMany({
-    where: status ? { status } : {},
-    include: { _count: { select: { receipts: true } } },
-    orderBy: { createdAt: 'desc' },
-    take: 500,
-  });
+  const where = status ? { status } : {};
+  const pg = sqlPage(req, 500);
+  const [rows, total] = await Promise.all([
+    prisma.lpNotice.findMany({ where, include: { _count: { select: { receipts: true } } }, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.lpNotice.count({ where }),
+  ]);
   const names = await noticeNames(rows);
-  res.json({ data: rows.map((n) => ({ ...noticeView(n), ...names(n) })), total: rows.length });
+  res.json(pageEnvelope(pg, rows.map((n) => ({ ...noticeView(n), ...names(n) })), total));
 });
 
 opsNoticesRoutes.get('/:id', requirePermission('notices.view'), async (req, res) => {

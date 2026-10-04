@@ -14,6 +14,7 @@ import { requireAnyPermission, requireAuth, requirePermission, requirePortalAcce
 import { createInvitation } from '../identity/invitations';
 import { caseSummary, caseInclude, maybeCompleteActivation } from '../kyc/kyc.service';
 import { accountInclude, cashAccountView, clientInclude, clientView, findAccount, findClient } from './clients.service';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 
 export const clientsRoutes = Router();
 clientsRoutes.use(requireAuth, requirePortalAccess('admin'));
@@ -22,17 +23,18 @@ const listQuery = z.object({ q: z.string().trim().max(120).optional(), risk: z.s
 
 clientsRoutes.get('/clients', requirePermission('clients.view'), validateQuery(listQuery), async (req, res) => {
   const q = query<z.infer<typeof listQuery>>(req);
-  const rows = await prisma.client.findMany({
-    where: {
-      archivedAt: null,
-      ...(q.risk ? { riskRating: q.risk } : {}),
-      ...(q.kyc ? { kycStatus: q.kyc } : {}),
-      ...(q.q ? { OR: [{ name: { contains: q.q } }, { ref: { contains: q.q } }, { ownerName: { contains: q.q } }] } : {}),
-    },
-    include: clientInclude,
-    orderBy: { name: 'asc' },
-  });
-  res.json({ data: rows.map(clientView), total: rows.length });
+  const where = {
+    archivedAt: null,
+    ...(q.risk ? { riskRating: q.risk } : {}),
+    ...(q.kyc ? { kycStatus: q.kyc } : {}),
+    ...(q.q ? { OR: [{ name: { contains: q.q } }, { ref: { contains: q.q } }, { ownerName: { contains: q.q } }] } : {}),
+  };
+  const pg = sqlPage(req, 5000);
+  const [rows, total] = await Promise.all([
+    prisma.client.findMany({ where, include: clientInclude, orderBy: [{ name: 'asc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.client.count({ where }),
+  ]);
+  res.json(pageEnvelope(pg, rows.map(clientView), total));
 });
 
 const clientSchema = z.object({
@@ -168,9 +170,10 @@ clientsRoutes.post('/clients/:id/mandates', requirePermission('clients.edit'), v
 
 // -------------------------------------------------------------- cash accounts
 
-clientsRoutes.get('/cash-accounts', requireAnyPermission('cash.view', 'clients.view'), async (_req, res) => {
-  const rows = await prisma.cashAccount.findMany({ include: accountInclude, orderBy: { ref: 'asc' } });
-  res.json({ data: rows.map(cashAccountView), total: rows.length });
+clientsRoutes.get('/cash-accounts', requireAnyPermission('cash.view', 'clients.view'), async (req, res) => {
+  const pg = sqlPage(req, 5000);
+  const [rows, total] = await Promise.all([prisma.cashAccount.findMany({ include: accountInclude, orderBy: { ref: 'asc' }, skip: pg.skip, take: pg.take }), prisma.cashAccount.count()]);
+  res.json(pageEnvelope(pg, rows.map(cashAccountView), total));
 });
 
 const accountSchema = z.object({

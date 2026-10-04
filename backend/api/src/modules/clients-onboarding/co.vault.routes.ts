@@ -17,6 +17,7 @@ import { requireAnyPermission, requirePermission, requireStepUp } from '../../mi
 import { assertSegregation, audit, notifyPermission } from '../ops/ops.common';
 import { CLASSIFICATIONS, documentChangeProblem, retentionState } from './co.engine';
 import { userNames } from './co.service';
+import { scheduleMinimum } from '../../lib/retention-schedule';
 
 /** Exact bytes below 1 KB (the shared formatter rounds 22 bytes up to "1 KB"). */
 const sizeLabel = (n: number | null | undefined) => (n && n < 1000 ? `${n} B` : fmtSize(n));
@@ -219,6 +220,10 @@ coVaultRoutes.post('/vault/documents/:id/changes', requirePermission('documents.
   const held = !!(await prisma.documentHold.findFirst({ where: { documentId: d.id, releasedAt: null }, select: { id: true } }));
   const problem = documentChangeProblem(b.kind, from, b.to, held);
   if (problem) throw HttpError.badRequest('Validation failed', [{ path: 'to', message: problem }]);
+  if (b.kind === 'RETENTION') {
+    const min = await scheduleMinimum(d.type, d.classification);
+    if (Number(b.to) < min) throw HttpError.badRequest('Validation failed', [{ path: 'to', message: `The retention schedule requires at least ${min} years for this document type and classification` }]);
+  }
   if (b.kind === 'DISPOSAL' && retentionState(d.documentDate ?? d.createdAt, d.retentionYears, false).state !== 'Disposal eligible') throw HttpError.badRequest('Validation failed', [{ path: 'to', message: 'The retention period has not ended; only a disposal-eligible document can be disposed' }]);
   if (await prisma.documentChange.findFirst({ where: { documentId: d.id, kind: b.kind, status: 'PENDING' }, select: { id: true } })) {
     throw HttpError.conflict(`A ${b.kind.toLowerCase()} change is already awaiting approval for this document`, 'change_pending');

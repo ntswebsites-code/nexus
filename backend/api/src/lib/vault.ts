@@ -1,3 +1,4 @@
+import { enforcedRetention } from './retention-schedule';
 import type { Request } from 'express';
 import type { Prisma } from '@prisma/client';
 import { actorName } from './http';
@@ -44,7 +45,7 @@ export async function vaultDocument(tx: Prisma.TransactionClient, req: Request, 
       relatedLabel: o.relatedLabel.slice(0, 160),
       documentDate: o.documentDate ?? null,
       year: (o.documentDate ?? new Date()).getUTCFullYear(),
-      retentionYears: o.retentionYears ?? 7,
+      retentionYears: await enforcedRetention(o.type, o.classification ?? 'Internal', o.retentionYears ?? 7, tx),
       sourceType: o.sourceType.slice(0, 32),
       sourceRefId: o.relatedId,
       makerId: req.user!.id,

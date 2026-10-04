@@ -90,7 +90,7 @@ export const uploadLimiter = rateLimit({
 });
 
 /** Prometheus text exposition, guarded by METRICS_TOKEN (404 when unset or wrong, so the endpoint is not discoverable). */
-export const metricsHandler: RequestHandler = (req, res) => {
+export const metricsHandler: RequestHandler = async (req, res) => {
   const expected = config.metricsToken;
   const given = (req.get('authorization') ?? '').replace(/^Bearer\s+/i, '');
   const ok = !!expected && given.length === expected.length && timingSafeEqual(Buffer.from(given), Buffer.from(expected));
@@ -105,6 +105,21 @@ export const metricsHandler: RequestHandler = (req, res) => {
     lines.push(`nexus_http_requests_total{${labels}} ${c.count}`);
     BUCKETS_MS.forEach((b, i) => lines.push(`nexus_http_request_ms_bucket{${labels},le="${b}"} ${c.buckets[i]}`));
     lines.push(`nexus_http_request_ms_bucket{${labels},le="+Inf"} ${c.count}`, `nexus_http_request_ms_sum{${labels}} ${Math.round(c.totalMs)}`, `nexus_http_request_ms_count{${labels}} ${c.count}`);
+  }
+  try {
+    const { queueMetrics } = await import('../modules/admin-core/ops-health');
+    const q = await queueMetrics();
+    lines.push(
+      '# TYPE nexus_queue_depth gauge',
+      `nexus_queue_depth{queue="outbox",state="pending"} ${q.pending}`,
+      `nexus_queue_depth{queue="outbox",state="dead"} ${q.dead}`,
+      '# TYPE nexus_queue_oldest_age_seconds gauge',
+      `nexus_queue_oldest_age_seconds{queue="outbox"} ${q.oldestPendingSeconds}`,
+      '# TYPE nexus_workers_live gauge',
+      `nexus_workers_live ${q.liveWorkers}`,
+    );
+  } catch {
+    lines.push('# nexus_queue_depth unavailable (database not reachable)');
   }
   res.type('text/plain; version=0.0.4').send(lines.join('\n') + '\n');
 };

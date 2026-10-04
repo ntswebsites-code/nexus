@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { asList, coGet, coPost, NoAccess, rawGet, rawPost, Tabs, Tile, Tone } from '@/ops/clientops';
 import { upload } from '@/ops/suite';
 import { useCan, useSession } from '@/ops/session';
+import { RetentionSchedules } from '@/ops/vault-retention';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
 
 interface Doc {
@@ -52,7 +53,7 @@ export default function VaultPage() {
   const [uploading, setUploading] = useState(false);
   const [fileName, setFileName] = useState('');
   const [autoName, setAutoName] = useState(true);
-  const [tab, setTab] = useState<'register' | 'changes' | 'evidence' | 'access'>('register');
+  const [tab, setTab] = useState<'register' | 'changes' | 'evidence' | 'retention' | 'access'>('register');
   const [q, setQ] = useState('');
   const [type, setType] = useState('');
   const [cls, setCls] = useState('');
@@ -81,7 +82,7 @@ export default function VaultPage() {
           </div>
         )}
       </Loaded>
-      <Tabs tabs={[{ key: 'register', label: 'Register' }, { key: 'changes', label: 'Pending changes' }, { key: 'evidence', label: 'Valuation evidence' }, ...(canApprove ? [{ key: 'access' as const, label: 'Access log' }] : [])]} value={tab} onChange={setTab} />
+      <Tabs tabs={[{ key: 'register', label: 'Register' }, { key: 'changes', label: 'Pending changes' }, { key: 'evidence', label: 'Valuation evidence' }, { key: 'retention', label: 'Retention schedules' }, ...(canApprove ? [{ key: 'access' as const, label: 'Access log' }] : [])]} value={tab} onChange={setTab} />
       {tab === 'register' && (
         <Card title="Documents">
           <div className="ops-filters">
@@ -120,6 +121,7 @@ export default function VaultPage() {
       )}
       {tab === 'changes' && <Changes onDone={reload} />}
       {tab === 'evidence' && <PmEvidence onDone={reload} />}
+      {tab === 'retention' && <RetentionSchedules />}
       {tab === 'access' && <AccessLog />}
       {uploading && (
         <FormModal

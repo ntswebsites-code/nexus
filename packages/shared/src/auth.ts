@@ -123,4 +123,6 @@ export interface HealthResponse {
   timestamp: string;
   database?: 'up' | 'down';
   storage?: { backend: 'local' | 's3' | 'fake'; ok: boolean; detail?: string };
+  /** NFR-OPS-007: worker queue depth and age (deep probe only). */
+  queue?: { pending: number; oldestPendingSeconds: number; dead: number; liveWorkers: number };
 }

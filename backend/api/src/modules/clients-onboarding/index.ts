@@ -5,6 +5,7 @@ import { coServicesRoutes } from './co.services.routes';
 import { coOnboardingRoutes } from './co.onboarding.routes';
 import { coVaultRoutes } from './co.vault.routes';
 import { coChangeRoutes } from './co.changes';
+import { coRetentionRoutes } from './co.retention.routes';
 
 /** Clients & Accounts, Investor Services, Onboarding & KYC and Document Vault admin APIs. Mounted at `/api/v1/client-ops`. */
 export const clientOpsRoutes = Router();
@@ -13,6 +14,7 @@ clientOpsRoutes.use(coClientsRoutes);
 clientOpsRoutes.use(coServicesRoutes);
 clientOpsRoutes.use(coOnboardingRoutes);
 clientOpsRoutes.use(coVaultRoutes);
+clientOpsRoutes.use(coRetentionRoutes);
 clientOpsRoutes.use(coChangeRoutes);
 
 export { scoreRisk, ratingFor, slaState, retentionState, documentChangeProblem } from './co.engine';

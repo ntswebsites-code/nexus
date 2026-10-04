@@ -26,6 +26,7 @@ import {
   loadCase,
   missingEvidence,
 } from './kyc.service';
+import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 
 export const kycRoutes = Router();
 kycRoutes.use(requireAuth, requirePortalAccess('admin'));
@@ -38,19 +39,17 @@ const listQuery = z.object({
 
 kycRoutes.get('/cases', requirePermission('onboarding.view'), validateQuery(listQuery), async (req, res) => {
   const q = query<z.infer<typeof listQuery>>(req);
-  const cases = await prisma.kycCase.findMany({
-    where: {
-      ...(q.stage ? { stage: q.stage } : {}),
-      ...(q.risk ? { risk: q.risk } : {}),
-      ...(q.q
-        ? { OR: [{ ref: { contains: q.q } }, { application: { legalName: { contains: q.q } } }, { application: { ref: { contains: q.q } } }] }
-        : {}),
-    },
-    include: caseInclude,
-    orderBy: { createdAt: 'desc' },
-    take: 200,
-  });
-  res.json({ data: cases.map(caseSummary), total: cases.length });
+  const where = {
+    ...(q.stage ? { stage: q.stage } : {}),
+    ...(q.risk ? { risk: q.risk } : {}),
+    ...(q.q ? { OR: [{ ref: { contains: q.q } }, { application: { legalName: { contains: q.q } } }, { application: { ref: { contains: q.q } } }] } : {}),
+  };
+  const pg = sqlPage(req, 200);
+  const [cases, total] = await Promise.all([
+    prisma.kycCase.findMany({ where, include: caseInclude, orderBy: [{ createdAt: 'desc' }, { id: 'asc' }], skip: pg.skip, take: pg.take }),
+    prisma.kycCase.count({ where }),
+  ]);
+  res.json(pageEnvelope(pg, cases.map(caseSummary), total));
 });
 
 /** Records for the admin prototype's onboarding screens (bridge). */

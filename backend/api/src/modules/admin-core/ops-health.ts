@@ -2,7 +2,7 @@ import { hostname } from 'node:os';
 import { prisma } from '../../lib/prisma';
 import { enqueue } from '../../lib/outbox';
 import { MAX_ATTEMPTS } from '../../lib/outboxClaim';
-import { alertAction, evaluateHealth, type HealthSnapshot } from './ops-health.engine';
+import { alertAction, evaluateHealth, liveWorkers, type HealthSnapshot } from './ops-health.engine';
 
 /** Permission whose holders are told about operational alerts. */
 export const ALERT_PERMISSION = 'admin.settings';
@@ -16,6 +16,17 @@ export async function loadSnapshot(now = new Date()): Promise<HealthSnapshot> {
     prisma.jobLock.findMany({ select: { name: true, lastRunAt: true, lockedUntil: true } }),
   ]);
   return { now, workers, outbox: { pending, oldestPendingAt: oldest?.createdAt ?? null, dead }, jobs };
+}
+
+/** NFR-OPS-007: queue depth and age of the outbox/worker, shared by /health, /internal/metrics and /ops. */
+export async function queueMetrics(now = new Date()) {
+  const snap = await loadSnapshot(now);
+  return {
+    pending: snap.outbox.pending,
+    oldestPendingSeconds: snap.outbox.oldestPendingAt ? Math.max(0, Math.round((now.getTime() - snap.outbox.oldestPendingAt.getTime()) / 1000)) : 0,
+    dead: snap.outbox.dead,
+    liveWorkers: liveWorkers(snap).length,
+  };
 }
 
 /**

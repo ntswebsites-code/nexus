@@ -6316,3 +6316,24 @@ model TermSheetTemplate {
   @@map("term_sheet_templates")
 }
 // ---- end InvesteeDealsDepth ----
+
+// ---- PlatformOpsS8 ----
+/// FR-DOC-017: minimum retention per document type and classification ('*' = any). Enforced at upload, on retention
+/// change requests and by the nightly purge job (which only ever raises a document's retention, never deletes it).
+model DocumentRetentionSchedule {
+  id             String   @id @default(uuid()) @db.Char(36)
+  docType        String   @default("*") @map("doc_type") @db.VarChar(32)
+  classification String   @default("*") @db.VarChar(16)
+  retentionYears Int      @map("retention_years")
+  basis          String?  @db.VarChar(300)
+  active         Boolean  @default(true)
+  version        Int      @default(1)
+  createdBy      String   @map("created_by") @db.Char(36)
+  updatedBy      String?  @map("updated_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@unique([docType, classification])
+  @@map("document_retention_schedules")
+}
+// ---- end PlatformOpsS8 ----
