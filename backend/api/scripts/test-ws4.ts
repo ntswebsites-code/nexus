@@ -156,7 +156,9 @@ async function j1b(staff: ReturnType<typeof client>) {
     { name: 'Tendai Moyo', role: 'Principal Officer', email: 'tendai@example.test' },
     { name: 'Rudo Chikore', role: 'Trustee', email: 'rudo@example.test' },
   ];
-  const patch = await onb.call('PATCH', base, { form: { formVersion: 'v65', ...V65_FORM }, owners, signatories }, tok);
+  // Entities must name at least one director / trustee / governing person (native onboarding portal rule).
+  const directors = [{ name: 'Rudo Chikore', role: 'Trustee', email: 'rudo@example.test' }];
+  const patch = await onb.call('PATCH', base, { form: { formVersion: 'v65', ...V65_FORM }, owners, signatories, directors }, tok);
   check('V65 draft saved', patch.status === 200, patch.body);
 
   const early = await onb.call('POST', `${base}/submit`, { consent: true }, tok);
@@ -181,8 +183,8 @@ async function j1b(staff: ReturnType<typeof client>) {
   check('resume view lists 11 evidence files with hashes', a?.evidence?.length === 11 && a.evidence.every((e: any) => /^[0-9a-f]{64}$/.test(e.sha256)), a?.evidence);
 
   // Blank tax id / account on a later save keep the encrypted values (resumed drafts send blanks).
-  await onb.call('PATCH', base, { form: { formVersion: 'v65', ...V65_FORM, taxId: '', bankAccount: '' }, owners, signatories }, tok);
-  const sub = await onb.call('POST', `${base}/submit`, { consent: true, form: { formVersion: 'v65', ...V65_FORM, taxId: '', bankAccount: '' }, owners, signatories }, tok);
+  await onb.call('PATCH', base, { form: { formVersion: 'v65', ...V65_FORM, taxId: '', bankAccount: '' }, owners, signatories, directors }, tok);
+  const sub = await onb.call('POST', `${base}/submit`, { consent: true, form: { formVersion: 'v65', ...V65_FORM, taxId: '', bankAccount: '' }, owners, signatories, directors }, tok);
   check('submit -> ONB reference', sub.status === 200 && /^ONB-\d{6}$/.test(sub.body?.ref ?? ''), sub.body);
   const again = await onb.call('POST', `${base}/submit`, { consent: true }, tok);
   check('second submit -> 409 already_submitted', again.status === 409, again.body);

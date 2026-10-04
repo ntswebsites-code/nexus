@@ -94,18 +94,28 @@ async function main() {
   const cp = await prisma.counterparty.create({ data: { ref: `CPX${run}`, name: `CX Custodian ${run}`, accounts: ['OPS-001'] } });
   const sub = await mk('sub', 'submitter');
   const appr = await mk('appr', 'approver');
+  // The shipped approver role now also carries custodian.executions.submit (F3 SoD-clean roles), so the
+  // "no submit permission" case uses a throwaway portal-access-only role.
+  const roRole = await prisma.role.create({ data: { portal: 'custodian', key: `cxops_ro_${run}`, label: 'CX read-only (test)', custom: true } });
+  await prisma.rolePermission.create({ data: { roleId: roRole.id, permission: 'custodian.portal.access' } });
+  const ro = await prisma.user.create({ data: { email: `cxops-${run}-ro@example.test`, name: 'CX ro', passwordHash: await bcrypt.hash(password, 4) } });
+  users.push(ro.id);
+  await prisma.userRole.create({ data: { userId: ro.id, roleId: roRole.id } });
   await prisma.counterpartyUser.createMany({
     data: [
       { counterpartyId: cp.id, userId: sub.id, role: 'submitter' },
       { counterpartyId: cp.id, userId: appr.id, role: 'approver' },
+      { counterpartyId: cp.id, userId: ro.id, role: 'submitter' },
     ],
   });
   const origin = config.portalUrls.custodian;
   const s = client(origin);
   const a = client(origin);
+  const r = client(origin);
   try {
     check('submitter signs in', (await s.login(sub.email, 'custodian')).status === 200);
     check('approver signs in', (await a.login(appr.email, 'custodian')).status === 200);
+    check('read-only user signs in', (await r.login(ro.email, 'custodian')).status === 200);
 
     // ---- bulk: invalid rows are rejected as a whole and kept as evidence
     const bad = await s.call('POST', '/api/v1/custodian/executions/bulk', csvForm([HEADER, row(`B1-${run}`), row(`B2-${run}`, { accountRef: 'NOPE' })].join('\n')));
@@ -127,7 +137,9 @@ async function main() {
     const again = await s.call('POST', '/api/v1/custodian/executions/bulk', csvForm(good));
     check('bulk: same file again -> 409 duplicate_trade_ref', again.status === 409 && again.body?.error?.code === 'duplicate_trade_ref', again.body);
     const batches = await s.call('GET', '/api/v1/custodian/executions-batches');
-    check('bulk: batch list shows accepted and rejected', batches.status === 200 && batches.body.items.length === 2, batches.body);
+    // Rejected files (invalid rows, control-total mismatch) are kept as evidence next to the accepted one.
+    const bs = batches.body?.items?.map((b: any) => b.status).sort().join();
+    check('bulk: batch list shows accepted and rejected', batches.status === 200 && bs === 'Accepted,Rejected,Rejected', batches.body);
 
     // ---- amend
     const amend = await s.call('PATCH', `/api/v1/custodian/executions/${first.id}`, { price: '0.26', reason: 'Broker confirmation corrected the price' });
@@ -138,8 +150,8 @@ async function main() {
     check('amend: reason is mandatory', noReason.status === 400, noReason.body);
     const foreign = await s.call('PATCH', `/api/v1/custodian/executions/${first.id}`, { accountRef: 'NOPE', reason: 'Wrong account on purpose' });
     check('amend: account outside the counterparty -> 403', foreign.status === 403, foreign.body);
-    const apprAmend = await a.call('PATCH', `/api/v1/custodian/executions/${first.id}`, { price: '0.27', reason: 'Approver has no submit right' });
-    check('amend: approver without submit permission -> 403', apprAmend.status === 403, apprAmend.body);
+    const apprAmend = await r.call('PATCH', `/api/v1/custodian/executions/${first.id}`, { price: '0.27', reason: 'User has no submit right' });
+    check('amend: user without submit permission -> 403', apprAmend.status === 403, apprAmend.body);
 
     // ---- cancel
     const second = ok.body.created[1];
@@ -201,6 +213,7 @@ async function main() {
     await prisma.counterpartyDayEndPackage.deleteMany({ where: { counterpartyId: cp.id } });
     await prisma.counterparty.delete({ where: { id: cp.id } });
     await prisma.user.deleteMany({ where: { id: { in: users } } });
+    await prisma.role.delete({ where: { id: roRole.id } }).catch(() => undefined);
   }
   console.log(failures ? `\n${failures} check(s) FAILED` : '\nAll custodian ops checks passed');
   await prisma.$disconnect();

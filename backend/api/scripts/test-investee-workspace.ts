@@ -296,10 +296,10 @@ async function workspaceSection(companyId: string, docId: string | undefined) {
 
   // company-initiated signature requests and public signing
   const emails = [`a-${run}@signers.test`, `b-${run}@signers.test`];
-  const sig = await admin.call('POST', `${P}/signature-requests`, { documentId: docId, title: `NDA ${run}`, signers: [{ name: 'Ada', email: emails[0] }, { name: 'Ben', email: emails[1] }], expiresInDays: 7 }, key('sig'));
+  const sig = await admin.call('POST', `${P}/signature-requests`, { documentId: docId, title: `NDA ${run}`, signers: [{ name: 'Ada Lovelace', email: emails[0] }, { name: 'Ben Okoye', email: emails[1] }], expiresInDays: 7 }, key('sig'));
   check('a signature request is sent to two signers', sig.status === 201 && dataOf(sig).status === 'PENDING' && dataOf(sig).signers.length === 2, sig.body);
   const tokenFor = async (email: string) => {
-    const rows = await prisma.outboxEvent.findMany({ where: { type: 'email.send' }, orderBy: { createdAt: 'desc' }, take: 60 });
+    const rows = await prisma.outboxEvent.findMany({ where: { type: 'investee.mail' }, orderBy: { createdAt: 'desc' }, take: 60 });
     const row = rows.find((r) => (r.payload as { to?: string }).to === email);
     return /\/sign\/([\w-]+)/.exec((row?.payload as { text?: string } | undefined)?.text ?? '')?.[1] ?? '';
   };
@@ -312,7 +312,7 @@ async function workspaceSection(companyId: string, docId: string | undefined) {
   const t1 = await tokenFor(emails[1]!);
   check('each signer has a link', t0.length > 20 && t1.length > 20 && t0 !== t1, [t0.length, t1.length]);
   const info = await pub('GET', `/sign/${t0}`);
-  check('the signer page shows the request without a session', info.status === 200 && dataOf(info).title === `NDA ${run}` && dataOf(info).signerName === 'Ada', info.body);
+  check('the signer page shows the request without a session', info.status === 200 && dataOf(info).title === `NDA ${run}` && dataOf(info).signerName === 'Ada Lovelace', info.body);
   const noConsent = await pub('POST', `/sign/${t0}`, { action: 'SIGN', name: 'Ada Lovelace' });
   check('signing needs explicit consent', noConsent.status === 400, noConsent.body);
   const s0 = await pub('POST', `/sign/${t0}`, { action: 'SIGN', name: 'Ada Lovelace', consent: true });
@@ -338,8 +338,9 @@ async function workspaceSection(companyId: string, docId: string | undefined) {
 
   // share links
   const share = await admin.call('POST', `${P}/share-links`, { documentId: docId, recipient: `Auditor ${run}`, expiresInDays: 7 }, key('share'));
-  const fileUrl = dataOf(share).url as string;
-  check('a share link is issued once', share.status === 201 && typeof fileUrl === 'string' && fileUrl.includes('/investee-public/share/'), share.body);
+  // INO-014: `url` is the portal landing page (/sign/share/<token>); `fileUrl` is the watermarked API download.
+  const fileUrl = dataOf(share).fileUrl as string;
+  check('a share link is issued once', share.status === 201 && typeof fileUrl === 'string' && fileUrl.includes('/investee-public/share/') && /\/sign\/share\//.test(dataOf(share).url), share.body);
   const tooLong = await admin.call('POST', `${P}/share-links`, { documentId: docId, recipient: 'Someone', expiresInDays: 30 }, key('share-long'));
   check('a link longer than 7 days is refused', tooLong.status === 400, tooLong.body);
   const viewed = await fetch(fileUrl);

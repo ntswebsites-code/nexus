@@ -43,7 +43,7 @@ async function offline() {
   check('no owners is incomplete', v65Missing(base, 0, 'Individual / HNW').some((m) => /beneficial owner/i.test(m)));
 }
 
-const API = (process.env.API_URL ?? 'http://localhost:4100').replace(/\/+$/, '');
+const API = (process.env.E2E_API ?? process.env.API_URL ?? 'http://localhost:4100').replace(/\/+$/, '');
 
 async function http<T>(path: string, init: { method?: string; token?: string; body?: unknown; form?: FormData } = {}): Promise<{ status: number; body: T }> {
   const headers: Record<string, string> = {};
@@ -86,8 +86,9 @@ async function online() {
   check('blank owner id on resume keeps the stored one', !!owner?.idNumberEnc);
 
   console.log('evidence + antivirus');
+  // F9 content sniffing rejects a .pdf that is not a PDF before the scanner runs, so the test string keeps a PDF header.
   const eicar = 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*';
-  const bad = await http<Err>(`/applications/${id}/evidence`, { method: 'POST', token, form: file('doc1', 'virus.pdf', eicar) });
+  const bad = await http<Err>(`/applications/${id}/evidence`, { method: 'POST', token, form: file('doc1', 'virus.pdf', `%PDF-1.4 ${eicar}`) });
   check('infected upload rejected 422 malware_detected', bad.status === 422 && bad.body.error?.code === 'malware_detected', bad);
   const audit = await prisma.auditEvent.findFirst({ where: { objectId: id, action: 'kyc.evidence.rejected_malware' } });
   check('rejection is audited', !!audit);

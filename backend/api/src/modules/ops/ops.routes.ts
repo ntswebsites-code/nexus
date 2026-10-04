@@ -29,6 +29,7 @@ opsRoutes.use('/custodian', opsCustodianRoutes);
 opsRoutes.use('/notices', opsNoticesRoutes);
 opsRoutes.use('/bank-instructions', opsBankInstructionRoutes);
 opsRoutes.use('/investee-requests', opsInvesteeRequestRoutes);
+opsRoutes.use('/investee-review', opsInvesteeReviewRoutes);
 opsRoutes.use(opsFundsRoutes);
 opsRoutes.use(opsCapitalRoutes);
 opsRoutes.use(opsDistributionsRoutes);
@@ -36,4 +37,3 @@ opsRoutes.use(opsDealingRoutes);
 opsRoutes.use(() => {
   throw new HttpError(501, 'not_implemented', 'This operations endpoint is not available yet');
 });
-opsRoutes.use('/investee-review', opsInvesteeReviewRoutes);

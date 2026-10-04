@@ -16,6 +16,8 @@ import { decryptField } from '../src/lib/crypto';
 import { totpNow } from '../src/lib/totp';
 import { deliverInvesteeMail } from '../src/modules/investee-portal/remainders/mail';
 import { signRequest } from '../src/modules/esign';
+// The sign-off completion hook registers when this module loads; the script signs in its own process, not the API's.
+import '../src/modules/investee-portal/remainders/signoff';
 
 if (process.env.E2E_CONFIRM !== 'local') {
   console.error('Refusing to run: set E2E_CONFIRM=local');
@@ -149,7 +151,8 @@ async function main() {
       check('adapter send recorded once', after.status === 'SENT' && after.attempts <= 2 && !!after.messageId, after);
     } else check('outbox event exists for the delivery', false);
   }
-  const fileUrl = new URL(d(sl).url as string);
+  // INO-014: `url` is the portal landing page; the watermarked download is `fileUrl` on the API.
+  const fileUrl = new URL(d(sl).fileUrl as string);
   const served = await client('company').send('GET', fileUrl.pathname);
   check('public file is a watermarked PDF', served.status === 200 && (served.headers.get('content-type') ?? '').includes('pdf') && Buffer.isBuffer(served.body) && served.body.length > original.length && !!served.headers.get('x-watermark')?.includes(`Auditor ${run}`), [served.status, served.headers.get('x-watermark')]);
   if (Buffer.isBuffer(served.body)) check('watermarked file is still a valid one-page PDF', (await PDFDocument.load(served.body)).getPageCount() === 1);
