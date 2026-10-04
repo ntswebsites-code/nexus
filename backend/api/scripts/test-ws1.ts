@@ -413,7 +413,8 @@ async function main() {
     const notif = await m.get(`${LP}/notifications`);
     check('notifications feed', notif.status === 200 && Array.isArray(notif.body?.data?.items), notif.body);
     const rt = await m.get(`${LP}/realtime`);
-    check('realtime polling info', rt.body?.data?.enabled === false && rt.body.data.pollingIntervalMs === 30000, rt.body);
+    // Realtime is now live: an SSE stream (streamUrl) with a 15s polling fallback and a change cursor (WP: LP realtime).
+    check('realtime info: SSE stream plus polling fallback', rt.body?.data?.enabled === true && typeof rt.body.data.streamUrl === 'string' && rt.body.data.streamUrl.endsWith('/realtime/stream') && rt.body.data.pollingIntervalMs === 15000 && Array.isArray(rt.body.data.changes) && !!rt.body.data.cursor, rt.body);
 
     // ── Settings ──────────────────────────────────────────────────────────
     console.log('\nSettings');

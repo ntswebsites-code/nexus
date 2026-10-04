@@ -92,6 +92,12 @@ function client() {
       return e.status === 200 && v.status === 200;
     },
     stepUp: () => send('POST', '/api/auth/mfa/step-up', { code: totpNow(secret) }),
+    getSecret: () => secret,
+    setSecret: (s: string) => {
+      secret = s;
+    },
+    /** An enrolled user's new sign-in is MFA-pending until the code is verified. */
+    verifyMfa: () => send('POST', '/api/auth/mfa/verify', { code: totpNow(secret) }),
   };
 }
 const errCode = (r: Res) => r.body?.error?.code;
@@ -219,7 +225,12 @@ async function main() {
     check('password changes and other sessions are revoked', changed.status === 200 && changed.body.otherSessionsRevoked >= 0, changed.body);
     check('old password no longer signs in', (await client().login(pmU.email, password)).status === 401);
     const relog = client();
-    check('new password signs in', (await relog.login(pmU.email, newPassword)).status === 200);
+    const relogin = await relog.login(pmU.email, newPassword);
+    check('new password signs in', relogin.status === 200);
+    if (relogin.body?.mfa === 'verify') {
+      relog.setSecret(pm.getSecret());
+      check('the new sign-in completes MFA (enrolled users are MFA-pending until verified)', (await relog.verifyMfa()).status === 200);
+    }
     const sessions = (await relog.get(`${S}/me`)).body.sessions as { id: string; current: boolean }[];
     check('current session cannot be revoked from the list', (await relog.del(`${S}/me/sessions/${sessions.find((x) => x.current)!.id}`)).status === 409);
     check('revoke-others succeeds', (await relog.post(`${S}/me/sessions/revoke-others`, {})).status === 200);
@@ -335,7 +346,12 @@ async function main() {
     const off = await admin.put('/api/v1/admin-core/settings/feature.statement_import', { value: false, reason: 'shell test' }, { 'Idempotency-Key': key('flag') });
     check('flag turned off', off.status === 200, off.body);
     await new Promise((r) => setTimeout(r, 200));
-    const blocked = await admin.post('/api/v1/cash/statement-imports', {}, { 'Idempotency-Key': key('imp') });
+    // system_admin deliberately holds no cash permissions (SoD-clean roles), so the import is attempted by a fund accountant;
+    // the permission gate runs first, then the feature flag.
+    const faU = await mkUser('fa', 'fund_accountant');
+    const fa = client();
+    check('fund accountant signs in', (await fa.login(faU.email)).status === 200);
+    const blocked = await fa.post('/api/v1/cash/statement-imports', {}, { 'Idempotency-Key': key('imp') });
     check('statement import is refused while the flag is off', blocked.status === 403 && errCode(blocked) === 'feature_disabled', blocked.body);
     await admin.stepUp();
     await admin.put('/api/v1/admin-core/settings/feature.statement_import', { value: true, reason: 'shell test restore' }, { 'Idempotency-Key': key('flag2') });

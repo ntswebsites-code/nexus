@@ -25,7 +25,11 @@ export function ruleTriage(i: TriageInput): TriageResult {
   if (notRun.length) next.push(`Run the outstanding checks: ${notRun.join(', ')}.`);
   if (i.missingEvidence.length) next.push('Send an information request for the missing evidence.');
   if (!next.length) next.push(i.riskPreview.rating === 'High' ? 'Propose a High rating and route to enhanced due diligence.' : 'Propose the computed rating for checker approval.');
-  const high = failed.length > 0 || i.riskPreview.rating === 'High' || flags.some((f) => f.startsWith('High-risk'));
+  // A declared PEP with no source of funds is an enhanced-due-diligence case whatever the weighted score says (the score is
+  // configurable and can sit in Medium): triage escalates it to HIGH so it is routed to EDD first. Advisory only.
+  const pepNoFunds = !!i.applicant.pep && !/^(no|none|false)$/i.test(i.applicant.pep) && !i.applicant.sourceOfFunds;
+  if (pepNoFunds) next.push('Politically exposed person with no declared source of funds: obtain source of funds and wealth evidence and route to enhanced due diligence.');
+  const high = failed.length > 0 || i.riskPreview.rating === 'High' || pepNoFunds || flags.some((f) => f.startsWith('High-risk'));
   const med = referred.length > 0 || i.riskPreview.rating === 'Medium' || flags.length > 0;
   const riskBand = high ? 'HIGH' : med ? 'MEDIUM' : 'LOW';
   const checked = i.checks.length - notRun.length;
