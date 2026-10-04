@@ -634,7 +634,6 @@ reconExtRoutes.post('/breaks/:id/reopen', ...canSignoff, requireStepUp, validate
     },
   });
   const fresh = await prisma.reconBreak.findUniqueOrThrow({ where: { id: b.id } });
-  expectVersion(req, fresh.version);
   res.json({ data: { id: fresh.id, ref: fresh.ref, status: fresh.status, version: fresh.version, voidedSignoffs: signoffs.length } });
 });
 

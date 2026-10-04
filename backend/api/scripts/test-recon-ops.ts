@@ -229,6 +229,8 @@ async function main() {
     const eff3 = await ops.get(`${R}/tolerances/effective?family=SETTLEMENT_FAILS&asOf=${D0}&counterpartyId=${cp.id}`);
     check('a counterparty row wins for its field and other fields fall back to the default', eff3.body.data.tolerances.settleDays === 0 && eff3.body.data.tolerances.caCash === '0.01' && /counterparty from/.test(eff3.body.data.sources.settleDays) && eff3.body.data.sources.caCash === 'default', eff3.body);
     const tolBody = { family: 'CASH', effectiveFrom: dayStr(3), cash: '0.5', note: `test ${run}` };
+    // The enrolment code just verified this session; age it past the step-up window (security.step_up_minutes) so the gate is exercised.
+    await prisma.session.updateMany({ where: { userId: fundU.id }, data: { mfaVerifiedAt: new Date(Date.now() - 60 * 60_000) } });
     const tolNoStep = await fund.post(`${R}/tolerances`, tolBody);
     check('setting a tolerance needs step-up MFA', tolNoStep.status === 401, tolNoStep.body);
     await fund.stepUp();
@@ -238,8 +240,8 @@ async function main() {
     check('the same family, scope and date again -> 409', tolDup.status === 409 && errCode(tolDup) === 'tolerance_exists', tolDup.body);
     const tolPast = await fund.post(`${R}/tolerances`, { ...tolBody, effectiveFrom: dayStr(-1) });
     check('a back-dated tolerance -> 400', tolPast.status === 400, tolPast.body);
-    const tolOps = await ops.post(`${R}/tolerances`, { ...tolBody, effectiveFrom: dayStr(4) });
-    check('maker without recon.signoff cannot set tolerances -> 403', tolOps.status === 403, tolOps.body);
+    const tolOps = await pm.post(`${R}/tolerances`, { ...tolBody, effectiveFrom: dayStr(4) }); // operations now holds recon.signoff too (F3 role catalogue); the portfolio manager does not
+    check('a user without recon.signoff cannot set tolerances -> 403', tolOps.status === 403, tolOps.body);
     check('empty tolerance -> 400', (await fund.post(`${R}/tolerances`, { family: 'CASH', effectiveFrom: dayStr(5) })).status === 400);
     check('tolerance change audited', (await prisma.auditEvent.count({ where: { action: 'recon.tolerance_set', objectId: tolOk.body.data.id } })) === 1);
     const tolDel = await fund.del(`${R}/tolerances/${tolOk.body.data.id}`);
@@ -331,8 +333,8 @@ async function main() {
     const so = await comp.post(`${R}/signoffs`, { family: 'POSITIONS_VS_CUSTODY', asOfDate: D0, counterpartyId: cp.id });
     check('day signed off for positions', so.status === 201, so.body);
     const closedBreak = await prisma.reconBreak.findUniqueOrThrow({ where: { id: posBreak.id } });
-    const reNoStep = await ops.post(`${R}/breaks/${posBreak.id}/reopen`, { reason: 'Custodian restated the position file', version: closedBreak.version });
-    check('reopen needs recon.signoff (maker -> 403)', reNoStep.status === 403, reNoStep.body);
+    const reNoStep = await pm.post(`${R}/breaks/${posBreak.id}/reopen`, { reason: 'Custodian restated the position file', version: closedBreak.version });
+    check('reopen needs recon.signoff (a user without it -> 403)', reNoStep.status === 403, reNoStep.body);
     await fund.stepUp();
     const reShort = await fund.post(`${R}/breaks/${posBreak.id}/reopen`, { reason: 'short', version: closedBreak.version });
     check('reopen needs a reason of 10+ characters -> 400', reShort.status === 400, reShort.body);

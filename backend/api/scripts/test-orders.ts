@@ -307,8 +307,14 @@ async function main() {
     const otc = await makeValidated(pm, ticket({ portfolioId: pfChk.id, securityId: secO.id, quantity: 10 }));
     check('mandate Fail: market not allowed (OTC)', checkOf(otc.vr, 'mandate')?.result === 'Fail' && /Market OTC/.test(checkOf(otc.vr, 'mandate')?.detail ?? ''), checkOf(otc.vr, 'mandate'));
 
-    const lot = await makeValidated(pm, ticket({ portfolioId: pfChk.id, quantity: 150 }));
-    check('liquidity Fail: 150 is not a multiple of the board lot 100', checkOf(lot.vr, 'liquidity')?.result === 'Fail', checkOf(lot.vr, 'liquidity'));
+    // Board-lot multiples are now refused at ticket entry (400); the liquidity check keeps the rule as a second line of defence.
+    const lotEntry = await create(pm, ticket({ portfolioId: pfChk.id, quantity: 150 }));
+    check('ticket entry: 150 is not a multiple of the board lot 100 -> 400 on quantity', lotEntry.status === 400 && JSON.stringify(lotEntry.body).includes('board lot'), lotEntry.body);
+    const lotOrder = await create(pm, ticket({ portfolioId: pfChk.id, quantity: 200 }));
+    await prisma.security.update({ where: { id: secB.id }, data: { boardLot: 300 } }); // the lot changes after the ticket was entered
+    const lot = { vr: await validate(pm, lotOrder.body?.data?.id as string) };
+    await prisma.security.update({ where: { id: secB.id }, data: { boardLot: 100 } });
+    check('liquidity Fail: 200 is not a multiple of the (changed) board lot 300', checkOf(lot.vr, 'liquidity')?.result === 'Fail' && /board lot/.test(checkOf(lot.vr, 'liquidity')?.detail ?? ''), checkOf(lot.vr, 'liquidity'));
     const advReview = await makeValidated(pm, ticket({ portfolioId: pfChk.id, securityId: secC.id, quantity: 15000 }));
     check('liquidity Review: 15% of average daily volume', checkOf(advReview.vr, 'liquidity')?.result === 'Review' && advReview.vr.body.data.precheck.overall === 'Review', checkOf(advReview.vr, 'liquidity'));
     const advFail = await makeValidated(pm, ticket({ portfolioId: pfChk.id, securityId: secC.id, quantity: 30000 }));

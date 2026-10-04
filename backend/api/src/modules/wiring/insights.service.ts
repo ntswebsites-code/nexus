@@ -185,7 +185,7 @@ async function allocationPanel() {
     for (const b of snap.concentration.byAssetClass) add(e.assetClass, b.key, b.valueBase);
     for (const b of snap.concentration.bySector) add(e.sector, b.key, b.valueBase);
     for (const b of snap.concentration.byMarket) add(e.market, b.key, b.valueBase);
-    if (new D(snap.totals.cashBase).gt(0)) add(e.assetClass, 'Cash', snap.totals.cashBase);
+    // snap.concentration.byAssetClass already carries the cash row; adding it again double-counted cash (weights summed past 100%).
     by.set(cur, e);
   }
   const rows = (m: Map<string, Prisma.Decimal>, total: Prisma.Decimal) =>

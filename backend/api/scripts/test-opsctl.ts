@@ -287,6 +287,8 @@ async function main() {
     check('resolve: to PENDING_CHECKER, caller is the maker', res1.status === 200 && res1.body.data.status === 'PENDING_CHECKER' && res1.body.data.maker?.id === opsU.id, res1.body);
     const selfApprove = await ops.post(`${PR}/breaks/${bDiff.id}/approve`);
     check('the maker cannot approve (403 segregation_of_duties)', selfApprove.status === 403, selfApprove.body);
+    // The enrolment code just verified this session; age it past the step-up window so the gate is exercised.
+    await prisma.session.updateMany({ where: { userId: compU.id }, data: { mfaVerifiedAt: new Date(Date.now() - 60 * 60_000) } });
     const noStep = await comp.post(`${PR}/breaks/${bDiff.id}/approve`);
     check('approval needs step-up MFA -> 401', noStep.status === 401, noStep.body);
     await comp.stepUp();

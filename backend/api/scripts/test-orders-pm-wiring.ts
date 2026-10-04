@@ -218,13 +218,13 @@ async function main() {
     await approve(sellId);
     await route(sellId);
     const sf = await fill(sellId, 500, 6, 5);
-    check('a sell fill records the realised gain: 500 x (6 - 4) = 1,000.00 at average cost', sf.status === 201 && sf.body?.data?.realisedGain?.gain === '1000.00' && sf.body.data.realisedGain.costBasis === '2000.00' && sf.body.data.realisedGain.proceeds === '3000.00', sf.body?.data?.realisedGain);
+    check('a sell fill records the realised gain: 500 x (6 - 50,000/11,000) = 727.27 at the average cost after the earlier buy (4.5455/unit)', sf.status === 201 && sf.body?.data?.realisedGain?.gain === '727.27' && sf.body.data.realisedGain.costBasis === '2272.73' && sf.body.data.realisedGain.proceeds === '3000.00', sf.body?.data?.realisedGain);
     check('the gain row is persisted per fill (order_realised_gains)', (await prisma.orderRealisedGain.count({ where: { orderId: sellId } })) === 1);
     const ss = await dealer.post(`${O}/${sellId}/settle`, {});
     const ajSell = await prisma.accJournal.findFirst({ where: { id: ss.body?.data?.settlementJournals?.accounting?.id }, include: { lines: { include: { account: true } } } });
     const gainLine = ajSell?.lines.find((l) => l.account.code === '4300');
     const invLine = ajSell?.lines.find((l) => l.account.code === '1100');
-    check('settlement books investments out at cost 2,000.00 and the gain 1,000.00 to 4300', ss.status === 200 && invLine?.credit.toFixed(2) === '2000.00' && gainLine?.credit.toFixed(2) === '1000.00', ajSell?.lines.map((l) => [l.account.code, l.debit.toString(), l.credit.toString()]));
+    check('settlement books investments out at average cost 2,272.73 and the gain 727.27 to 4300', ss.status === 200 && invLine?.credit.toFixed(2) === '2272.73' && gainLine?.credit.toFixed(2) === '727.27', ajSell?.lines.map((l) => [l.account.code, l.debit.toString(), l.credit.toString()]));
     check('the journal balances', ajSell?.totalDebit.eq(ajSell.totalCredit) === true);
 
     // ================================================================ GAP-005 private markets
