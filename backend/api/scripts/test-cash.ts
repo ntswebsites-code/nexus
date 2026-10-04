@@ -305,6 +305,8 @@ async function main() {
     await cFa.post(`${C}/journals/${susp.id}/reverse`, { reason: 'Receipt identified and returned' });
     await cOps.post(`${C}/expectations/${E2.id}/cancel`, { reason: 'Fee waived by the custodian' });
     await cOps.post(`${C}/journals/${draft.id}/discard`, { reason: 'Entered by mistake' });
+    // R4-2 close gate: the period-end NAV must be released (no custodian accounts are mapped here, so the recon sign-off gate is clear).
+    await prisma.navRun.create({ data: { ref: `CSN-${run}`, portfolioId: p.id, navDate: new Date(`${td}T00:00:00.000Z`), status: 'RELEASED', makerId: ops.id } });
     pre = (await cOps.get(`${C}/period-closes/precheck?portfolioId=${p.id}&periodEnd=${td}`)).body.data;
     check('only the checker approval is left', pre.blockers.length === 1 && !item('CHECKER_APPROVAL').ok && ['STATEMENT_COVERAGE', 'BALANCE_VARIANCE', 'SUSPENSE', 'AGED_ITEMS', 'UNPOSTED_JOURNALS'].every((k) => item(k).ok), pre);
     check('a different person approves the close', (await cFa.post(`${C}/period-closes/${close.id}/approve`)).body?.data?.status === 'APPROVED');
@@ -325,6 +327,7 @@ async function main() {
       await prisma.cashJournal.deleteMany({ where: { portfolioId: { in: portfolioIds } } });
       await prisma.cashReservation.deleteMany({ where: { portfolioId: { in: portfolioIds } } });
       await prisma.cashExpectation.deleteMany({ where: { portfolioId: { in: portfolioIds } } });
+      await prisma.navRun.deleteMany({ where: { portfolioId: { in: portfolioIds } } });
       await prisma.cashPeriodClose.deleteMany({ where: { portfolioId: { in: portfolioIds } } });
       await prisma.cashLedger.deleteMany({ where: { portfolioId: { in: portfolioIds } } });
       await prisma.portfolio.deleteMany({ where: { id: { in: portfolioIds } } });

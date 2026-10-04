@@ -258,9 +258,11 @@ async function main() {
 
     console.log('\nPeriods and close');
     const pb = { portfolioId: p.id, month: '2026-09' };
-    const pc = await cPm.post(`${A}/periods`, pb, { 'Idempotency-Key': key('period') });
-    const P = pc.body?.data;
-    check('open a period -> 201 OPEN 2026-09-01..2026-09-30', pc.status === 201 && P?.status === 'OPEN' && P.periodStart === '2026-09-01' && P.periodEnd === '2026-09-30', pc.body);
+    // Posting a journal opens its month automatically (F2), so 2026-09 already exists here; opening an untouched month is the explicit path.
+    const P = (await cPm.get(`${A}/periods/${(await prisma.accPeriod.findFirstOrThrow({ where: { portfolioId: p.id, periodEnd: day('2026-09-30') } })).id}`)).body?.data;
+    check('posting auto-opened 2026-09-01..2026-09-30 as OPEN', P?.status === 'OPEN' && P.periodStart === '2026-09-01' && P.periodEnd === '2026-09-30', P);
+    const pc = await cPm.post(`${A}/periods`, { portfolioId: p.id, month: '2026-08' }, { 'Idempotency-Key': key('period') });
+    check('open a period explicitly -> 201 OPEN 2026-08-01..2026-08-31', pc.status === 201 && pc.body?.data?.status === 'OPEN' && pc.body.data.periodStart === '2026-08-01' && pc.body.data.periodEnd === '2026-08-31', pc.body);
     check('duplicate period -> 409', (await cPm.post(`${A}/periods`, pb, { 'Idempotency-Key': key('p2') })).body?.error?.code === 'duplicate_period');
     check('bad month -> 400', (await cPm.post(`${A}/periods`, { ...pb, month: '2026-13' }, { 'Idempotency-Key': key('p3') })).status === 400);
 
@@ -275,7 +277,7 @@ async function main() {
     const startClose = await cPm.post(`${A}/periods/${P.id}/start-close`);
     check('start close -> CLOSING', startClose.status === 200 && startClose.body.data.status === 'CLOSING', startClose.body);
     const detail = await cPm.get(`${A}/periods/${P.id}`);
-    check('checklist itemises 4 items, 3 blockers, canClose false', detail.body.data.checklist.length === 4 && detail.body.data.canClose === false && detail.body.data.blockers.length === 3, detail.body.data);
+    check('checklist itemises 5 items (R4-2 adds the recon sign-off gate), 3 blockers, canClose false', detail.body.data.checklist.length === 5 && detail.body.data.canClose === false && detail.body.data.blockers.length === 3, detail.body.data);
     check('close needs accounting.close -> 403 for a preparer', (await cPm.post(`${A}/periods/${P.id}/close`)).status === 403);
     const blocked = await cFa.post(`${A}/periods/${P.id}/close`);
     const bl: string[] = blocked.body?.error?.details?.blockers ?? [];

@@ -402,7 +402,8 @@ async function main() {
     check('fund accountant step-up with TOTP', (await fund.stepUp()).status === 200);
     const appr = await fund.post(`${R}/breaks/${bE5.id}/approve`, { note: 'Evidence checked' });
     check('approve (different user, step-up) -> CLOSED with checker and closedAt', appr.status === 200 && appr.body.data.status === 'CLOSED' && appr.body.data.checkerId === fundU.id && appr.body.data.makerId === opsU.id && !!appr.body.data.closedAt, appr.body);
-    check('a closed break is no longer overdue and allows no action', appr.body.data.overdue === false && Object.values(appr.body.allowed).every((v) => v === false || v === null), appr.body.allowed);
+    // Reopening a closed break (with a reason, voiding the approval) is the one deliberate action left on a CLOSED break (recon extension).
+    check('a closed break is no longer overdue and allows no work action except reopen', appr.body.data.overdue === false && Object.entries(appr.body.allowed).every(([k, v]) => k === 'reopen' || v === false || v === null), appr.body.allowed);
     const lateAppr = await fund.post(`${R}/breaks/${bE5.id}/approve`, {});
     check('approving a closed break -> 409', lateAppr.status === 409 && errCode(lateAppr) === 'invalid_transition');
     const lateAssign = await ops.post(`${R}/breaks/${bE5.id}/assign`, { ownerUserId: fundU.id });

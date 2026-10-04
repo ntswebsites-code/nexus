@@ -266,7 +266,7 @@ async function main() {
     check('NAV 12,500, market value 13,000, cash -500', R2?.nav === '12500.00' && R2?.marketValue === '13000.00' && R2?.cash === '-500.00', R2);
     check('price coverage 90.2778%', R2?.priceCoverage === '90.2778', R2?.priceCoverage);
     check('no units and no fund: NAV/unit empty, not required', R2?.fundId === null && R2?.navPerUnit === null && R2?.units === null);
-    check('STALE_PRICE: 10 days old, not material', ex('STALE_PRICE')?.material === false && /10 days/.test(ex('STALE_PRICE')?.detail ?? '') && ex('STALE_PRICE')?.ticker?.startsWith('NVST'), ex('STALE_PRICE'));
+    check('STALE_PRICE: priced 10 calendar days before (6-8 business days), not material', ex('STALE_PRICE')?.material === false && /\b[678] business days old/.test(ex('STALE_PRICE')?.detail ?? '') && ex('STALE_PRICE')?.ticker?.startsWith('NVST'), ex('STALE_PRICE'));
     check('MISSING_PRICE: material, reference is cost 1,000', ex('MISSING_PRICE')?.material === true && ex('MISSING_PRICE')?.referenceValue === '1000.00' && ex('MISSING_PRICE')?.currentValue === null, ex('MISSING_PRICE'));
     check('MISSING_FX: material, local value 400', ex('MISSING_FX')?.material === true && ex('MISSING_FX')?.referenceValue === '400.00', ex('MISSING_FX'));
     check('TOLERANCE: +20%, current 12,000 vs reference 10,000, difference 2,000, material', ex('TOLERANCE')?.currentValue === '12000.00' && ex('TOLERANCE')?.referenceValue === '10000.00' && ex('TOLERANCE')?.difference === '2000.00' && ex('TOLERANCE')?.material === true, ex('TOLERANCE'));
