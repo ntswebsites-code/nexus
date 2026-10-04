@@ -77,17 +77,23 @@ Round 3 (in progress): browser QA of every portal (issues logged only, not fixed
 
 No browser testing (typecheck, builds and API scripts only) · long tasks on their own branch · never push or force-push without approval · never commit secrets · UAT credentials only in the local credentials file and server secrets · unusual free ports · do not touch other projects on the UAT server · `nginx -t` before any host nginx restart.
 
+## 6b. Round 5 (QA, fixes, tests) status
+
+- 115 browser-QA issues: fixed and merged, see docs/FIXES-LOG.md (46 passed automated tests, 49 fixed awaiting verification, 10 not a defect, 8 partial, 1 open, 1 needs decision at last count).
+- Verified without a browser: API typecheck, 5 portal builds, 39 API flow scripts on the UAT host (all pass), 1,447 frontend tests (all pass).
+- Not yet deployed: uat-rc10 (round 4 + fixes + tests). Not yet done: turn live-data flags on in UAT.
+
 ## 7. Round 4 outstanding feature packages (delegated)
 
 | Pkg | Scope | State |
 |---|---|---|
-| R4-1 | Admin platform remainders: real SQL paging, If-Match everywhere, role-create and staff-invite maker-checker | [ ] |
-| R4-2 | Period-close NAV gate on cash/accounting, positions-vs-custody recon, custodian feed to recon via adapter, payments reconciliation | [ ] |
-| R4-3 | Investee: staff-side cap-table screen, watermarking, e-sign sign-off, email adapter delivery | [ ] |
-| R4-4 | E-sign: positioned signature fields, pickers instead of raw ids, term sheet and subscription flows | [ ] |
-| R4-5 | LP portal remainder: realtime push, performance PDF, notification preferences end to end | [ ] |
-| R4-6 | Onboarding portal native React (retire legacy HTML) | [ ] |
-| R4-7 | Custodian portal native React (retire legacy HTML) | [ ] |
-| R4-8 | Copilot via LLM adapter with live stub, onboarding triage panel, report email attachments, regulator filing placeholders | [ ] |
-| R4-9 | Settings enforcement, models called by NAV/risk, data-fabric depth | [ ] |
-| R4-10 | Broker contract-note ingestion and order fills, corporate-action announcements from market data | [ ] |
+| R4-1 | Admin platform remainders: real SQL paging, If-Match everywhere, role-create and staff-invite maker-checker | [x] built and merged |
+| R4-2 | Period-close NAV gate on cash/accounting, positions-vs-custody recon, custodian feed to recon via adapter, payments reconciliation | [x] built and merged |
+| R4-3 | Investee: staff-side cap-table screen, watermarking, e-sign sign-off, email adapter delivery | [x] built and merged |
+| R4-4 | E-sign: positioned signature fields, pickers instead of raw ids, term sheet and subscription flows | [x] built and merged |
+| R4-5 | LP portal remainder: realtime push, performance PDF, notification preferences end to end | [x] built and merged |
+| R4-6 | Onboarding portal native React (retire legacy HTML) | [x] built and merged |
+| R4-7 | Custodian portal native React (retire legacy HTML) | [x] built and merged |
+| R4-8 | Copilot via LLM adapter with live stub, onboarding triage panel, report email attachments, regulator filing placeholders | [x] built and merged |
+| R4-9 | Settings enforcement, models called by NAV/risk, data-fabric depth | [x] built and merged |
+| R4-10 | Broker contract-note ingestion and order fills, corporate-action announcements from market data | [x] built and merged |
