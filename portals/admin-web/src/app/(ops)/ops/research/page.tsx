@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { api, OpsError, qs, v1 } from '@/ops/api';
 import { AccessDenied, DataTable, label, PortfolioSelect, ReasonModal, Tag, Tile, useSecurities, usePortfolios } from '@/ops/rp';
 import { useCan, useSession } from '@/ops/session';
+import { CaseEntries, IssuersTab, ValuationPanel } from '@/ops/research-depth';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useAction, useResource } from '@/ops/ui';
 
 const R = (p: string) => v1(`/research${p}`);
@@ -86,7 +87,7 @@ interface Summary {
   upcomingMeetings: MeetingRow[];
 }
 
-type Tab = 'cases' | 'decisions' | 'meetings';
+type Tab = 'cases' | 'decisions' | 'meetings' | 'issuers';
 
 export default function ResearchPage() {
   const canView = useCan('research.view');
@@ -118,15 +119,16 @@ export default function ResearchPage() {
         )}
       </Loaded>
       <div role="tablist" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        {(['cases', 'decisions', 'meetings'] as Tab[]).map((t) => (
+        {(['cases', 'decisions', 'meetings', 'issuers'] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`ops-btn${tab === t ? ' primary' : ''}`} type="button" onClick={() => setTab(t)}>
-            {t === 'cases' ? 'Research cases' : t === 'decisions' ? 'IC decisions' : 'IC meetings'}
+            {t === 'cases' ? 'Research cases' : t === 'decisions' ? 'IC decisions' : t === 'meetings' ? 'IC meetings' : 'Issuers'}
           </button>
         ))}
       </div>
       {tab === 'cases' && <CasesTab onOpen={(id) => setOpen({ kind: 'case', id })} onChanged={summary.reload} />}
       {tab === 'decisions' && <DecisionsTab onOpen={(id) => setOpen({ kind: 'decision', id })} onChanged={summary.reload} />}
       {tab === 'meetings' && <MeetingsTab onOpen={(id) => setOpen({ kind: 'meeting', id })} onChanged={summary.reload} />}
+      {tab === 'issuers' && <IssuersTab onOpenCase={(id) => setOpen({ kind: 'case', id })} />}
       {open?.kind === 'case' && <CaseModal id={open.id} onClose={() => setOpen(null)} onChanged={summary.reload} />}
       {open?.kind === 'decision' && <DecisionModal id={open.id} onClose={() => setOpen(null)} onChanged={summary.reload} />}
       {open?.kind === 'meeting' && <MeetingModal id={open.id} onClose={() => setOpen(null)} onChanged={summary.reload} onOpenDecision={(id) => setOpen({ kind: 'decision', id })} />}
@@ -379,6 +381,10 @@ function CaseModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                 ) : (
                   <p className="ops-muted">No proposals yet.</p>
                 )}
+                <h4>Valuation model</h4>
+                <ValuationPanel caseId={c.id} caseStatus={c.status} isAuthor={author} currency={c.currency} onChanged={done} />
+                <h4>Notes, catalysts and risks</h4>
+                <CaseEntries caseId={c.id} />
                 <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
                   {c.status === 'DRAFT' && author && canEdit && (
                     <>

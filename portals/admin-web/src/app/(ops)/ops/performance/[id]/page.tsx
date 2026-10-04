@@ -77,7 +77,7 @@ function Detail({ p, reload }: { p: PeriodDetail; reload: () => void }) {
       </div>
 
       <Card title="Cumulative return">
-        <ReturnChart series={p.series} />
+        <ReturnChart series={p.series} portfolioId={p.portfolioId} />
       </Card>
 
       <Card title={p.controlsPending === 0 ? 'Official-return controls: all done' : `Official-return controls: ${p.controlsPending} to clear`}>

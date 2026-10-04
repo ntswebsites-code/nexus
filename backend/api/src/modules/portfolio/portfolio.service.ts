@@ -71,6 +71,8 @@ export interface PortfolioHeader {
   managerUserId: string | null;
   benchmark: string | null;
   status: string;
+  strategy: string | null;
+  riskProfile: string | null;
   mandate: PortfolioMandate;
   version: number;
 }
@@ -212,6 +214,8 @@ export function portfolioHeader(p: PortfolioRow): PortfolioHeader {
     managerUserId: p.managerUserId,
     benchmark: p.benchmark,
     status: p.status,
+    strategy: p.strategy,
+    riskProfile: p.riskProfile,
     mandate: getMandate(p),
     version: p.version,
   };
@@ -283,11 +287,11 @@ export async function resolveFxRate(from: string, to: string, asOf: Date): Promi
 
 // ---------------------------------------------------------------- snapshot
 
-async function buildSnapshot(p: PortfolioRow, asOf: Date): Promise<PortfolioSnapshot> {
+async function buildSnapshot(p: PortfolioRow, asOf: Date, only?: string[]): Promise<PortfolioSnapshot> {
   const day = startOfDay(asOf);
   const [positionRows, cashRows] = await Promise.all([
     prisma.portfolioPosition.findMany({
-      where: { portfolioId: p.id, asOf: { lte: day } },
+      where: { portfolioId: p.id, asOf: { lte: day }, ...(only ? { securityId: { in: only } } : {}) },
       include: { security: true },
       orderBy: [{ asOf: 'desc' }, { createdAt: 'desc' }],
     }),
@@ -425,8 +429,9 @@ async function loadPortfolio(idOrRef: string): Promise<PortfolioRow> {
 
 export { loadPortfolio };
 
-export async function getPortfolioSnapshot(portfolioIdOrRef: string, opts: { asOf?: Date } = {}): Promise<PortfolioSnapshot> {
-  return buildSnapshot(await loadPortfolio(portfolioIdOrRef), opts.asOf ?? new Date());
+/** `securityIds` limits the valued lines to those securities (IBOR paging); totals and weights then cover only them. */
+export async function getPortfolioSnapshot(portfolioIdOrRef: string, opts: { asOf?: Date; securityIds?: string[] } = {}): Promise<PortfolioSnapshot> {
+  return buildSnapshot(await loadPortfolio(portfolioIdOrRef), opts.asOf ?? new Date(), opts.securityIds);
 }
 
 export interface PortfolioFilters {
@@ -436,6 +441,8 @@ export interface PortfolioFilters {
   status?: string;
   clientId?: string;
   managerUserId?: string;
+  strategy?: string;
+  riskProfile?: string;
 }
 
 export async function getPortfolioSummaries(filters: PortfolioFilters = {}, opts: { asOf?: Date } = {}): Promise<PortfolioSummary[]> {
@@ -446,6 +453,8 @@ export async function getPortfolioSummaries(filters: PortfolioFilters = {}, opts
   if (filters.status) where.status = filters.status;
   if (filters.clientId) where.clientId = filters.clientId;
   if (filters.managerUserId) where.managerUserId = filters.managerUserId;
+  if (filters.strategy) where.strategy = filters.strategy;
+  if (filters.riskProfile) where.riskProfile = filters.riskProfile;
   const rows = await prisma.portfolio.findMany({ where, orderBy: [{ name: 'asc' }], take: 500 });
   const asOf = opts.asOf ?? new Date();
   const out: PortfolioSummary[] = [];

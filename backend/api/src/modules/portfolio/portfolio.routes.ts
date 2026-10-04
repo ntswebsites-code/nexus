@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { RequestHandler } from 'express';
 import { pageEnvelope, sqlPage } from '../../middleware/paginate';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
@@ -11,6 +12,11 @@ import { expectVersion, hasPermission, param, query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAnyPermission, requireAuth, requirePermission, requirePortalAccess } from '../../middleware/requireAuth';
 import { audit } from '../ops/ops.common';
+import { uploadFiles, uploadedFiles } from '../../middleware/upload';
+import { signedDownloadUrl } from '../../lib/storage';
+import { vaultDocument } from '../../lib/vault';
+import { ensureTask, endOfDay } from '../wiring/tasks';
+import { names } from '../rp-common';
 import {
   getBrokerList,
   getPortfolioSnapshot,
@@ -19,6 +25,7 @@ import {
   latestPrices,
   loadPortfolio,
   portfolioHeader,
+  resolveFxRate,
   withPrice,
   type PortfolioMandate,
 } from './portfolio.service';
@@ -41,6 +48,51 @@ const dateStr = z
 const toDate = (v: string) => new Date(`${v}T00:00:00.000Z`);
 const asOfOf = (v?: string) => (v ? toDate(v) : new Date());
 const ccy = z.string().trim().length(3).toUpperCase();
+export const RISK_PROFILES = ['LOW', 'MODERATE', 'HIGH'] as const;
+export const EVIDENCE_KINDS = ['MANDATE', 'APPROVAL', 'KYC', 'OTHER'] as const;
+const KPI_CURRENCY = 'USD';
+
+/**
+ * FR-PORT-010: KPIs computed from the rows shown. AUM is each portfolio's market value converted to USD at the latest
+ * rate (portfolios with no rate are named and left out, never guessed); weighted TWR is the AUM-weighted average of each
+ * portfolio's latest LOCKED performance period; open breaches counts OPEN risk breaches on the listed portfolios.
+ */
+async function summaryKpis(rows: Awaited<ReturnType<typeof getPortfolioSummaries>>) {
+  const ids = rows.map((r) => r.id);
+  const rates = new Map<string, Prisma.Decimal | null>();
+  for (const c of new Set(rows.map((r) => r.baseCurrency))) rates.set(c, await resolveFxRate(c, KPI_CURRENCY, new Date()));
+  const usd = new Map<string, Prisma.Decimal>();
+  const fxMissing = new Set<string>();
+  for (const r of rows) {
+    const rate = rates.get(r.baseCurrency);
+    if (!rate) fxMissing.add(r.baseCurrency);
+    else usd.set(r.id, new Prisma.Decimal(r.marketValueBase).mul(rate));
+  }
+  const total = [...usd.values()].reduce((a, v) => a.add(v), new Prisma.Decimal(0));
+  const periods = ids.length ? await prisma.perfPeriod.findMany({ where: { portfolioId: { in: ids }, status: 'LOCKED' }, orderBy: { periodEnd: 'desc' }, select: { portfolioId: true, twrPct: true, periodEnd: true } }) : [];
+  const latest = new Map<string, (typeof periods)[number]>();
+  for (const p of periods) if (!latest.has(p.portfolioId)) latest.set(p.portfolioId, p);
+  let wSum = new Prisma.Decimal(0);
+  let wTwr = new Prisma.Decimal(0);
+  let covered = 0;
+  for (const [id, p] of latest) {
+    const w = usd.get(id);
+    if (!w || w.lte(0)) continue;
+    wSum = wSum.add(w);
+    wTwr = wTwr.add(w.mul(p.twrPct));
+    covered += 1;
+  }
+  const breaches = ids.length ? await prisma.riskBreach.count({ where: { portfolioId: { in: ids }, status: 'OPEN' } }) : 0;
+  return {
+    currency: KPI_CURRENCY,
+    portfolios: rows.length,
+    totalAum: total.toFixed(2),
+    fxMissing: [...fxMissing],
+    weightedTwrPct: wSum.isZero() ? null : wTwr.div(wSum).toFixed(4),
+    twrCoverage: { portfolios: covered, of: rows.length, aumPct: total.isZero() ? '0.00' : wSum.div(total).mul(100).toFixed(2) },
+    openBreaches: breaches,
+  };
+}
 
 const mandateSchema = z
   .object({
@@ -81,16 +133,37 @@ const listQuery = z.object({
   clientId: z.string().trim().max(36).optional(),
   managerId: z.string().trim().max(36).optional(),
   mine: z.enum(['1', 'true']).optional(),
+  strategy: z.string().trim().max(40).optional(),
+  riskProfile: z.enum(RISK_PROFILES).optional(),
+  /** 1 adds the summary KPIs computed from the very rows returned (FR-PORT-010). */
+  kpis: z.enum(['1', 'true']).optional(),
   asOf: dateStr.optional(),
 });
 
 portfolioRoutes.get('/portfolios', ...staff, requirePermission('portfolio.view'), validateQuery(listQuery), async (req, res) => {
   const f = query<z.infer<typeof listQuery>>(req);
   const rows = await getPortfolioSummaries(
-    { q: f.q, type: f.type, currency: f.currency, status: f.status, clientId: f.clientId, managerUserId: f.mine ? req.user!.id : f.managerId },
+    { q: f.q, type: f.type, currency: f.currency, status: f.status, clientId: f.clientId, managerUserId: f.mine ? req.user!.id : f.managerId, strategy: f.strategy, riskProfile: f.riskProfile },
     { asOf: asOfOf(f.asOf) },
   );
-  res.json({ data: rows, total: rows.length });
+  res.json({ data: rows, total: rows.length, ...(f.kpis ? { kpis: await summaryKpis(rows) } : {}) });
+});
+
+/** Distinct strategies, risk profiles and managers present on portfolios, for the filter selects. */
+portfolioRoutes.get('/portfolios/facets', ...staff, requirePermission('portfolio.view'), async (_req, res) => {
+  const [strategies, risks, managers] = await Promise.all([
+    prisma.portfolio.findMany({ where: { strategy: { not: null } }, select: { strategy: true }, distinct: ['strategy'], orderBy: { strategy: 'asc' } }),
+    prisma.portfolio.findMany({ where: { riskProfile: { not: null } }, select: { riskProfile: true }, distinct: ['riskProfile'] }),
+    prisma.portfolio.findMany({ where: { managerUserId: { not: null } }, select: { managerUserId: true }, distinct: ['managerUserId'] }),
+  ]);
+  const nm = await names(managers.map((m) => m.managerUserId));
+  res.json({
+    data: {
+      strategies: strategies.map((x) => x.strategy!),
+      riskProfiles: RISK_PROFILES.filter((r) => risks.some((x) => x.riskProfile === r)),
+      managers: [...nm.entries()].map(([id, name]) => ({ id, name })).sort((a, b) => a.name.localeCompare(b.name)),
+    },
+  });
 });
 
 const snapshotQuery = z.object({ asOf: dateStr.optional() });
@@ -108,6 +181,10 @@ const createSchema = z.object({
   managerUserId: z.string().trim().max(36).optional(),
   benchmark: z.string().trim().max(160).optional(),
   status: z.enum(['Setup', 'Active', 'Suspended', 'Closed']).default('Active'),
+  strategy: z.string().trim().min(2).max(40).optional(),
+  riskProfile: z.enum(RISK_PROFILES).optional(),
+  /** What the evidence file is, when one is sent with the create. */
+  evidenceKind: z.enum(EVIDENCE_KINDS).default('MANDATE'),
   mandate: mandateSchema.optional(),
 });
 
@@ -121,10 +198,26 @@ async function assertLinks(clientId?: string | null, managerUserId?: string | nu
   }
 }
 
+/** The wizard may send multipart: a `payload` JSON field plus an `evidence` file. Plain JSON still works. */
+const withEvidence: RequestHandler = (req, res, next) => {
+  if (!req.is('multipart/form-data')) return next();
+  uploadFiles('evidence')(req, res, (err?: unknown) => {
+    if (err) return next(err);
+    try {
+      const raw = (req.body as { payload?: string } | undefined)?.payload;
+      req.body = raw ? JSON.parse(raw) : {};
+    } catch {
+      return next(HttpError.badRequest('The payload field must be JSON'));
+    }
+    next();
+  });
+};
+
 portfolioRoutes.post(
   '/portfolios',
   ...staff,
   requirePermission('portfolio.manage'),
+  withEvidence,
   validateBody(createSchema),
   idempotent('portfolio.create'),
   async (req, res) => {
@@ -143,17 +236,65 @@ portfolioRoutes.post(
           managerUserId: b.managerUserId ?? null,
           benchmark: b.benchmark ?? null,
           status: b.status,
+          strategy: b.strategy ?? null,
+          riskProfile: b.riskProfile ?? null,
           mandateJson: mandate as Prisma.InputJsonValue,
           createdBy: req.user!.id,
           updatedBy: req.user!.id,
         },
       });
-      await writeAudit(tx, audit(req), { action: 'portfolio.created', objectType: 'portfolio', objectId: p.id, after: { ref, ...b, mandate } });
+      const file = uploadedFiles(req)[0];
+      const doc = file
+        ? await vaultDocument(tx, req, { file, name: `${ref} ${b.evidenceKind.toLowerCase()} evidence`, type: 'compliance', label: `portfolio ${b.evidenceKind.toLowerCase()} evidence`, relatedType: 'portfolio', relatedId: p.id, relatedLabel: `${ref} ${b.name}`, sourceType: 'PORTFOLIO_EVIDENCE', classification: 'Restricted' })
+        : null;
+      // A portfolio in Setup is not live: the activation steps become real runbook tasks (Operations Control).
+      if (b.status === 'Setup') {
+        const due = endOfDay(new Date(Date.now() + 5 * 86_400_000));
+        const steps = [
+          ['Confirm the mandate and evidence', 'Check the mandate limits and the evidence filed in the vault, then activate the portfolio.'],
+          ['Open the cash account', 'Open the cash ledger and fund it before the first trade.'],
+          ['Run the first IBOR refresh', 'Load the opening positions and tax lots for the new portfolio.'],
+        ] as const;
+        for (const [i, [title, detail]] of steps.entries()) await ensureTask(tx, { area: 'OTHER', title: `${ref}: ${title}`, detail, dueAt: due, sourceRef: `portfolio-activation:${p.id}:${i + 1}`, link: `/ops/portfolios/${p.id}` });
+      }
+      const { evidenceKind: _k, ...audited } = b;
+      await writeAudit(tx, audit(req), { action: 'portfolio.created', objectType: 'portfolio', objectId: p.id, after: { ref, ...audited, mandate, evidence: doc ? doc.document.ref : null } });
       return p;
     });
     res.status(201).json({ data: await getPortfolioSnapshot(created.id) });
   },
 );
+
+/** FR-PORT-011: evidence filed against a portfolio lives in the document vault (type compliance, restricted). */
+const evidenceBody = z.object({ kind: z.enum(EVIDENCE_KINDS).default('OTHER'), title: z.string().trim().max(160).optional() });
+
+portfolioRoutes.post('/portfolios/:id/evidence', ...staff, requirePermission('portfolio.manage'), uploadFiles('file'), idempotent('portfolio.evidence'), async (req, res) => {
+  const p = await loadPortfolio(param(req, 'id'));
+  const parsed = evidenceBody.safeParse(req.body);
+  if (!parsed.success) throw HttpError.badRequest('Validation failed', parsed.error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })));
+  const file = uploadedFiles(req)[0];
+  if (!file) throw HttpError.badRequest('Validation failed', [{ path: 'file', message: 'Attach the evidence file' }]);
+  const b = parsed.data;
+  const doc = await prisma.$transaction((tx) =>
+    vaultDocument(tx, req, { file, name: b.title ?? `${p.ref} ${b.kind.toLowerCase()} evidence`, type: 'compliance', label: `portfolio ${b.kind.toLowerCase()} evidence`, relatedType: 'portfolio', relatedId: p.id, relatedLabel: `${p.ref} ${p.name}`, sourceType: 'PORTFOLIO_EVIDENCE', classification: 'Restricted' }),
+  );
+  res.status(201).json({ data: { documentRef: doc.document.ref, name: doc.document.name, fileName: file.originalname, sha256: doc.file.sha256, version: 1 } });
+});
+
+portfolioRoutes.get('/portfolios/:id/evidence', ...staff, requirePermission('portfolio.view'), async (req, res) => {
+  const p = await loadPortfolio(param(req, 'id'));
+  const docs = await prisma.document.findMany({ where: { relatedType: 'portfolio', relatedId: p.id, sourceType: 'PORTFOLIO_EVIDENCE' }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } }, orderBy: { createdAt: 'desc' }, take: 100 });
+  res.json({ data: docs.map((d) => ({ documentRef: d.ref, name: d.name, label: d.label, status: d.status, version: d.versions[0]?.version ?? null, sha256: d.versions[0]?.sha256 ?? null, addedBy: d.ownerName, addedAt: d.createdAt.toISOString() })), total: docs.length });
+});
+
+portfolioRoutes.get('/portfolios/:id/evidence/:ref/download-url', ...staff, requirePermission('portfolio.view'), async (req, res) => {
+  const p = await loadPortfolio(param(req, 'id'));
+  const d = await prisma.document.findFirst({ where: { ref: param(req, 'ref'), relatedType: 'portfolio', relatedId: p.id }, include: { versions: { orderBy: { version: 'desc' }, take: 1 } } });
+  const v = d?.versions[0];
+  if (!d || !v) throw HttpError.notFound('Evidence not found');
+  await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'portfolio.evidence_downloaded', objectType: 'portfolio', objectId: p.id, after: { document: d.ref, version: v.version } }));
+  res.json({ url: signedDownloadUrl(v.fileId), expiresIn: 300 });
+});
 
 const patchSchema = z
   .object({
@@ -163,6 +304,8 @@ const patchSchema = z
     managerUserId: z.string().trim().max(36).nullable(),
     benchmark: z.string().trim().max(160).nullable(),
     status: z.enum(['Setup', 'Active', 'Suspended', 'Closed']),
+    strategy: z.string().trim().min(2).max(40).nullable(),
+    riskProfile: z.enum(RISK_PROFILES).nullable(),
     mandate: mandateSchema,
     version: z.number().int(),
   })
@@ -180,6 +323,8 @@ portfolioRoutes.patch('/portfolios/:id', ...staff, requirePermission('portfolio.
   if (b.managerUserId !== undefined) data.managerUserId = b.managerUserId;
   if (b.benchmark !== undefined) data.benchmark = b.benchmark;
   if (b.status !== undefined) data.status = b.status;
+  if (b.strategy !== undefined) data.strategy = b.strategy;
+  if (b.riskProfile !== undefined) data.riskProfile = b.riskProfile;
   const before = portfolioHeader(p);
   let nextMandate = before.mandate;
   if (b.mandate !== undefined) {

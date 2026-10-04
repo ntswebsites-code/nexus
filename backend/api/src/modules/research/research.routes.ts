@@ -13,6 +13,7 @@ import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } fr
 import { assertUpdated, audit, notifyPermission, seqRef } from '../ops/ops.common';
 import { latestPrices, loadPortfolio } from '../portfolio/portfolio.service';
 import { f6, invalidState, iso, listPage, names, positive, reasonSchema, resolvePortfolioId, resolveSecurity, securityMap, sod, statusIn, UUID, ZERO } from '../rp-common';
+import { registerResearchDepth, valuationSummary } from './research.depth';
 import { DEFAULT_QUORUM, IC_ACTIONS, icOutcome, OPEN_DECISION, RATINGS, ratingConflict, tally, upsidePct, VOTES } from './research.engine';
 
 /**
@@ -267,7 +268,7 @@ researchRoutes.get('/cases/:id', ...canView, async (req, res) => {
   const decisions = await prisma.icDecision.findMany({ where: { caseId: c.id }, orderBy: { createdAt: 'desc' } });
   const [v] = await caseViews([c]);
   const history = await ratingHistory(c.id);
-  res.json({ data: { ...v!, history, decisions: await decisionViews(decisions, req.user!.id) } });
+  res.json({ data: { ...v!, history, decisions: await decisionViews(decisions, req.user!.id), valuation: await valuationSummary(c.id, c.securityId) } });
 });
 
 const isAuthor = (c: CaseRow, req: Request) => c.analystId === req.user!.id;
@@ -563,3 +564,5 @@ researchRoutes.get('/orders/:orderId/decision', ...canView, async (req, res) => 
   const d = await prisma.icDecision.findUniqueOrThrow({ where: { id: link.decisionId } });
   res.json({ data: (await decisionViews([d], req.user!.id))[0] });
 });
+
+registerResearchDepth(researchRoutes);

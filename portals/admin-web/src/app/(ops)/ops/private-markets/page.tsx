@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api, apiDownload, qs, v1 } from '@/ops/api';
 import { ImportPanel } from '@/ops/imports';
+import { PipelineTab } from '@/ops/pm-depth';
 import { AccessDenied, DataTable, label, m2, PortfolioSelect, ReasonModal, Tag, Tile, today, usePortfolios } from '@/ops/rp';
 import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
@@ -135,7 +136,7 @@ interface Summary {
   upcomingCashflows: Cashflow[];
 }
 
-type Tab = 'overview' | 'funds' | 'marks' | 'clients' | 'lookthrough' | 'import';
+type Tab = 'overview' | 'funds' | 'pipeline' | 'marks' | 'clients' | 'lookthrough' | 'import';
 const xr = (v: string | null) => (v === null ? '—' : `${v}x`);
 const irr = (v: string | null) => (v === null ? '—' : `${v}%`);
 
@@ -173,15 +174,16 @@ export default function PrivateMarketsPage() {
         </div>
       </Card>
       <div role="tablist" style={{ display: 'flex', gap: 6, marginBottom: 14 }}>
-        {(['overview', 'funds', 'marks', 'clients', 'lookthrough', 'import'] as Tab[]).map((t) => (
+        {(['overview', 'funds', 'pipeline', 'marks', 'clients', 'lookthrough', 'import'] as Tab[]).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={`ops-btn${tab === t ? ' primary' : ''}`} type="button" onClick={() => setTab(t)}>
-            {t === 'overview' ? 'Overview' : t === 'funds' ? 'Funds' : t === 'marks' ? 'NAV marks' : t === 'clients' ? 'By client' : t === 'lookthrough' ? 'Look-through' : 'Import'}
+            {t === 'overview' ? 'Overview' : t === 'funds' ? 'Funds' : t === 'pipeline' ? 'Pipeline' : t === 'marks' ? 'NAV marks' : t === 'clients' ? 'By client' : t === 'lookthrough' ? 'Look-through' : 'Import'}
           </button>
         ))}
       </div>
       {tab === 'overview' && <Overview summary={summary} portfolioId={portfolioId} onOpen={(id) => setOpen({ kind: 'commitment', id })} />}
       {tab === 'clients' && <ClientsTab onOpen={(id) => setOpen({ kind: 'commitment', id })} />}
       {tab === 'funds' && <FundsTab onOpen={(id) => setOpen({ kind: 'fund', id })} portfolios={portfolios} onChanged={summary.reload} />}
+      {tab === 'pipeline' && <PipelineTab />}
       {tab === 'marks' && <MarksTab onOpen={(id) => setOpen({ kind: 'mark', id })} />}
       {tab === 'lookthrough' && <LookThroughTab portfolioId={portfolioId} />}
       {tab === 'import' && <ImportPanel only={['pm-funds', 'pm-commitments', 'pm-valuations']} onCommitted={summary.reload} />}

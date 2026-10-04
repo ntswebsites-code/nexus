@@ -19,6 +19,7 @@ import { storeFile } from '../../lib/storage';
 import { uploadFiles, uploadedFiles } from '../../middleware/upload';
 import { sendTable } from '../../lib/tabular';
 import { resolveFxRate } from '../portfolio/portfolio.service';
+import { registerPmPipeline } from './pm.pipeline';
 
 /**
  * Private Markets (SRD 5.A.3 `private-markets`). Admin-portal staff only, mounted at `/api/v1/private-markets`
@@ -332,7 +333,7 @@ const fundBody = z
     name: z.string().trim().min(2).max(200),
     manager: z.string().trim().min(2).max(160),
     strategy: z.enum(STRATEGIES),
-    vintage: z.number().int().min(1990).max(2100),
+    vintage: z.number().int().min(1990, 'Vintage must be 1990 or later').refine((v) => v <= new Date().getUTCFullYear(), 'Vintage cannot be in the future'),
     currency: ccy.default('USD'),
     notes: z.string().trim().max(500).optional(),
   })
@@ -773,3 +774,4 @@ privateMarketsRoutes.post('/marks/:id/approve', ...canApprove, requireStepUp, id
   await respondMark(res, m.id);
 });
 
+registerPmPipeline(privateMarketsRoutes);

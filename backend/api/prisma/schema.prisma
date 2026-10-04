@@ -1742,6 +1742,10 @@ model Portfolio {
   benchmark     String?  @db.VarChar(160)
   /// Setup | Active | Suspended | Closed
   status        String   @default("Active") @db.VarChar(16)
+  /// Investment strategy label (FR-PORT-009), free text from the wizard: Balanced, Growth, Income, Equity...
+  strategy      String?  @db.VarChar(40)
+  /// LOW | MODERATE | HIGH (FR-PORT-009)
+  riskProfile   String?  @map("risk_profile") @db.VarChar(16)
   mandateJson   Json?    @map("mandate_json")
   createdAt     DateTime @default(now()) @map("created_at")
   createdBy     String?  @map("created_by") @db.Char(36)
@@ -1756,6 +1760,8 @@ model Portfolio {
   @@index([clientId])
   @@index([managerUserId])
   @@index([name])
+  @@index([strategy])
+  @@index([riskProfile])
   @@map("portfolios")
 }
 
@@ -5897,3 +5903,249 @@ model LedgerCorrection {
   @@map("ledger_corrections")
 }
 // ---- end ImportExport ----
+
+// ---- ResearchPortfolioDepth ----
+// Package S4: research depth, private-markets pipeline, saved views, IBOR refresh jobs. Logical references (no FKs) as elsewhere.
+
+/// Per-user saved view or preference: portfolio list filters (FR-PORT-009), IBOR column chooser (FR-IBOR-007).
+model UserSavedView {
+  id        String   @id @default(uuid()) @db.Char(36)
+  userId    String   @map("user_id") @db.Char(36)
+  /// portfolio.list | ibor.columns
+  scope     String   @db.VarChar(32)
+  name      String   @db.VarChar(80)
+  config    Json
+  isDefault Boolean  @default(false) @map("is_default")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([userId, scope, name])
+  @@index([userId, scope])
+  @@map("user_saved_views")
+}
+
+/// Asynchronous IBOR refresh (FR-IBOR-004). `activeKey` is set while QUEUED or RUNNING and is UNIQUE, so the database
+/// itself refuses a second concurrent refresh of the same book; it is cleared when the job finishes.
+model IborRefreshJob {
+  id          String    @id @default(uuid()) @db.Char(36)
+  /// Null = every portfolio.
+  portfolioId String?   @map("portfolio_id") @db.Char(36)
+  activeKey   String?   @unique @map("active_key") @db.VarChar(40)
+  /// QUEUED | RUNNING | SUCCEEDED | FAILED
+  status      String    @default("QUEUED") @db.VarChar(12)
+  requestedBy String    @map("requested_by") @db.Char(36)
+  requestedAt DateTime  @default(now()) @map("requested_at")
+  startedAt   DateTime? @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  snapshotId  String?   @map("snapshot_id") @db.Char(36)
+  result      Json?
+  error       String?   @db.VarChar(500)
+
+  @@index([status, requestedAt])
+  @@index([requestedBy, requestedAt])
+  @@map("ibor_refresh_jobs")
+}
+
+/// One valuation model per research case (FR-RES-007); every save is an immutable version.
+model ResearchValuation {
+  id             String   @id @default(uuid()) @db.Char(36)
+  caseId         String   @unique @map("case_id") @db.Char(36)
+  /// DCF
+  method         String   @default("DCF") @db.VarChar(16)
+  currency       String   @db.Char(3)
+  currentVersion Int      @default(1) @map("current_version")
+  createdBy      String   @map("created_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  versions ResearchValuationVersion[]
+
+  @@map("research_valuations")
+}
+
+model ResearchValuationVersion {
+  id          String   @id @default(uuid()) @db.Char(36)
+  valuationId String   @map("valuation_id") @db.Char(36)
+  version     Int
+  /// growth, margin and discount ranges plus revenue, shares and net debt (see research.valuation.ts)
+  inputs      Json
+  result      Json
+  targetPrice Decimal  @map("target_price") @db.Decimal(20, 6)
+  lowPrice    Decimal  @map("low_price") @db.Decimal(20, 6)
+  highPrice   Decimal  @map("high_price") @db.Decimal(20, 6)
+  note        String?  @db.VarChar(500)
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  valuation ResearchValuation @relation(fields: [valuationId], references: [id], onDelete: Cascade)
+
+  @@unique([valuationId, version])
+  @@map("research_valuation_versions")
+}
+
+/// Timestamped analyst notes, catalysts and risks (FR-RES-008). Append-only except catalyst and risk resolution.
+model ResearchEntry {
+  id             String    @id @default(uuid()) @db.Char(36)
+  securityId     String    @map("security_id") @db.Char(36)
+  caseId         String?   @map("case_id") @db.Char(36)
+  /// NOTE | CATALYST | RISK
+  kind           String    @db.VarChar(10)
+  title          String    @db.VarChar(200)
+  body           String?   @db.Text
+  /// Catalyst date (expected or occurred).
+  eventDate      DateTime? @map("event_date") @db.Date
+  /// What would trigger it (catalysts).
+  triggerText    String?   @map("trigger_text") @db.VarChar(300)
+  /// POSITIVE | NEGATIVE | NEUTRAL (catalysts)
+  impact         String?   @db.VarChar(10)
+  /// LOW | MEDIUM | HIGH (risks)
+  severity       String?   @db.VarChar(8)
+  /// NOTE: RECORDED. CATALYST: PENDING | OCCURRED | MISSED | CANCELLED. RISK: OPEN | MITIGATED | CLOSED.
+  status         String    @default("RECORDED") @db.VarChar(12)
+  resolvedAt     DateTime? @map("resolved_at")
+  resolvedBy     String?   @map("resolved_by") @db.Char(36)
+  resolutionNote String?   @map("resolution_note") @db.VarChar(500)
+  createdBy      String    @map("created_by") @db.Char(36)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([securityId, createdAt])
+  @@index([caseId])
+  @@index([kind, status])
+  @@map("research_entries")
+}
+
+/// Issuer financial statement summary with period, as-of and source (FR-RES-006).
+model IssuerFinancial {
+  id          String   @id @default(uuid()) @db.Char(36)
+  securityId  String   @map("security_id") @db.Char(36)
+  /// FY2025, H1-2026, Q1-2026
+  period      String   @db.VarChar(16)
+  /// FY | H1 | H2 | Q
+  periodType  String   @map("period_type") @db.VarChar(4)
+  periodEnd   DateTime @map("period_end") @db.Date
+  currency    String   @db.Char(3)
+  revenue     Decimal? @db.Decimal(24, 4)
+  ebitda      Decimal? @db.Decimal(24, 4)
+  netIncome   Decimal? @map("net_income") @db.Decimal(24, 4)
+  eps         Decimal? @db.Decimal(20, 6)
+  totalAssets Decimal? @map("total_assets") @db.Decimal(24, 4)
+  totalDebt   Decimal? @map("total_debt") @db.Decimal(24, 4)
+  equity      Decimal? @db.Decimal(24, 4)
+  /// Where the figures came from (annual report, SENS announcement...).
+  source      String   @db.VarChar(120)
+  asOf        DateTime @map("as_of") @db.Date
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@unique([securityId, period])
+  @@index([securityId, periodEnd])
+  @@map("issuer_financials")
+}
+
+/// A filing imported into the document vault and listed against the issuer (FR-RES-009).
+model IssuerFiling {
+  id         String    @id @default(uuid()) @db.Char(36)
+  securityId String    @map("security_id") @db.Char(36)
+  /// Logical reference to documents.id (the vault record holds the file versions).
+  documentId String    @map("document_id") @db.Char(36)
+  /// ANNUAL_REPORT | INTERIM_REPORT | TRADING_UPDATE | CIRCULAR | PROSPECTUS | OTHER
+  filingType String    @map("filing_type") @db.VarChar(20)
+  title      String    @db.VarChar(200)
+  period     String?   @db.VarChar(16)
+  periodEnd  DateTime? @map("period_end") @db.Date
+  filedOn    DateTime  @map("filed_on") @db.Date
+  source     String    @db.VarChar(120)
+  sourceUrl  String?   @map("source_url") @db.VarChar(500)
+  createdBy  String    @map("created_by") @db.Char(36)
+  createdAt  DateTime  @default(now()) @map("created_at")
+
+  @@index([securityId, filedOn])
+  @@index([documentId])
+  @@map("issuer_filings")
+}
+
+/// Private-markets pipeline: a prospective investment (FR-PM-002 "New investment").
+model PmPipelineDeal {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// PMP-1001 ...
+  ref            String    @unique @db.VarChar(16)
+  name           String    @db.VarChar(200)
+  sponsor        String    @db.VarChar(160)
+  strategy       String    @db.VarChar(24)
+  vintage        Int
+  currency       String    @default("USD") @db.Char(3)
+  proposedAmount Decimal   @map("proposed_amount") @db.Decimal(20, 4)
+  expectedClose  DateTime? @map("expected_close") @db.Date
+  /// SOURCED | SCREENING | DILIGENCE | IC | APPROVED | CLOSED | DECLINED | ON_HOLD
+  stage          String    @default("SOURCED") @db.VarChar(12)
+  /// IFRS 13 fair-value hierarchy level 1..3 of the indicative valuation.
+  fairValueLevel Int?      @map("fair_value_level")
+  valuationDate  DateTime? @map("valuation_date") @db.Date
+  fundId         String?   @map("fund_id") @db.Char(36)
+  ownerId        String    @map("owner_id") @db.Char(36)
+  notes          String?   @db.VarChar(500)
+  decidedBy      String?   @map("decided_by") @db.Char(36)
+  decidedAt      DateTime? @map("decided_at")
+  decisionNote   String?   @map("decision_note") @db.VarChar(500)
+  version        Int       @default(1)
+  createdBy      String    @map("created_by") @db.Char(36)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([stage, updatedAt])
+  @@index([ownerId])
+  @@map("pm_pipeline_deals")
+}
+
+/// Due-diligence case on a pipeline deal (FR-PM-002 "Diligence case").
+model PmDiligenceCase {
+  id             String    @id @default(uuid()) @db.Char(36)
+  /// DDC-1001 ...
+  ref            String    @unique @db.VarChar(16)
+  dealId         String    @map("deal_id") @db.Char(36)
+  title          String    @db.VarChar(200)
+  leadId         String    @map("lead_id") @db.Char(36)
+  /// OPEN | IN_REVIEW | COMPLETE | CLOSED
+  status         String    @default("OPEN") @db.VarChar(12)
+  /// [{ key, label, status: OPEN|DONE|NA|FLAGGED, note }]
+  checklist      Json
+  findings       String?   @db.Text
+  /// PROCEED | PROCEED_WITH_CONDITIONS | DECLINE
+  recommendation String?   @db.VarChar(24)
+  completedAt    DateTime? @map("completed_at")
+  version        Int       @default(1)
+  createdBy      String    @map("created_by") @db.Char(36)
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([dealId])
+  @@index([status])
+  @@map("pm_diligence_cases")
+}
+
+/// Saved cashflow scenario for a deal or fund (FR-PM-002 "Cashflow scenario"); metrics are derived from the rows.
+model PmCashflowScenario {
+  id        String   @id @default(uuid()) @db.Char(36)
+  /// PMS-1001 ...
+  ref       String   @unique @db.VarChar(16)
+  dealId    String?  @map("deal_id") @db.Char(36)
+  fundId    String?  @map("fund_id") @db.Char(36)
+  name      String   @db.VarChar(160)
+  /// BASE | UPSIDE | DOWNSIDE
+  kind      String   @default("BASE") @db.VarChar(10)
+  currency  String   @db.Char(3)
+  /// [{ date, kind: CALL|DISTRIBUTION, amount }]
+  flows     Json
+  /// { called, distributed, net, moic, irrPct, peakNet, flows }
+  metrics   Json
+  createdBy String   @map("created_by") @db.Char(36)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@index([dealId])
+  @@index([fundId])
+  @@map("pm_cashflow_scenarios")
+}
+// ---- end ResearchPortfolioDepth ----

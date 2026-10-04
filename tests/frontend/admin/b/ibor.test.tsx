@@ -91,19 +91,46 @@ describe('IBOR page', () => {
     // portfolio filter was sent to the data endpoints
     expect(api.calls('GET /api/v1/ibor/ledger').some((r) => r.query.get('portfolioId') === 'p1')).toBe(true);
   });
-  it('Refresh IBOR posts {} without a portfolio, shows counts and exceptions, then reloads the data', async () => {
+  it('FR-IBOR-004: Refresh IBOR queues a job, shows queued / running / complete, then reports counts and reloads the data', async () => {
+    const result = { ref: 'IRF-0001', status: 'EXCEPTIONS', positionCount: 14, marketValueBase: '1', eventsIngested: 3, lotsOpened: 2, adjustments: 1, exceptions: [{ portfolio: 'PF-1', ticker: 'ABC', issue: 'drift 5' }] };
+    const job = (status: string, extra: Record<string, unknown> = {}) => ({ id: 'j1', status, requestedAt: '2026-08-26T10:00:00Z', startedAt: null, finishedAt: null, durationMs: null, snapshotId: null, result: null, error: null, ...extra });
     const { user, api } = await mountPage(<IborPage />, {
       routes: base({
-        'POST /api/v1/ibor/refresh': ok({ id: 'r', ref: 'IRF-0001', status: 'OK', asOf: '2026-08-26', positionCount: 14, marketValueBase: '1', eventsIngested: 3, lotsOpened: 2, adjustments: 1, exceptions: [{ portfolio: 'PF-1', ticker: 'ABC', issue: 'drift 5' }], durationMs: 40 }),
+        'POST /api/v1/ibor/refresh': ok(job('QUEUED')),
+        'GET /api/v1/ibor/refresh-jobs/j1': ok(job('SUCCEEDED', { startedAt: '2026-08-26T10:00:01Z', finishedAt: '2026-08-26T10:00:02Z', durationMs: 40, snapshotId: 's1', result })),
       }),
     });
     await screen.findByText('ABC Holdings');
     const before = api.calls('GET /api/v1/ibor/ledger').length;
     await user.click(screen.getByRole('button', { name: 'Refresh IBOR' }));
-    expect(await screen.findByText('IRF-0001: 3 event(s) ingested, 2 lot(s) opened, 1 adjustment(s), 1 exception(s): ABC drift 5.')).toBeInTheDocument();
+    expect(await screen.findByText('Refresh: queued')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Queued…' })).toBeDisabled();
     const [req] = expectCalled(api, 'POST /api/v1/ibor/refresh');
-    expect(req!.body).toEqual({});
+    expect(req!.body).toEqual({ async: true });
+    expectIdempotencyKey(req!);
+    expect(await screen.findByText('Refresh: complete', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(await screen.findByText('IRF-0001: 3 event(s) ingested, 2 lot(s) opened, 1 adjustment(s), 1 exception(s): ABC drift 5.')).toBeInTheDocument();
     await waitFor(() => expect(api.calls('GET /api/v1/ibor/ledger').length).toBeGreaterThan(before));
+    expect(screen.getByRole('button', { name: 'Refresh IBOR' })).toBeEnabled();
+  }, 15000);
+  it('FR-IBOR-004: a failed job shows failed with the reason and does not reload', async () => {
+    const { user } = await mountPage(<IborPage />, {
+      routes: base({
+        'POST /api/v1/ibor/refresh': ok({ id: 'j2', status: 'RUNNING', requestedAt: '2026-08-26T10:00:00Z', startedAt: '2026-08-26T10:00:01Z', finishedAt: null, durationMs: null, snapshotId: null, result: null, error: null }),
+        'GET /api/v1/ibor/refresh-jobs/j2': ok({ id: 'j2', status: 'FAILED', requestedAt: '2026-08-26T10:00:00Z', startedAt: null, finishedAt: null, durationMs: null, snapshotId: null, result: null, error: 'Price feed unavailable' }),
+      }),
+    });
+    await user.click(await screen.findByRole('button', { name: 'Refresh IBOR' }));
+    expect(await screen.findByText('Refresh: running')).toBeInTheDocument();
+    expect(await screen.findByText('Refresh: failed', {}, { timeout: 5000 })).toBeInTheDocument();
+    expect(screen.getByText(/Price feed unavailable/)).toBeInTheDocument();
+  }, 15000);
+  it('FR-IBOR-004: a refresh still running when the page opens is picked up', async () => {
+    await mountPage(<IborPage />, {
+      routes: base({ 'GET /api/v1/ibor/refresh-jobs': ok([{ id: 'j3', status: 'RUNNING', requestedAt: '2026-08-26T10:00:00Z', startedAt: '2026-08-26T10:00:01Z', finishedAt: null, durationMs: null, snapshotId: null, result: null, error: null }]) }),
+    });
+    expect(await screen.findByText('Refresh: running')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refreshing…' })).toBeDisabled();
   });
   it('a refresh failure shows the API message and does not reload', async () => {
     const { user } = await mountPage(<IborPage />, { routes: base({ 'POST /api/v1/ibor/refresh': fail(409, 'conflict', 'A refresh is already running') }) });
@@ -113,7 +140,7 @@ describe('IBOR page', () => {
   it('filters send query params and reset paging; Open navigates to the position with ids', async () => {
     const { user, api } = await mountPage(<IborPage />, { routes: base() });
     await screen.findByText('ABC Holdings');
-    await user.type(screen.getByPlaceholderText('Ticker, name, portfolio'), 'abc');
+    await user.type(screen.getByPlaceholderText('Ticker, ISIN, name, portfolio'), 'abc');
     await user.selectOptions(screen.getByLabelText('Asset class'), 'Equity');
     await user.selectOptions(screen.getByLabelText('Data state'), 'Review');
     await waitFor(() => {

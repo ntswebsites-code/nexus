@@ -86,6 +86,32 @@ performanceRoutes.get('/returns', ...canView, validateQuery(windowQuery), async 
   res.json({ data: { portfolioId: p.id, portfolioRef: p.ref, portfolioName: p.name, periodStart: start, periodEnd: end, benchmark: c.attribution.benchmark, ...headline(c), series: c.series, issues: c.issues, controls: controls.items, controlsPending: controls.pending, navCheck: controls.navCheck, method: 'Net time-weighted return: daily geometric chaining, external flows neutralised at the start of the day, benchmark constant-mix on constituent prices.' } });
 });
 
+const eventsQuery = z.object({ portfolioId: z.string().trim().min(1).max(36), from: dateStr, to: dateStr });
+/**
+ * FR-PERF-006: markers for the return chart. Posted client deposits and withdrawals (Cash flow), saved rebalance
+ * proposals (Rebalance) and ratified IC decisions on the portfolio (IC decision) inside the window, each with a label,
+ * a date and the link to its own record.
+ */
+performanceRoutes.get('/events', ...canView, validateQuery(eventsQuery), async (req, res) => {
+  const f = query<z.infer<typeof eventsQuery>>(req);
+  const p = await onePortfolio(f.portfolioId);
+  const from = new Date(`${f.from}T00:00:00.000Z`);
+  const to = new Date(`${f.to}T00:00:00.000Z`);
+  const toEnd = new Date(to.getTime() + 86_400_000);
+  const [journals, rebalances, decisions] = await Promise.all([
+    prisma.cashJournal.findMany({ where: { portfolioId: p.id, status: 'POSTED', purpose: { in: ['CLIENT_DEPOSIT', 'CLIENT_WITHDRAWAL'] }, entryDate: { gte: from, lte: to } }, select: { id: true, ref: true, entryDate: true, purpose: true, totalDebit: true, currency: true } }),
+    prisma.plRebalance.findMany({ where: { portfolioId: p.id, status: { not: 'DISCARDED' }, createdAt: { gte: from, lt: toEnd } }, select: { id: true, ref: true, createdAt: true, status: true, turnoverPct: true } }),
+    prisma.icDecision.findMany({ where: { portfolioId: p.id, ratifiedAt: { gte: from, lt: toEnd } }, select: { id: true, ref: true, ratifiedAt: true, action: true, status: true, securityId: true } }),
+  ]);
+  const secs = decisions.length ? await prisma.security.findMany({ where: { id: { in: decisions.map((d) => d.securityId) } }, select: { id: true, ticker: true } }) : [];
+  const events = [
+    ...journals.map((j) => ({ id: j.id, kind: 'CASH_FLOW' as const, date: iso(j.entryDate)!, label: `${j.purpose === 'CLIENT_DEPOSIT' ? 'Deposit' : 'Withdrawal'} ${j.currency} ${j.totalDebit.toFixed(2)}`, ref: j.ref, href: `/ops/cash?journal=${j.id}` })),
+    ...rebalances.map((r) => ({ id: r.id, kind: 'REBALANCE' as const, date: iso(r.createdAt)!, label: `Rebalance ${r.ref} (${r.status.toLowerCase().replace('_', ' ')}, turnover ${r.turnoverPct.toFixed(1)}%)`, ref: r.ref, href: `/ops/portfolio-lab?rebalance=${r.id}` })),
+    ...decisions.map((d) => ({ id: d.id, kind: 'IC_DECISION' as const, date: iso(d.ratifiedAt)!, label: `IC ${d.ref}: ${d.action} ${secs.find((x) => x.id === d.securityId)?.ticker ?? ''} (${d.status.toLowerCase()})`.replace('  ', ' '), ref: d.ref, href: `/ops/research?decision=${d.id}` })),
+  ].sort((a, b) => a.date.localeCompare(b.date) || a.ref.localeCompare(b.ref));
+  res.json({ data: events, total: events.length, portfolioId: p.id, from: f.from, to: f.to });
+});
+
 performanceRoutes.get('/attribution', ...canView, validateQuery(windowQuery), async (req, res) => {
   const { p, start, end, c } = await live(query<z.infer<typeof windowQuery>>(req));
   res.json({ data: { portfolioId: p.id, portfolioName: p.name, periodStart: start, periodEnd: end, ...headline(c), ...c.attribution, contributions: c.contributions } });

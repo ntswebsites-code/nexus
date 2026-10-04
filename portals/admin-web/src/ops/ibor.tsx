@@ -42,6 +42,33 @@ export interface IborLedger {
   data: IborPosition[];
   total: number;
   asOf: string;
+  /** sql: search, filter, sort and paging ran in the database; memory: the state filter valued the whole book. */
+  paging?: 'sql' | 'memory';
+}
+
+/** Column groups of the position ledger (FR-IBOR-007). Security, portfolio and asset class are always shown. */
+export const COLUMN_GROUPS = [
+  { key: 'position', label: 'Position', hint: 'Quantity held' },
+  { key: 'valuation', label: 'Valuation', hint: 'Local and base market value' },
+  { key: 'settlement', label: 'Settlement', hint: 'Settled and unsettled quantity' },
+  { key: 'cost', label: 'Cost and accruals', hint: 'Cost basis and accrued income' },
+  { key: 'availability', label: 'Availability', hint: 'Available to trade' },
+  { key: 'control', label: 'Control', hint: 'Data state' },
+] as const;
+export type ColumnGroup = (typeof COLUMN_GROUPS)[number]['key'];
+export const ALL_GROUPS: ColumnGroup[] = COLUMN_GROUPS.map((g) => g.key);
+
+/** An asynchronous refresh (FR-IBOR-004). */
+export interface RefreshJob {
+  id: string;
+  status: 'QUEUED' | 'RUNNING' | 'SUCCEEDED' | 'FAILED';
+  requestedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  durationMs: number | null;
+  snapshotId: string | null;
+  result: { ref: string; eventsIngested: number; lotsOpened: number; adjustments: number; exceptions: { portfolio: string; ticker: string; issue: string }[] } | null;
+  error: string | null;
 }
 
 export interface HealthItem {

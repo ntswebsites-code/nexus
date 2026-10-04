@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
-import { api, v1 } from '@/ops/api';
+import { api, describeError, v1 } from '@/ops/api';
+import { EvidenceCard } from '@/ops/portfolio-evidence';
 import { formatDecimal } from '@/ops/money';
 import { useCan } from '@/ops/session';
 import type { PortfolioMandate, PortfolioSnapshot } from '@/ops/types';
@@ -16,6 +17,8 @@ export default function PortfolioDetailPage() {
   const canManage = useCan('portfolio.manage');
   const canViewRisk = useCan('risk.view');
   const [editing, setEditing] = useState(false);
+  const [activateError, setActivateError] = useState<string | null>(null);
+  const [activating, setActivating] = useState(false);
   const snap = useResource<PortfolioSnapshot>(() => api.get<PortfolioSnapshot>(v1(`/portfolios/${encodeURIComponent(id)}`)), [id]);
 
   return (
@@ -41,6 +44,28 @@ export default function PortfolioDetailPage() {
                   <Link className="ops-btn" href="/ops/portfolios">
                     All portfolios
                   </Link>
+                  {canManage && p.status === 'Setup' && (
+                    <button
+                      className="ops-btn primary"
+                      type="button"
+                      disabled={activating}
+                      title="Makes the portfolio tradable once the activation steps in Operations are done"
+                      onClick={async () => {
+                        setActivating(true);
+                        setActivateError(null);
+                        try {
+                          await api.patch(v1(`/portfolios/${encodeURIComponent(p.id)}`), { status: 'Active', version: p.version });
+                          snap.reload();
+                        } catch (e) {
+                          setActivateError(describeError(e));
+                        } finally {
+                          setActivating(false);
+                        }
+                      }}
+                    >
+                      {activating ? 'Activating…' : 'Activate portfolio'}
+                    </button>
+                  )}
                   {canManage && (
                     <button className="ops-btn" type="button" onClick={() => setEditing(true)}>
                       Edit mandate limits
@@ -49,6 +74,7 @@ export default function PortfolioDetailPage() {
                 </>
               }
             />
+            <Alert>{activateError}</Alert>
             {s.warnings.length > 0 && <Alert kind="warn">{s.warnings.join(' · ')}</Alert>}
             {((s as { staleWarnings?: string[] }).staleWarnings ?? []).length > 0 && <Alert kind="warn">Stale prices (still valued): {((s as { staleWarnings?: string[] }).staleWarnings ?? []).join(' · ')}</Alert>}
             <Card title="Overview">
@@ -90,6 +116,7 @@ export default function PortfolioDetailPage() {
               {m.restrictedTickers?.length ? <p className="ops-hint">Restricted: {m.restrictedTickers.join(', ')}</p> : null}
             </Card>
             {canViewRisk && <RiskLimitsCard portfolioId={p.id} />}
+            <EvidenceCard portfolioId={p.id} canManage={canManage} />
             <Card title="Positions">
               {s.lines.length === 0 && s.cash.length === 0 ? (
                 <Empty>No positions.</Empty>

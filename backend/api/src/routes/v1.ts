@@ -21,6 +21,7 @@ import { portfolioRoutes } from '../modules/portfolio/portfolio.routes';
 import { ordersRoutes } from '../modules/orders';
 import { importsRoutes } from '../modules/imports/imports.routes';
 import { ledgerRoutes } from '../modules/ledger/ledger.routes';
+import { viewsRoutes } from '../modules/views/views.routes';
 import { riskRoutes } from '../modules/risk/risk.routes';
 import { navRoutes } from '../modules/nav';
 import { accountingRoutes } from '../modules/accounting';
@@ -68,6 +69,8 @@ v1Router.use('/', portfolioRoutes);
 v1Router.use('/orders', ordersRoutes);
 v1Router.use('/imports', importsRoutes);
 v1Router.use('/ledger', ledgerRoutes);
+// Per-user saved views and preferences (portfolio filters, IBOR column chooser).
+v1Router.use('/views', viewsRoutes);
 // Risk & Compliance: /risk/* (limits, breaches, scenarios, runs, cases, monitor).
 v1Router.use('/risk', riskRoutes);
 // NAV & Valuation: /nav/runs (calculate, exceptions, maker review, release).

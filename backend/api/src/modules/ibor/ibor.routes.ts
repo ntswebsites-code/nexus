@@ -7,7 +7,7 @@ import { idempotent } from '../../lib/idempotency';
 import { query } from '../../lib/http';
 import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess } from '../../middleware/requireAuth';
-import { bookHealth, iso, lotViews, overview, positionRows, reconcilePositions, refreshBook, scope, settlementLadder } from './ibor.service';
+import { bookHealth, iso, ledgerPage, LEDGER_SORTS, lotViews, overview, positionRows, queueRefreshJob, reconcilePositions, refreshBook, refreshJobView, RefreshBusy, scope, settlementLadder, sweepStaleRefreshJobs } from './ibor.service';
 import { utcDay } from './ibor.engine';
 
 /**
@@ -48,13 +48,24 @@ const ledgerQuery = scopeQuery.extend({
   assetClass: z.string().trim().max(24).optional(),
   state: z.enum(['Current', 'Review']).optional(),
   q: z.string().trim().max(60).optional(),
+  sort: z.enum(LEDGER_SORTS).default('ticker'),
+  dir: z.enum(['asc', 'desc']).default('asc'),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),
 });
 
+/**
+ * FR-IBOR-002: search (ticker, name, ISIN, portfolio, asset class), asset-class filter, sort and paging run in SQL, and
+ * only the returned page is valued. The data-state filter needs valuation, so with `state` the whole book is valued and
+ * filtered in memory (`paging: "memory"` in the response says which path answered).
+ */
 iborRoutes.get('/ledger', ...canView, validateQuery(ledgerQuery), async (req, res) => {
   const f = query<z.infer<typeof ledgerQuery>>(req);
   const portfolios = await scopeOrFail(f.portfolioId);
+  if (!f.state) {
+    const { rows, total } = await ledgerPage(portfolios, asOfOf(f.asOf), { q: f.q, assetClass: f.assetClass, sort: f.sort, dir: f.dir, limit: f.limit, offset: f.offset });
+    return void res.json({ data: rows, total, asOf: iso(asOfOf(f.asOf)), paging: 'sql' });
+  }
   const { rows } = await positionRows(portfolios, asOfOf(f.asOf));
   const needle = f.q?.toLowerCase();
   const out = rows.filter(
@@ -63,7 +74,7 @@ iborRoutes.get('/ledger', ...canView, validateQuery(ledgerQuery), async (req, re
       (!f.state || r.state === f.state) &&
       (!needle || `${r.ticker} ${r.name} ${r.portfolioName} ${r.assetClass}`.toLowerCase().includes(needle)),
   );
-  res.json({ data: out.slice(f.offset, f.offset + f.limit), total: out.length, asOf: iso(asOfOf(f.asOf)) });
+  res.json({ data: out.slice(f.offset, f.offset + f.limit), total: out.length, asOf: iso(asOfOf(f.asOf)), paging: 'memory' });
 });
 
 iborRoutes.get('/settlement-ladder', ...canView, validateQuery(scopeQuery), async (req, res) => {
@@ -161,10 +172,19 @@ iborRoutes.get('/position', ...canView, validateQuery(posQuery), async (req, res
   });
 });
 
-const refreshBody = z.object({ portfolioId: z.string().trim().max(36).nullish() }).strict();
+const refreshBody = z.object({ portfolioId: z.string().trim().max(36).nullish(), /** true: queue a background job and answer 202 with its id (FR-IBOR-004) */ async: z.boolean().optional() }).strict();
 iborRoutes.post('/refresh', ...canRefresh, validateBody(refreshBody), idempotent('ibor.refresh'), async (req, res) => {
   const b = req.body as z.infer<typeof refreshBody>;
   const portfolios = await scopeOrFail(b.portfolioId ?? undefined);
+  if (b.async) {
+    try {
+      const job = await queueRefreshJob(req, portfolios, b.portfolioId ? portfolios[0]!.id : null);
+      return void res.status(202).json({ data: refreshJobView(job) });
+    } catch (err) {
+      if (err instanceof RefreshBusy) throw HttpError.conflict(err.message, 'refresh_in_progress');
+      throw err;
+    }
+  }
   try {
     const out = await refreshBook(req, portfolios, utcDay(new Date()));
     res.status(201).json({
@@ -186,6 +206,22 @@ iborRoutes.post('/refresh', ...canRefresh, validateBody(refreshBody), idempotent
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw HttpError.conflict('Another IBOR refresh is running for this book. Try again in a moment.', 'refresh_in_progress');
     throw err;
   }
+});
+
+const jobsQuery = z.object({ limit: z.coerce.number().int().min(1).max(50).default(10), status: z.enum(['QUEUED', 'RUNNING', 'SUCCEEDED', 'FAILED']).optional(), mine: z.enum(['1', 'true']).optional() });
+/** Recent refresh jobs, newest first; the page polls the one it started. */
+iborRoutes.get('/refresh-jobs', ...canView, validateQuery(jobsQuery), async (req, res) => {
+  const f = query<z.infer<typeof jobsQuery>>(req);
+  await sweepStaleRefreshJobs();
+  const rows = await prisma.iborRefreshJob.findMany({ where: { ...(f.status ? { status: f.status } : {}), ...(f.mine ? { requestedBy: req.user!.id } : {}) }, orderBy: { requestedAt: 'desc' }, take: f.limit });
+  res.json({ data: rows.map(refreshJobView), total: rows.length });
+});
+
+iborRoutes.get('/refresh-jobs/:id', ...canView, async (req, res) => {
+  await sweepStaleRefreshJobs();
+  const j = await prisma.iborRefreshJob.findUnique({ where: { id: String(req.params.id) } });
+  if (!j) throw HttpError.notFound('Refresh job not found');
+  res.json({ data: refreshJobView(j) });
 });
 
 const reconcileBody = z.object({ portfolioId: z.string().trim().min(1).max(36), asOfDate: dateStr.optional() }).strict();

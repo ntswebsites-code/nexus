@@ -75,17 +75,19 @@ export interface PositionRow {
 }
 
 /** Positions valued as of a date, with unsettled activity, available-to-trade, lots and book state per line. */
-export async function positionRows(portfolios: PortfolioRow[], asOf: Date): Promise<{ rows: PositionRow[]; cash: Map<string, { available: Dec; reserved: Dec; currency: string }[]> }> {
+export async function positionRows(portfolios: PortfolioRow[], asOf: Date, only?: Map<string, string[]>): Promise<{ rows: PositionRow[]; cash: Map<string, { available: Dec; reserved: Dec; currency: string }[]> }> {
   const ids = portfolios.map((p) => p.id);
   const day = utcDay(asOf);
+  // `only` (portfolio id -> security ids) values just those lines: the page of a SQL-paged ledger.
+  const secFilter = only ? { in: [...new Set([...only.values()].flat())] } : undefined;
   const [fills, openSells, lots, entitlements, reservations, breaks] = await Promise.all([
     prisma.orderFill.findMany({
-      where: { order: { portfolioId: { in: ids }, status: { in: UNSETTLED_ORDER_STATUSES } }, executedAt: { lt: new Date(day.getTime() + 86_400_000) } },
+      where: { order: { portfolioId: { in: ids }, ...(secFilter ? { securityId: secFilter } : {}), status: { in: UNSETTLED_ORDER_STATUSES } }, executedAt: { lt: new Date(day.getTime() + 86_400_000) } },
       include: { order: { select: { portfolioId: true, securityId: true, side: true } } },
     }),
-    prisma.order.findMany({ where: { portfolioId: { in: ids }, side: 'SELL', status: { in: OPEN_ORDER_STATUSES } }, select: { portfolioId: true, securityId: true, quantity: true, filledQty: true } }),
-    prisma.iborLot.findMany({ where: { portfolioId: { in: ids }, status: 'OPEN' }, select: { portfolioId: true, securityId: true, remainingQty: true } }),
-    prisma.corpActionEntitlement.findMany({ where: { portfolioId: { in: ids }, status: 'PENDING', event: { status: 'CONFIRMED', payDate: { gte: day } } }, select: { portfolioId: true, cashAmount: true, event: { select: { securityId: true } } } }),
+    prisma.order.findMany({ where: { portfolioId: { in: ids }, ...(secFilter ? { securityId: secFilter } : {}), side: 'SELL', status: { in: OPEN_ORDER_STATUSES } }, select: { portfolioId: true, securityId: true, quantity: true, filledQty: true } }),
+    prisma.iborLot.findMany({ where: { portfolioId: { in: ids }, ...(secFilter ? { securityId: secFilter } : {}), status: 'OPEN' }, select: { portfolioId: true, securityId: true, remainingQty: true } }),
+    prisma.corpActionEntitlement.findMany({ where: { portfolioId: { in: ids }, status: 'PENDING', event: { status: 'CONFIRMED', payDate: { gte: day }, ...(secFilter ? { securityId: secFilter } : {}) } }, select: { portfolioId: true, cashAmount: true, event: { select: { securityId: true } } } }),
     prisma.cashReservation.findMany({ where: { portfolioId: { in: ids }, status: { in: LIVE_RESERVATION }, OR: [{ expiresOn: null }, { expiresOn: { gte: day } }] }, select: { portfolioId: true, currency: true, amount: true, consumed: true } }),
     prisma.reconBreak.groupBy({ by: ['portfolioId'], where: { portfolioId: { in: ids }, family: 'HOLDINGS', status: { in: OPEN_STATUSES } }, _count: { _all: true } }),
   ]);
@@ -112,7 +114,7 @@ export async function positionRows(portfolios: PortfolioRow[], asOf: Date): Prom
   const rows: PositionRow[] = [];
   const cash = new Map<string, { available: Dec; reserved: Dec; currency: string }[]>();
   for (const p of portfolios) {
-    const snap = await getPortfolioSnapshot(p.id, { asOf: day });
+    const snap = await getPortfolioSnapshot(p.id, { asOf: day, securityIds: only ? (only.get(p.id) ?? []) : undefined });
     const reserved = new Map<string, Dec>();
     for (const r of reservations.filter((x) => x.portfolioId === p.id)) reserved.set(r.currency, (reserved.get(r.currency) ?? ZERO).add(r.amount.sub(r.consumed)));
     cash.set(
@@ -513,3 +515,139 @@ export async function reconcilePositions(req: Request, portfolio: PortfolioRow, 
   return { run: { id: run.id, ref: run.ref, status: run.status, asOfDate: iso(run.asOfDate), matched: run.matchedCount, breaks: run.breakCount, rerun: out.rerun } };
 }
 
+
+// ================================================================ SQL-paged ledger (FR-IBOR-002)
+
+export const LEDGER_SORTS = ['ticker', 'name', 'portfolio', 'assetClass', 'quantity'] as const;
+export interface LedgerPageFilter {
+  q?: string;
+  assetClass?: string;
+  sort: (typeof LEDGER_SORTS)[number];
+  dir: 'asc' | 'desc';
+  limit: number;
+  offset: number;
+}
+
+const SORT_SQL: Record<(typeof LEDGER_SORTS)[number], Prisma.Sql> = {
+  ticker: Prisma.sql`s.ticker`,
+  name: Prisma.sql`s.name`,
+  portfolio: Prisma.sql`pf.name`,
+  assetClass: Prisma.sql`s.asset_class`,
+  quantity: Prisma.sql`x.quantity`,
+};
+
+/**
+ * One page of the position ledger with the search, asset-class filter, sort and paging done in SQL: the latest position
+ * row per portfolio and security (window function), joined to the security (ticker, name, ISIN, asset class) and the
+ * portfolio, so a 50,000-line book is never loaded to show 50 rows. Only the page's lines are then valued. The
+ * data-state filter (Current / Review) depends on valuation, so the route falls back to the in-memory path for it.
+ */
+export async function ledgerPage(portfolios: PortfolioRow[], asOf: Date, f: LedgerPageFilter): Promise<{ rows: PositionRow[]; total: number }> {
+  if (!portfolios.length) return { rows: [], total: 0 };
+  const day = utcDay(asOf);
+  const ids = Prisma.join(portfolios.map((p) => p.id));
+  const like = f.q ? `%${f.q.replace(/[\%_]/g, (c) => `\${c}`)}%` : null;
+  const where = Prisma.sql`x.rn = 1 AND x.quantity <> 0
+    ${f.assetClass ? Prisma.sql`AND s.asset_class = ${f.assetClass}` : Prisma.empty}
+    ${like ? Prisma.sql`AND (s.ticker LIKE ${like} OR s.name LIKE ${like} OR s.isin LIKE ${like} OR s.asset_class LIKE ${like} OR pf.name LIKE ${like} OR pf.ref LIKE ${like})` : Prisma.empty}`;
+  const from = Prisma.sql`FROM (
+      SELECT p.portfolio_id, p.security_id, p.quantity, ROW_NUMBER() OVER (PARTITION BY p.portfolio_id, p.security_id ORDER BY p.as_of DESC, p.created_at DESC) AS rn
+      FROM positions p WHERE p.portfolio_id IN (${ids}) AND p.as_of <= ${day}
+    ) x
+    JOIN securities s ON s.id = x.security_id
+    JOIN portfolios pf ON pf.id = x.portfolio_id`;
+  const dir = f.dir === 'desc' ? Prisma.sql`DESC` : Prisma.sql`ASC`;
+  const [page, count] = await Promise.all([
+    prisma.$queryRaw<{ portfolio_id: string; security_id: string }[]>(
+      Prisma.sql`SELECT x.portfolio_id, x.security_id ${from} WHERE ${where} ORDER BY ${SORT_SQL[f.sort]} ${dir}, s.ticker ASC, pf.ref ASC LIMIT ${f.limit} OFFSET ${f.offset}`,
+    ),
+    prisma.$queryRaw<{ n: bigint }[]>(Prisma.sql`SELECT COUNT(*) AS n ${from} WHERE ${where}`),
+  ]);
+  const total = Number(count[0]?.n ?? 0);
+  if (!page.length) return { rows: [], total };
+  const only = new Map<string, string[]>();
+  for (const r of page) only.set(r.portfolio_id, [...(only.get(r.portfolio_id) ?? []), r.security_id]);
+  const { rows } = await positionRows(portfolios.filter((p) => only.has(p.id)), asOf, only);
+  // Valuation returns lines per portfolio; restore the SQL order.
+  const order = new Map(page.map((r, i) => [`${r.portfolio_id}|${r.security_id}`, i]));
+  rows.sort((a, b) => (order.get(`${a.portfolioId}|${a.securityId}`) ?? 0) - (order.get(`${b.portfolioId}|${b.securityId}`) ?? 0));
+  return { rows, total };
+}
+
+// ================================================================ asynchronous refresh job (FR-IBOR-004)
+
+/** A job still QUEUED or RUNNING after this long is treated as lost (process restarted) and released. */
+export const REFRESH_STALE_MS = 15 * 60_000;
+type JobRow = Prisma.IborRefreshJobGetPayload<object>;
+
+export async function sweepStaleRefreshJobs() {
+  await prisma.iborRefreshJob.updateMany({
+    where: { status: { in: ['QUEUED', 'RUNNING'] }, requestedAt: { lt: new Date(Date.now() - REFRESH_STALE_MS) } },
+    data: { status: 'FAILED', activeKey: null, finishedAt: new Date(), error: 'The refresh did not finish (the service restarted or it timed out). Start it again.' },
+  });
+}
+
+export function refreshJobView(j: JobRow) {
+  return {
+    id: j.id,
+    portfolioId: j.portfolioId,
+    status: j.status,
+    requestedBy: j.requestedBy,
+    requestedAt: j.requestedAt.toISOString(),
+    startedAt: j.startedAt?.toISOString() ?? null,
+    finishedAt: j.finishedAt?.toISOString() ?? null,
+    durationMs: j.startedAt && j.finishedAt ? j.finishedAt.getTime() - j.startedAt.getTime() : null,
+    snapshotId: j.snapshotId,
+    result: j.result,
+    error: j.error,
+  };
+}
+
+/** Queues a refresh and returns at once; the work runs in the background and the job row carries its status. */
+export async function queueRefreshJob(req: Request, portfolios: PortfolioRow[], portfolioId: string | null): Promise<JobRow> {
+  await sweepStaleRefreshJobs();
+  const key = portfolioId ?? 'ALL';
+  const active = await prisma.iborRefreshJob.findMany({ where: { status: { in: ['QUEUED', 'RUNNING'] } }, select: { activeKey: true } });
+  // A whole-book refresh conflicts with any other refresh; a single-portfolio one with the same portfolio or a whole-book one.
+  if (active.some((a) => a.activeKey === 'ALL' || key === 'ALL' || a.activeKey === key)) throw new RefreshBusy();
+  let job: JobRow;
+  try {
+    job = await prisma.$transaction(async (tx) => {
+      const j = await tx.iborRefreshJob.create({ data: { portfolioId, activeKey: key, status: 'QUEUED', requestedBy: req.user!.id } });
+      await writeAudit(tx, audit(req), { action: 'ibor.refresh_queued', objectType: 'ibor_refresh_job', objectId: j.id, after: { portfolios: portfolios.map((p) => p.ref), scope: key } });
+      return j;
+    });
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') throw new RefreshBusy();
+    throw err;
+  }
+  setImmediate(() => void runRefreshJob(req, job.id, portfolios));
+  return job;
+}
+
+export class RefreshBusy extends Error {
+  constructor() {
+    super('Another IBOR refresh is running for this book. Try again in a moment.');
+  }
+}
+
+async function runRefreshJob(req: Request, id: string, portfolios: PortfolioRow[]) {
+  try {
+    await prisma.iborRefreshJob.update({ where: { id }, data: { status: 'RUNNING', startedAt: new Date() } });
+    const out = await refreshBook(req, portfolios, utcDay(new Date()));
+    await prisma.iborRefreshJob.update({
+      where: { id },
+      data: {
+        status: 'SUCCEEDED',
+        activeKey: null,
+        finishedAt: new Date(),
+        snapshotId: out.snapshot.id,
+        result: { ref: out.snapshot.ref, status: out.snapshot.status, positionCount: out.snapshot.positionCount, marketValueBase: out.snapshot.marketValueBase.toFixed(2), eventsIngested: out.result.eventsIngested, lotsOpened: out.result.lotsOpened, adjustments: out.result.adjustments, exceptions: out.result.exceptions } as unknown as Prisma.InputJsonValue,
+      },
+    });
+  } catch (err) {
+    const message = (err instanceof Error ? err.message : 'Refresh failed').slice(0, 500);
+    await prisma.iborRefreshJob.update({ where: { id }, data: { status: 'FAILED', activeKey: null, finishedAt: new Date(), error: message } }).catch(() => undefined);
+    await prisma.$transaction((tx) => writeAudit(tx, audit(req), { action: 'ibor.refresh_failed', objectType: 'ibor_refresh_job', objectId: id, after: { error: message } })).catch(() => undefined);
+  }
+}

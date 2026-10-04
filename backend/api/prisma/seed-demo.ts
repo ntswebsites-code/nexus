@@ -447,6 +447,7 @@ export async function seedDemo() {
   await (await import('./seed-trading-feeds')).seedTradingFeeds();
   await (await import('./seed-ibor-performance')).seedIborPerformance();
   await (await import('./seed-research-privates')).seedResearchPrivates();
+  await (await import('./seed-research-depth')).seedResearchDepth();
   await (await import('./seed-clients-onboarding')).seedClientsOnboarding();
   await (await import('./seed-reports')).seedReports();
   await (await import('./seed-ai-reporting')).seedAiReporting();

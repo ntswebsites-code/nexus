@@ -59,7 +59,7 @@ const snapshot = (over: Record<string, unknown> = {}) => ({
 });
 
 describe('Portfolio detail', () => {
-  const routes = (s = snapshot(), extra = {}) => ({ 'GET /api/v1/portfolios/pf-1': D(s), 'GET /api/v1/risk/portfolios/pf-1/limits': D({ evaluations: [{ limitId: 'l1', ref: 'LIM-1001', metric: 'SINGLE_NAME_PCT', scopeType: 'FIRM', threshold: '15', value: '75.3', state: 'BREACH', detail: 'over' }] }), ...extra });
+  const routes = (s = snapshot(), extra = {}) => ({ 'GET /api/v1/portfolios/pf-1': D(s), 'GET /api/v1/portfolios/pf-1/evidence': D([]), 'GET /api/v1/risk/portfolios/pf-1/limits': D({ evaluations: [{ limitId: 'l1', ref: 'LIM-1001', metric: 'SINGLE_NAME_PCT', scopeType: 'FIRM', threshold: '15', value: '75.3', state: 'BREACH', detail: 'over' }] }), ...extra });
   it('ADA-007: shows the firm/portfolio risk limits card with the breach state (needs risk.view)', async () => {
     mountPage(<PortfolioPage />, { params: { id: 'pf-1' }, routes: routes() });
     expect(await screen.findByText('Risk limits (firm and portfolio)')).toBeInTheDocument();

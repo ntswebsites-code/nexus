@@ -3,10 +3,12 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api, apiRequest, qs, v1 } from '@/ops/api';
+import { api, apiRequest, describeError, qs, v1 } from '@/ops/api';
 import {
   ageText,
+  ALL_GROUPS,
   BUCKET_LABEL,
+  COLUMN_GROUPS,
   EVENT_LABEL,
   money2,
   qty,
@@ -15,9 +17,10 @@ import {
   Tile,
   type IborEventRow,
   type IborLedger,
+  type ColumnGroup,
   type IborOverview,
   type Ladder,
-  type RefreshResult,
+  type RefreshJob,
 } from '@/ops/ibor';
 import { TabBar } from '@/ops/recon/common';
 import { useCan } from '@/ops/session';
@@ -30,6 +33,15 @@ const failing = (items: { title: string; ok: boolean }[]) => {
   return bad.length ? `${bad.length} check(s) need attention: ${bad.map((i) => i.title).join(' · ')}` : 'All controls clear';
 };
 const ASSET_CLASSES = ['Equity', 'Fixed income', 'Cash', 'Fund', 'Private'];
+const JOB_LABEL: Record<RefreshJob['status'], string> = { QUEUED: 'Queued', RUNNING: 'Running', SUCCEEDED: 'Complete', FAILED: 'Failed' };
+const ACTIVE_JOB = ['QUEUED', 'RUNNING'];
+const SORTS = [
+  ['ticker', 'Security (ticker)'],
+  ['name', 'Security (name)'],
+  ['portfolio', 'Portfolio'],
+  ['assetClass', 'Asset class'],
+  ['quantity', 'Quantity'],
+] as const;
 
 export default function IborPage() {
   const router = useRouter();
@@ -44,19 +56,69 @@ export default function IborPage() {
   const [offset, setOffset] = useState(0);
   const [tab, setTab] = useState<'ledger' | 'events'>('ledger');
   const [notice, setNotice] = useState<{ kind: 'ok' | 'warn'; text: string } | null>(null);
+  const [sort, setSort] = useState<(typeof SORTS)[number][0]>('ticker');
+  const [dir, setDir] = useState<'asc' | 'desc'>('asc');
+  const [groups, setGroups] = useState<ColumnGroup[]>(ALL_GROUPS);
+  const [chooser, setChooser] = useState(false);
+  const [viewNote, setViewNote] = useState('');
+  const [job, setJob] = useState<RefreshJob | null>(null);
   const refresh = useAction();
   const reconcile = useAction();
+  const shows = (g: ColumnGroup) => groups.includes(g);
 
   useEffect(() => {
     const sp = new URLSearchParams(window.location.search);
     if (sp.get('portfolioId')) setPortfolioId(sp.get('portfolioId')!);
   }, []);
 
+  // FR-IBOR-007: the column groups this user chose last time; FR-IBOR-004: pick up a refresh that is still running.
+  useEffect(() => {
+    let alive = true;
+    api
+      .get<{ config: { groups?: ColumnGroup[] } }[]>(v1('/views?scope=ibor.columns'))
+      .then((views) => {
+        const g = views?.[0]?.config?.groups?.filter((x) => ALL_GROUPS.includes(x));
+        if (alive && g?.length) setGroups(g);
+      })
+      .catch(() => undefined);
+    api
+      .get<RefreshJob[]>(v1('/ibor/refresh-jobs?limit=1'))
+      .then((jobs) => alive && jobs?.[0] && ACTIVE_JOB.includes(jobs[0].status) && setJob(jobs[0]))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const saveGroups = async (next: ColumnGroup[]) => {
+    if (!next.length) return;
+    setGroups(next);
+    try {
+      await api.put(v1('/views'), { scope: 'ibor.columns', name: 'default', config: { groups: next }, isDefault: true });
+      setViewNote('Saved for you');
+    } catch (e) {
+      setViewNote(`Not saved: ${describeError(e)}`);
+    }
+  };
+
+  // Poll the refresh job until it is complete or failed.
+  useEffect(() => {
+    if (!job || !ACTIVE_JOB.includes(job.status)) return;
+    const t = setTimeout(async () => {
+      try {
+        setJob(await api.get<RefreshJob>(v1(`/ibor/refresh-jobs/${job.id}`)));
+      } catch (e) {
+        setJob({ ...job, status: 'FAILED', error: describeError(e) });
+      }
+    }, 1500);
+    return () => clearTimeout(t);
+  }, [job]);
+
   const portfolios = useResource<PortfolioSummary[]>(() => api.get<PortfolioSummary[]>(v1('/portfolios')), []);
   const overview = useResource<IborOverview>(() => api.get<IborOverview>(v1(`/ibor/overview${qs({ portfolioId, asOf })}`)), [portfolioId, asOf]);
   const ledger = useResource<IborLedger>(
-    () => apiRequest<IborLedger>('GET', v1(`/ibor/ledger${qs({ portfolioId, asOf, q, assetClass, state, limit: String(PAGE), offset: String(offset) })}`)),
-    [portfolioId, asOf, q, assetClass, state, offset],
+    () => apiRequest<IborLedger>('GET', v1(`/ibor/ledger${qs({ portfolioId, asOf, q, assetClass, state, sort, dir, limit: String(PAGE), offset: String(offset) })}`)),
+    [portfolioId, asOf, q, assetClass, state, sort, dir, offset],
   );
   const ladder = useResource<Ladder>(() => api.get<Ladder>(v1(`/ibor/settlement-ladder${qs({ portfolioId })}`)), [portfolioId]);
   const events = useResource<{ data: IborEventRow[]; total: number }>(() => apiRequest<{ data: IborEventRow[]; total: number }>('GET', v1(`/ibor/events${qs({ portfolioId, limit: '30' })}`)), [portfolioId]);
@@ -66,6 +128,21 @@ export default function IborPage() {
     ladder.reload();
     events.reload();
   };
+
+  const jobStatus = job?.status;
+  const jobRef = job?.result?.ref;
+  useEffect(() => {
+    if (!job) return;
+    if (job.status === 'SUCCEEDED' && job.result) {
+      const r = job.result;
+      setNotice({
+        kind: r.exceptions.length ? 'warn' : 'ok',
+        text: `${r.ref}: ${r.eventsIngested} event(s) ingested, ${r.lotsOpened} lot(s) opened, ${r.adjustments} adjustment(s)${r.exceptions.length ? `, ${r.exceptions.length} exception(s): ${r.exceptions.map((x) => `${x.ticker} ${x.issue}`).join('; ')}` : ''}.`,
+      });
+      reloadAll();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobStatus, jobRef]);
 
   if (!canView) {
     return (
@@ -110,26 +187,27 @@ export default function IborPage() {
               <button
                 className="ops-btn primary"
                 type="button"
-                disabled={!canRefresh || refresh.busy}
-                title={canRefresh ? 'Books new fills into tax lots and records any drift against the position record' : 'Needs the portfolio.manage permission'}
+                disabled={!canRefresh || refresh.busy || (!!job && ACTIVE_JOB.includes(job.status))}
+                title={canRefresh ? 'Queues a background job that books new fills into tax lots and records any drift against the position record' : 'Needs the portfolio.manage permission'}
                 onClick={async () => {
                   setNotice(null);
-                  const r = await refresh.run((key) => api.post<RefreshResult>(v1('/ibor/refresh'), portfolioId ? { portfolioId } : {}, { idempotencyKey: key }));
-                  if (r) {
-                    setNotice({
-                      kind: r.exceptions.length ? 'warn' : 'ok',
-                      text: `${r.ref}: ${r.eventsIngested} event(s) ingested, ${r.lotsOpened} lot(s) opened, ${r.adjustments} adjustment(s)${r.exceptions.length ? `, ${r.exceptions.length} exception(s): ${r.exceptions.map((x) => `${x.ticker} ${x.issue}`).join('; ')}` : ''}.`,
-                    });
-                    reloadAll();
-                  }
+                  const r = await refresh.run((key) => api.post<RefreshJob>(v1('/ibor/refresh'), portfolioId ? { portfolioId, async: true } : { async: true }, { idempotencyKey: key }));
+                  if (r) setJob(r);
                 }}
               >
-                {refresh.busy ? 'Refreshing…' : 'Refresh IBOR'}
+                {job?.status === 'QUEUED' ? 'Queued…' : job?.status === 'RUNNING' || refresh.busy ? 'Refreshing…' : 'Refresh IBOR'}
               </button>
             )}
           </>
         }
       />
+      {job && (
+        <p role="status" aria-live="polite" data-testid="refresh-status" style={{ margin: '0 0 10px' }}>
+          <span className={`ops-badge ${job.status === 'SUCCEEDED' ? 'green' : job.status === 'FAILED' ? 'red' : 'amber'}`}>Refresh: {(JOB_LABEL[job.status] ?? job.status).toLowerCase()}</span>
+          {job.status === 'SUCCEEDED' && job.durationMs !== null && <span className="ops-muted"> in {job.durationMs} ms</span>}
+          {job.status === 'FAILED' && <span className="ops-muted"> {job.error ?? ''}</span>}
+        </p>
+      )}
       {notice && <Alert kind={notice.kind}>{notice.text}</Alert>}
       <Alert>{refresh.error || reconcile.error}</Alert>
 
@@ -187,7 +265,7 @@ export default function IborPage() {
           <Card title="Position ledger">
             <div className="ops-filters">
               <Field label="Search">
-                <input className="ops-input" value={q} placeholder="Ticker, name, portfolio" onChange={(e) => filter(setQ)(e.target.value)} />
+                <input className="ops-input" value={q} placeholder="Ticker, ISIN, name, portfolio" onChange={(e) => filter(setQ)(e.target.value)} />
               </Field>
               <Field label="Asset class">
                 <select className="ops-input" value={assetClass} onChange={(e) => filter(setAssetClass)(e.target.value)}>
@@ -204,7 +282,49 @@ export default function IborPage() {
                   <option>Review</option>
                 </select>
               </Field>
+              <Field label="Sort by">
+                <select className="ops-input" value={sort} onChange={(e) => filter((v) => setSort(v as typeof sort))(e.target.value)}>
+                  {SORTS.map(([k, l]) => (
+                    <option key={k} value={k}>
+                      {l}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Order">
+                <select className="ops-input" value={dir} onChange={(e) => filter((v) => setDir(v as 'asc' | 'desc'))(e.target.value)}>
+                  <option value="asc">Ascending</option>
+                  <option value="desc">Descending</option>
+                </select>
+              </Field>
+              <div className="ops-field">
+                <span className="ops-label">Columns</span>
+                <button className="ops-btn" type="button" aria-expanded={chooser} onClick={() => setChooser(!chooser)}>
+                  Choose columns ({groups.length} of {ALL_GROUPS.length} groups)
+                </button>
+              </div>
             </div>
+            {chooser && (
+              <fieldset className="ops-card" style={{ margin: '8px 0 12px', padding: 12 }}>
+                <legend>Column groups shown in the ledger</legend>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+                  {COLUMN_GROUPS.map((g) => (
+                    <label key={g.key} style={{ display: 'flex', gap: 6, alignItems: 'center' }} title={g.hint}>
+                      <input
+                        type="checkbox"
+                        checked={shows(g.key)}
+                        disabled={shows(g.key) && groups.length === 1}
+                        onChange={(e) => saveGroups(e.target.checked ? ALL_GROUPS.filter((x) => x === g.key || shows(x)) : groups.filter((x) => x !== g.key))}
+                      />
+                      {g.label}
+                    </label>
+                  ))}
+                </div>
+                <p className="ops-muted" role="status" style={{ margin: '8px 0 0' }}>
+                  {viewNote || 'Your choice is saved to your profile and restored next time. Security, portfolio and asset class always show.'}
+                </p>
+              </fieldset>
+            )}
             <Loaded res={ledger} what="positions">
               {(l) =>
                 l.data.length === 0 ? (
@@ -218,15 +338,15 @@ export default function IborPage() {
                             <th>Security</th>
                             <th>Portfolio</th>
                             <th>Asset class</th>
-                            <th className="r">Quantity</th>
-                            <th className="r">Settled</th>
-                            <th className="r">Unsettled</th>
-                            <th className="r">Local MV</th>
-                            <th className="r">Base MV</th>
-                            <th className="r">Cost</th>
-                            <th className="r">Accrued</th>
-                            <th className="r">Available</th>
-                            <th>State</th>
+                            {shows('position') && <th className="r">Quantity</th>}
+                            {shows('settlement') && <th className="r">Settled</th>}
+                            {shows('settlement') && <th className="r">Unsettled</th>}
+                            {shows('valuation') && <th className="r">Local MV</th>}
+                            {shows('valuation') && <th className="r">Base MV</th>}
+                            {shows('cost') && <th className="r">Cost</th>}
+                            {shows('cost') && <th className="r">Accrued</th>}
+                            {shows('availability') && <th className="r">Available</th>}
+                            {shows('control') && <th>State</th>}
                             <th />
                           </tr>
                         </thead>
@@ -239,23 +359,29 @@ export default function IborPage() {
                               </td>
                               <td>{r.portfolioName}</td>
                               <td>{r.assetClass}</td>
-                              <td className="r">{qty(r.quantity)}</td>
-                              <td className="r">{qty(r.settled)}</td>
-                              <td className="r">{signed(r.unsettled)}</td>
-                              <td className="r">
-                                {r.marketValueLocal ? money2(r.marketValueLocal) : '—'}
-                                <span className="ops-sub">{r.currency}</span>
-                              </td>
-                              <td className="r">
-                                {r.marketValueBase ? money2(r.marketValueBase) : '—'}
-                                <span className="ops-sub">{r.baseCurrency}</span>
-                              </td>
-                              <td className="r">{r.costBase ? money2(r.costBase) : '—'}</td>
-                              <td className="r">{r.accrued ? money2(r.accrued) : '—'}</td>
-                              <td className="r">{r.restricted ? 'Restricted' : qty(r.available)}</td>
-                              <td>
-                                <StateBadge state={r.state} reasons={r.reasons} />
-                              </td>
+                              {shows('position') && <td className="r">{qty(r.quantity)}</td>}
+                              {shows('settlement') && <td className="r">{qty(r.settled)}</td>}
+                              {shows('settlement') && <td className="r">{signed(r.unsettled)}</td>}
+                              {shows('valuation') && (
+                                <td className="r">
+                                  {r.marketValueLocal ? money2(r.marketValueLocal) : '—'}
+                                  <span className="ops-sub">{r.currency}</span>
+                                </td>
+                              )}
+                              {shows('valuation') && (
+                                <td className="r">
+                                  {r.marketValueBase ? money2(r.marketValueBase) : '—'}
+                                  <span className="ops-sub">{r.baseCurrency}</span>
+                                </td>
+                              )}
+                              {shows('cost') && <td className="r">{r.costBase ? money2(r.costBase) : '—'}</td>}
+                              {shows('cost') && <td className="r">{r.accrued ? money2(r.accrued) : '—'}</td>}
+                              {shows('availability') && <td className="r">{r.restricted ? 'Restricted' : qty(r.available)}</td>}
+                              {shows('control') && (
+                                <td>
+                                  <StateBadge state={r.state} reasons={r.reasons} />
+                                </td>
+                              )}
                               <td>
                                 <button className="ops-btn small" type="button" onClick={() => router.push(`/ops/ibor/position${qs({ portfolioId: r.portfolioId, securityId: r.securityId, asOf })}`)}>
                                   Open

@@ -1,7 +1,7 @@
 'use client';
 
-import { useState } from 'react';
-import { api, qs, v1 } from '@/ops/api';
+import { useEffect, useState } from 'react';
+import { api, apiRequest, describeError, qs, v1 } from '@/ops/api';
 import { AccessDenied, DataTable, label, m2, PortfolioSelect, ReasonModal, Tag, Tile, usePortfolios, useSecurities } from '@/ops/rp';
 import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useAction, useResource } from '@/ops/ui';
@@ -22,6 +22,7 @@ interface Model {
   weights?: { securityId: string; ticker: string | null; name: string | null; sector: string | null; targetPct: string }[];
   createdBy: string;
   createdByName: string | null;
+  mine?: boolean;
   version: number;
 }
 interface Constraint {
@@ -102,6 +103,14 @@ export default function PortfolioLabPage() {
   const [tab, setTab] = useState<Tab>('models');
   const [open, setOpen] = useState<{ kind: 'model' | 'rebalance'; id: string } | null>(null);
   const [tick, setTick] = useState(0);
+  // A chart marker on Performance links here with ?rebalance=<id>.
+  useEffect(() => {
+    const id = new URLSearchParams(window.location.search).get('rebalance');
+    if (id) {
+      setTab('proposals');
+      setOpen({ kind: 'rebalance', id });
+    }
+  }, []);
   if (!canView) return <AccessDenied kicker="Portfolio" title="Portfolio Construction" perm="portfolio.view" />;
   const bump = () => setTick((t) => t + 1);
   return (
@@ -128,9 +137,10 @@ export default function PortfolioLabPage() {
 function ModelsTab({ onOpen }: { onOpen: (id: string) => void }) {
   const canManage = useCan('portfolio.manage');
   const [creating, setCreating] = useState(false);
-  const res = useResource<Model[]>(() => api.get<Model[]>(L('/models')), []);
+  const [mine, setMine] = useState(false);
+  const res = useResource<Model[]>(() => api.get<Model[]>(L(`/models${mine ? '?mine=1' : ''}`)), [mine]);
   return (
-    <Card title="Model portfolios" actions={<button className="ops-btn primary" type="button" disabled={!canManage} title={canManage ? undefined : 'Needs the portfolio.manage permission'} onClick={() => setCreating(true)}>New model</button>}>
+    <Card title="Model portfolios" actions={<><label style={{ marginRight: 12 }}><input type="checkbox" checked={mine} onChange={(e) => setMine(e.target.checked)} /> My scenarios only</label><button className="ops-btn primary" type="button" disabled={!canManage} title={canManage ? undefined : 'Needs the portfolio.manage permission'} onClick={() => setCreating(true)}>New model</button></>}>
       <Loaded res={res} what="models">
         {(rows) =>
           rows.length === 0 ? (
@@ -143,7 +153,7 @@ function ModelsTab({ onOpen }: { onOpen: (id: string) => void }) {
                   <td className="r">{m.holdings}</td>
                   <td className="r">{m.cashTargetPct}%</td>
                   <td className="r">{m.totalPct}%{m.problems.length > 0 && <div><Tag value="Check" tone="amber" /> <span className="ops-muted" title={m.problems.join('. ')}>{m.problems[0]}</span></div>}</td>
-                  <td>{m.createdByName}</td>
+                  <td>{m.createdByName}{m.mine ? <span className="ops-sub">yours</span> : null}</td>
                   <td><Tag value={m.status} /></td>
                 </tr>
               ))}
@@ -230,6 +240,7 @@ function ModelModal({ id, onClose, onChanged }: { id: string; onClose: () => voi
                 {m.status === 'DRAFT' && m.createdBy === user.id && <span className="ops-muted">A second person activates your model.</span>}
                 {canManage ? <ActionButton label="Clone" onRun={(k) => api.post(L(`/models/${m.id}/clone`), {}, { idempotencyKey: k })} onDone={done} /> : <button className="ops-btn" type="button" disabled title={NEEDS_MANAGE}>Clone</button>}
                 {m.status !== 'RETIRED' && <button className="ops-btn" type="button" disabled={!canManage} title={canManage ? undefined : NEEDS_MANAGE} onClick={() => setSub('retire')}>Retire</button>}
+                {m.createdBy === user.id && canManage && m.status !== 'ACTIVE' && <ActionButton label="Delete scenario" danger confirm={`Delete ${m.ref} (${m.name})? Only its owner can do this and it cannot be undone.`} onRun={async () => { try { await apiRequest('DELETE', L(`/models/${m.id}`)); } catch (e) { throw new Error(describeError(e)); } }} onDone={() => { onChanged(); onClose(); }} />}
                 {!canManage && <span className="ops-muted">{NEEDS_MANAGE}.</span>}
               </div>
               {sub === 'edit' && <ModelForm model={m} onClose={() => setSub(null)} onDone={done} />}

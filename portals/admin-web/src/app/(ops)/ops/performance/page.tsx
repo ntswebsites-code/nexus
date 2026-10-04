@@ -225,7 +225,7 @@ function ReturnsTab({ tab, portfolioId, from, to, benchmarkId }: { tab: Tab; por
                 <Tile label="End value" value={`${r.baseCurrency} ${money2(r.endValue)}`} hint={`Start ${money2(r.startValue)} · net flows ${money2(r.netFlows)}`} />
               </div>
               <Card title="Cumulative return">
-                <ReturnChart series={r.series} />
+                <ReturnChart series={r.series} portfolioId={r.portfolioId} />
                 <p className="ops-muted">{r.method}</p>
                 {(r.issues.missingPrice.length > 0 || r.issues.missingFx.length > 0 || r.issues.stale.length > 0) && (
                   <Alert kind="warn">

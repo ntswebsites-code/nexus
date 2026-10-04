@@ -91,13 +91,14 @@ async function respondModel(res: Response, id: string, status = 200) {
   res.status(status).json({ data: await modelDetail(await prisma.modelPortfolio.findUniqueOrThrow({ where: { id } })) });
 }
 
-portfolioLabRoutes.get('/models', ...canView, validateQuery(listPage.extend({ status: z.string().optional() })), async (req, res) => {
-  const f = query<z.infer<typeof listPage> & { status?: string }>(req);
+portfolioLabRoutes.get('/models', ...canView, validateQuery(listPage.extend({ status: z.string().optional(), mine: z.enum(['1', 'true']).optional() })), async (req, res) => {
+  const f = query<z.infer<typeof listPage> & { status?: string; mine?: string }>(req);
   const where: Prisma.ModelPortfolioWhereInput = {};
   const st = statusIn(f.status);
   if (st) where.status = st;
+  if (f.mine) where.createdBy = req.user!.id;
   const [rows, total] = await Promise.all([prisma.modelPortfolio.findMany({ where, orderBy: { ref: 'asc' }, take: f.limit, skip: f.offset }), prisma.modelPortfolio.count({ where })]);
-  res.json({ data: await Promise.all(rows.map(async (m) => { const d = await modelDetail(m); return { ...d, weights: undefined }; })), total });
+  res.json({ data: await Promise.all(rows.map(async (m) => { const d = await modelDetail(m); return { ...d, weights: undefined, mine: m.createdBy === req.user!.id }; })), total });
 });
 
 portfolioLabRoutes.post('/models', ...canManage, validateBody(modelBody), idempotent('lab.model_create'), async (req, res) => {
@@ -163,6 +164,24 @@ portfolioLabRoutes.post('/models/:id/retire', ...canManage, validateBody(reasonS
     await writeAudit(tx, audit(req), { action: 'lab.model_retired', objectType: 'model_portfolio', objectId: m.id, before: { status: m.status }, after: { status: 'RETIRED' }, reason });
   });
   await respondModel(res, m.id);
+});
+
+/**
+ * FR-PORT-015: the owner deletes a saved scenario (model portfolio) they no longer want. Only the author may delete it;
+ * an ACTIVE model must be retired first, and a model that rebalance proposals refer to is kept (retire it instead) so
+ * the proposals keep their history.
+ */
+portfolioLabRoutes.delete('/models/:id', ...canManage, async (req, res) => {
+  const m = await loadModel(param(req, 'id'));
+  if (m.createdBy !== req.user!.id) throw HttpError.forbidden('Only the owner can delete a saved scenario', 'not_owner');
+  if (m.status === 'ACTIVE') throw invalidState(`${m.ref} is active; retire it before deleting`);
+  const used = await prisma.plRebalance.count({ where: { modelId: m.id } });
+  if (used) throw invalidState(`${m.ref} has ${used} rebalance proposal(s); retire it instead of deleting`);
+  await prisma.$transaction(async (tx) => {
+    await tx.modelPortfolio.delete({ where: { id: m.id } });
+    await writeAudit(tx, audit(req), { action: 'lab.model_deleted', objectType: 'model_portfolio', objectId: m.id, before: { ref: m.ref, name: m.name, status: m.status } });
+  });
+  res.json({ data: { id: m.id, deleted: true } });
 });
 
 portfolioLabRoutes.post('/models/:id/clone', ...canManage, idempotent('lab.model_clone'), async (req, res) => {
