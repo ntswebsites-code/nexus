@@ -1,22 +1,29 @@
 'use client';
 
 import Link from 'next/link';
-import { useState } from 'react';
-import { api, apiDownload, apiRequest, v1 } from '@/ops/api';
-import { CalendarCard, TaskComments, WorkloadCard } from '@/ops/opsinsights';
-import { AREAS, areaLabel, Bar, STATE_TONE, Tile, moneyFmt, type OpsStatus, type Task, type TaskList } from '@/ops/operations';
-import { useCan } from '@/ops/session';
-import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDateTime, Loaded, optStr, PageHeader, str, useResource } from '@/ops/ui';
+import { useRef, useState } from 'react';
+import { api, apiDownload, apiRequest, qs, v1 } from '@/ops/api';
+import { CalendarCard, TaskComments, WorkloadCard, type TaskFilter } from '@/ops/opsinsights';
+import { AREAS, areaLabel, Bar, STATE_TONE, Tile, moneyFmt, type HandOff, type OpsStatus, type Task, type TaskList } from '@/ops/operations';
+import { ReasonModal } from '@/ops/rp';
+import { useCan, useSession } from '@/ops/session';
+import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
 
 type Filter = 'all' | 'due' | 'blocked' | 'scheduled' | 'done';
 
 export default function OperationsPage() {
-  const canWork = useCan('operations.view');
+  const canView = useCan('operations.view');
+  // FR-OPS-012: changing tasks needs the action-level permission; operations.view alone reads and comments.
+  const canWork = useCan('operations.task.manage');
   const [filter, setFilter] = useState<Filter>('all');
+  const [chart, setChart] = useState<TaskFilter | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [open, setOpen] = useState<Task | null>(null);
   const status = useResource<OpsStatus>(() => api.get<OpsStatus>(v1('/operations/status')), []);
-  const tasks = useResource<TaskList>(() => apiRequest<TaskList>('GET', v1(`/operations/tasks?filter=${filter}`)), [filter]);
+  const taskQuery = qs({ filter, ownerId: chart?.ownerId, area: chart?.area, dueDate: chart?.dueDate });
+  const exportPath = (format: string) => `/api/v1/operations/tasks${qs({ filter, ownerId: chart?.ownerId, area: chart?.area, dueDate: chart?.dueDate, format })}`;
+  const tasks = useResource<TaskList>(() => apiRequest<TaskList>('GET', v1(`/operations/tasks${taskQuery}`)), [taskQuery]);
   const reload = () => {
     status.reload();
     tasks.reload();
@@ -29,18 +36,21 @@ export default function OperationsPage() {
         title="Operations Control"
         subtitle="A control tower over settlement, cash, corporate actions, valuation and close. Status is read live from each control workspace; runbook tasks are saved, owned and audited."
         actions={
-          canWork && (
-            <>
-              <ActionButton label="Refresh runbook" onRun={() => api.post(v1('/operations/tasks/generate'))} onDone={reload} />{' '}
-              <ActionButton label="Export CSV" onRun={() => apiDownload(`/api/v1/operations/tasks?filter=${filter}&format=csv`, 'runbook.csv')} />{' '}
+          <>
+            {canWork && <ActionButton label="Refresh runbook" onRun={(key) => api.post(v1('/operations/tasks/generate'), {}, { idempotencyKey: key })} onDone={reload} />}{' '}
+            {/* The export holds exactly the rows the runbook shows under the active filter. */}
+            {canView && <ActionButton label="Export CSV" onRun={() => apiDownload(exportPath('csv'), 'runbook.csv')} />}{' '}
+            {canView && <ActionButton label="Export XLSX" onRun={() => apiDownload(exportPath('xlsx'), 'runbook.xlsx')} />}{' '}
+            {canWork && (
               <button className="ops-btn primary" type="button" onClick={() => setCreating(true)}>
                 + Operations task
               </button>
-            </>
-          )
+            )}
+          </>
         }
       />
 
+      {notice && <Alert kind="ok">{notice}</Alert>}
       <Loaded res={status} what="operations status">
         {(s) => (
           <>
@@ -55,6 +65,14 @@ export default function OperationsPage() {
 
             <div className="ops-grid-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 16, alignItems: 'start' }}>
               <Card title="Today's runbook">
+                {chart && (
+                  <p className="ops-muted" role="status">
+                    Showing tasks for {chart.label}.{' '}
+                    <button type="button" className="ops-btn small" onClick={() => setChart(null)}>
+                      Clear chart filter
+                    </button>
+                  </p>
+                )}
                 <div className="ops-filters">
                   {(['all', 'due', 'blocked', 'scheduled', 'done'] as Filter[]).map((f) => (
                     <button key={f} type="button" className={`ops-btn small${filter === f ? ' primary' : ''}`} onClick={() => setFilter(f)}>
@@ -156,7 +174,7 @@ export default function OperationsPage() {
               )}
             </Card>
 
-            <WorkloadCard />
+            <WorkloadCard onFilter={setChart} />
             <CalendarCard />
 
             <Card title="NAV runs not yet released">
@@ -204,7 +222,7 @@ export default function OperationsPage() {
           onSubmit={(fd, key) =>
             api.post(
               v1('/operations/tasks'),
-              { area: str(fd, 'area'), title: str(fd, 'title'), detail: optStr(fd, 'detail') ?? null, dueAt: str(fd, 'dueAt'), link: optStr(fd, 'link') ?? null },
+              { area: str(fd, 'area'), title: str(fd, 'title'), detail: optStr(fd, 'detail') ?? null, dueAt: str(fd, 'dueAt'), link: optStr(fd, 'link') ?? null, ...(fd.get('isControl') ? { isControl: true } : {}) },
               { idempotencyKey: key },
             )
           }
@@ -233,41 +251,106 @@ export default function OperationsPage() {
           <Field label="Link (optional /ops/ path)">
             <input className="ops-input" name="link" placeholder="/ops/cash" />
           </Field>
+          <label className="ops-check">
+            <input type="checkbox" name="isControl" /> Control task: its creator cannot mark it Done, a colleague must
+          </label>
         </FormModal>
       )}
 
-      {open && <TaskModal task={open} canWork={canWork} onClose={() => setOpen(null)} onChanged={() => { setOpen(null); reload(); }} />}
+      {open && <TaskModal task={open} canWork={canWork} canComment={canView} onClose={() => setOpen(null)} onChanged={(msg) => { setOpen(null); setNotice(msg ?? null); reload(); }} />}
     </>
   );
 }
 
-function TaskModal({ task, canWork, onClose, onChanged }: { task: Task; canWork: boolean; onClose: () => void; onChanged: () => void }) {
-  const act = (verb: string, body: Record<string, unknown> = {}) => () => api.post(v1(`/operations/tasks/${task.id}/${verb}`), body);
-  const ask = (q: string) => window.prompt(q, '') ?? '';
+function handOffText(task: Task, verb: string, handOff: HandOff[] | undefined): string {
+  const base = `${task.ref} ${verb}.`;
+  if (!handOff?.length) return base;
+  return `${base} Handed off: ${handOff.map((h) => `${h.ref} is now ${h.state.toLowerCase()} (${h.notified === 'owner' ? 'owner' : 'operations team'} notified)`).join('; ')}.`;
+}
+
+function TaskModal({ task, canWork, canComment, onClose, onChanged }: { task: Task; canWork: boolean; canComment: boolean; onClose: () => void; onChanged: (notice?: string) => void }) {
+  const { user } = useSession();
+  const [asking, setAsking] = useState<'block' | 'cancel' | 'reopen' | null>(null);
+  const doneMsg = useRef<string | null>(null);
+  // Every action carries its Idempotency-Key (one per user intent, from ActionButton / FormModal).
+  const post = (verb: string, key: string, body: Record<string, unknown> = {}) => api.post<{ handOff?: HandOff[] }>(v1(`/operations/tasks/${task.id}/${verb}`), body, { idempotencyKey: key });
   const live = !['DONE', 'CANCELLED'].includes(task.status);
+  // BR-063: the creator of a control task cannot mark it Done (the API enforces it; the button says why).
+  const selfControl = !!task.isControl && task.createdById === user.id;
   return (
-    <FormModal title={`${task.ref} · ${task.title}`} kicker={areaLabel(task.area)} submitLabel="Close" onClose={onClose} onSubmit={async () => undefined}>
-      <p>{task.detail ?? 'No further detail.'}</p>
-      <p className="ops-muted">
-        Due {formatDateTime(task.dueAt)} · status {task.status.toLowerCase().replace(/_/g, ' ')} · {task.system ? 'generated by the system' : 'manual'}
-        {task.dependsOn ? ` · depends on ${task.dependsOn.ref} (${task.dependsOn.status.toLowerCase()})` : ''}
-      </p>
-      {task.blockedReason && <Alert kind="warn">Blocked: {task.blockedReason}</Alert>}
-      {task.completedAt && <p className="ops-muted">Completed {formatDateTime(task.completedAt)} by {task.completedByName ?? 'System'}</p>}
-      <TaskComments taskId={task.id} canWork={canWork} />
-      <div className="ops-actions">
-        {task.link && (
-          <Link className="ops-btn" href={task.link}>
-            Open workspace
-          </Link>
-        )}
-        {canWork && live && task.status !== 'IN_PROGRESS' && <ActionButton label="Start" onRun={act('start')} onDone={onChanged} />}
-        {canWork && live && <ActionButton label="Complete" primary onRun={act('complete')} onDone={onChanged} />}
-        {canWork && live && task.status !== 'BLOCKED' && <ActionButton label="Block" onRun={() => api.post(v1(`/operations/tasks/${task.id}/block`), { reason: ask('Why is it blocked? (5+ characters)') })} onDone={onChanged} />}
-        {canWork && live && <ActionButton label="Cancel task" danger onRun={() => api.post(v1(`/operations/tasks/${task.id}/cancel`), { reason: ask('Reason for cancelling (5+ characters)') })} onDone={onChanged} />}
-        {canWork && !live && <ActionButton label="Reopen" onRun={() => api.post(v1(`/operations/tasks/${task.id}/reopen`), { reason: ask('Reason for reopening (5+ characters)') })} onDone={onChanged} />}
-      </div>
-    </FormModal>
+    <>
+      <Modal title={`${task.ref} · ${task.title}`} kicker={areaLabel(task.area)} onClose={onClose}>
+        <div className="ops-modal-body">
+          <p>{task.detail ?? 'No further detail.'}</p>
+          <p className="ops-muted">
+            Due {formatDateTime(task.dueAt)} · status {task.status.toLowerCase().replace(/_/g, ' ')} · {task.system ? 'generated by the system' : 'manual'}
+            {task.isControl ? ' · control task' : ''}
+            {task.dependsOn ? ` · depends on ${task.dependsOn.ref} (${task.dependsOn.status.toLowerCase()})` : ''}
+          </p>
+          {task.blockedReason && <Alert kind="warn">Blocked: {task.blockedReason}</Alert>}
+          {task.completedAt && <p className="ops-muted">Completed {formatDateTime(task.completedAt)} by {task.completedByName ?? 'System'}</p>}
+          <TaskComments taskId={task.id} canWork={canComment} />
+          {canWork && selfControl && live && <Alert kind="info">You created this control task, so a colleague has to mark it Done.</Alert>}
+        </div>
+        <footer className="ops-modal-foot">
+          <div className="ops-actions">
+            {task.link && (
+              <Link className="ops-btn" href={task.link}>
+                Open workspace
+              </Link>
+            )}
+            {canWork && live && task.status !== 'IN_PROGRESS' && <ActionButton label="Start" onRun={(key) => post('start', key)} onDone={() => onChanged(`${task.ref} started.`)} />}
+            {canWork && live && (
+              <ActionButton
+                label="Complete"
+                primary
+                disabled={selfControl}
+                title={selfControl ? 'You created this control task; a colleague must complete it (BR-063)' : undefined}
+                onRun={async (key) => {
+                  const r = await post('complete', key);
+                  doneMsg.current = handOffText(task, 'completed', r?.handOff);
+                }}
+                onDone={() => onChanged(doneMsg.current ?? `${task.ref} completed.`)}
+              />
+            )}
+            {canWork && live && task.status !== 'BLOCKED' && (
+              <button className="ops-btn" type="button" onClick={() => setAsking('block')}>
+                Block
+              </button>
+            )}
+            {canWork && live && (
+              <button className="ops-btn danger" type="button" onClick={() => setAsking('cancel')}>
+                Cancel task
+              </button>
+            )}
+            {canWork && !live && (
+              <button className="ops-btn" type="button" onClick={() => setAsking('reopen')}>
+                Reopen
+              </button>
+            )}
+            <button className="ops-btn" type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </footer>
+      </Modal>
+      {asking === 'block' && <ReasonModal title={`Block ${task.ref}`} submitLabel="Block task" hint="Why is it blocked? Recorded in the audit trail" onClose={() => setAsking(null)} onSubmit={(reason, key) => post('block', key, { reason })} onDone={() => onChanged(`${task.ref} blocked.`)} />}
+      {asking === 'cancel' && (
+        <ReasonModal
+          title={`Cancel ${task.ref}`}
+          submitLabel="Cancel task"
+          danger
+          hint="Reason for cancelling. Tasks waiting on it are handed off"
+          onClose={() => setAsking(null)}
+          onSubmit={async (reason, key) => {
+            const r = await post('cancel', key, { reason });
+            doneMsg.current = handOffText(task, 'cancelled', r?.handOff);
+          }}
+          onDone={() => onChanged(doneMsg.current ?? `${task.ref} cancelled.`)}
+        />
+      )}
+      {asking === 'reopen' && <ReasonModal title={`Reopen ${task.ref}`} submitLabel="Reopen task" onClose={() => setAsking(null)} onSubmit={(reason, key) => post('reopen', key, { reason })} onDone={() => onChanged(`${task.ref} reopened.`)} />}
+    </>
   );
 }
 

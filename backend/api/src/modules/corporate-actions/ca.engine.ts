@@ -13,6 +13,56 @@ export const CA_TYPES = ['CASH_DIVIDEND', 'STOCK_SPLIT', 'BONUS_ISSUE', 'SCRIP_D
 export type CaType = (typeof CA_TYPES)[number];
 export const CA_STATUSES = ['ANNOUNCED', 'CONFIRMED', 'PROCESSED', 'REVERSED', 'CANCELLED'] as const;
 
+/**
+ * FR-OPS-015 lifecycle vocabulary. The stored `status` stays the control state (ANNOUNCED, CONFIRMED, PROCESSED, REVERSED,
+ * CANCELLED); the stage adds what has happened inside it: entitlements projected, an election window open, instructions
+ * sent (`instructedAt`) and the post-processing reconciliation (`reconciledAt`). It is derived, never stored, so it cannot drift.
+ */
+export const CA_STAGES = ['ANNOUNCED', 'PROJECTED', 'ELECTION_OPEN', 'INSTRUCTED', 'PROCESSED', 'RECONCILED', 'REVERSED', 'CANCELLED'] as const;
+export type CaStage = (typeof CA_STAGES)[number];
+export const STAGE_LABEL: Record<CaStage, string> = {
+  ANNOUNCED: 'Announced',
+  PROJECTED: 'Entitlement projected',
+  ELECTION_OPEN: 'Election open',
+  INSTRUCTED: 'Instructed',
+  PROCESSED: 'Processed',
+  RECONCILED: 'Reconciled',
+  REVERSED: 'Reversed',
+  CANCELLED: 'Cancelled',
+};
+/** Allowed moves between stages (PROJECTED may fall back to ANNOUNCED when terms are edited; Election open closes into Projected at the deadline). */
+export const STAGE_TRANSITIONS: Record<CaStage, readonly CaStage[]> = {
+  ANNOUNCED: ['PROJECTED', 'ELECTION_OPEN', 'CANCELLED'],
+  PROJECTED: ['ANNOUNCED', 'ELECTION_OPEN', 'INSTRUCTED', 'PROCESSED', 'CANCELLED'],
+  ELECTION_OPEN: ['ANNOUNCED', 'PROJECTED', 'INSTRUCTED', 'PROCESSED', 'CANCELLED'],
+  INSTRUCTED: ['PROCESSED', 'CANCELLED'],
+  PROCESSED: ['RECONCILED', 'REVERSED'],
+  RECONCILED: ['REVERSED'],
+  REVERSED: [],
+  CANCELLED: [],
+};
+export interface StageInput {
+  status: string;
+  type: string;
+  entitlementsAt: Date | null;
+  electionDeadline: Date | null;
+  instructedAt: Date | null;
+  reconciledAt: Date | null;
+}
+export function deriveStage(e: StageInput, now = new Date()): CaStage {
+  if (e.status === 'CANCELLED') return 'CANCELLED';
+  if (e.status === 'REVERSED') return 'REVERSED';
+  if (e.status === 'PROCESSED') return e.reconciledAt ? 'RECONCILED' : 'PROCESSED';
+  if (e.instructedAt) return 'INSTRUCTED';
+  if (e.entitlementsAt) {
+    // same rule as electionOpen() in ca.service: the deadline day itself is still open
+    if (isElective(e.type) && (!e.electionDeadline || now.getTime() < e.electionDeadline.getTime() + 24 * 3600 * 1000)) return 'ELECTION_OPEN';
+    return 'PROJECTED';
+  }
+  return 'ANNOUNCED';
+}
+export const canMoveStage = (from: CaStage, to: CaStage) => from === to || STAGE_TRANSITIONS[from].includes(to);
+
 export const TYPE_LABEL: Record<CaType, string> = {
   CASH_DIVIDEND: 'Cash dividend',
   STOCK_SPLIT: 'Stock split',

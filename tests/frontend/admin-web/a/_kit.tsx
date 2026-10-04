@@ -10,7 +10,7 @@ export const ALL_PERMS = [
   'cash.approve', 'cash.close', 'cash.import', 'cash.journal.approve', 'cash.journal.create', 'cash.reservation', 'cash.view',
   'clients.edit', 'clients.view', 'corporate_actions.manage', 'custodian.review', 'custodian.view', 'dashboard.view',
   'dealing.approve', 'dealing.process', 'dealing.view', 'distributions.approve', 'distributions.create', 'distributions.settle',
-  'funds.manage', 'funds.view', 'notices.create', 'notices.publish', 'notices.view', 'operations.view',
+  'funds.manage', 'funds.view', 'notices.create', 'notices.publish', 'notices.view', 'operations.view', 'operations.task.manage',
   'orders.approve', 'orders.create', 'orders.route', 'orders.view', 'portfolio.manage', 'portfolio.view',
   'private.mark.approve', 'recon.manage', 'recon.signoff', 'reports.approve', 'reports.create', 'reports.view',
   'research.edit', 'risk.manage', 'risk.view', 'term_sheets.approve', 'term_sheets.create', 'term_sheets.view', 'valuation.release', 'valuation.view',

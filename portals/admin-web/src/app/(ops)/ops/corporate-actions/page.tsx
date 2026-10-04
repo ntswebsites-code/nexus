@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { api, apiRequest, qs, v1 } from '@/ops/api';
-import { CA_TYPES, CaStatusBadge, STATUS_LABEL, TYPE_LABEL, terms, type CaDetail, type CaEvent, type CaList, type CaUpcoming } from '@/ops/corporate-actions';
+import { CA_TYPES, CaStageBadge, CaStatusBadge, STATUS_LABEL, TYPE_LABEL, terms, type CaDetail, type CaEvent, type CaList, type CaUpcoming } from '@/ops/corporate-actions';
 import { useCan } from '@/ops/session';
 import type { SecurityRow } from '@/ops/types';
 import { Card, Empty, Field, FieldGrid, FormModal, formatDate, Loaded, optStr, PageHeader, str, useResource } from '@/ops/ui';
@@ -175,7 +175,7 @@ function EventTable({ rows, onOpen }: { rows: CaEvent[]; onOpen: (e: CaEvent) =>
               <td>{formatDate(e.payDate)}</td>
               <td>{e.electionDeadline ? formatDate(e.electionDeadline) : '—'}</td>
               <td>
-                <CaStatusBadge status={e.status} />
+                <CaStatusBadge status={e.status} /> <CaStageBadge stage={e.stage} label={e.stageLabel} />
               </td>
             </tr>
           ))}

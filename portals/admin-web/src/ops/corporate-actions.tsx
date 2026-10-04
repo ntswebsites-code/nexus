@@ -16,6 +16,9 @@ export interface CaEvent {
   securityName: string;
   type: CaType;
   status: CaStatus;
+  /** FR-OPS-015 lifecycle stage (derived by the API). */
+  stage?: string;
+  stageLabel?: string;
   currency: string;
   exDate: string;
   recordDate: string;
@@ -104,6 +107,8 @@ export interface CaDetail extends CaEvent {
     process: boolean;
     processBlocker: string | null;
     cancel: boolean;
+    instruct?: boolean;
+    reconcile?: boolean;
     reverse: boolean;
     reverseBlocker: string | null;
   };
@@ -137,6 +142,13 @@ export const TYPE_LABEL: Record<string, string> = {
 export const STATUS_LABEL: Record<string, string> = { ANNOUNCED: 'Announced', CONFIRMED: 'Confirmed', PROCESSED: 'Processed', REVERSED: 'Reversed', CANCELLED: 'Cancelled' };
 const TONE: Record<string, string> = { ANNOUNCED: 'amber', CONFIRMED: 'blue', PROCESSED: 'green', REVERSED: 'red', CANCELLED: 'grey' };
 export const OPTION_LABEL: Record<string, string> = { CASH: 'Take cash', SCRIP: 'Take scrip shares', TAKE_UP: 'Take up rights', LAPSE: 'Let rights lapse' };
+
+const STAGE_TONE: Record<string, string> = { ANNOUNCED: 'amber', PROJECTED: 'blue', ELECTION_OPEN: 'amber', INSTRUCTED: 'blue', PROCESSED: 'green', RECONCILED: 'green', REVERSED: 'red', CANCELLED: 'grey' };
+/** FR-OPS-015 stage: Announced, Entitlement projected, Election open, Instructed, Processed, Reconciled, Reversed, Cancelled. */
+export function CaStageBadge({ stage, label }: { stage?: string; label?: string }) {
+  if (!stage) return null;
+  return <span className={`ops-badge ${STAGE_TONE[stage] ?? 'grey'}`} title="Lifecycle stage">{label ?? stage}</span>;
+}
 
 export function CaStatusBadge({ status }: { status: string }) {
   return <span className={`ops-badge ${TONE[status] ?? 'grey'}`}>{STATUS_LABEL[status] ?? status}</span>;

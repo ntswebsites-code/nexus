@@ -12,6 +12,9 @@ import {
   effectDateField,
   isElective,
   normaliseOption,
+  canMoveStage,
+  deriveStage,
+  STAGE_LABEL,
   type CaType,
   type EventParams,
 } from './ca.engine';
@@ -68,6 +71,7 @@ export async function calculateEntitlements(req: Request, e: EventRow) {
   const me = req.user!.id;
   return prisma.$transaction(async (tx) => {
     const fresh = await tx.corpActionEvent.findUniqueOrThrow({ where: { id: e.id } });
+    if (fresh.instructedAt) throw HttpError.conflict(`${e.ref} has been instructed to the custodian; entitlements are frozen`, 'already_instructed');
     if (fresh.status !== 'ANNOUNCED' && fresh.status !== 'CONFIRMED') throw HttpError.conflict('The event moved on; reload', 'version_conflict');
     const prior = new Map((await tx.corpActionEntitlement.findMany({ where: { eventId: e.id } })).map((p) => [p.portfolioId, p]));
     await tx.corpActionEntitlement.deleteMany({ where: { eventId: e.id } });
@@ -105,6 +109,7 @@ export async function calculateEntitlements(req: Request, e: EventRow) {
       });
     }
     await tx.corpActionEvent.update({ where: { id: e.id }, data: { entitlementsAt: new Date() } });
+    await auditStage(tx, req, e);
     await writeAudit(tx, audit(req), {
       action: 'corp_action.entitlements_calculated',
       objectType: 'corp_action',
@@ -113,6 +118,19 @@ export async function calculateEntitlements(req: Request, e: EventRow) {
     });
     return { portfolios: held.length };
   });
+}
+
+/**
+ * FR-OPS-015: every move between lifecycle stages is audited with from and to. Call inside the transaction that changed
+ * the event, passing the row as it was before. A move the transition table does not allow is a programming error and aborts.
+ */
+export async function auditStage(tx: Prisma.TransactionClient, req: Request, before: EventRow) {
+  const after = await tx.corpActionEvent.findUniqueOrThrow({ where: { id: before.id } });
+  const from = deriveStage(before);
+  const to = deriveStage(after);
+  if (from === to) return;
+  if (!canMoveStage(from, to)) throw HttpError.conflict(`${before.ref} cannot move from ${STAGE_LABEL[from]} to ${STAGE_LABEL[to]}`, 'invalid_state');
+  await writeAudit(tx, audit(req), { action: 'corp_action.stage_changed', objectType: 'corp_action', objectId: before.id, before: { stage: from }, after: { stage: to, ref: before.ref, label: STAGE_LABEL[to] } });
 }
 
 /** Re-prices one entitlement for a chosen option. */
@@ -374,6 +392,12 @@ export async function eventViews(rows: EventRow[]) {
       securityName: r.securityName,
       type: r.type,
       status: r.status,
+      stage: deriveStage(r),
+      stageLabel: STAGE_LABEL[deriveStage(r)],
+      instructedAt: iso(r.instructedAt),
+      instructedBy: r.instructedBy,
+      reconciledAt: iso(r.reconciledAt),
+      reconciledBy: r.reconciledBy,
       currency: r.currency,
       exDate: isoDay(r.exDate),
       recordDate: isoDay(r.recordDate),
@@ -436,6 +460,8 @@ export function allowedActions(e: EventRow, user: { id: string; permissions: str
     process: e.status === 'CONFIRMED' && processBlocker === null,
     processBlocker,
     cancel: open,
+    instruct: e.status === 'CONFIRMED' && !e.instructedAt && !!e.entitlementsAt && entCount > 0 && user.permissions.includes('corporate_actions.manage'),
+    reconcile: e.status === 'PROCESSED' && !e.reconciledAt && user.permissions.includes('corporate_actions.manage'),
     reverse: e.status === 'PROCESSED' && user.permissions.includes('corporate_actions.process') && e.processedBy !== user.id,
     reverseBlocker:
       e.status !== 'PROCESSED' ? null : !user.permissions.includes('corporate_actions.process') ? 'You do not hold the process permission' : e.processedBy === user.id ? 'A different person from the processor must reverse this action' : null,

@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { writeAudit } from '../../lib/audit';
 import { nextRef } from '../../lib/refs';
+import { enqueue } from '../../lib/outbox';
 import { SYSTEM_ACTOR_ID, SYSTEM_NAME, systemCtx } from '../../lib/system';
 
 /** Operations Control runbook tasks (page `operations`). Persisted in ops_tasks; generated tasks are unique per `sourceRef`. */
@@ -36,7 +37,38 @@ export async function resolveTaskBySource(tx: Tx, sourceRef: string, note: strin
   if (!found || ['DONE', 'CANCELLED'].includes(found.status)) return false;
   await tx.opsTask.update({ where: { id: found.id }, data: { status: 'DONE', completedAt: new Date(), completedBy: SYSTEM_ACTOR_ID, version: { increment: 1 } } });
   await writeAudit(tx, systemCtx(), { action: 'operations.task_completed', objectType: 'ops_task', objectId: found.id, before: { status: found.status }, after: { status: 'DONE', sourceRef }, reason: note });
+  await handOffDependants(tx, found, systemCtx(), 'completed');
   return true;
+}
+
+export interface HandOff {
+  ref: string;
+  title: string;
+  state: 'DUE' | 'SCHEDULED' | 'BLOCKED';
+  notified: 'owner' | 'team';
+}
+
+/**
+ * FR-OPS-010 hand-off. When a task ends (completed, or cancelled so nothing is left to wait for), every live task that
+ * depended on it is cleared: it moves from Blocked to Due (or Scheduled) in the runbook, and its owner is notified (the
+ * operations team when it has no owner yet). One audit event per dependant. Runs inside the caller's transaction so the
+ * notification exists only if the change commits.
+ */
+export async function handOffDependants(tx: Tx, ended: TaskRow, ctx: Parameters<typeof writeAudit>[1], how: 'completed' | 'cancelled'): Promise<HandOff[]> {
+  const dependants = await tx.opsTask.findMany({ where: { dependsOnId: ended.id, status: { in: ['OPEN', 'IN_PROGRESS', 'BLOCKED'] } }, orderBy: { dueAt: 'asc' }, take: 50 });
+  const out: HandOff[] = [];
+  const eod = endOfDay().getTime();
+  for (const d of dependants) {
+    // A task someone blocked by hand stays Blocked until they unblock it; one that only waited on this task is now clear.
+    const state: HandOff['state'] = d.status === 'BLOCKED' ? 'BLOCKED' : d.dueAt.getTime() <= eod ? 'DUE' : 'SCHEDULED';
+    const payload = { type: 'ops.task_handoff', title: `${d.ref} is ready: ${ended.ref} was ${how}`, body: `${d.title}. Due ${d.dueAt.toISOString().slice(0, 16).replace('T', ' ')} UTC.`, link: '/ops/operations' };
+    if (d.ownerId && d.ownerId !== SYSTEM_ACTOR_ID) await enqueue(tx, 'notify.users', { userIds: [d.ownerId], ...payload });
+    else await enqueue(tx, 'notify.permission', { permission: 'operations.task.manage', ...payload });
+    const notified = d.ownerId && d.ownerId !== SYSTEM_ACTOR_ID ? 'owner' : 'team';
+    await writeAudit(tx, ctx, { action: 'operations.task_handoff', objectType: 'ops_task', objectId: d.id, after: { ref: d.ref, from: ended.ref, how, state, notified } });
+    out.push({ ref: d.ref, title: d.title, state, notified });
+  }
+  return out;
 }
 
 /** State shown on the runbook: DONE, BLOCKED (explicitly, or waiting on an unfinished task), DUE (due by end of today) or SCHEDULED. */
@@ -88,6 +120,8 @@ export async function taskViews(rows: TaskRow[]) {
     link: r.link,
     system: r.createdBy === SYSTEM_ACTOR_ID,
     sourceRef: r.sourceRef,
+    isControl: r.isControl,
+    createdById: r.createdBy,
     commentCount: commentsBy.get(r.id) ?? 0,
     completedByName: r.completedBy ? (name.get(r.completedBy) ?? null) : null,
     completedAt: r.completedAt?.toISOString() ?? null,

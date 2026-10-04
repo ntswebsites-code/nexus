@@ -97,3 +97,9 @@ No browser testing (typecheck, builds and API scripts only) · long tasks on the
 | R4-8 | Copilot via LLM adapter with live stub, onboarding triage panel, report email attachments, regulator filing placeholders | [x] built and merged |
 | R4-9 | Settings enforcement, models called by NAV/risk, data-fabric depth | [x] built and merged |
 | R4-10 | Broker contract-note ingestion and order fills, corporate-action announcements from market data | [x] built and merged |
+
+## 8. Plan cross-check packages (docs/plan-crosscheck)
+
+| Pkg | Scope | State |
+|---|---|---|
+| S1 | Operations controls: operations.task.manage, control-task self-completion (BR-063), hand-off notifications (FR-OPS-010), chart click-through (FR-OPS-013), XLSX export (FR-OPS-011), corporate-action stages (FR-OPS-015), in-app reason dialogs, Idempotency-Key on Start/Complete | [x] built (see ADMIN-REAL-PAGES.md, Package S1) |

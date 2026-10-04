@@ -1488,3 +1488,17 @@ Migration `20261110100000_trading_feeds` (models between `// ---- TradingFeeds -
 - No live FIX session or broker SFTP/e-mail pickup (live stub); PDF contract notes are not parsed. Orders are not auto-routed through the adapter (the existing e-mail instruction remains; `POST /fix/route` registers an order with the adapter).
 - No transmission of settlement instructions (SWIFT MT54x lives behind the custodian-feed stub); no settlement fail or penalty handling beyond the status; no public-holiday calendar for settle dates.
 - Public market-data provider has no corporate-action source, so announcements there are entered by hand. Partial-fill average price on breaks accepted late uses the order's running average. The API flows and screen were typechecked, not run (no database, no browser).
+
+## Package S1: Operations controls
+
+Migration `20261201100000_ops_controls` (additive): `ops_tasks.is_control`; `corp_action_events.instructed_by/instructed_at/reconciled_by/reconciled_at`.
+
+- **FR-OPS-012**: permission `operations.task.manage` gates create, edit, start, complete, block, cancel, reopen and refresh (granted additively to operations, fund_accountant, investment_director). `operations.view` holders (auditor, viewers) read the runbook, export and comment. The page hides the controls without it.
+- **BR-063**: a task created with `isControl` cannot be completed by its creator (403 `segregation_of_duties`; the Complete button is disabled with the reason). A colleague completes it.
+- **FR-OPS-010**: completing or cancelling a task hands off to every live dependant: the owner is notified through the outbox (`notify.users`; `notify.permission operations.task.manage` when unowned), one `operations.task_handoff` audit event each, and the API returns `handOff` which the page shows.
+- **FR-OPS-013**: workload bars show a tooltip (series, value) and click through to the runbook filtered by owner, area or due day (`GET /operations/tasks?ownerId|area|dueDate`; `ownerId=none` for unassigned; today's bar includes overdue as the chart counts them).
+- **FR-OPS-011**: runbook and calendar export as CSV and XLSX (`format=csv|xlsx`), audited, CSV formula-safe; the export matches the active filter.
+- **FR-OPS-015**: derived `stage` (Announced, Entitlement projected, Election open, Instructed, Processed, Reconciled, Reversed, Cancelled) with a transition table; new `POST /corporate-actions/events/:id/instruct` (confirmed with entitlements; freezes elections and entitlements) and `/reconcile` (processed); every stage move audited as `corp_action.stage_changed`.
+- Block, Cancel and Reopen use an in-app reason dialog (no `window.prompt`); Start, Complete, Block, Cancel, Reopen, Refresh send an Idempotency-Key.
+- Tests: `tests/frontend/admin-web/a/operations.test.tsx`, `corporate-actions.test.tsx`; API flow `scripts/test-ops-controls.ts` plus stage checks in `test-corporate-actions.ts`.
+- Not done: the stage is derived (an "election open" window is not a separate stored state); instruct does not transmit to a custodian (adapter stub only records the instruction).

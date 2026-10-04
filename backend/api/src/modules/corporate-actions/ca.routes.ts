@@ -12,7 +12,7 @@ import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } fr
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
 import { CA_STATUSES, CA_TYPES, ELECTION_OPTIONS, dateErrors, needsRate, needsRatio, normaliseOption, type CaType } from './ca.engine';
 import { postCorporateActionJournals, reverseCorporateActionJournals } from '../wiring/autojournals';
-import { applyEntitlements, calculateEntitlements, clientEntitlements, entitlementsForClient, reverseApplied, eventDetail, eventViews, isoDay, electionOpen, loadEvent, repriceFor, startOfDay, type EventRow } from './ca.service';
+import { applyEntitlements, auditStage, calculateEntitlements, clientEntitlements, entitlementsForClient, reverseApplied, eventDetail, eventViews, isoDay, electionOpen, loadEvent, repriceFor, startOfDay, type EventRow } from './ca.service';
 
 /**
  * Corporate Actions (SRD 5.A.19 page `corporate-actions`, permission `operations.view`). Admin-portal staff only.
@@ -306,6 +306,7 @@ corporateActionsRoutes.patch('/events/:id', ...canWrite, validateBody(patchSchem
       ).count,
     );
     await tx.corpActionEntitlement.deleteMany({ where: { eventId: e.id } });
+    await auditStage(tx, req, e);
     await writeAudit(tx, audit(req), {
       action: 'corp_action.updated',
       objectType: 'corp_action',
@@ -346,6 +347,7 @@ corporateActionsRoutes.post('/events/:id/entitlements/calculate', ...canWrite, i
 corporateActionsRoutes.put('/events/:id/elections', ...canWrite, validateBody(electionSchema), idempotent('corporate-actions.put.events_id_elections', { required: false }), async (req, res) => {
   const e = await loadEvent(param(req, 'id'));
   assertOpen(e, 'changed');
+  if (e.instructedAt) throw HttpError.conflict(`${e.ref} has been instructed to the custodian; elections are closed`, 'election_closed');
   const opts = ELECTION_OPTIONS[e.type as CaType];
   if (!opts) throw HttpError.conflict(`${e.ref} is a ${e.type.toLowerCase().replace(/_/g, ' ')}; it has no election`, 'no_election');
   if (!electionOpen(e)) throw HttpError.conflict(`The election deadline ${isoDay(e.electionDeadline)} has passed`, 'election_closed');
@@ -385,11 +387,42 @@ corporateActionsRoutes.post('/events/:id/process', ...canProcess, requireStepUp,
     const appliedRows = await tx.corpActionEntitlement.findMany({ where: { eventId: e.id, status: 'APPLIED' }, select: { portfolioId: true, grossAmount: true, taxAmount: true, cashAmount: true, cashInLieu: true, detail: true } });
     const applied = appliedRows.map((a) => ({ portfolioId: a.portfolioId, grossAmount: a.grossAmount, taxAmount: a.taxAmount, cashAmount: a.cashAmount, cashInLieu: a.cashInLieu, cilCost: new D(((a.detail ?? {}) as { cilCost?: string }).cilCost ?? 0) }));
     const journals = await postCorporateActionJournals(tx, fresh, applied);
+    await auditStage(tx, req, e);
     await writeAudit(tx, audit(req), { action: 'corp_action.processed', objectType: 'corp_action', objectId: e.id, before: { status: 'CONFIRMED' }, after: { status: 'PROCESSED', ref: e.ref, creatorId: e.makerId, processedBy: req.user!.id, ...summary, journals: journals.map((j) => ({ portfolioId: j.portfolioId, accounting: j.accounting.ref ?? j.accounting.skipped, cash: j.cash?.ref ?? j.cash?.skipped ?? null })) } });
     return { summary, journals };
   });
   const detail = await eventDetail(await loadEvent(e.id), req.user!);
   res.json({ data: { ...detail, applied: out.summary, journals: out.journals.map((j) => ({ portfolioId: j.portfolioId, accountingJournal: j.accounting.ref ?? null, accountingSkipped: j.accounting.skipped ?? null, cashJournal: j.cash?.ref ?? null, cashSkipped: j.cash?.skipped ?? null })) } });
+});
+
+/** FR-OPS-015: instructions go to the custodian once entitlements are projected and the action is confirmed; elections and entitlements are frozen from here. */
+corporateActionsRoutes.post('/events/:id/instruct', ...canWrite, idempotent('corp_action.instruct', { required: false }), async (req, res) => {
+  const e = await loadEvent(param(req, 'id'));
+  assertOpen(e, 'instructed');
+  if (e.instructedAt) throw HttpError.conflict(`${e.ref} is already instructed`, 'already_instructed');
+  if (e.status !== 'CONFIRMED') throw HttpError.conflict(`${e.ref} is ${e.status}; it must be CONFIRMED to instruct`, 'invalid_state');
+  if (!e.entitlementsAt) throw HttpError.conflict('Calculate the entitlements before instructing', 'entitlements_required');
+  if ((await prisma.corpActionEntitlement.count({ where: { eventId: e.id } })) === 0) throw HttpError.conflict('No portfolio holds this security at the record date; nothing to instruct', 'no_entitlements');
+  await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.corpActionEvent.updateMany({ where: { id: e.id, status: 'CONFIRMED', instructedAt: null }, data: { instructedBy: req.user!.id, instructedAt: new Date() } })).count);
+    await auditStage(tx, req, e);
+    await writeAudit(tx, audit(req), { action: 'corp_action.instructed', objectType: 'corp_action', objectId: e.id, after: { ref: e.ref, instructedBy: req.user!.id } });
+    await notifyPermission(tx, 'corporate_actions.process', { type: 'corp_action.instructed', title: `${e.ref} ${e.ticker} is instructed`, body: 'Instructions are sent. It is ready to process.', link: `/ops/corporate-actions/${e.id}` });
+  });
+  await respond(res, req, e.id);
+});
+
+/** FR-OPS-015: a PROCESSED action is Reconciled once the custodian's position and cash match the booked entitlements. */
+corporateActionsRoutes.post('/events/:id/reconcile', ...canWrite, idempotent('corp_action.reconcile', { required: false }), async (req, res) => {
+  const e = await loadEvent(param(req, 'id'));
+  if (e.reconciledAt) throw HttpError.conflict(`${e.ref} is already reconciled`, 'already_reconciled');
+  if (e.status !== 'PROCESSED') throw HttpError.conflict(`${e.ref} is ${e.status}; only a PROCESSED action can be reconciled`, 'invalid_state');
+  await prisma.$transaction(async (tx) => {
+    assertUpdated((await tx.corpActionEvent.updateMany({ where: { id: e.id, status: 'PROCESSED', reconciledAt: null }, data: { reconciledBy: req.user!.id, reconciledAt: new Date() } })).count);
+    await auditStage(tx, req, e);
+    await writeAudit(tx, audit(req), { action: 'corp_action.reconciled', objectType: 'corp_action', objectId: e.id, after: { ref: e.ref, reconciledBy: req.user!.id } });
+  });
+  await respond(res, req, e.id);
 });
 
 const reverseSchema = z.object({ reason: z.string().trim().min(5, 'Give a reason (5+ characters)').max(1000) }).strict();
@@ -409,6 +442,7 @@ corporateActionsRoutes.post('/events/:id/reverse', ...canProcess, requireStepUp,
     assertUpdated((await tx.corpActionEvent.updateMany({ where: { id: e.id, status: 'PROCESSED' }, data: { status: 'REVERSED', reversedBy: req.user!.id, reversedAt: new Date(), reverseReason: b.reason } })).count);
     const summary = await reverseApplied(tx, e);
     const journals = await reverseCorporateActionJournals(tx, e, summary.portfolios, b.reason, startOfDay(new Date()));
+    await auditStage(tx, req, e);
     await writeAudit(tx, audit(req), { action: 'corp_action.reversed', objectType: 'corp_action', objectId: e.id, before: { status: 'PROCESSED' }, after: { status: 'REVERSED', ref: e.ref, processedBy: e.processedBy, reversedBy: req.user!.id, ...summary, journals }, reason: b.reason });
     await notifyPermission(tx, 'operations.view', { type: 'corp_action.reversed', title: `${e.ref} ${e.ticker} was reversed`, body: b.reason.slice(0, 200), link: `/ops/corporate-actions/${e.id}` });
     return { summary, journals };
@@ -437,6 +471,7 @@ corporateActionsRoutes.post('/events/:id/cancel', ...canWrite, validateBody(canc
   const b = req.body as z.infer<typeof cancelSchema>;
   await prisma.$transaction(async (tx) => {
     assertUpdated((await tx.corpActionEvent.updateMany({ where: { id: e.id, status: e.status }, data: { status: 'CANCELLED', cancelledBy: req.user!.id, cancelledAt: new Date(), cancelReason: b.reason } })).count);
+    await auditStage(tx, req, e);
     await writeAudit(tx, audit(req), { action: 'corp_action.cancelled', objectType: 'corp_action', objectId: e.id, before: { status: e.status }, after: { status: 'CANCELLED', ref: e.ref }, reason: b.reason });
   });
   await respond(res, req, e.id);

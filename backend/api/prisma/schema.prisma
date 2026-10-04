@@ -2473,6 +2473,11 @@ model CorpActionEvent {
   cancelledAt      DateTime? @map("cancelled_at")
   cancelReason     String?   @map("cancel_reason") @db.VarChar(1000)
   entitlementsAt   DateTime? @map("entitlements_at")
+  /// FR-OPS-015 stages: instructions sent to the custodian (CONFIRMED -> INSTRUCTED) and the post-processing reconciliation.
+  instructedBy     String?   @map("instructed_by") @db.Char(36)
+  instructedAt     DateTime? @map("instructed_at")
+  reconciledBy     String?   @map("reconciled_by") @db.Char(36)
+  reconciledAt     DateTime? @map("reconciled_at")
   /// Pay fractions of a share in cash at cil_price (per share of the security received). Off = fractions are only reported.
   cashInLieu       Boolean   @default(false) @map("cash_in_lieu")
   cilPrice         Decimal?  @map("cil_price") @db.Decimal(20, 8)
@@ -2789,6 +2794,8 @@ model OpsTask {
   createdBy     String    @map("created_by") @db.Char(36)
   completedBy   String?   @map("completed_by") @db.Char(36)
   completedAt   DateTime? @map("completed_at")
+  /// BR-063: the creator of a control task cannot mark it Done.
+  isControl     Boolean   @default(false) @map("is_control")
   version       Int       @default(1)
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")

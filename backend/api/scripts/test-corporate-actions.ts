@@ -236,6 +236,13 @@ async function main() {
     check('edit after confirm -> 409', (await cDealer.patch(`${A}/events/${E1.id}`, { description: 'x' })).status === 409);
     check('a dealer without corporate_actions.process cannot process -> 403', (await cDealer.post(`${A}/events/${E1.id}/process`)).status === 403);
     check('an auditor cannot process -> 403', (await cAud.post(`${A}/events/${E1.id}/process`)).status === 403);
+    check('FR-OPS-015: a dividend with entitlements calculated is at stage PROJECTED', (await cDealer.get(`${A}/events/${E1.id}`)).body?.data?.stage === 'PROJECTED');
+    check('an auditor cannot instruct -> 403', (await cAud.post(`${A}/events/${E1.id}/instruct`)).status === 403);
+    const ins = await cDealer.post(`${A}/events/${E1.id}/instruct`, {}, { 'Idempotency-Key': key('ins') });
+    check('instruct -> stage INSTRUCTED, instructor recorded', ins.status === 200 && ins.body?.data?.stage === 'INSTRUCTED' && ins.body.data.instructedBy === dealer.id && ins.body.data.status === 'CONFIRMED', ins.body);
+    check('instructing twice -> 409 already_instructed', (await cDealer.post(`${A}/events/${E1.id}/instruct`)).body?.error?.code === 'already_instructed');
+    check('entitlements are frozen once instructed -> 409', (await cDealer.post(`${A}/events/${E1.id}/entitlements/calculate`)).status === 409);
+    check('audit corp_action.instructed and stage_changed (PROJECTED to INSTRUCTED)', (await auditCount('corp_action.instructed', E1.id, dealer.id)) === 1 && (await prisma.auditEvent.count({ where: { action: 'corp_action.stage_changed', objectId: E1.id } })) >= 1);
     await prisma.session.updateMany({ where: { userId: ops.id }, data: { mfaVerifiedAt: new Date(Date.now() - 10 * 60_000) } }); // enrolment counts as a fresh step-up; age it
     check('process without step-up -> 401 step_up_required', (await cOps.post(`${A}/events/${E1.id}/process`)).body?.error?.code === 'step_up_required');
     check('step-up succeeds', (await cOps.stepUp()).status === 200);
@@ -252,6 +259,13 @@ async function main() {
     check('processing again -> 409 event_immutable', again.status === 409 && again.body?.error?.code === 'event_immutable', again.body);
     check('a processed action cannot be cancelled or edited', (await cDealer.post(`${A}/events/${E1.id}/cancel`, { reason: 'Changed my mind' })).status === 409 && (await cDealer.patch(`${A}/events/${E1.id}`, { description: 'y' })).status === 409);
     check('audit corp_action.processed by the processor', (await auditCount('corp_action.processed', E1.id, ops.id)) === 1 && (await auditCount('corp_action.confirmed', E1.id, dealer.id)) === 1);
+    check('FR-OPS-015: processed stage is PROCESSED until reconciled', pr.body.data.stage === 'PROCESSED');
+    check('an auditor cannot reconcile -> 403', (await cAud.post(`${A}/events/${E1.id}/reconcile`)).status === 403);
+    const rec = await cDealer.post(`${A}/events/${E1.id}/reconcile`, {}, { 'Idempotency-Key': key('rec') });
+    check('reconcile -> stage RECONCILED, status stays PROCESSED', rec.status === 200 && rec.body?.data?.stage === 'RECONCILED' && rec.body.data.status === 'PROCESSED' && rec.body.data.reconciledBy === dealer.id, rec.body);
+    check('reconciling twice -> 409', (await cDealer.post(`${A}/events/${E1.id}/reconcile`)).body?.error?.code === 'already_reconciled');
+    check('an announced action cannot be instructed or reconciled -> 409', (await cDealer.post(`${A}/events/${future.body.data.id}/instruct`)).status === 409 && (await cDealer.post(`${A}/events/${future.body.data.id}/reconcile`)).status === 409);
+    check('audit corp_action.reconciled', (await auditCount('corp_action.reconciled', E1.id, dealer.id)) === 1);
 
     console.log('\nSegregation of duties');
     const own = await cDir.post(`${A}/events`, { securityId: s3.id, type: 'STOCK_SPLIT', ...base, ratioNew: '2', ratioOld: '1' }, { 'Idempotency-Key': key('own') });

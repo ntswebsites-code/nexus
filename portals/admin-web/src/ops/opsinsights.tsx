@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useState } from 'react';
-import { api, apiRequest, qs, v1 } from './api';
+import { api, apiDownload, apiRequest, qs, v1 } from './api';
 import { moneyFmt } from './operations';
-import { Alert, Card, DateText, Empty, Loaded, useAction, useResource } from './ui';
+import { ActionButton, Alert, Card, DateText, Empty, Loaded, useAction, useResource } from './ui';
 
 /** Operations Control extras: calendar, workload charts and task comments (GAP-010 operations part). */
 
@@ -45,20 +45,44 @@ const KIND_LABEL: Record<CalendarEvent['kind'], string> = { TASK: 'Task', CORPOR
 const KIND_TONE: Record<CalendarEvent['kind'], string> = { TASK: 'blue', CORPORATE_ACTION: 'amber', CASH: 'green', SETTLEMENT: 'red', NAV: 'grey', CLOSE: 'grey' };
 const iso = (d: Date) => d.toISOString().slice(0, 10);
 
-/** Horizontal bars with a label and a value; `max` defaults to the largest value. */
-export function Bars({ rows, tone = '#3a6fd8', unit = '' }: { rows: { label: string; value: number; note?: string }[]; tone?: string; unit?: string }) {
+/** What a chart click asks the runbook to show (FR-OPS-013). `ownerId: 'none'` means unassigned. */
+export interface TaskFilter {
+  label: string;
+  ownerId?: string;
+  area?: string;
+  dueDate?: string;
+}
+
+/**
+ * Horizontal bars with a label and a value; `max` defaults to the largest value. Hovering a bar shows the series name and
+ * the exact value (FR-OPS-013); a row with `onSelect` is a button that filters the runbook.
+ */
+export function Bars({ rows, tone = '#3a6fd8', unit = '', series = 'Value' }: { rows: { label: string; value: number; note?: string; onSelect?: () => void }[]; tone?: string; unit?: string; series?: string }) {
   const max = Math.max(1, ...rows.map((r) => r.value));
   return (
     <div style={{ display: 'grid', gap: 6 }}>
-      {rows.map((r) => (
-        <div key={r.label} style={{ display: 'grid', gridTemplateColumns: 'minmax(90px, 160px) 1fr auto', gap: 8, alignItems: 'center', fontSize: 13 }}>
-          <span title={r.label} style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
-          <div style={{ background: 'rgba(120,130,150,.2)', borderRadius: 3, height: 10 }} role="img" aria-label={`${r.label}: ${r.value}${unit}`}>
-            <div style={{ width: `${(r.value / max) * 100}%`, height: 10, borderRadius: 3, background: tone }} />
+      {rows.map((r) => {
+        const tip = `${series}: ${r.label} = ${r.value}${unit}${r.note ? ` (${r.note})` : ''}${r.onSelect ? '. Click to filter the runbook.' : ''}`;
+        const inner = (
+          <>
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label}</span>
+            <div style={{ background: 'rgba(120,130,150,.2)', borderRadius: 3, height: 10 }} role="img" aria-label={`${series}, ${r.label}: ${r.value}${unit}`}>
+              <div style={{ width: `${(r.value / max) * 100}%`, height: 10, borderRadius: 3, background: tone }} />
+            </div>
+            <span>{r.value}{unit}{r.note ? <span className="ops-muted"> {r.note}</span> : null}</span>
+          </>
+        );
+        const grid = { display: 'grid', gridTemplateColumns: 'minmax(90px, 160px) 1fr auto', gap: 8, alignItems: 'center', fontSize: 13 } as const;
+        return r.onSelect ? (
+          <button key={r.label} type="button" title={tip} onClick={r.onSelect} style={{ ...grid, background: 'none', border: 0, padding: 0, textAlign: 'left', color: 'inherit', cursor: 'pointer', font: 'inherit' }}>
+            {inner}
+          </button>
+        ) : (
+          <div key={r.label} title={tip} style={grid}>
+            {inner}
           </div>
-          <span>{r.value}{unit}{r.note ? <span className="ops-muted"> {r.note}</span> : null}</span>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -79,6 +103,8 @@ export function CalendarCard() {
       title={`Calendar · ${new Date(`${first}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' })}`}
       actions={
         <div style={{ display: 'flex', gap: 6 }}>
+          <ActionButton label="Calendar CSV" onRun={() => apiDownload(`/api/v1/operations/calendar${qs({ from: first, to: last, format: 'csv' })}`, `operations-calendar-${month}.csv`)} />
+          <ActionButton label="Calendar XLSX" onRun={() => apiDownload(`/api/v1/operations/calendar${qs({ from: first, to: last, format: 'xlsx' })}`, `operations-calendar-${month}.xlsx`)} />
           <button className="ops-btn small" type="button" onClick={() => shift(-1)} aria-label="Previous month">‹</button>
           <button className="ops-btn small" type="button" onClick={() => setMonth(new Date().toISOString().slice(0, 7))}>Today</button>
           <button className="ops-btn small" type="button" onClick={() => shift(1)} aria-label="Next month">›</button>
@@ -152,7 +178,7 @@ export function CalendarCard() {
   );
 }
 
-export function WorkloadCard() {
+export function WorkloadCard({ onFilter }: { onFilter?: (f: TaskFilter) => void }) {
   const res = useResource<Workload>(() => api.get<Workload>(v1('/operations/workload')), []);
   return (
     <Card title="Workload" actions={<button className="ops-btn small" type="button" onClick={res.reload}>Refresh</button>}>
@@ -161,21 +187,22 @@ export function WorkloadCard() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 18, alignItems: 'start' }}>
             <div>
               <h3 style={{ fontSize: 13, margin: '0 0 8px' }}>Open tasks by owner <span className="ops-muted">({w.openTasks} open, {w.overdue} overdue)</span></h3>
-              {w.byOwner.length === 0 ? <Empty>No open tasks.</Empty> : <Bars rows={w.byOwner.map((o) => ({ label: o.owner, value: o.open, note: `${o.overdue} overdue · ${o.blocked} blocked · ${o.breaks} breaks` }))} />}
+              {w.byOwner.length === 0 ? <Empty>No open tasks.</Empty> : <Bars series="Open tasks" rows={w.byOwner.map((o) => ({ label: o.owner, value: o.open, note: `${o.overdue} overdue · ${o.blocked} blocked · ${o.breaks} breaks`, onSelect: onFilter && (() => onFilter({ label: `owner ${o.owner}`, ownerId: o.ownerId ?? 'none' })) }))} />}
             </div>
             <div>
               <h3 style={{ fontSize: 13, margin: '0 0 8px' }}>Open tasks by area</h3>
-              {w.byArea.length === 0 ? <Empty>No open tasks.</Empty> : <Bars tone="#0a9474" rows={w.byArea.map((a) => ({ label: a.area.replace(/_/g, ' ').toLowerCase(), value: a.open, note: `${a.blocked} blocked` }))} />}
+              {w.byArea.length === 0 ? <Empty>No open tasks.</Empty> : <Bars tone="#0a9474" series="Open tasks" rows={w.byArea.map((a) => ({ label: a.area.replace(/_/g, ' ').toLowerCase(), value: a.open, note: `${a.blocked} blocked`, onSelect: onFilter && (() => onFilter({ label: `area ${a.area.replace(/_/g, ' ').toLowerCase()}`, area: a.area })) }))} />}
             </div>
             <div>
               <h3 style={{ fontSize: 13, margin: '0 0 8px' }}>Tasks due, next 7 days <span className="ops-muted">(overdue counted today)</span></h3>
-              <Bars tone="#d58b1d" rows={w.dueByDay.map((d) => ({ label: d.label, value: d.tasks }))} />
+              <Bars tone="#d58b1d" series="Tasks due" rows={w.dueByDay.map((d) => ({ label: d.label, value: d.tasks, onSelect: onFilter && (() => onFilter({ label: `due ${d.date}`, dueDate: d.date })) }))} />
             </div>
             <div>
               <h3 style={{ fontSize: 13, margin: '0 0 8px' }}>Cash deadlines, next 7 days <span className="ops-muted">(expected receipts and payments)</span></h3>
               <Bars
                 tone="#7a54c9"
-                rows={w.cashByDay.map((c) => ({ label: c.label, value: c.count, note: c.count ? (c.mixedCurrency ? 'mixed currencies' : `in ${moneyFmt(c.in, c.currency ?? undefined)} · out ${moneyFmt(c.out, c.currency ?? undefined)}`) : '' }))}
+                series="Cash deadlines"
+                rows={w.cashByDay.map((c) => ({ label: c.label, value: c.count, note: c.count ? (c.mixedCurrency ? 'mixed currencies' : `in ${moneyFmt(c.in, c.currency ?? undefined)} · out ${moneyFmt(c.out, c.currency ?? undefined)}`) : '', onSelect: onFilter && (() => onFilter({ label: `cash tasks due ${c.date}`, area: 'CASH', dueDate: c.date })) }))}
               />
             </div>
           </div>

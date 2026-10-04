@@ -108,6 +108,22 @@ describe('Corporate action detail', () => {
     expectIdempotencyKey((await waitFor(() => expectCalled(api, 'POST /api/v1/corporate-actions/events/ca-1/process')))[0]);
     await waitFor(() => expect(api.calls('GET /api/v1/corporate-actions/events/ca-1').length).toBe(2));
   });
+  it('FR-OPS-015: the stage badge shows the lifecycle stage; Instruct custodian confirms first then posts with a key', async () => {
+    const { api, user } = mountPage(<CaDetailPage />, { params: { id: 'ca-1' }, routes: dr(detail({ stage: 'PROJECTED', stageLabel: 'Entitlement projected' }, { instruct: true }), { 'POST /api/v1/corporate-actions/events/ca-1/instruct': D({}) }) });
+    expect(await screen.findByText('Entitlement projected')).toBeInTheDocument();
+    await user.click(await screen.findByRole('button', { name: 'Instruct custodian' }));
+    const dlg = await screen.findByRole('dialog');
+    expectNotCalled(api, 'POST /api/v1/corporate-actions/events/ca-1/instruct');
+    await user.click(within(dlg).getByRole('button', { name: 'Instruct custodian' }));
+    expectIdempotencyKey((await waitFor(() => expectCalled(api, 'POST /api/v1/corporate-actions/events/ca-1/instruct')))[0]);
+  });
+  it('FR-OPS-015: a processed action offers Mark reconciled, which posts with a key', async () => {
+    const { api, user } = mountPage(<CaDetailPage />, { params: { id: 'ca-1' }, routes: dr(detail({ status: 'PROCESSED', stage: 'PROCESSED', stageLabel: 'Processed' }, { reconcile: true }), { 'POST /api/v1/corporate-actions/events/ca-1/reconcile': D({}) }) });
+    await user.click(await screen.findByRole('button', { name: 'Mark reconciled' }));
+    const dlg = await screen.findByRole('dialog');
+    await user.click(within(dlg).getByRole('button', { name: 'Mark reconciled' }));
+    expectIdempotencyKey((await waitFor(() => expectCalled(api, 'POST /api/v1/corporate-actions/events/ca-1/reconcile')))[0]);
+  });
   it('Calculate entitlements: disabled with the blocker before the record date; posts with a key otherwise', async () => {
     const early = mountPage(<CaDetailPage />, { params: { id: 'ca-1' }, routes: dr(detail({ entitlementsAt: null, entitlements: [], entitlementCount: 0 }, { calculate: false, calculateBlocker: 'The record date has not passed' })) });
     const b = await screen.findByRole('button', { name: 'Calculate entitlements' });

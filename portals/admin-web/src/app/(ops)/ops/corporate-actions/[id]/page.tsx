@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useState } from 'react';
 import { api, v1 } from '@/ops/api';
-import { CaStatusBadge, money2, OPTION_LABEL, shares, signed, terms, TYPE_LABEL, type CaClientRow, type CaDetail, type CaEntitlement } from '@/ops/corporate-actions';
+import { CaStageBadge, CaStatusBadge, money2, OPTION_LABEL, shares, signed, terms, TYPE_LABEL, type CaClientRow, type CaDetail, type CaEntitlement } from '@/ops/corporate-actions';
 import { useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, DefinitionList, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, PageHeader, useResource } from '@/ops/ui';
 
@@ -57,7 +57,7 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
         kicker={`Corporate action · ${TYPE_LABEL[e.type] ?? e.type}`}
         title={
           <>
-            {e.ref} {e.ticker} <CaStatusBadge status={e.status} />
+            {e.ref} {e.ticker} <CaStatusBadge status={e.status} /> <CaStageBadge stage={e.stage} label={e.stageLabel} />
           </>
         }
         subtitle={
@@ -90,6 +90,14 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
                 onDone={reload}
               />
             )}
+            {e.allowed.instruct && (
+              <ActionButton
+                label="Instruct custodian"
+                confirm={`Send instructions for ${e.ref}? Entitlements and elections are frozen once it is instructed.`}
+                onRun={(key) => api.post(`${base}/instruct`, {}, { idempotencyKey: key })}
+                onDone={reload}
+              />
+            )}
             {e.status === 'CONFIRMED' && (
               <ActionButton
                 label="Process"
@@ -105,6 +113,14 @@ function Detail({ ev: e, reload }: { ev: CaDetail; reload: () => void }) {
               <button className="ops-btn danger" type="button" onClick={() => setDialog('cancel')}>
                 Cancel action
               </button>
+            )}
+            {e.allowed.reconcile && (
+              <ActionButton
+                label="Mark reconciled"
+                confirm={`Mark ${e.ref} reconciled? Confirm the custodian position and cash match the booked entitlements.`}
+                onRun={(key) => api.post(`${base}/reconcile`, {}, { idempotencyKey: key })}
+                onDone={reload}
+              />
             )}
             {e.status === 'PROCESSED' && (
               <button className="ops-btn danger" type="button" disabled={!e.allowed.reverse} title={e.allowed.reverseBlocker ?? 'Reverses by adjustment; history is kept. Requires a fresh authenticator code'} onClick={() => setDialog('reverse')}>

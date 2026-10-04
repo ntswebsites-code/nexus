@@ -49,10 +49,18 @@ export interface Task {
   blockedReason: string | null;
   link: string | null;
   system: boolean;
+  isControl?: boolean;
+  createdById?: string;
   completedByName: string | null;
   completedAt: string | null;
   commentCount?: number;
   version: number;
+}
+export interface HandOff {
+  ref: string;
+  title: string;
+  state: 'DUE' | 'SCHEDULED' | 'BLOCKED';
+  notified: 'owner' | 'team';
 }
 export interface TaskList {
   data: Task[];
