@@ -28,8 +28,25 @@ export {
   listRequisitionsForStaff,
   requisitionList,
   requisitionSchema,
+  requisitionTranche,
+  resubmitRequisition,
+  resubmitSchema,
   saveForecast,
+  setCommittedTranche,
+  slaBreachedRequisitions,
+  submitForecast,
+  submitRequisitionDraft,
+  submittedForecastVersions,
+  trancheSchema,
 } from './workspace/records';
+export {
+  addReservedMatter,
+  listReservedMattersForStaff,
+  reservedMatterSchema,
+  reservedMatterUpdateSchema,
+  updateReservedMatter,
+} from './workspace/compliance';
+export { trancheLedger } from './workspace/drawdown';
 
 export async function vaultDocuments(companyId: string) {
   const docs = await prisma.document.findMany({

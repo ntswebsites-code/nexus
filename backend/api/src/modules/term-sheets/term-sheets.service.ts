@@ -8,6 +8,7 @@ import { nextRef } from '../../lib/refs';
 import { sha256Hex } from '../../lib/crypto';
 import { signedDownloadUrl, storeFile } from '../../lib/storage';
 import { simplePdf } from './pdf';
+import { advanceDealOnCountersign, ensureDeal } from './deals';
 
 /**
  * Term sheet lifecycle (SRD 5D J6):
@@ -30,11 +31,14 @@ export const TERM_SHEET_STATUSES = [
   'EXECUTED',
   'DECLINED',
   'WITHDRAWN',
+  'REJECTED_BY_FUND',
+  'VOIDED',
+  'SUPERSEDED',
 ] as const;
 export type TermSheetStatus = (typeof TERM_SHEET_STATUSES)[number];
 
 /** States an investee can see. Drafts and internal approval states are never exposed. */
-export const INVESTEE_VISIBLE: TermSheetStatus[] = ['ISSUED', 'VIEWED', 'SIGNED_BY_COMPANY', 'COUNTERSIGNED', 'EXECUTED', 'DECLINED'];
+export const INVESTEE_VISIBLE: TermSheetStatus[] = ['ISSUED', 'VIEWED', 'SIGNED_BY_COMPANY', 'COUNTERSIGNED', 'EXECUTED', 'DECLINED', 'REJECTED_BY_FUND', 'VOIDED', 'SUPERSEDED'];
 export const SIGNABLE: TermSheetStatus[] = ['ISSUED', 'VIEWED'];
 const WITHDRAWABLE: TermSheetStatus[] = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'ISSUED', 'VIEWED'];
 
@@ -235,6 +239,10 @@ export function staffTermSheetView(ts: WithCompany, x: Extras | undefined) {
     keyTermsText: keyTermsText(ts.keyTerms),
     conditions: ts.conditions,
     timeline: ts.timeline,
+    parentId: ts.parentId,
+    amendmentReason: ts.amendmentReason,
+    closeReason: ts.closeReason,
+    closedAt: iso(ts.closedAt),
     createdById: ts.createdById,
     createdByName: name(ts.createdById),
     approvedById: ts.approvedById,
@@ -268,8 +276,10 @@ export const createTermSheetSchema = z.object({
   keyTerms: z.union([z.string().max(20000), z.record(z.string(), z.unknown()), z.array(z.unknown())]).nullish(),
   conditions: z.string().max(20000).nullish(),
   timeline: z.string().max(20000).nullish(),
+  /** GAP-020: start from a library template; fields given here win over the template. */
+  templateId: z.string().uuid().optional(),
 });
-export const updateTermSheetSchema = createTermSheetSchema.omit({ company: true }).partial().extend({ version: z.number().int() });
+export const updateTermSheetSchema = createTermSheetSchema.omit({ company: true, templateId: true }).partial().extend({ version: z.number().int() });
 
 const jsonTerms = (v: unknown) =>
   v === undefined ? undefined : v === null ? Prisma.DbNull : ((typeof v === 'string' ? { summary: v } : v) as Prisma.InputJsonValue);
@@ -277,6 +287,8 @@ const jsonTerms = (v: unknown) =>
 export async function createTermSheet(actor: { userId: string; audit: AuditContext }, input: z.infer<typeof createTermSheetSchema>) {
   const company = await prisma.portfolioCompany.findFirst({ where: { OR: [{ id: input.company }, { ref: input.company }] } });
   if (!company) throw HttpError.notFound('Company not found');
+  const template = input.templateId ? await prisma.termSheetTemplate.findFirst({ where: { id: input.templateId, status: 'ACTIVE' } }) : null;
+  if (input.templateId && !template) throw HttpError.notFound('Template not found or archived');
   return prisma.$transaction(async (tx) => {
     const ref = await nextTermSheetRef(tx);
     const ts = await tx.termSheet.create({
@@ -288,9 +300,9 @@ export async function createTermSheet(actor: { userId: string; audit: AuditConte
         valuation: input.valuation,
         equityPercentage: new Prisma.Decimal(input.equityPercentage.toFixed(2)),
         currency: input.currency,
-        keyTerms: jsonTerms(input.keyTerms),
-        conditions: input.conditions ?? null,
-        timeline: input.timeline ?? null,
+        keyTerms: input.keyTerms == null && template ? (template.keyTerms === null ? Prisma.DbNull : (template.keyTerms as Prisma.InputJsonValue)) : jsonTerms(input.keyTerms),
+        conditions: input.conditions ?? template?.conditions ?? null,
+        timeline: input.timeline ?? template?.timeline ?? null,
         createdById: actor.userId,
         status: 'DRAFT',
       },
@@ -333,7 +345,7 @@ export async function updateDraft(
   });
 }
 
-function snapshot(ts: TermSheet) {
+export function snapshot(ts: TermSheet) {
   return {
     ref: ts.ref,
     status: ts.status,
@@ -347,7 +359,7 @@ function snapshot(ts: TermSheet) {
 }
 
 /** Guarded state change: re-checks the current status inside the transaction (no lost updates). */
-async function transition(
+export async function transition(
   tx: Prisma.TransactionClient,
   ts: TermSheet,
   from: TermSheetStatus[],
@@ -453,7 +465,7 @@ export async function withdraw(actor: { userId: string; audit: AuditContext }, t
   });
 }
 
-async function notifyCompany(tx: Prisma.TransactionClient, companyId: string, title: string, body: string) {
+export async function notifyCompany(tx: Prisma.TransactionClient, companyId: string, title: string, body: string) {
   const users = await tx.companyUser.findMany({ where: { companyId, status: 'active' }, select: { userId: true } });
   if (users.length) {
     await enqueue(tx, 'notify.users', { userIds: users.map((u) => u.userId), type: 'term_sheets', title, body, link: '/term-sheets' });
@@ -526,6 +538,7 @@ export async function issue(actor: { userId: string; name: string; audit: AuditC
       before: { status: ts.status },
       after: { status: next.status, documentId: doc.id, docSha256: file.sha256 },
     });
+    await ensureDeal(tx, ts);
     await notifyCompany(tx, ts.companyId, `Term sheet ${ts.ref} issued for signature`, ts.title);
     return next;
   });
@@ -726,6 +739,8 @@ export async function countersign(actor: { userId: string; audit: AuditContext }
         body: `${ts.title} has been countersigned by the fund.`,
       });
     }
+    // BR-212: both parties have signed, so the deal moves to board review (never regressing a deal that moved on).
+    await advanceDealOnCountersign(tx, ts, actor.audit, userIds);
     return next;
   });
 }

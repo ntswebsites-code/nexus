@@ -23,6 +23,18 @@ import {
   updateTermSheetSchema,
   withdraw,
 } from '../term-sheets/term-sheets.service';
+import {
+  amendTermSheet,
+  createTemplate,
+  listTemplates,
+  reasonBody,
+  rejectByFund,
+  templateSchema,
+  templateUpdateSchema,
+  termSheetHistory,
+  updateTemplate,
+  voidTermSheet,
+} from '../term-sheets/term-sheets.extras';
 
 /**
  * `/api/v1/ops/term-sheets` - staff term sheet lifecycle (SRD 5D J6). Mounted under `opsRoutes`
@@ -56,6 +68,19 @@ async function view(id: string) {
 const listQuery = z.object({
   status: z.enum(TERM_SHEET_STATUSES).optional(),
   company: z.string().trim().max(36).optional(),
+});
+
+// ---- GAP-020: template library (registered before /:id so the literal path wins)
+opsTermSheetRoutes.get('/templates', VIEW, async (req, res) => {
+  res.json({ data: await listTemplates(req.query.includeArchived === 'true') });
+});
+
+opsTermSheetRoutes.post('/templates', CREATE, validateBody(templateSchema), idempotent('ops.term_sheet_template.create', { required: false }), async (req, res) => {
+  res.status(201).json({ data: await createTemplate({ userId: req.user!.id, audit: audit(req) }, req.body as z.infer<typeof templateSchema>) });
+});
+
+opsTermSheetRoutes.patch('/templates/:id', CREATE, validateBody(templateUpdateSchema), idempotent('ops.term_sheet_template.update', { required: false }), async (req, res) => {
+  res.json({ data: await updateTemplate({ userId: req.user!.id, audit: audit(req) }, param(req, 'id'), req.body as z.infer<typeof templateUpdateSchema>) });
 });
 
 opsTermSheetRoutes.get('/', VIEW, async (req, res) => {
@@ -139,4 +164,29 @@ opsTermSheetRoutes.post('/:id/withdraw', ISSUE, requireStepUp, validateBody(reas
   const ts = await loadTermSheet(param(req, 'id'));
   await withdraw(actor(req), ts, (req.body as z.infer<typeof reasonSchema>).reason);
   res.json({ data: await view(ts.id) });
+});
+
+// ---- GAP-020: fund-side reject and void, amendment versioning
+
+opsTermSheetRoutes.post('/:id/reject', APPROVE, requireStepUp, validateBody(reasonBody), idempotent('term_sheet.reject_by_fund'), async (req, res) => {
+  const ts = await loadTermSheet(param(req, 'id'));
+  await rejectByFund(actor(req), ts, (req.body as z.infer<typeof reasonBody>).reason);
+  res.json({ data: await view(ts.id) });
+});
+
+opsTermSheetRoutes.post('/:id/void', APPROVE, requireStepUp, validateBody(reasonBody), idempotent('term_sheet.void'), async (req, res) => {
+  const ts = await loadTermSheet(param(req, 'id'));
+  await voidTermSheet(actor(req), ts, (req.body as z.infer<typeof reasonBody>).reason);
+  res.json({ data: await view(ts.id) });
+});
+
+opsTermSheetRoutes.post('/:id/amend', ISSUE, requireStepUp, validateBody(reasonBody), idempotent('term_sheet.amend'), async (req, res) => {
+  const ts = await loadTermSheet(param(req, 'id'));
+  const next = await amendTermSheet(actor(req), ts, (req.body as z.infer<typeof reasonBody>).reason);
+  res.status(201).json({ data: await view(next.id) });
+});
+
+opsTermSheetRoutes.get('/:id/history', VIEW, async (req, res) => {
+  const ts = await loadTermSheet(param(req, 'id'));
+  res.json({ data: await termSheetHistory(ts) });
 });

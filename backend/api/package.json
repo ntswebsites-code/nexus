@@ -11,7 +11,7 @@
     "start": "node --env-file-if-exists=../../.env dist/server.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "db:validate": "prisma validate --schema prisma/schema.prisma",
-    "test:offline": "tsx scripts/offline-rules.ts && tsx scripts/test-admin-core.ts && tsx scripts/test-clients-onboarding.ts && tsx scripts/test-admin-platform.ts",
+    "test:offline": "tsx scripts/offline-rules.ts && tsx scripts/test-admin-core.ts && tsx scripts/test-clients-onboarding.ts && tsx scripts/test-admin-platform.ts && tsx scripts/offline-investee-deals.ts",
     "db:generate": "prisma generate --schema prisma/schema.prisma",
     "db:migrate": "dotenv -e ../../.env -- prisma migrate dev --schema prisma/schema.prisma",
     "db:deploy": "dotenv -e ../../.env -- prisma migrate deploy --schema prisma/schema.prisma",

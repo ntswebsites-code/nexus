@@ -30,6 +30,11 @@ import {
   createMeeting,
   forecastLockSchema,
   lockForecast,
+  resubmitRequisition,
+  resubmitSchema,
+  submitForecast,
+  submitRequisitionDraft,
+  submittedForecastVersions,
   meetingSchema,
   meetingsView,
   meetingUpdateSchema,
@@ -105,6 +110,27 @@ workspaceRoutes.post('/cap-table/waterfall', validateBody(waterfallSchema), asyn
 workspaceRoutes.post('/forecast/lock', requireProfile('sign'), validateBody(forecastLockSchema), async (req, res) => {
   ok(res, await lockForecast(inv(req), body(req), true, investeeAudit(req)), 'Months locked');
 });
+// BR-208: submitting freezes the working forecast as an immutable version
+workspaceRoutes.post('/forecast/submit', requireProfile('sign'), idempotent('investee.forecast.submit'), async (req, res) => {
+  ok(res, await submitForecast(inv(req), investeeAudit(req)), 'Forecast submitted');
+});
+workspaceRoutes.get('/forecast/versions', async (req, res) => {
+  ok(res, { versions: await submittedForecastVersions(inv(req).company.id) });
+});
+workspaceRoutes.get('/forecast/versions/:no', async (req, res) => {
+  const no = Number(param(req, 'no'));
+  if (!Number.isInteger(no) || no < 1) throw HttpError.badRequest('Version must be a whole number');
+  ok(res, await submittedForecastVersions(inv(req).company.id, no));
+});
+
+// ---- drawdown requests: submit a saved draft, resubmit after a return or rejection (BR-273)
+workspaceRoutes.post('/procurement/:ref/submit', edit, idempotent('investee.procurement.submit'), async (req, res) => {
+  ok(res, await submitRequisitionDraft(inv(req), param(req, 'ref'), investeeAudit(req)), 'Request submitted');
+});
+workspaceRoutes.post('/procurement/:ref/resubmit', edit, validateBody(resubmitSchema), idempotent('investee.procurement.resubmit'), async (req, res) => {
+  ok(res, await resubmitRequisition(inv(req), param(req, 'ref'), body(req), investeeAudit(req)), 'Request resubmitted');
+});
+
 workspaceRoutes.post('/forecast/unlock', requireProfile('manage_company'), validateBody(forecastLockSchema), async (req, res) => {
   ok(res, await lockForecast(inv(req), body(req), false, investeeAudit(req)), 'Months unlocked');
 });

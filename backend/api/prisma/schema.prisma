@@ -1007,6 +1007,8 @@ model PortfolioCompany {
   industry           String?  @db.VarChar(120)
   fundingStage       String?  @map("funding_stage") @db.VarChar(40)
   reportingCurrency  String   @default("USD") @map("reporting_currency") @db.Char(3)
+  /// BR-270: total committed investment tranche; when null or 0 the executed term sheets are summed instead.
+  totalCommittedAmount Decimal? @map("total_committed_amount") @db.Decimal(20, 4)
   letterhead         Json?
   createdAt          DateTime @default(now()) @map("created_at")
   updatedAt          DateTime @updatedAt @map("updated_at")
@@ -1592,7 +1594,7 @@ model TermSheet {
   companyId        String    @map("company_id") @db.Char(36)
   title            String    @db.VarChar(255)
   versionNo        Int       @default(1) @map("version_no")
-  /// DRAFT | ISSUED | VIEWED | SIGNED_BY_COMPANY | COUNTERSIGNED | EXECUTED | WITHDRAWN
+  /// DRAFT | ISSUED | VIEWED | SIGNED_BY_COMPANY | COUNTERSIGNED | EXECUTED | WITHDRAWN | REJECTED_BY_FUND | VOIDED | SUPERSEDED
   status           String    @default("DRAFT") @db.VarChar(20)
   investmentAmount Decimal   @map("investment_amount") @db.Decimal(20, 4)
   valuation        Decimal   @db.Decimal(20, 4)
@@ -1608,6 +1610,12 @@ model TermSheet {
   issuedAt         DateTime? @map("issued_at")
   viewedAt         DateTime? @map("viewed_at")
   signedAt         DateTime? @map("signed_at")
+  /// GAP-020: amendment chain (a new version points at the sheet it replaces) and the fund-side close reason.
+  parentId         String?   @map("parent_id") @db.Char(36)
+  amendmentReason  String?   @map("amendment_reason") @db.VarChar(500)
+  closeReason      String?   @map("close_reason") @db.VarChar(500)
+  closedById       String?   @map("closed_by_id") @db.Char(36)
+  closedAt         DateTime? @map("closed_at")
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
   version          Int       @default(1)
@@ -1615,6 +1623,7 @@ model TermSheet {
   company PortfolioCompany @relation(fields: [companyId], references: [id], onDelete: Cascade)
 
   @@index([companyId, status])
+  @@index([parentId])
   @@map("term_sheets")
 }
 
@@ -4376,6 +4385,8 @@ model InvesteeWorkspace {
   companyId         String    @id @map("company_id") @db.Char(36)
   ledgerPortfolioId String?   @map("ledger_portfolio_id") @db.Char(36)
   forecastScenario  String    @default("Base case") @map("forecast_scenario") @db.VarChar(16)
+  /// BR-208: number of the open working forecast version; submitting freezes it and opens the next.
+  forecastWorkingVersion Int  @default(1) @map("forecast_working_version")
   legacyMigratedAt  DateTime? @map("legacy_migrated_at")
   createdAt         DateTime  @default(now()) @map("created_at")
   updatedAt         DateTime  @updatedAt @map("updated_at")
@@ -4584,16 +4595,27 @@ model InvesteeRequisition {
   amount        Decimal   @default(0) @db.Decimal(20, 2)
   needBy        DateTime? @map("need_by") @db.Date
   priority      String    @default("Medium") @db.VarChar(8)
-  /// DRAFT | SUBMITTED | APPROVED | REJECTED | FULFILLED
-  status        String    @default("SUBMITTED") @db.VarChar(10)
+  /// DRAFT | SUBMITTED (pending VC executive review) | RETURNED | APPROVED | REJECTED | RFQ_SENT | CONVERTED_TO_PO | FULFILLED
+  status        String    @default("SUBMITTED") @db.VarChar(32)
   note          String?   @db.VarChar(2000)
   createdById   String    @map("created_by_id") @db.Char(36)
   createdByName String    @map("created_by_name") @db.VarChar(120)
   decidedBy     String?   @map("decided_by") @db.Char(36)
   decidedAt     DateTime? @map("decided_at")
+  /// BR-273: SHA-256 over header and amount at the last submission; a resubmission must change it.
+  fingerprint   String?   @db.Char(64)
+  /// Start of the 48 hour staff SLA (BR-230); reset on every (re)submission.
+  submittedAt   DateTime? @map("submitted_at")
+  /// BR-272: set when the request is approved; the ledger counts a request once this or an approved status holds.
+  approvedAt    DateTime? @map("approved_at")
+  rfqSentAt     DateTime? @map("rfq_sent_at")
+  rfqNote       String?   @map("rfq_note") @db.VarChar(500)
+  poRef         String?   @map("po_ref") @db.VarChar(40)
+  convertedAt   DateTime? @map("converted_at")
   createdAt     DateTime  @default(now()) @map("created_at")
 
   @@index([companyId, status])
+  @@index([status, submittedAt])
   @@map("investee_requisitions")
 }
 
@@ -6225,3 +6247,72 @@ model UserMfaBackupCode {
   @@map("user_mfa_backup_codes")
 }
 // ---- end LpPortalRemainder ----
+
+// ---- InvesteeDealsDepth ----
+/// BR-208: an immutable copy of the working forecast taken when it is submitted. The fund reads only these.
+model InvesteeForecastVersion {
+  id          String   @id @default(uuid()) @db.Char(36)
+  companyId   String   @map("company_id") @db.Char(36)
+  versionNo   Int      @map("version_no")
+  scenario    String   @db.VarChar(16)
+  /// { cells: { metric: { YYYY-MM: number } }, pnl: computed lines }
+  data        Json
+  sha256      String   @db.Char(64)
+  submittedBy String   @map("submitted_by") @db.Char(36)
+  submittedAt DateTime @default(now()) @map("submitted_at")
+
+  @@unique([companyId, versionNo])
+  @@map("investee_forecast_versions")
+}
+
+/// CMP-030: reserved matters the fund maintains per company; the notice period drives the decision due date (BR-218).
+model InvesteeReservedMatter {
+  id         String   @id @default(uuid()) @db.Char(36)
+  companyId  String   @map("company_id") @db.Char(36)
+  name       String   @db.VarChar(120)
+  detail     String   @default("") @db.VarChar(400)
+  noticeDays Int      @default(14) @map("notice_days")
+  sortOrder  Int      @default(0) @map("sort_order")
+  active     Boolean  @default(true)
+  createdBy  String   @map("created_by") @db.Char(36)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([companyId, name])
+  @@map("investee_reserved_matters")
+}
+
+/// A deal with a portfolio company, advanced by term sheet events (BR-212).
+model InvesteeDeal {
+  id             String   @id @default(uuid()) @db.Char(36)
+  /// DEAL-1001
+  ref            String   @unique @db.VarChar(16)
+  companyId      String   @map("company_id") @db.Char(36)
+  termSheetId    String?  @unique @map("term_sheet_id") @db.Char(36)
+  /// TERM_SHEET | TERM_SHEET_NEGOTIATION | UNDER_BOARD_REVIEW | APPROVED | CLOSED | DECLINED
+  stage          String   @default("TERM_SHEET") @db.VarChar(24)
+  stageChangedAt DateTime @default(now()) @map("stage_changed_at")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([companyId, stage])
+  @@map("investee_deals")
+}
+
+/// GAP-020: reusable term sheet starting points kept by the fund.
+model TermSheetTemplate {
+  id          String   @id @default(uuid()) @db.Char(36)
+  name        String   @unique @db.VarChar(120)
+  description String?  @db.VarChar(400)
+  keyTerms    Json?    @map("key_terms")
+  conditions  String?  @db.Text
+  timeline    String?  @db.Text
+  /// ACTIVE | ARCHIVED
+  status      String   @default("ACTIVE") @db.VarChar(10)
+  createdBy   String   @map("created_by") @db.Char(36)
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("term_sheet_templates")
+}
+// ---- end InvesteeDealsDepth ----

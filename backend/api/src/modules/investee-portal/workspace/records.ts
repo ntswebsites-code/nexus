@@ -2,117 +2,15 @@ import { z } from 'zod';
 import { prisma } from '../../../lib/prisma';
 import { HttpError } from '../../../lib/errors';
 import { writeAudit, type AuditContext } from '../../../lib/audit';
-import { nextRef } from '../../../lib/refs';
 import type { InvesteeContext } from '../investee.context';
 import { enqueue } from '../../../lib/outbox';
 import { companyUserIds } from '../remainders/mail';
-import { D, day, ensureWorkspace, isoDay, parseDay, refs, requireSigner, sha256 } from './store';
+import { day, ensureWorkspace, isoDay, parseDay, refs, requireSigner, sha256 } from './store';
+import { complianceHealth, noticeDaysFor, reservedMattersFor } from './compliance';
 
 const dayStr = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const monthStr = z.string().regex(/^\d{4}-\d{2}$/);
 
-// ---------------------------------------------------------------- forecast
-
-export const forecastSchema = z.object({
-  scenario: z.enum(['Base case', 'Upside', 'Downside']).optional(),
-  revenue: z.record(monthStr, z.number().finite().min(0, 'Forecast revenue cannot be negative')).optional(),
-});
-export const forecastLockSchema = z.object({ periods: z.array(monthStr).min(1).max(24) });
-
-function asObject(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
-function num(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim() && Number.isFinite(Number(value))) return Number(value);
-  return null;
-}
-
-function rollingMonths(now = new Date()) {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 3, 1));
-  return Array.from({ length: 12 }, (_, index) => {
-    const d = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + index, 1));
-    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
-    const stage = index < 3 ? 'actual-locked' : index === 3 ? 'actual-open' : 'forecast';
-    const label = d.toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' });
-    return { key, label, stage };
-  });
-}
-
-export async function forecastView(companyId: string) {
-  const ws = await ensureWorkspace(companyId);
-  const [cells, locks, periods] = await Promise.all([
-    prisma.investeeForecastCell.findMany({ where: { companyId, metric: 'revenue' } }),
-    prisma.investeeForecastLock.findMany({ where: { companyId } }),
-    prisma.reportingPeriod.findMany({ where: { companyId }, select: { period: true, status: true, kpiValues: true } }),
-  ]);
-  const stored = new Map(cells.map((c) => [c.period, c.value.toNumber()]));
-  const locked = new Set(locks.map((l) => l.period));
-  const actuals: Record<string, number | null> = {};
-  for (const period of periods) {
-    const revenue = num(asObject(period.kpiValues)?.totalRevenue);
-    if (revenue !== null && (period.status === 'submitted' || period.status === 'accepted')) actuals[period.period] = revenue;
-  }
-  const months = rollingMonths().map((m) => ({ ...m, locked: locked.has(m.key) }));
-  const forecast: Record<string, number | null> = {};
-  for (const m of months) if (m.stage !== 'actual-locked') forecast[m.key] = stored.get(m.key) ?? null;
-  const actualTotal = Object.values(actuals).reduce<number>((s, v) => s + (v ?? 0), 0);
-  const forecastTotal = Object.values(forecast).reduce<number>((s, v) => s + (v ?? 0), 0);
-  const scale = ws.forecastScenario === 'Upside' ? 1.15 : ws.forecastScenario === 'Downside' ? 0.8 : 1;
-  return {
-    scenario: ws.forecastScenario,
-    months,
-    actuals,
-    forecast,
-    lockedPeriods: [...locked].sort(),
-    scenarios: {
-      'Base case': { revenue: actualTotal + forecastTotal, note: 'Board working plan' },
-      Upside: { revenue: (actualTotal + forecastTotal) * 1.15, note: 'Accelerated growth' },
-      Downside: { revenue: (actualTotal + forecastTotal) * 0.8, note: 'Liquidity stress' },
-    },
-    activeRevenue: (actualTotal + forecastTotal) * scale,
-  };
-}
-
-export async function saveForecast(c: InvesteeContext, body: z.infer<typeof forecastSchema>, audit: AuditContext) {
-  const companyId = c.company.id;
-  await ensureWorkspace(companyId);
-  await prisma.$transaction(async (tx) => {
-    const cells = Object.entries(body.revenue ?? {});
-    if (cells.length) {
-      const locked = await tx.investeeForecastLock.findMany({ where: { companyId, period: { in: cells.map(([p]) => p) } } });
-      if (locked.length) throw HttpError.conflict(`${locked.map((l) => l.period).join(', ')} is locked and cannot be edited`, 'period_locked');
-    }
-    if (body.scenario) await tx.investeeWorkspace.update({ where: { companyId }, data: { forecastScenario: body.scenario } });
-    for (const [period, value] of cells) {
-      await tx.investeeForecastCell.upsert({
-        where: { companyId_period_metric: { companyId, period, metric: 'revenue' } },
-        create: { companyId, period, metric: 'revenue', value: new D(value), updatedBy: c.userId },
-        update: { value: new D(value), updatedBy: c.userId },
-      });
-    }
-    await writeAudit(tx, audit, { action: 'company.forecast.saved', objectType: 'investee_forecast', objectId: companyId, after: { scenario: body.scenario ?? null, cells: cells.length } });
-  });
-  return forecastView(companyId);
-}
-
-export async function lockForecast(c: InvesteeContext, body: z.infer<typeof forecastLockSchema>, lock: boolean, audit: AuditContext) {
-  requireSigner(c, lock ? 'lock forecast months' : 'unlock forecast months');
-  if (!lock && c.profile !== 'workspace_administrator') throw HttpError.forbidden('Only a workspace administrator can unlock a month', 'permission_denied');
-  const companyId = c.company.id;
-  await ensureWorkspace(companyId);
-  await prisma.$transaction(async (tx) => {
-    for (const period of body.periods) {
-      if (lock) {
-        await tx.investeeForecastLock.upsert({ where: { companyId_period: { companyId, period } }, create: { companyId, period, lockedBy: c.userId }, update: {} });
-      } else {
-        await tx.investeeForecastLock.deleteMany({ where: { companyId, period } });
-      }
-    }
-    await writeAudit(tx, audit, { action: lock ? 'company.forecast.locked' : 'company.forecast.unlocked', objectType: 'investee_forecast', objectId: companyId, after: { periods: body.periods } });
-  });
-  return forecastView(companyId);
-}
+export { forecastLockSchema, forecastSchema, forecastView, lockForecast, saveForecast, submitForecast, submittedForecastVersions } from './forecast';
 
 // ---------------------------------------------------------------- governance
 
@@ -143,14 +41,6 @@ export const boardActionSchema = z.object({
   meetingId: z.string().uuid().optional(),
 });
 export const boardActionUpdateSchema = z.object({ status: z.enum(['OPEN', 'COMPLETE']), evidence: z.string().trim().max(300).optional() });
-
-const RESERVED_MATTERS = [
-  { name: 'New debt', detail: 'Borrowing above the agreed facility, or security over company assets.' },
-  { name: 'Share capital', detail: 'Issue, transfer, buyback or a change to the option pool.' },
-  { name: 'Acquisitions', detail: 'A material acquisition or disposal.' },
-  { name: 'Executive changes', detail: 'Appointment, dismissal or a material remuneration change.' },
-  { name: 'Annual budget', detail: 'The annual budget and changes above the agreed tolerance.' },
-] as const;
 
 const consentView = (r: { ref: string; title: string; basis: string; submittedOn: Date; dueOn: Date; ownerName: string; status: string; note: string | null }) => ({
   id: r.ref,
@@ -196,11 +86,13 @@ export async function meetingsView(companyId: string) {
 export async function governanceView(c: InvesteeContext) {
   const companyId = c.company.id;
   await ensureWorkspace(companyId);
-  const [consents, actions, periods, meetings] = await Promise.all([
+  const [consents, actions, periods, meetings, reservedMatters, health] = await Promise.all([
     prisma.investeeConsent.findMany({ where: { companyId }, orderBy: { createdAt: 'desc' }, take: 50 }),
     prisma.investeeBoardAction.findMany({ where: { companyId }, orderBy: { createdAt: 'desc' }, take: 100 }),
     prisma.reportingPeriod.findMany({ where: { companyId, status: { in: ['open', 'returned'] } }, orderBy: { dueDate: 'asc' }, take: 4, select: { label: true, dueDate: true, status: true } }),
     meetingsView(companyId),
+    reservedMattersFor(companyId),
+    complianceHealth(companyId),
   ]);
   const consentRows = consents.map(consentView);
   const actionRows = actions.map(actionView);
@@ -212,12 +104,13 @@ export async function governanceView(c: InvesteeContext) {
     consents: consentRows,
     actions: actionRows,
     meetings,
-    reservedMatters: RESERVED_MATTERS,
+    reservedMatters: reservedMatters.map(({ name, detail, noticeDays }) => ({ name, detail, noticeDays })),
     calendar,
     metrics: {
       pendingConsents: consentRows.filter((r) => r.status === 'Investor review').length,
       openActions: actionRows.filter((a) => a.status !== 'Complete').length,
       upcomingMeetings: meetings.filter((m) => m.status === 'SCHEDULED').length,
+      complianceHealth: health,
     },
   };
 }
@@ -232,7 +125,8 @@ export async function addConsent(c: InvesteeContext, body: z.infer<typeof consen
         title: body.title,
         basis: body.basis,
         submittedOn: parseDay(day()),
-        dueOn: parseDay(body.due ?? day(new Date(Date.now() + 14 * 86400000))),
+        // BR-218: default decision date is the submission date plus the notice period of the matter
+        dueOn: parseDay(body.due ?? day(new Date(Date.now() + (await noticeDaysFor(tx, c.company.id, body.basis)) * 86400000))),
         ownerId: c.userId,
         ownerName: owner.slice(0, 120),
         note: body.note ?? null,
@@ -365,91 +259,19 @@ export async function updateBoardAction(c: InvesteeContext, id: string, body: z.
   return governanceView(c);
 }
 
-// ---------------------------------------------------------------- requisitions
-
-export const requisitionSchema = z.object({
-  title: z.string().trim().min(3).max(200),
-  description: z.string().trim().max(4000).optional(),
-  type: z.string().trim().max(80).optional(),
-  category: z.string().trim().max(80).optional(),
-  currency: z.string().trim().length(3).optional(),
-  amount: z.number().finite().nonnegative().optional(),
-  needBy: dayStr.optional(),
-  priority: z.enum(['High', 'Medium', 'Low']).optional(),
-  draft: z.boolean().optional(),
-});
-export const decisionSchema = z.object({ status: z.enum(['APPROVED', 'REJECTED', 'FULFILLED']), note: z.string().trim().max(2000).optional() });
-
-type ReqRow = Awaited<ReturnType<typeof prisma.investeeRequisition.findMany>>[number];
-const requisitionView = (r: ReqRow) => ({
-  id: r.ref,
-  title: r.title,
-  description: r.description ?? '',
-  status: r.status,
-  priority: r.priority,
-  sourcingCategory: r.category,
-  currency: r.currency,
-  estimatedAmount: r.amount.toNumber(),
-  needBy: isoDay(r.needBy) ?? '',
-  createdByName: r.createdByName,
-  createdAt: r.createdAt.toISOString(),
-  note: r.note ?? '',
-});
-
-export async function requisitionList(companyId: string) {
-  await ensureWorkspace(companyId);
-  const rows = await prisma.investeeRequisition.findMany({ where: { companyId }, orderBy: { createdAt: 'desc' }, take: 100 });
-  return rows.map(requisitionView);
-}
-
-export async function createRequisition(c: InvesteeContext, body: z.infer<typeof requisitionSchema>, owner: string, audit: AuditContext) {
-  await ensureWorkspace(c.company.id);
-  const row = await prisma.$transaction(async (tx) => {
-    const created = await tx.investeeRequisition.create({
-      data: {
-        ref: await nextRef(tx, 'request'),
-        companyId: c.company.id,
-        title: body.title,
-        description: body.description ?? null,
-        category: `${body.type ?? 'Capital request'}: ${body.category ?? 'Growth capital'}`.slice(0, 180),
-        currency: (body.currency ?? c.company.reportingCurrency ?? 'USD').toUpperCase(),
-        amount: new D(body.amount ?? 0),
-        needBy: body.needBy ? parseDay(body.needBy) : null,
-        priority: body.priority ?? 'Medium',
-        status: body.draft ? 'DRAFT' : 'SUBMITTED',
-        createdById: c.userId,
-        createdByName: owner.slice(0, 120),
-      },
-    });
-    await writeAudit(tx, audit, { action: 'company.requisition.created', objectType: 'investee_requisition', objectId: created.id, after: { ref: created.ref, status: created.status, amount: created.amount.toString() } });
-    if (created.status === 'SUBMITTED') {
-      await enqueue(tx, 'notify.permission', { permission: 'research.edit', type: 'investee.requisition_submitted', title: `${c.company.name} submitted request ${created.ref}`, body: `${created.title} - ${created.currency} ${created.amount.toString()}`, link: '/ops/investee-requests' });
-    }
-    return created;
-  });
-  return requisitionView(row);
-}
-
-export async function listRequisitionsForStaff() {
-  const rows = await prisma.investeeRequisition.findMany({ where: { status: { not: 'DRAFT' } }, orderBy: { createdAt: 'desc' }, take: 500 });
-  const companies = await prisma.portfolioCompany.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.companyId))] } }, select: { id: true, name: true, ref: true } });
-  const byId = new Map(companies.map((x) => [x.id, x]));
-  return rows.flatMap((r) => {
-    const co = byId.get(r.companyId);
-    return co ? [{ ...requisitionView(r), companyId: co.id, companyName: co.name, companyRef: co.ref }] : [];
-  });
-}
-
-export async function decideRequisition(companyId: string, requestRef: string, body: z.infer<typeof decisionSchema>, audit: AuditContext) {
-  return prisma.$transaction(async (tx) => {
-    const row = await tx.investeeRequisition.findFirst({ where: { companyId, ref: requestRef } });
-    if (!row) throw HttpError.notFound('Request not found');
-    const allowed: Record<string, string[]> = { SUBMITTED: ['APPROVED', 'REJECTED'], APPROVED: ['FULFILLED'] };
-    if (!allowed[row.status]?.includes(body.status)) throw HttpError.conflict(`A ${row.status} request cannot move to ${body.status}`, 'invalid_state');
-    const claim = await tx.investeeRequisition.updateMany({ where: { id: row.id, status: row.status }, data: { status: body.status, note: body.note ?? row.note, decidedBy: audit.actorId, decidedAt: new Date() } });
-    if (claim.count === 0) throw HttpError.conflict('This request was just decided', 'invalid_state');
-    await writeAudit(tx, audit, { action: 'company.requisition.decided', objectType: 'investee_requisition', objectId: row.id, before: { status: row.status }, after: { status: body.status } });
-    await enqueue(tx, 'notify.users', { userIds: [...new Set([row.createdById, ...(await companyUserIds(companyId))])], type: 'investee.requisition_decided', title: `Request ${row.ref} ${body.status.toLowerCase()}`, body: `${row.title}${body.note ? ` - ${body.note}` : ''}`, link: '/workspace', email: true });
-    return requisitionView({ ...row, status: body.status, note: body.note ?? row.note });
-  });
-}
+// Requisitions (drawdown requests), the tranche ledger and reserved matters live in ./requisitions and ./compliance.
+export {
+  createRequisition,
+  decideRequisition,
+  decisionSchema,
+  listRequisitionsForStaff,
+  requisitionList,
+  requisitionSchema,
+  requisitionTranche,
+  resubmitRequisition,
+  resubmitSchema,
+  setCommittedTranche,
+  slaBreachedRequisitions,
+  submitRequisitionDraft,
+  trancheSchema,
+} from './requisitions';

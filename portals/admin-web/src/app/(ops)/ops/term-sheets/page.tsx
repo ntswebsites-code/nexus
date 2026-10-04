@@ -6,8 +6,9 @@ import { api, ops } from '@/ops/api';
 import { CompanySelect } from '@/ops/lookups';
 import { compareDecimals, isDecimal } from '@/ops/money';
 import { useCan } from '@/ops/session';
-import type { TermSheet } from '@/ops/types';
+import type { TermSheet, TermSheetTemplate } from '@/ops/types';
 import {
+  ActionButton,
   amount,
   Card,
   DateText,
@@ -28,7 +29,9 @@ export default function TermSheetsPage() {
   const router = useRouter();
   const canCreate = useCan('term_sheets.create');
   const [creating, setCreating] = useState(false);
+  const [addingTemplate, setAddingTemplate] = useState(false);
   const sheets = useResource<TermSheet[]>(() => api.get<TermSheet[]>(ops('/term-sheets')), []);
+  const templates = useResource<TermSheetTemplate[]>(() => api.get<TermSheetTemplate[]>(ops('/term-sheets/templates?includeArchived=true')), []);
 
   return (
     <>
@@ -96,6 +99,100 @@ export default function TermSheetsPage() {
           }
         </Loaded>
       </Card>
+      <Card
+        title="Template library"
+        actions={
+          canCreate && (
+            <button className="ops-btn" type="button" onClick={() => setAddingTemplate(true)}>
+              New template
+            </button>
+          )
+        }
+      >
+        <Loaded res={templates} what="templates">
+          {(rows) =>
+            rows.length === 0 ? (
+              <Empty>No templates yet. A template pre-fills key terms, conditions and timeline for a new term sheet.</Empty>
+            ) : (
+              <div className="ops-table-wrap">
+                <table className="ops-table">
+                  <thead>
+                    <tr>
+                      <th>Template</th>
+                      <th>Status</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((tpl) => (
+                      <tr key={tpl.id}>
+                        <td>
+                          <strong>{tpl.name}</strong>
+                          <span className="ops-sub">{tpl.description ?? ''}</span>
+                        </td>
+                        <td>
+                          <StatusBadge status={tpl.status} />
+                        </td>
+                        <td>
+                          {canCreate && (
+                            <ActionButton
+                              label={tpl.status === 'ACTIVE' ? 'Archive' : 'Restore'}
+                              onRun={(key) => api.patch(ops(`/term-sheets/templates/${encodeURIComponent(tpl.id)}`), { status: tpl.status === 'ACTIVE' ? 'ARCHIVED' : 'ACTIVE' }, { idempotencyKey: key })}
+                              onDone={templates.reload}
+                            />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          }
+        </Loaded>
+      </Card>
+      {addingTemplate && (
+        <FormModal
+          wide
+          kicker="Term sheet · template"
+          title="New template"
+          submitLabel="Save template"
+          onClose={() => setAddingTemplate(false)}
+          onSubmit={(fd, key) => {
+            const keyTerms = str(fd, 'keyTerms')
+              .split('\n')
+              .map((l) => l.trim())
+              .filter(Boolean);
+            return api.post(
+              ops('/term-sheets/templates'),
+              { name: str(fd, 'name'), description: optStr(fd, 'description'), keyTerms: keyTerms.length ? keyTerms : undefined, conditions: optStr(fd, 'conditions'), timeline: optStr(fd, 'timeline') },
+              { idempotencyKey: key },
+            );
+          }}
+          onDone={() => {
+            setAddingTemplate(false);
+            templates.reload();
+          }}
+        >
+          <FieldGrid>
+            <Field label="Name">
+              <input className="ops-input" name="name" required maxLength={120} />
+            </Field>
+            <Field label="Description">
+              <input className="ops-input" name="description" maxLength={400} />
+            </Field>
+            <Field label="Key terms" span={2} hint="One term per line">
+              <textarea className="ops-input" name="keyTerms" rows={4} />
+            </Field>
+            <Field label="Conditions precedent" span={2}>
+              <textarea className="ops-input" name="conditions" rows={3} />
+            </Field>
+            <Field label="Timeline" span={2}>
+              <textarea className="ops-input" name="timeline" rows={2} />
+            </Field>
+          </FieldGrid>
+        </FormModal>
+      )}
       {creating && (
         <FormModal
           wide
@@ -126,6 +223,7 @@ export default function TermSheetsPage() {
                 keyTerms: keyTerms.length ? keyTerms : undefined,
                 conditions: optStr(fd, 'conditions'),
                 timeline: optStr(fd, 'timeline'),
+                templateId: optStr(fd, 'templateId'),
               },
               { idempotencyKey: key },
             );
@@ -142,6 +240,16 @@ export default function TermSheetsPage() {
             </Field>
             <Field label="Title">
               <input className="ops-input" name="title" required maxLength={255} placeholder="Series A term sheet" />
+            </Field>
+            <Field label="Start from template" span={2} hint="Optional. Anything you leave blank is filled in from the template.">
+              <select className="ops-input" name="templateId" defaultValue="">
+                <option value="">No template</option>
+                {(templates.state === 'ok' ? templates.data : []).filter((tpl) => tpl.status === 'ACTIVE').map((tpl) => (
+                  <option key={tpl.id} value={tpl.id}>
+                    {tpl.name}
+                  </option>
+                ))}
+              </select>
             </Field>
             <Field label="Investment amount">
               <input className="ops-input" name="investmentAmount" inputMode="decimal" required />

@@ -493,6 +493,9 @@ export const termSheetStatusSchema = z.enum([
   'EXECUTED',
   'DECLINED',
   'WITHDRAWN',
+  'REJECTED_BY_FUND',
+  'VOIDED',
+  'SUPERSEDED',
 ]);
 
 const personSchema = z.object({ id: z.string(), firstName: z.string(), lastName: z.string(), email: z.string() });

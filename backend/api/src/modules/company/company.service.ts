@@ -404,6 +404,24 @@ async function assertRevenueVariance(period: PeriodRow, input: DraftInput) {
   }
 }
 
+/**
+ * BR-251: a balance sheet in the pack must balance (assets = liabilities + equity, to the cent). Draft saves already
+ * refuse an unbalanced sheet; this re-checks the merged figures at submit so a pack cannot slip through by other routes.
+ */
+export function assertBalanceSheetBalances(period: PeriodRow, input: DraftInput) {
+  const merged = { ...((period.kpiValues as object | null) ?? {}), ...(input.kpis ?? {}) } as Record<string, unknown>;
+  const n = (key: string) => (typeof merged[key] === 'number' && Number.isFinite(merged[key]) ? (merged[key] as number) : undefined);
+  const assets = n('BS.totalAssets');
+  const liabilities = n('BS.totalLiabilities');
+  const equity = n('BS.totalEquity');
+  if (assets === undefined || liabilities === undefined || equity === undefined) return;
+  if (Math.abs(assets - (liabilities + equity)) > 0.02) {
+    throw HttpError.badRequest('Balance sheet does not balance: total assets must equal total liabilities plus equity', {
+      totalAssets: 'Assets must equal liabilities plus equity',
+    });
+  }
+}
+
 /** Builds the file a required pack item is missing when the investee submits figures from the portal. */
 function packFile(period: PeriodRow, item: { key: string; title: string; accept: string }) {
   const values = period.kpiValues && typeof period.kpiValues === 'object' ? (period.kpiValues as Record<string, unknown>) : {};
@@ -451,6 +469,7 @@ export async function submitPack(actor: PackActor, company: { name: string }, pe
   if (missing.length) {
     throw HttpError.badRequest(`Still needed: ${missing.map((i) => i.title).join(', ')}`, { missing: missing.map((i) => i.key) });
   }
+  assertBalanceSheetBalances(period, input);
   await assertRevenueVariance(period, input);
   const now = new Date();
   await prisma.$transaction(async (tx) => {

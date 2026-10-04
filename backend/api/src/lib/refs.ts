@@ -53,6 +53,7 @@ const FORMATS = {
   esign: { prefix: 'ESG-', pad: 5, start: 1 },
   tradeFeedLine: { prefix: 'TFL-', pad: 6, start: 1 },
   settleInstruction: { prefix: 'SIN-', pad: 5, start: 1 },
+  investeeDeal: { prefix: 'DEAL-', pad: 4, start: 1001 },
 } as const;
 
 /** Reference formats for the Settings numbering view. */

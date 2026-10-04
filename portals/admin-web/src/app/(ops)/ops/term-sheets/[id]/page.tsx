@@ -1,11 +1,15 @@
 'use client';
 
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
+import { useParams, useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { api, ops } from '@/ops/api';
 import { useSession } from '@/ops/session';
-import type { TermSheet } from '@/ops/types';
-import { ActionButton, Alert, Card, DefinitionList, formatDateTime, Loaded, Money, PageHeader, StatusBadge, useResource } from '@/ops/ui';
+import type { TermSheet, TermSheetVersion } from '@/ops/types';
+import { ActionButton, Alert, Card, DefinitionList, Field, FieldGrid, FormModal, formatDateTime, Loaded, Money, PageHeader, StatusBadge, str, useResource } from '@/ops/ui';
+
+const AMENDABLE = ['ISSUED', 'VIEWED', 'SIGNED_BY_COMPANY', 'DECLINED', 'REJECTED_BY_FUND'];
+const VOIDABLE = ['SIGNED_BY_COMPANY', 'COUNTERSIGNED'];
 
 export default function TermSheetDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -24,6 +28,12 @@ export default function TermSheetDetailPage() {
 
 function TermSheetDetail({ t, reload }: { t: TermSheet; reload: () => void }) {
   const { user, can } = useSession();
+  const router = useRouter();
+  const [reasonFor, setReasonFor] = useState<null | 'reject' | 'void' | 'amend'>(null);
+  const history = useResource<TermSheetVersion[]>(
+    () => (t.parentId || t.status === 'SUPERSEDED' ? api.get<TermSheetVersion[]>(ops(`/term-sheets/${encodeURIComponent(t.id)}/history`)) : Promise.resolve([])),
+    [t.id, t.status, t.parentId],
+  );
   const base = ops(`/term-sheets/${encodeURIComponent(t.id)}`);
   const s = t.status;
   const isMaker = !!t.createdById && t.createdById === user.id;
@@ -76,6 +86,21 @@ function TermSheetDetail({ t, reload }: { t: TermSheet; reload: () => void }) {
                 onDone={reload}
               />
             )}
+            {s === 'SIGNED_BY_COMPANY' && can('term_sheets.approve') && (
+              <button className="ops-btn danger" type="button" title="Requires a fresh authenticator code" onClick={() => setReasonFor('reject')}>
+                Reject for the fund
+              </button>
+            )}
+            {VOIDABLE.includes(s) && can('term_sheets.approve') && (
+              <button className="ops-btn danger" type="button" title="Requires a fresh authenticator code" onClick={() => setReasonFor('void')}>
+                Void
+              </button>
+            )}
+            {AMENDABLE.includes(s) && can('term_sheets.create', 'term_sheets.approve') && (
+              <button className="ops-btn" type="button" title="Creates the next version as a draft" onClick={() => setReasonFor('amend')}>
+                Amend
+              </button>
+            )}
             {s === 'APPROVED' && can('term_sheets.create', 'term_sheets.approve') && (
               <ActionButton
                 primary
@@ -89,6 +114,30 @@ function TermSheetDetail({ t, reload }: { t: TermSheet; reload: () => void }) {
         }
       />
       {pending && isMaker && <Alert kind="info">You prepared this term sheet. A different approver is required.</Alert>}
+      {t.closeReason && (s === 'REJECTED_BY_FUND' || s === 'VOIDED' || s === 'SUPERSEDED') && <Alert kind="warn">{`${s === 'SUPERSEDED' ? 'Superseded' : s === 'VOIDED' ? 'Voided' : 'Rejected by the fund'}: ${t.closeReason}`}</Alert>}
+      {t.amendmentReason && <Alert kind="info">{`Amendment of an earlier version: ${t.amendmentReason}`}</Alert>}
+      {reasonFor && (
+        <FormModal
+          kicker="Term sheet"
+          title={reasonFor === 'reject' ? 'Reject for the fund' : reasonFor === 'void' ? 'Void term sheet' : 'Amend term sheet'}
+          subtitle={reasonFor === 'amend' ? 'The current version is superseded and a new draft version is created for editing.' : 'The company is told and the reason is recorded.'}
+          submitLabel={reasonFor === 'reject' ? 'Reject' : reasonFor === 'void' ? 'Void' : 'Create amendment'}
+          onClose={() => setReasonFor(null)}
+          onSubmit={(fd, key) => api.post<TermSheet>(`${base}/${reasonFor}`, { reason: str(fd, 'reason') }, { idempotencyKey: key })}
+          onDone={(r) => {
+            const next = r as TermSheet | undefined;
+            setReasonFor(null);
+            if (reasonFor === 'amend' && next?.id) router.push(`/ops/term-sheets/${encodeURIComponent(next.id)}`);
+            else reload();
+          }}
+        >
+          <FieldGrid>
+            <Field label="Reason" span={2}>
+              <textarea className="ops-input" name="reason" rows={3} required minLength={3} maxLength={500} />
+            </Field>
+          </FieldGrid>
+        </FormModal>
+      )}
       <Card title="Terms">
         <DefinitionList
           items={[
@@ -104,6 +153,22 @@ function TermSheetDetail({ t, reload }: { t: TermSheet; reload: () => void }) {
           ]}
         />
       </Card>
+      <Loaded res={history} what="the version history">
+        {(versions) =>
+          versions.length > 1 ? (
+            <Card title="Versions">
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {versions.map((v) => (
+                  <li key={v.id}>
+                    {v.id === t.id ? <strong>{`v${v.versionNo} ${v.ref}`}</strong> : <Link href={`/ops/term-sheets/${encodeURIComponent(v.id)}`}>{`v${v.versionNo} ${v.ref}`}</Link>} <StatusBadge status={v.status} />
+                    {v.amendmentReason ? <span className="ops-sub"> {v.amendmentReason}</span> : null}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          ) : null
+        }
+      </Loaded>
       <div className="ops-split">
         <Card title="Key terms">
           {keyTerms.length ? (

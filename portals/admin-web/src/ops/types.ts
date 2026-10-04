@@ -241,6 +241,30 @@ export interface TermSheet {
   signedAt?: string | null;
   createdAt?: string;
   version?: number;
+  parentId?: string | null;
+  amendmentReason?: string | null;
+  closeReason?: string | null;
+  closedAt?: string | null;
+}
+
+export interface TermSheetTemplate {
+  id: string;
+  name: string;
+  description?: string | null;
+  keyTerms?: unknown;
+  conditions?: string | null;
+  timeline?: string | null;
+  status: 'ACTIVE' | 'ARCHIVED';
+}
+
+export interface TermSheetVersion {
+  id: string;
+  ref: string;
+  versionNo: number;
+  status: string;
+  amendmentReason?: string | null;
+  closeReason?: string | null;
+  createdAt: string;
 }
 
 /** Contract: `DayEndPackageSchema` in @matanho/shared plus staff-view extras. */

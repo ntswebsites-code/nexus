@@ -94,6 +94,7 @@ import {
   governanceView,
   requisitionList,
   requisitionSchema,
+  requisitionTranche,
   saveCapTable,
   saveForecast,
   signatureRequests,
@@ -186,7 +187,8 @@ investeePortalRoutes.get('/live', async (req, res) => {
   const c = inv(req);
   const envelope = <T>(data: T) => ({ success: true as const, message: 'OK', data, timestamp: new Date().toISOString() });
   const user = await prisma.user.findUniqueOrThrow({ where: { id: c.userId } });
-  const [mfa, company, dashboard, periods, termSheets, application, requisitions] = await Promise.all([
+  const [mfa, company, dashboard, periods, termSheets, application, requisitions, tranche] = await Promise.all([
+
     mfaEnabled(c.userId),
     companyPayload(c.company),
     dashboardView(c),
@@ -194,6 +196,7 @@ investeePortalRoutes.get('/live', async (req, res) => {
     termSheetList(req),
     applicationView(c),
     requisitionList(c.company.id),
+    requisitionTranche(c.company.id),
   ]);
   const items = periods.flatMap((p) => p.items.map((i) => statementReport(p, i, c.company, c.profile)));
   res.json({
@@ -204,7 +207,7 @@ investeePortalRoutes.get('/live', async (req, res) => {
     dashboard: envelope(dashboard),
     reportingRequests: envelope(periods.map((p) => reportingRequestView(p, c.company, c.profile))),
     financialReports: envelope({ page: 1, limit: items.length, total: items.length, items }),
-    drawdown: envelope({ requisitions }),
+    drawdown: envelope({ requisitions, tranche }),
     errors: [],
   });
 });
@@ -1030,7 +1033,9 @@ investeePortalRoutes.get('/application', async (req, res) => {
 });
 
 investeePortalRoutes.get('/procurement', async (req, res) => {
-  ok(res, { requisitions: await requisitionList(inv(req).company.id) });
+  const companyId = inv(req).company.id;
+  const [requisitions, tranche] = await Promise.all([requisitionList(companyId), requisitionTranche(companyId)]);
+  ok(res, { requisitions, tranche });
 });
 
 investeePortalRoutes.post('/procurement', requireProfile('edit_draft'), validateBody(requisitionSchema), idempotent('investee.procurement.create'), async (req, res) => {
