@@ -203,6 +203,9 @@ async function main() {
     // HOLDINGS reconciliation needs the portfolio mapped to a custodian account (recon account map)
     const rcCp = await prisma.counterparty.create({ data: { ref: `CPI${run}`, name: `IBOR Custodian ${run}`, type: 'CUSTODIAN', accounts: [`IACC-${run}`] } });
     await prisma.reconAccountMap.create({ data: { counterpartyId: rcCp.id, accountRef: `IACC-${run}`, portfolioId: p.id } });
+    // The HOLDINGS run compares the book with the custodian's day-end package for the date; without one the run is SOURCE_MISSING and
+    // the official-return IBOR control stays open. Supply a package whose holdings value agrees with the book.
+    await prisma.counterpartyDayEndPackage.create({ data: { ref: `D${run}`.slice(0, 20), counterpartyId: rcCp.id, accountRef: `IACC-${run}`, statementDate: dayDate(0), currency: 'USD', closingCash: D(0), holdingsMv: D(ov.kpis.marketValueBase), tradeCount: 0, submittedById: fa.id } });
     const rc = await cFa.post(`${I}/reconcile`, { portfolioId: p.id }, { 'Idempotency-Key': key('rc1') });
     check('reconcile runs the HOLDINGS family and returns the run', rc.status === 201 && /^RUN-\d{5}$/.test(rc.body?.data?.run?.ref), rc.body);
     check('the run is recorded in the book lineage', (await prisma.iborEvent.count({ where: { portfolioId: p.id, eventType: 'RECON' } })) === 1);
@@ -278,6 +281,7 @@ async function main() {
     await prisma.orderFill.deleteMany({ where: { order: { portfolioId: { in: pids } } } }).catch(() => undefined);
     await prisma.order.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
     await prisma.reconRun.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
+    await prisma.counterpartyDayEndPackage.deleteMany({ where: { accountRef: `IACC-${run}` } }).catch(() => undefined);
     await prisma.reconAccountMap.deleteMany({ where: { portfolioId: { in: pids } } }).catch(() => undefined);
     await prisma.counterparty.deleteMany({ where: { ref: `CPI${run}` } }).catch(() => undefined);
     await prisma.portfolio.deleteMany({ where: { id: { in: pids } } }).catch(() => undefined);
