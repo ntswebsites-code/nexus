@@ -15,8 +15,12 @@ import { uploadFiles } from '../../middleware/upload';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, seqRef } from '../ops/ops.common';
 import { accountRefs } from '../custodian/custodian.service';
-import { FAMILIES, FAMILY_LABEL, OPEN_STATUSES, type Family } from './recon.engine';
+import { CANDIDATE_KINDS, CAUSES, FAMILIES, FAMILY_LABEL, OPEN_STATUSES, scoreCandidate, type Family } from './recon.engine';
 import { dayStart, isoDay, reconGate, resolveTolerances, signoffScopeKey, todayIso } from './recon.service';
+import { recordCounterpartImport, newBatchRef, type ImportSource } from './recon.imports';
+import { looksLikeMt535, parseMt535 } from './recon.swift';
+import { getCustodianFeedAdapter } from '../../integrations/custodian-feed';
+import { IntegrationNotConfiguredError } from '../../integrations/common';
 
 /**
  * Reconciliation depth (GAP-006), mounted by `recon.routes.ts` under `/api/v1/recon`:
@@ -286,14 +290,30 @@ async function guardFeed(familyKey: Family, date: string, cpId: string) {
   if (signed || signedAll) throw HttpError.conflict('This family and date is signed off; reopen a break (which voids the sign-off) before replacing the source', 'signed_off');
 }
 
-async function receive(
-  req: Request,
-  opts: { feed: 'POSITIONS' | 'CORP_ACTIONS'; family: Family; head: z.infer<typeof feedHead>; cpId: string; cpRef: string; rows: Record<string, unknown>[]; cols: string[]; write: (tx: Prisma.TransactionClient, batchRef: string) => Promise<void> },
-) {
-  const bytes = feedBytes(req, opts.rows, opts.cols);
+interface ReceiveOpts {
+  feed: 'POSITIONS' | 'CORP_ACTIONS';
+  family: Family;
+  head: z.infer<typeof feedHead>;
+  cpId: string;
+  cpRef: string;
+  rows: Record<string, unknown>[];
+  cols: string[];
+  write: (tx: Prisma.TransactionClient, batchRef: string) => Promise<void>;
+  /** Channel (FR-REC-017): a staff upload or a connector pull; both run this same pipeline. */
+  source?: ImportSource;
+  connector?: string | null;
+  format?: string;
+  /** Original bytes when they are not the request's uploaded file. */
+  bytes?: { data: Buffer; name: string; mime?: string };
+}
+
+/** The shared pipeline: store the original, load the rows, upsert the receipt, record the counterpart_imports batch, audit. */
+async function receive(req: Request, opts: ReceiveOpts) {
+  const bytes = opts.bytes ?? feedBytes(req, opts.rows, opts.cols);
+  const source = opts.source ?? 'MANUAL';
   return prisma.$transaction(async (tx) => {
-    const batchRef = await seqRef(tx, 'reconFeed', 'FEED-', 5, 1);
-    const file = await storeFile({ name: bytes.name, mime: 'text/csv', data: bytes.data, uploadedById: req.user!.id }, tx);
+    const batchRef = await newBatchRef(tx);
+    const file = await storeFile({ name: bytes.name, mime: opts.bytes?.mime ?? 'text/csv', data: bytes.data, uploadedById: req.user!.id }, tx);
     await opts.write(tx, batchRef);
     const where = { counterpartyId_accountRef_asOfDate_feed: { counterpartyId: opts.cpId, accountRef: opts.head.accountRef, asOfDate: dayStart(opts.head.asOfDate), feed: opts.feed } };
     const before = await tx.reconSourceReceipt.findUnique({ where });
@@ -302,14 +322,31 @@ async function receive(
       update: { rowCount: opts.rows.length, sha256: file.sha256, fileId: file.id, version: { increment: 1 }, note: opts.head.note ?? null, receivedBy: req.user!.id, receivedAt: new Date() },
       create: { counterpartyId: opts.cpId, accountRef: opts.head.accountRef, asOfDate: dayStart(opts.head.asOfDate), feed: opts.feed, rowCount: opts.rows.length, sha256: file.sha256, fileId: file.id, note: opts.head.note ?? null, receivedBy: req.user!.id },
     });
+    const batch = await recordCounterpartImport(tx, {
+      ref: batchRef,
+      source,
+      connector: opts.connector ?? null,
+      feed: opts.feed,
+      counterpartyId: opts.cpId,
+      accountRef: opts.head.accountRef,
+      asOfDate: dayStart(opts.head.asOfDate),
+      filename: bytes.name,
+      format: opts.format ?? (req.file ? 'CSV' : 'JSON'),
+      recordCount: opts.rows.length,
+      sha256: file.sha256,
+      fileId: file.id,
+      receiptId: receipt.id,
+      note: opts.head.note ?? null,
+      createdBy: req.user!.id,
+    });
     await writeAudit(tx, audit(req), {
       action: opts.feed === 'POSITIONS' ? 'recon.custody_positions_received' : 'recon.custody_ca_received',
       objectType: 'recon_source_receipt',
       objectId: receipt.id,
       before: before ? { rowCount: before.rowCount, sha256: before.sha256, version: before.version } : null,
-      after: { counterparty: opts.cpRef, accountRef: opts.head.accountRef, asOfDate: opts.head.asOfDate, rows: opts.rows.length, sha256: file.sha256, version: receipt.version, batchRef, fileName: bytes.name },
+      after: { counterparty: opts.cpRef, accountRef: opts.head.accountRef, asOfDate: opts.head.asOfDate, rows: opts.rows.length, sha256: file.sha256, version: receipt.version, batchRef, fileName: bytes.name, source, connector: opts.connector ?? null, importId: batch.id },
     });
-    return { receipt, batchRef, replaced: !!before };
+    return { receipt, batchRef, replaced: !!before, importId: batch.id };
   });
 }
 
@@ -328,48 +365,151 @@ const receiptView = (r: Prisma.ReconSourceReceiptGetPayload<object>, cp?: { ref:
   receivedAt: iso(r.receivedAt),
 });
 
-async function feedPrelude(req: Request, cols: string[]) {
+async function feedPrelude(req: Request, cols: string[], feed: 'POSITIONS' | 'CORP_ACTIONS' = 'POSITIONS') {
   const head = parseWith(feedHead, { counterpartyId: req.body?.counterpartyId, accountRef: req.body?.accountRef, asOfDate: req.body?.asOfDate, note: req.body?.note || undefined });
   const cp = await counterpartyOf(head.counterpartyId);
   const known = accountRefs(cp!.accounts);
   if (known.length && !known.includes(head.accountRef)) throw HttpError.badRequest('Validation failed', [{ path: 'accountRef', message: `Not one of ${cp!.name}'s accounts (${known.join(', ')})` }]);
   let raw: unknown[] = [];
-  if (req.file) raw = csvToObjects(req.file.buffer.toString('utf8'), cols);
-  else if (typeof req.body?.csv === 'string') raw = csvToObjects(req.body.csv, cols);
-  else if (Array.isArray(req.body?.rows)) raw = req.body.rows;
-  else throw HttpError.badRequest('Validation failed', [{ path: 'rows', message: 'Send a CSV file, a csv string or a rows array' }]);
+  let format = 'CSV';
+  const text = req.file ? req.file.buffer.toString('utf8') : typeof req.body?.csv === 'string' ? req.body.csv : typeof req.body?.content === 'string' ? req.body.content : null;
+  if (text !== null && feed === 'POSITIONS' && looksLikeMt535(text)) {
+    format = 'MT535';
+    const mt = parseMt535(text);
+    const problems = [...mt.errors];
+    if (mt.accountRef && mt.accountRef !== head.accountRef) problems.push(`The statement is for safekeeping account ${mt.accountRef}, not ${head.accountRef}`);
+    if (mt.asOfDate && mt.asOfDate !== head.asOfDate) problems.push(`The statement is dated ${mt.asOfDate}, not ${head.asOfDate}`);
+    const missing = mt.rows.filter((r) => !r.ticker && r.isin);
+    const secs = missing.length ? await prisma.security.findMany({ where: { isin: { in: missing.map((r) => r.isin!) } }, select: { isin: true, ticker: true } }) : [];
+    const byIsin = new Map(secs.map((x) => [x.isin, x.ticker]));
+    raw = mt.rows.map((r) => {
+      const ticker = r.ticker ?? byIsin.get(r.isin!) ?? null;
+      if (!ticker) problems.push(`ISIN ${r.isin} is not a known security and the statement gives no ticker`);
+      return { ticker: ticker ?? '', isin: r.isin ?? null, quantity: r.quantity };
+    });
+    if (problems.length) throw HttpError.badRequest('The MT535 statement could not be read', problems.slice(0, 50).map((message) => ({ path: 'content', message })));
+  } else if (text !== null && (req.file || typeof req.body?.csv === 'string' || typeof req.body?.content === 'string')) raw = csvToObjects(text, cols);
+  else if (Array.isArray(req.body?.rows)) {
+    raw = req.body.rows;
+    format = 'JSON';
+  } else throw HttpError.badRequest('Validation failed', [{ path: 'rows', message: 'Send a CSV or MT535 file, a csv string or a rows array' }]);
   if (raw.length > MAX_ROWS) throw HttpError.badRequest('Validation failed', [{ path: 'rows', message: `At most ${MAX_ROWS} rows per file` }]);
-  return { head, cp: cp!, raw };
+  return { head, cp: cp!, raw, format };
 }
 
-reconExtRoutes.post('/custody-positions', ...canManage, uploadFiles('file'), idempotent('recon.feed.positions', { required: false }), async (req, res) => {
-  const { head, cp, raw } = await feedPrelude(req, ['ticker', 'quantity', 'isin']);
-  const rows = parseWith(z.array(posRow).max(MAX_ROWS), raw);
+type PosInput = z.infer<typeof posRow>;
+/** Validates a positions file (no duplicate security) and loads it through the shared receive pipeline. */
+async function receivePositions(req: Request, o: { head: z.infer<typeof feedHead>; cp: { id: string; ref: string }; rows: PosInput[]; source: ImportSource; connector?: string | null; format: string; bytes?: ReceiveOpts['bytes'] }) {
   const seen = new Set<string>();
-  for (const r of rows) {
+  for (const r of o.rows) {
     const k = r.ticker.trim().toUpperCase();
     if (seen.has(k)) throw HttpError.badRequest('Validation failed', [{ path: 'rows', message: `Duplicate security ${k} in the file` }]);
     seen.add(k);
   }
-  await guardFeed('POSITIONS_VS_CUSTODY', head.asOfDate, cp.id);
-  const out = await receive(req, {
+  await guardFeed('POSITIONS_VS_CUSTODY', o.head.asOfDate, o.cp.id);
+  return receive(req, {
     feed: 'POSITIONS',
     family: 'POSITIONS_VS_CUSTODY',
-    head,
-    cpId: cp.id,
-    cpRef: cp.ref,
-    rows: rows as unknown as Record<string, unknown>[],
+    head: o.head,
+    cpId: o.cp.id,
+    cpRef: o.cp.ref,
+    rows: o.rows as unknown as Record<string, unknown>[],
     cols: ['ticker', 'quantity', 'isin'],
+    source: o.source,
+    connector: o.connector ?? null,
+    format: o.format,
+    bytes: o.bytes,
     write: async (tx, batchRef) => {
-      await tx.reconCustodyPosition.deleteMany({ where: { counterpartyId: cp.id, accountRef: head.accountRef, asOfDate: dayStart(head.asOfDate) } });
-      if (rows.length) await tx.reconCustodyPosition.createMany({ data: rows.map((r) => ({ counterpartyId: cp.id, accountRef: head.accountRef, asOfDate: dayStart(head.asOfDate), ticker: r.ticker.trim().toUpperCase(), isin: r.isin?.trim() || null, quantity: r.quantity, batchRef, createdBy: req.user!.id })) });
+      await tx.reconCustodyPosition.deleteMany({ where: { counterpartyId: o.cp.id, accountRef: o.head.accountRef, asOfDate: dayStart(o.head.asOfDate) } });
+      if (o.rows.length) await tx.reconCustodyPosition.createMany({ data: o.rows.map((r) => ({ counterpartyId: o.cp.id, accountRef: o.head.accountRef, asOfDate: dayStart(o.head.asOfDate), ticker: r.ticker.trim().toUpperCase(), isin: r.isin?.trim() || null, quantity: r.quantity, batchRef, createdBy: req.user!.id })) });
     },
   });
-  res.status(out.replaced ? 200 : 201).json({ data: receiptView(out.receipt, cp, req.user!.email), batchRef: out.batchRef, rows: rows.length, replaced: out.replaced });
+}
+
+reconExtRoutes.post('/custody-positions', ...canManage, uploadFiles('file'), idempotent('recon.feed.positions', { required: false }), async (req, res) => {
+  const { head, cp, raw, format } = await feedPrelude(req, ['ticker', 'quantity', 'isin']);
+  const rows = parseWith(z.array(posRow).max(MAX_ROWS), raw);
+  const out = await receivePositions(req, { head, cp, rows, source: 'MANUAL', format });
+  res.status(out.replaced ? 200 : 201).json({ data: receiptView(out.receipt, cp, req.user!.email), batchRef: out.batchRef, importId: out.importId, rows: rows.length, replaced: out.replaced });
+});
+
+/**
+ * Connector route (FR-REC-017): pull the account's holdings for the date from the configured custodian-feed adapter
+ * (file-drop, fake, or live which answers 503 until credentials exist) and load them through the same pipeline a manual
+ * upload uses, so the batch carries source CONNECTOR with the adapter name.
+ */
+const connectorBody = z.object({ counterpartyId: id36, accountRef: z.string().trim().min(1).max(64), asOfDate: dateStr, note: z.string().trim().max(500).optional() }).strict();
+reconExtRoutes.post('/connector-imports', ...canManage, validateBody(connectorBody), idempotent('recon.connector_import', { required: false }), async (req, res) => {
+  const b = req.body as z.infer<typeof connectorBody>;
+  const cp = (await counterpartyOf(b.counterpartyId))!;
+  const known = accountRefs(cp.accounts);
+  if (known.length && !known.includes(b.accountRef)) throw HttpError.badRequest('Validation failed', [{ path: 'accountRef', message: `Not one of ${cp.name}'s accounts (${known.join(', ')})` }]);
+  const head = { counterpartyId: cp.id, accountRef: b.accountRef, asOfDate: b.asOfDate, note: b.note };
+  let holdings: { ticker: string; isin?: string | null; quantity: string }[];
+  let connector: string;
+  try {
+    const adapter = getCustodianFeedAdapter();
+    connector = adapter.name;
+    const statements = await adapter.listStatements({ counterpartyId: cp.id, accountRef: b.accountRef, from: b.asOfDate, to: b.asOfDate, limit: 5 });
+    const st = statements.find((x) => x.accountRef === b.accountRef && x.statementDate === b.asOfDate);
+    if (!st) throw new HttpError(404, 'no_statement', `The ${connector} connector has no statement for ${b.accountRef} on ${b.asOfDate}`);
+    holdings = await adapter.fetchHoldings(st.id);
+  } catch (e) {
+    if (e instanceof IntegrationNotConfiguredError) throw new HttpError(503, e.code, e.message, { requiredEnv: e.requiredEnv });
+    throw e;
+  }
+  const rows = parseWith(
+    z.array(posRow).max(MAX_ROWS),
+    holdings.filter((h) => Number(h.quantity) > 0).map((h) => ({ ticker: h.ticker, isin: h.isin ?? null, quantity: String(h.quantity) })),
+  );
+  const out = await receivePositions(req, {
+    head,
+    cp,
+    rows,
+    source: 'CONNECTOR',
+    connector,
+    format: 'CSV',
+    bytes: { ...feedBytes(req, rows as unknown as Record<string, unknown>[], ['ticker', 'quantity', 'isin']), name: `connector-${connector}-${b.accountRef}-${b.asOfDate}.csv` },
+  });
+  res.status(out.replaced ? 200 : 201).json({ data: receiptView(out.receipt, cp, req.user!.email), batchRef: out.batchRef, importId: out.importId, connector, rows: rows.length, replaced: out.replaced });
+});
+
+const importsQuery = z.object({ asOf: dateStr.optional(), counterpartyId: z.string().optional(), accountRef: z.string().optional(), feed: z.enum(['POSITIONS', 'CORP_ACTIONS', 'STATEMENT']).optional(), source: z.enum(['MANUAL', 'CONNECTOR']).optional(), limit: z.coerce.number().int().min(1).max(200).default(50) });
+reconExtRoutes.get('/counterpart-imports', ...canView, validateQuery(importsQuery), async (req, res) => {
+  const q = query<z.infer<typeof importsQuery>>(req);
+  const cp = await counterpartyOf(q.counterpartyId);
+  const rows = await prisma.reconCounterpartImport.findMany({
+    where: { ...(q.asOf ? { asOfDate: dayStart(q.asOf) } : {}), ...(cp ? { counterpartyId: cp.id } : {}), ...(q.accountRef ? { accountRef: q.accountRef } : {}), ...(q.feed ? { feed: q.feed } : {}), ...(q.source ? { source: q.source } : {}) },
+    orderBy: [{ createdAt: 'desc' }],
+    take: q.limit,
+  });
+  const cps = await prisma.counterparty.findMany({ where: { id: { in: [...new Set(rows.map((r) => r.counterpartyId))] } }, select: { id: true, ref: true, name: true } });
+  const cpBy = new Map(cps.map((c) => [c.id, c]));
+  const names = await userNames(rows.map((r) => r.createdBy));
+  res.json({
+    data: rows.map((r) => ({
+      id: r.id,
+      ref: r.ref,
+      source: r.source,
+      connector: r.connector,
+      feed: r.feed,
+      counterparty: cpBy.get(r.counterpartyId) ?? { id: r.counterpartyId },
+      accountRef: r.accountRef,
+      asOfDate: isoDay(r.asOfDate),
+      filename: r.filename,
+      format: r.format,
+      recordCount: r.recordCount,
+      sha256: r.sha256,
+      status: r.status,
+      note: r.note,
+      createdByName: names.get(r.createdBy) ?? null,
+      createdAt: iso(r.createdAt),
+    })),
+  });
 });
 
 reconExtRoutes.post('/custody-ca-notices', ...canManage, uploadFiles('file'), idempotent('recon.feed.ca', { required: false }), async (req, res) => {
-  const { head, cp, raw } = await feedPrelude(req, ['ticker', 'exDate', 'payDate', 'quantity', 'cashAmount', 'currency', 'caType', 'externalRef']);
+  const { head, cp, raw, format } = await feedPrelude(req, ['ticker', 'exDate', 'payDate', 'quantity', 'cashAmount', 'currency', 'caType', 'externalRef'], 'CORP_ACTIONS');
   const rows = parseWith(z.array(caRow).max(MAX_ROWS), raw);
   for (const r of rows) {
     if (r.payDate !== head.asOfDate) throw HttpError.badRequest('Validation failed', [{ path: 'rows', message: `Every notice must pay on ${head.asOfDate} (the file date); ${r.ticker} pays ${r.payDate}` }]);
@@ -384,6 +524,7 @@ reconExtRoutes.post('/custody-ca-notices', ...canManage, uploadFiles('file'), id
     cpRef: cp.ref,
     rows: rows as unknown as Record<string, unknown>[],
     cols: ['ticker', 'exDate', 'payDate', 'quantity', 'cashAmount', 'currency', 'caType', 'externalRef'],
+    format,
     write: async (tx, batchRef) => {
       await tx.reconCustodyCaNotice.deleteMany({ where: { counterpartyId: cp.id, accountRef: head.accountRef, payDate: dayStart(head.asOfDate) } });
       if (rows.length)
@@ -392,7 +533,7 @@ reconExtRoutes.post('/custody-ca-notices', ...canManage, uploadFiles('file'), id
         });
     },
   });
-  res.status(out.replaced ? 200 : 201).json({ data: receiptView(out.receipt, cp, req.user!.email), batchRef: out.batchRef, rows: rows.length, replaced: out.replaced });
+  res.status(out.replaced ? 200 : 201).json({ data: receiptView(out.receipt, cp, req.user!.email), batchRef: out.batchRef, importId: out.importId, rows: rows.length, replaced: out.replaced });
 });
 
 const feedQuery = z.object({ asOf: dateStr.optional(), counterpartyId: z.string().optional(), accountRef: z.string().optional() });
@@ -648,3 +789,82 @@ reconExtRoutes.get('/gate', ...canView, validateQuery(z.object({ portfolioId: z.
 });
 
 export { signoffScopeKey, OPEN_STATUSES };
+
+// ================================================================ candidate matches (FR-REC-006)
+
+type Dec = Prisma.Decimal;
+const D = Prisma.Decimal;
+const sideOf = (b: BreakRow) => {
+  const v = (b.internalValue ?? b.externalValue) as Record<string, unknown> | null;
+  if (!v || typeof v.ticker !== 'string' || typeof v.side !== 'string') return null;
+  try {
+    return { ticker: v.ticker, side: v.side, quantity: new D(String(v.quantity)) as Dec, price: v.price !== undefined && v.price !== null ? (new D(String(v.price)) as Dec) : null };
+  } catch {
+    return null;
+  }
+};
+
+/** Open breaks on the other side of the same trade reconciliation that could be the same trade, best score first. */
+async function candidatesFor(b: BreakRow) {
+  const want = CANDIDATE_KINDS[b.kind];
+  const mine = sideOf(b);
+  if (b.family !== 'TRADES' || !want || !mine) return [];
+  const run = await prisma.reconRun.findUnique({ where: { id: b.runId }, select: { asOfDate: true } });
+  if (!run) return [];
+  const others = await prisma.reconBreak.findMany({
+    where: { family: 'TRADES', kind: want, id: { not: b.id }, status: { in: ['NEW', 'ASSIGNED', 'INVESTIGATING'] }, ...(b.portfolioId ? { portfolioId: b.portfolioId } : {}), run: { asOfDate: run.asOfDate } },
+    take: 200,
+  });
+  const out = [];
+  for (const o of others) {
+    const theirs = sideOf(o);
+    const sc = theirs ? scoreCandidate(mine, theirs) : null;
+    if (sc) out.push({ id: o.id, ref: o.ref, kind: o.kind, label: o.label, severity: o.severity, status: o.status, score: sc.score, reasons: sc.reasons, internalValue: o.internalValue, externalValue: o.externalValue });
+  }
+  return out.sort((x, y) => y.score - x.score || x.ref.localeCompare(y.ref)).slice(0, 10);
+}
+
+reconExtRoutes.get('/breaks/:id/candidates', ...canView, async (req, res) => {
+  const b = await loadBreak(param(req, 'id'));
+  res.json({ data: isOpen(b) ? await candidatesFor(b) : [] });
+});
+
+const acceptSchema = z
+  .object({ candidateBreakId: id36, cause: z.enum(CAUSES), rationale: z.string().trim().min(10, 'Explain why these are the same trade (10+ characters)').max(2000), version: z.number().int().optional() })
+  .strict();
+
+/**
+ * Accept candidate match (maker): the break and its counterpart are the same trade, so both go to the checker with the
+ * candidate recorded as the evidence. The independent checker approves each as usual (maker is never the checker).
+ */
+reconExtRoutes.post('/breaks/:id/accept-candidate', ...canManage, validateBody(acceptSchema), idempotent('recon.accept_candidate', { required: false }), async (req, res) => {
+  const b = await loadBreak(param(req, 'id'));
+  if (!isOpen(b)) throw HttpError.conflict(`Break ${b.ref} is ${b.status}; a candidate can only be accepted while it is open`, 'invalid_transition');
+  expectVersion(req, b.version);
+  const body = req.body as z.infer<typeof acceptSchema>;
+  const cands = await candidatesFor(b);
+  const cand = cands.find((c) => c.id === body.candidateBreakId);
+  if (!cand) throw HttpError.badRequest('Validation failed', [{ path: 'candidateBreakId', message: 'That break is not an open candidate for this one' }]);
+  const peer = await loadBreak(cand.id);
+  const accepted = { breakId: peer.id, ref: peer.ref, kind: peer.kind, score: cand.score, reasons: cand.reasons } as unknown as Prisma.InputJsonValue;
+  const acceptedBack = { breakId: b.id, ref: b.ref, kind: b.kind, score: cand.score, reasons: cand.reasons } as unknown as Prisma.InputJsonValue;
+  await prisma.$transaction(async (tx) => {
+    const now = new Date();
+    for (const [x, other, json] of [[b, peer, accepted], [peer, b, acceptedBack]] as const) {
+      assertUpdated(
+        (
+          await tx.reconBreak.updateMany({
+            where: { id: x.id, version: x.version, status: x.status },
+            data: { status: 'PENDING_CHECKER', cause: body.cause, resolutionNote: body.rationale, evidenceRef: `Candidate match ${other.ref}`.slice(0, 255), acceptedCandidate: json, makerId: req.user!.id, resolvedAt: now, checkerId: null, version: { increment: 1 } },
+          })
+        ).count,
+      );
+      await tx.reconBreakEvent.create({
+        data: { breakId: x.id, action: x === b ? 'candidate_accepted' : 'candidate_accepted_peer', fromStatus: x.status, toStatus: 'PENDING_CHECKER', actorId: req.user!.id, note: body.rationale, detail: { candidate: other.ref, score: cand.score, reasons: cand.reasons } },
+      });
+      await writeAudit(tx, audit(req), { action: 'recon.break_candidate_accepted', objectType: 'recon_break', objectId: x.id, before: { status: x.status, ref: x.ref }, after: { status: 'PENDING_CHECKER', ref: x.ref, candidate: other.ref, score: cand.score, cause: body.cause }, reason: body.rationale });
+    }
+    await enqueue(tx, 'notify.permission', { permission: 'recon.signoff', type: 'recon.break_pending_checker', title: `Breaks ${b.ref} and ${peer.ref} are ready for your approval`, body: `Candidate match accepted: ${b.label}`, link: `/ops/reconciliation?break=${b.id}` });
+  });
+  res.json({ data: { ref: b.ref, status: 'PENDING_CHECKER', candidate: { ref: peer.ref, status: 'PENDING_CHECKER', score: cand.score } } });
+});

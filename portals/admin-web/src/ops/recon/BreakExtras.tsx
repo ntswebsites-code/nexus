@@ -4,10 +4,10 @@ import { useState, type FormEvent } from 'react';
 import { apiDownload, apiRequest, apiUpload, OpsError } from '../api';
 import { Alert, DateText, Field, FormModal, Loaded, optStr, str, useAction, useResource } from '../ui';
 import { recon, useCounterparties, useStaffUsers } from './common';
-import type { Allowed, BreakExtras, ReconBreak } from './types';
+import { CAUSES, type Allowed, type BreakCandidate, type BreakExtras, type ReconBreak } from './types';
 
 const size = (n: number) => (n < 1024 ? `${n} B` : n < 1_048_576 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1_048_576).toFixed(1)} MB`);
-type Dialog = null | 'query' | 'escalate' | 'reopen';
+type Dialog = null | 'query' | 'escalate' | 'reopen' | 'candidate';
 
 /**
  * Evidence files, queries to the source, escalations and reopen for one break. The server decides what the user may
@@ -127,6 +127,9 @@ export function BreakExtras({ b, allowed, onChanged }: { b: ReconBreak; allowed:
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '12px 0' }}>
         <button className="ops-btn" type="button" disabled={!allowed.query} onClick={() => setDialog('query')} title="Ask the counterparty about this item; the custodian execution is flagged Queried">Query source</button>
         <button className="ops-btn" type="button" disabled={!allowed.escalate} onClick={() => setDialog('escalate')} title="Hand the break to a senior colleague">Escalate</button>
+        {allowed.acceptCandidate && (
+          <button className="ops-btn" type="button" onClick={() => setDialog('candidate')} title="Pair this break with the break on the other side that is the same trade">Accept candidate match</button>
+        )}
         <button className="ops-btn danger" type="button" disabled={!allowed.reopen} onClick={() => { setSignedOff(false); setDialog('reopen'); }} title="Checker only; asks for your authentication code">Reopen</button>
       </div>
 
@@ -172,6 +175,7 @@ export function BreakExtras({ b, allowed, onChanged }: { b: ReconBreak; allowed:
           </Field>
         </FormModal>
       )}
+      {dialog === 'candidate' && <CandidateDialog b={b} onClose={() => setDialog(null)} onDone={done} />}
       {dialog === 'reopen' && (
         <FormModal
           kicker={b.ref}
@@ -200,5 +204,53 @@ export function BreakExtras({ b, allowed, onChanged }: { b: ReconBreak; allowed:
         </FormModal>
       )}
     </>
+  );
+}
+
+
+/** Lists the open breaks on the other side that look like the same trade; the maker accepts one with a cause and rationale. */
+function CandidateDialog({ b, onClose, onDone }: { b: ReconBreak; onClose: () => void; onDone: () => void }) {
+  const res = useResource<BreakCandidate[]>(() => apiRequest<{ data: BreakCandidate[] }>('GET', recon(`/breaks/${b.id}/candidates`)).then((r) => r.data), [b.id]);
+  const [pick, setPick] = useState('');
+  return (
+    <FormModal
+      kicker={b.ref}
+      title="Accept candidate match"
+      subtitle="Pairs this break with the break on the other side that is the same trade. Both go to an independent checker; you cannot approve them."
+      submitLabel="Send to checker"
+      disabled={!pick}
+      onClose={onClose}
+      onDone={onDone}
+      onSubmit={(fd) => apiRequest('POST', recon(`/breaks/${b.id}/accept-candidate`), { candidateBreakId: pick, cause: str(fd, 'cause'), rationale: str(fd, 'rationale'), version: b.version })}
+    >
+      <Loaded res={res} what="candidate matches">
+        {(rows) =>
+          rows.length === 0 ? (
+            <p className="ops-muted" style={{ margin: 0 }}>No open break on the other side looks like this trade, so there is nothing to accept.</p>
+          ) : (
+            <fieldset style={{ border: 0, padding: 0, margin: '0 0 8px' }}>
+              <legend className="ops-sub">Candidates, best match first</legend>
+              {rows.map((r) => (
+                <label key={r.id} style={{ display: 'block', marginBottom: 6 }}>
+                  <input type="radio" name="candidate" value={r.id} checked={pick === r.id} onChange={() => setPick(r.id)} /> <strong>{r.ref}</strong> score {r.score}: {r.label}
+                  <span className="ops-sub">{r.reasons.join(', ')}</span>
+                </label>
+              ))}
+            </fieldset>
+          )
+        }
+      </Loaded>
+      <Field label="Cause">
+        <select className="ops-input" name="cause" required defaultValue="">
+          <option value="">Choose a cause</option>
+          {CAUSES.map((c) => (
+            <option key={c.key} value={c.key}>{c.label}</option>
+          ))}
+        </select>
+      </Field>
+      <Field label="Rationale" hint="At least 10 characters: why these two are the same trade.">
+        <textarea className="ops-input" name="rationale" required minLength={10} maxLength={2000} rows={3} />
+      </Field>
+    </FormModal>
   );
 }

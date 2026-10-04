@@ -12,7 +12,9 @@ import { validateBody, validateQuery } from '../../middleware/validate';
 import { requireAuth, requirePermission, requirePortalAccess, requireStepUp } from '../../middleware/requireAuth';
 import { assertUpdated, audit, notifyPermission } from '../ops/ops.common';
 import { ccy, dateStr, D, f2, f4, invalidState, listPage, names, nonNegative, pct, portfolioFilter, portfolioMap, positive, reasonSchema, resolvePortfolioId, resolveSecurity, securityMap, sod, statusIn, toDate, today, UUID, ZERO } from '../rp-common';
-import { FACILITY_TYPES, margin, OPEN_CALL, termsProblems } from './fin.engine';
+import { DISPOSITION_KINDS, DISPUTE_OUTCOMES, FACILITY_TYPES, dispositionProblems, margin, OPEN_CALL, termsProblems } from './fin.engine';
+import { autoCashJournal } from '../wiring/autojournals';
+import { hasPermission } from '../../lib/http';
 import { callViews, drawnOf, facilityMargin, facilityViews, loadRules, marginView, valuationView, valuePoolById, type CallRow, type FacilityRow, type PoolRow } from './fin.service';
 
 /**
@@ -469,6 +471,7 @@ financingRoutes.post('/calls/:id/dispute', ...canManage, validateBody(reasonSche
 financingRoutes.post('/calls/:id/resolve', ...canManage, requireStepUp, validateBody(z.object({ note: z.string().trim().min(5).max(500) }).strict()), idempotent('fin.call_resolve', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
   if (!OPEN_CALL.includes(c.status)) throw invalidState(`${c.ref} is ${c.status}; it is not open`);
+  pendingGuard(c);
   const note = (req.body as { note: string }).note;
   await prisma.$transaction(async (tx) => {
     const f = await tx.finFacility.findUniqueOrThrow({ where: { id: c.facilityId } });
@@ -483,6 +486,7 @@ financingRoutes.post('/calls/:id/resolve', ...canManage, requireStepUp, validate
 financingRoutes.post('/calls/:id/waive', ...canApprove, requireStepUp, validateBody(reasonSchema), idempotent('financing.post.calls_id_waive', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
   if (!OPEN_CALL.includes(c.status)) throw invalidState(`${c.ref} is ${c.status}; it is not open`);
+  pendingGuard(c);
   if (c.issuedBy === req.user!.id) throw sod('The person who issued a call cannot waive it (maker-checker)');
   const reason = (req.body as z.infer<typeof reasonSchema>).reason;
   await prisma.$transaction(async (tx) => {
@@ -495,6 +499,7 @@ financingRoutes.post('/calls/:id/waive', ...canApprove, requireStepUp, validateB
 financingRoutes.post('/calls/:id/cancel', ...canManage, validateBody(reasonSchema), idempotent('financing.post.calls_id_cancel', { required: false }), async (req, res) => {
   const c = await loadCall(param(req, 'id'));
   if (!OPEN_CALL.includes(c.status)) throw invalidState(`${c.ref} is ${c.status}; it is not open`);
+  pendingGuard(c);
   if (c.issuedBy !== req.user!.id) throw HttpError.forbidden('Only the person who issued a call can cancel it', 'not_maker');
   const f = await prisma.finFacility.findUniqueOrThrow({ where: { id: c.facilityId } });
   const m = await facilityMargin(f);
@@ -503,6 +508,173 @@ financingRoutes.post('/calls/:id/cancel', ...canManage, validateBody(reasonSchem
   await prisma.$transaction(async (tx) => {
     assertUpdated((await tx.finMarginCall.updateMany({ where: { id: c.id, status: c.status }, data: { status: 'CANCELLED', resolvedBy: req.user!.id, resolvedAt: new Date(), resolution: reason, version: { increment: 1 } } })).count);
     await writeAudit(tx, audit(req), { action: 'fin.margin_call_cancelled', objectType: 'fin_margin_call', objectId: c.id, before: { status: c.status }, after: { status: 'CANCELLED' }, reason });
+  });
+  await respondCall(res, c.id);
+});
+
+// ================================================================ margin disposition (FR-FIN-002, FR-FIN-004, BR-070)
+
+/** While a disposition waits for its checker the call can only be approved or returned. */
+function pendingGuard(c: CallRow) {
+  if (c.status === 'PENDING_CHECK') throw invalidState(`${c.ref} has a ${c.dispositionKind?.toLowerCase().replace(/_/g, ' ')} awaiting an independent checker; approve or return it first`);
+}
+
+const money = z
+  .union([z.string(), z.number()])
+  .transform((v) => String(v).trim().replace(/,/g, ''))
+  .refine((v) => /^\d+(\.\d{1,4})?$/.test(v) && Number(v) > 0, 'Enter a positive amount with up to 4 decimals');
+const dispositionBody = z
+  .object({
+    kind: z.enum(DISPOSITION_KINDS),
+    reason: z.string().trim().min(10, 'Give a reason (10+ characters)').max(500),
+    outcome: z.enum(DISPUTE_OUTCOMES).optional(),
+    counterpartyEvidenceRef: z.string().trim().min(3).max(255).optional(),
+    houseCalcAmount: z.union([z.string(), z.number()]).transform((v) => String(v).trim().replace(/,/g, '')).refine((v) => /^\d+(\.\d{1,4})?$/.test(v), 'Enter an amount of zero or more').optional(),
+    houseCalcNote: z.string().trim().min(5).max(1000).optional(),
+    fundingLedgerId: z.string().trim().min(1).max(36).optional(),
+    fundingAmount: money.optional(),
+  })
+  .strict();
+
+/**
+ * Maker proposes how an open call ends. FUNDED raises a cash expectation (cash out, kind MARGIN_CALL) on the chosen bank
+ * ledger so treasury sees it coming; DISPUTE_RESOLVED records the counterparty evidence and the house calculation. The call
+ * moves to PENDING_CHECK until a different person with financing.approve approves or returns it.
+ */
+financingRoutes.post('/calls/:id/disposition', ...canManage, requireStepUp, validateBody(dispositionBody), idempotent('fin.call_disposition', { required: false }), async (req, res) => {
+  const c = await loadCall(param(req, 'id'));
+  const b = req.body as z.infer<typeof dispositionBody>;
+  if (c.status === 'PENDING_CHECK') throw invalidState(`${c.ref} already has a disposition awaiting a checker`);
+  const problems = dispositionProblems(b.kind, c.status, b);
+  if (problems.length) throw HttpError.badRequest('Validation failed', problems.map((m) => ({ path: m.includes(':') ? m.split(':')[0]! : 'kind', message: m.includes(':') ? m.split(':').slice(1).join(':').trim() : m })));
+  await prisma.$transaction(async (tx) => {
+    const f = await tx.finFacility.findUniqueOrThrow({ where: { id: c.facilityId } });
+    let expectationId: string | null = null;
+    let fundingAmount: Prisma.Decimal | null = null;
+    if (b.kind === 'FUNDED') {
+      const ledger = await tx.cashLedger.findFirst({ where: { OR: [{ id: b.fundingLedgerId! }, { ref: b.fundingLedgerId! }] } });
+      if (!ledger || ledger.kind !== 'BANK' || ledger.portfolioId !== f.portfolioId) throw HttpError.badRequest('Validation failed', [{ path: 'fundingLedgerId', message: `Choose a bank ledger of ${f.ref}'s portfolio` }]);
+      if (ledger.status !== 'ACTIVE') throw HttpError.badRequest('Validation failed', [{ path: 'fundingLedgerId', message: `Ledger ${ledger.ref} is ${ledger.status.toLowerCase()}` }]);
+      if (ledger.currency !== f.currency) throw HttpError.badRequest('Validation failed', [{ path: 'fundingLedgerId', message: `Ledger ${ledger.ref} is ${ledger.currency}; the facility is ${f.currency}` }]);
+      fundingAmount = b.fundingAmount ? new D(b.fundingAmount) : c.calledAmount;
+      const expRef = await nextRef(tx, 'cashExpectation');
+      const e = await tx.cashExpectation.create({
+        data: { ref: expRef, portfolioId: f.portfolioId, ledgerId: ledger.id, direction: 'OUT', kind: 'MARGIN_CALL', source: `MC:${c.ref}`, currency: f.currency, amount: fundingAmount, expectedDate: today(), note: `Funding of margin call ${c.ref} on ${f.ref} (${f.lender})`.slice(0, 500), createdBy: req.user!.id },
+      });
+      expectationId = e.id;
+      await writeAudit(tx, audit(req), { action: 'cash.expectation_created', objectType: 'cash_expectation', objectId: e.id, after: { ref: expRef, ledger: ledger.ref, direction: 'OUT', kind: 'MARGIN_CALL', amount: fundingAmount.toFixed(2), source: `MC:${c.ref}` } });
+    }
+    assertUpdated(
+      (
+        await tx.finMarginCall.updateMany({
+          where: { id: c.id, status: c.status },
+          data: {
+            status: 'PENDING_CHECK',
+            priorStatus: c.status,
+            dispositionKind: b.kind,
+            dispositionOutcome: b.outcome ?? null,
+            dispositionReason: b.reason,
+            dispositionBy: req.user!.id,
+            dispositionAt: new Date(),
+            counterpartyEvidenceRef: b.counterpartyEvidenceRef ?? null,
+            houseCalcAmount: b.houseCalcAmount !== undefined ? new D(b.houseCalcAmount) : null,
+            houseCalcNote: b.houseCalcNote ?? null,
+            fundingLedgerId: b.kind === 'FUNDED' ? b.fundingLedgerId! : null,
+            fundingAmount,
+            expectationId,
+            version: { increment: 1 },
+          },
+        })
+      ).count,
+    );
+    await writeAudit(tx, audit(req), {
+      action: 'fin.margin_disposition_proposed',
+      objectType: 'fin_margin_call',
+      objectId: c.id,
+      before: { status: c.status },
+      after: { status: 'PENDING_CHECK', kind: b.kind, outcome: b.outcome ?? null, counterpartyEvidenceRef: b.counterpartyEvidenceRef ?? null, houseCalcAmount: b.houseCalcAmount ?? null, expectationId, fundingAmount: fundingAmount?.toFixed(2) ?? null },
+      reason: b.reason,
+    });
+    await notifyPermission(tx, 'financing.approve', { type: 'fin.disposition_pending', title: `Margin call ${c.ref} ${b.kind === 'FUNDED' ? 'funding' : 'dispute resolution'} awaits your approval`, body: b.reason, link: `/ops/financing?call=${c.id}` });
+  });
+  await respondCall(res, c.id);
+});
+
+/** Independent checker (never the proposer) approves: FUNDED closes the call and links the cash journal; a dispute resolution applies its outcome. */
+financingRoutes.post('/calls/:id/disposition/approve', ...canApprove, requireStepUp, validateBody(z.object({ note: z.string().trim().max(500).optional() }).strict()), idempotent('fin.call_disposition_approve', { required: false }), async (req, res) => {
+  const c = await loadCall(param(req, 'id'));
+  if (c.status !== 'PENDING_CHECK' || !c.dispositionKind) throw invalidState(`${c.ref} is ${c.status}; there is no disposition awaiting a checker`);
+  if (c.dispositionBy === req.user!.id) throw sod('The person who proposed this disposition cannot approve it (maker-checker)');
+  const note = (req.body as { note?: string }).note ?? null;
+  let journal: { created: boolean; ref?: string; skipped?: string } = { created: false };
+  await prisma.$transaction(async (tx) => {
+    const f = await tx.finFacility.findUniqueOrThrow({ where: { id: c.facilityId } });
+    const base = { resolvedBy: req.user!.id, resolvedAt: new Date(), version: { increment: 1 } };
+    let data: Prisma.FinMarginCallUncheckedUpdateManyInput;
+    let journalId: string | null = null;
+    if (c.dispositionKind === 'FUNDED') {
+      if (c.fundingLedgerId && c.fundingAmount) {
+        const clearing = await tx.cashLedger.findFirst({ where: { portfolioId: f.portfolioId, kind: 'CLEARING', currency: f.currency, status: 'ACTIVE' }, orderBy: { ref: 'asc' } });
+        if (clearing) {
+          const r = await autoCashJournal(tx, {
+            portfolioId: f.portfolioId,
+            currency: f.currency,
+            entryDate: today(),
+            description: `Margin call ${c.ref} funding to ${f.lender} (${f.ref})`,
+            purpose: 'TRANSFER',
+            sourceRef: `MC:${c.ref}:FUND`,
+            lines: [
+              { ledgerId: clearing.id, debit: c.fundingAmount, memo: `${c.ref} cash in transit to lender` },
+              { ledgerId: c.fundingLedgerId, credit: c.fundingAmount, memo: `${c.ref} margin funding` },
+            ],
+          });
+          journal = { created: r.created, ref: r.ref, skipped: r.skipped };
+          journalId = r.id ?? null;
+          if (journalId && c.expectationId) {
+            // Posting this journal settles the expectation raised at proposal.
+            await tx.cashJournal.update({ where: { id: journalId }, data: { expectationId: c.expectationId } });
+          }
+        } else journal = { created: false, skipped: 'no_clearing_ledger' };
+      }
+      data = { ...base, status: 'FUNDED', resolution: c.dispositionReason, journalId };
+    } else if (c.dispositionOutcome === 'CALL_WITHDRAWN') {
+      data = { ...base, status: 'CANCELLED', resolution: c.dispositionReason };
+      if (c.expectationId) await tx.cashExpectation.updateMany({ where: { id: c.expectationId, status: 'EXPECTED' }, data: { status: 'CANCELLED' } });
+    } else {
+      data = { status: 'ACKNOWLEDGED', resolution: c.dispositionReason, version: { increment: 1 } };
+    }
+    assertUpdated((await tx.finMarginCall.updateMany({ where: { id: c.id, status: 'PENDING_CHECK' }, data })).count);
+    await writeAudit(tx, audit(req), {
+      action: 'fin.margin_disposition_approved',
+      objectType: 'fin_margin_call',
+      objectId: c.id,
+      before: { status: 'PENDING_CHECK', kind: c.dispositionKind },
+      after: { status: data.status as string, kind: c.dispositionKind, outcome: c.dispositionOutcome, proposedBy: c.dispositionBy, approvedBy: req.user!.id, expectationId: c.expectationId, journal },
+      reason: note ?? c.dispositionReason,
+    });
+  });
+  const view = (await callViews([await prisma.finMarginCall.findUniqueOrThrow({ where: { id: c.id } })]))[0];
+  res.json({ data: view, journal });
+});
+
+/** Checker (or the proposer) sends the disposition back: the call returns to its earlier state and any funding expectation is cancelled. */
+financingRoutes.post('/calls/:id/disposition/return', ...staff, requirePermission('risk.view'), validateBody(reasonSchema), idempotent('fin.call_disposition_return', { required: false }), async (req, res) => {
+  const c = await loadCall(param(req, 'id'));
+  if (c.status !== 'PENDING_CHECK') throw invalidState(`${c.ref} is ${c.status}; there is no disposition awaiting a checker`);
+  const isProposer = c.dispositionBy === req.user!.id;
+  if (!isProposer && !hasPermission(req, 'financing.approve')) throw HttpError.forbidden('Only the proposer or a financing approver can return a disposition', 'forbidden');
+  const reason = (req.body as z.infer<typeof reasonSchema>).reason;
+  await prisma.$transaction(async (tx) => {
+    assertUpdated(
+      (
+        await tx.finMarginCall.updateMany({
+          where: { id: c.id, status: 'PENDING_CHECK' },
+          data: { status: c.priorStatus ?? 'ACKNOWLEDGED', priorStatus: null, dispositionKind: null, dispositionOutcome: null, dispositionReason: null, dispositionBy: null, dispositionAt: null, counterpartyEvidenceRef: null, houseCalcAmount: null, houseCalcNote: null, fundingLedgerId: null, fundingAmount: null, expectationId: null, version: { increment: 1 } },
+        })
+      ).count,
+    );
+    if (c.expectationId) await tx.cashExpectation.updateMany({ where: { id: c.expectationId, status: 'EXPECTED' }, data: { status: 'CANCELLED' } });
+    await writeAudit(tx, audit(req), { action: 'fin.margin_disposition_returned', objectType: 'fin_margin_call', objectId: c.id, before: { status: 'PENDING_CHECK', kind: c.dispositionKind, proposedBy: c.dispositionBy }, after: { status: c.priorStatus ?? 'ACKNOWLEDGED', returnedBy: req.user!.id }, reason });
   });
   await respondCall(res, c.id);
 });

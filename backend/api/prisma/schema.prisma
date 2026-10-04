@@ -2274,6 +2274,8 @@ model ReconBreak {
   portfolioId    String?   @map("portfolio_id") @db.Char(36)
   resolutionNote String?   @map("resolution_note") @db.VarChar(2000)
   evidenceRef    String?   @map("evidence_ref") @db.VarChar(255)
+  /// The candidate match a maker accepted (FR-REC-006): kind, id, reference and the score that ranked it.
+  acceptedCandidate Json?  @map("accepted_candidate")
   makerId        String?   @map("maker_id") @db.Char(36)
   checkerId      String?   @map("checker_id") @db.Char(36)
   resolvedAt     DateTime? @map("resolved_at")
@@ -3455,6 +3457,23 @@ model FinMarginCall {
   resolvedAt     DateTime? @map("resolved_at")
   resolution     String?   @db.VarChar(500)
   coverageAfter  Decimal?  @map("coverage_after") @db.Decimal(10, 4)
+  /// Margin disposition (FR-FIN-002/004, BR-070): FUNDED | DISPUTE_RESOLVED, proposed by a maker and approved by an independent checker.
+  dispositionKind     String?   @map("disposition_kind") @db.VarChar(20)
+  /// For DISPUTE_RESOLVED: CALL_STANDS | CALL_WITHDRAWN.
+  dispositionOutcome  String?   @map("disposition_outcome") @db.VarChar(16)
+  dispositionReason   String?   @map("disposition_reason") @db.VarChar(500)
+  dispositionBy       String?   @map("disposition_by") @db.Char(36)
+  dispositionAt       DateTime? @map("disposition_at")
+  /// Status to return to when the checker returns the proposal.
+  priorStatus         String?   @map("prior_status") @db.VarChar(14)
+  counterpartyEvidenceRef String? @map("counterparty_evidence_ref") @db.VarChar(255)
+  houseCalcAmount     Decimal?  @map("house_calc_amount") @db.Decimal(20, 4)
+  houseCalcNote       String?   @map("house_calc_note") @db.VarChar(1000)
+  fundingLedgerId     String?   @map("funding_ledger_id") @db.Char(36)
+  fundingAmount       Decimal?  @map("funding_amount") @db.Decimal(20, 4)
+  /// Cash expectation raised when funding is proposed, and the cash journal that settles it.
+  expectationId       String?   @map("expectation_id") @db.Char(36)
+  journalId           String?   @map("journal_id") @db.Char(36)
   version        Int       @default(1)
   createdAt      DateTime  @default(now()) @map("created_at")
   updatedAt      DateTime  @updatedAt @map("updated_at")
@@ -5741,3 +5760,38 @@ model CaFeedRun {
   @@map("ca_feed_runs")
 }
 // ---- end TradingFeeds ----
+
+// ---- ReconCashDepth ----
+/// One received counterparty batch (FR-REC-017). Manual file imports and connector pulls both create a row here, so a
+/// source is always traceable to its channel, account, file name, record count, import time and SHA-256.
+/// ref is the FEED-00001 batch reference stamped on the loaded rows.
+model ReconCounterpartImport {
+  id             String   @id @default(uuid()) @db.Char(36)
+  ref            String   @unique @db.VarChar(20)
+  /// MANUAL | CONNECTOR
+  source         String   @db.VarChar(12)
+  /// Adapter name for a connector pull (fake, file-drop, live), null for a manual upload.
+  connector      String?  @db.VarChar(40)
+  /// POSITIONS | CORP_ACTIONS | STATEMENT
+  feed           String   @db.VarChar(16)
+  counterpartyId String   @map("counterparty_id") @db.Char(36)
+  accountRef     String   @map("account_ref") @db.VarChar(64)
+  asOfDate       DateTime @map("as_of_date") @db.Date
+  filename       String   @db.VarChar(200)
+  /// CSV | JSON | MT535 | MT940 | CAMT053
+  format         String   @db.VarChar(12)
+  recordCount    Int      @map("record_count")
+  sha256         String   @db.Char(64)
+  fileId         String?  @map("file_id") @db.Char(36)
+  receiptId      String?  @map("receipt_id") @db.Char(36)
+  /// RECEIVED | SUPERSEDED
+  status         String   @default("RECEIVED") @db.VarChar(12)
+  note           String?  @db.VarChar(500)
+  createdBy      String   @map("created_by") @db.Char(36)
+  createdAt      DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  @@index([counterpartyId, accountRef, asOfDate, feed], map: "cp_import_scope_idx")
+  @@index([createdAt])
+  @@map("counterpart_imports")
+}
+// ---- end ReconCashDepth ----

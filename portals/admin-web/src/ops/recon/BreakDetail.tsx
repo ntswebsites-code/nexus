@@ -23,6 +23,8 @@ const ACTION_LABEL: Record<string, string> = {
   query_answered: 'Query answered',
   escalated: 'Escalated',
   action_closed: 'Query or escalation closed',
+  candidate_accepted: 'Candidate match accepted (pending checker)',
+  candidate_accepted_peer: 'Matched with another break (pending checker)',
 };
 
 type Dialog = null | 'assign' | 'investigate' | 'resolve' | 'approve' | 'reject';

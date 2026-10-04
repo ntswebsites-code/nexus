@@ -23,6 +23,7 @@ export interface BalanceRow {
   name: string;
   portfolioId: string;
   portfolioName: string | null;
+  cashAccountId?: string | null;
   currency: string;
   status: string;
   posted: string;
@@ -52,6 +53,24 @@ export interface Explain {
   available: string;
   journalLines: { journalId: string; ref: string; entryDate: string; status: string; description: string; signed: string }[];
   reservations: { id: string; ref: string; source: string; purpose: string; remaining: string }[];
+  /** FR-CASH-010: every line that moves available cash, so the lines sum to the figure. */
+  holds?: { id: string; ref: string; source: string; purpose: string; remaining: string; requiredDate: string | null; expiresOn: string | null }[];
+  pendingWithdrawals?: {
+    reserved: { id: string; ref: string; source: string; remaining: string }[];
+    awaitingApproval: { journalId: string; ref: string; status: string; entryDate: string | null; description: string; amount: string }[];
+  };
+  policyLines?: { key: string; label: string; amount: string }[];
+  contributions?: { kind: string; ref: string; label: string; effect: string }[];
+  contributionSum?: string;
+  rawAvailable?: string;
+  ties?: boolean;
+}
+
+export interface CashContext {
+  clients: { id: string; ref: string; name: string }[];
+  portfolios: { id: string; ref: string; name: string; clientId: string | null }[];
+  cashAccounts: { id: string; ref: string; clientId: string; masked: string; currency: string; provider: string; portfolioIds: string[] }[];
+  currencies: string[];
 }
 
 export interface CashJournalRow {

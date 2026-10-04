@@ -1,5 +1,6 @@
 'use client';
 
+import type { KeyboardEvent } from 'react';
 import { api, apiRequest, v1 } from '../api';
 import { useResource } from '../ui';
 import type { PortfolioSummary } from '../types';
@@ -49,11 +50,37 @@ export function Tone({ value }: { value: string }) {
   );
 }
 
-export function TabBar<T extends string>({ tabs, value, onChange }: { tabs: { key: T; label: string }[]; value: T; onChange: (t: T) => void }) {
+/** Props for the panel a tab controls, so the tablist is a complete ARIA tabs pattern (FR-CASH-019). */
+export const tabPanelProps = (idPrefix: string, key: string) => ({ role: 'tabpanel' as const, id: `${idPrefix}-panel-${key}`, 'aria-labelledby': `${idPrefix}-tab-${key}`, tabIndex: 0 });
+
+/**
+ * Tab list with `role="tab"`, `aria-selected`, `aria-controls`, a roving tab stop and arrow, Home and End keys.
+ * Selecting a tab on focus keeps keyboard and pointer behaviour the same.
+ */
+export function TabBar<T extends string>({ tabs, value, onChange, idPrefix, label }: { tabs: { key: T; label: string }[]; value: T; onChange: (t: T) => void; idPrefix?: string; label?: string }) {
+  function onKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+    const i = Math.max(0, tabs.findIndex((t) => t.key === value));
+    const next = e.key === 'ArrowRight' ? (i + 1) % tabs.length : e.key === 'ArrowLeft' ? (i - 1 + tabs.length) % tabs.length : e.key === 'Home' ? 0 : e.key === 'End' ? tabs.length - 1 : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    const key = tabs[next]!.key;
+    onChange(key);
+    document.getElementById(`${idPrefix ?? 'tabs'}-tab-${key}`)?.focus();
+  }
   return (
-    <div role="tablist" style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
+    <div role="tablist" aria-label={label} onKeyDown={onKeyDown} style={{ display: 'flex', gap: 6, marginBottom: 14, flexWrap: 'wrap' }}>
       {tabs.map((t) => (
-        <button key={t.key} role="tab" aria-selected={value === t.key} className={`ops-btn${value === t.key ? ' primary' : ''}`} type="button" onClick={() => onChange(t.key)}>
+        <button
+          key={t.key}
+          id={`${idPrefix ?? 'tabs'}-tab-${t.key}`}
+          role="tab"
+          aria-selected={value === t.key}
+          aria-controls={idPrefix ? `${idPrefix}-panel-${t.key}` : undefined}
+          tabIndex={value === t.key ? 0 : -1}
+          className={`ops-btn${value === t.key ? ' primary' : ''}`}
+          type="button"
+          onClick={() => onChange(t.key)}
+        >
           {t.label}
         </button>
       ))}

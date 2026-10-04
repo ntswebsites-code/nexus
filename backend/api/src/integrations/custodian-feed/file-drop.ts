@@ -3,6 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { writeAudit, type AuditContext } from '../../lib/audit';
 import { nextCustodianRef } from '../../modules/custodian/custodian.service';
+import { recordCounterpartImport } from '../../modules/recon/recon.imports';
 import { dayFromIso, isoDay, sha256 } from '../common';
 import { StatementParseError, parseStatements } from './parsers';
 import type { CustodianFeedAdapter, FeedHolding, FeedStatement, FeedTransaction, ListStatementsQuery, ParsedStatement } from './types';
@@ -134,6 +135,20 @@ export async function ingestStatementFile(input: { counterpartyId: string; filen
           }
         }
         if (s.closingCash !== null && !s.holdings.length) warnings.push('Holdings value recorded as 0.00 because the file has no holdings lines');
+        // FR-REC-017: every received statement is a counterpart_imports batch, whether staff uploaded it or a connector delivered it.
+        await recordCounterpartImport(tx, {
+          source: input.adapter && input.adapter !== 'file-drop' ? 'CONNECTOR' : 'MANUAL',
+          connector: input.adapter ?? null,
+          feed: 'STATEMENT',
+          counterpartyId: cp.id,
+          accountRef: s.accountRef,
+          asOfDate: date,
+          filename,
+          format: s.format,
+          recordCount: s.transactions.length + s.holdings.length,
+          sha256: digest,
+          createdBy: input.userId,
+        });
         tradesImported += imported;
         tradesSkipped += skipped;
         holdingsCount += s.holdings.length;

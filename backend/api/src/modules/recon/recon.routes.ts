@@ -126,6 +126,7 @@ function allowedFor(b: BreakRow, req: Request) {
     query: manage && (open || pending),
     escalate: manage && (open || pending),
     attachEvidence: manage && (open || pending),
+    acceptCandidate: manage && open && b.family === 'TRADES' && (b.kind === 'MISSING_INTERNAL' || b.kind === 'MISSING_EXTERNAL'),
     approveBlockedReason: signoff && pending && isMaker ? 'You resolved this break, so a different person must approve it (maker-checker).' : null,
   };
 }

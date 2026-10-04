@@ -198,10 +198,40 @@ cashRoutes.patch('/ledgers/:id', ...canApprove, validateBody(ledgerPatch), idemp
 
 // ================================================================ balances
 
-const balQuery = z.object({ portfolioId: z.string().trim().max(36).optional(), currency: ccy.optional(), asOf: dateStr.optional() });
+const balQuery = z.object({ portfolioId: z.string().trim().max(36).optional(), clientId: z.string().trim().max(36).optional(), cashAccountId: z.string().trim().max(36).optional(), currency: ccy.optional(), asOf: dateStr.optional() });
 cashRoutes.get('/balances', ...canView, validateQuery(balQuery), async (req, res) => {
   const f = query<z.infer<typeof balQuery>>(req);
-  res.json({ data: await balances({ portfolioId: await portfolioFilter(f.portfolioId), currency: f.currency, asOf: f.asOf ? toDate(f.asOf) : today() }) });
+  // Client and portfolio narrow together: a portfolio outside the chosen client yields no ledgers.
+  const pid = await portfolioFilter(f.portfolioId);
+  let portfolioIds: string[] | undefined;
+  if (f.clientId) {
+    const mine = await prisma.portfolio.findMany({ where: { clientId: f.clientId }, select: { id: true } });
+    portfolioIds = mine.map((p) => p.id).filter((id) => !pid || id === pid);
+    if (!portfolioIds.length) portfolioIds = ['0'];
+  }
+  res.json({ data: await balances({ portfolioId: portfolioIds ? undefined : pid, portfolioIds, cashAccountId: f.cashAccountId, currency: f.currency, asOf: f.asOf ? toDate(f.asOf) : today() }) });
+});
+
+/** Options for the cash context bar: clients and portfolios that own cash ledgers, their linked cash accounts and the ledger currencies. */
+cashRoutes.get('/context', ...canView, async (_req, res) => {
+  const ledgers = await prisma.cashLedger.findMany({ where: { kind: 'BANK' }, select: { portfolioId: true, currency: true, cashAccountId: true } });
+  const pfs = ledgers.length ? await prisma.portfolio.findMany({ where: { id: { in: [...new Set(ledgers.map((l) => l.portfolioId))] } }, select: { id: true, ref: true, name: true, clientId: true }, orderBy: { ref: 'asc' } }) : [];
+  const clientIds = [...new Set(pfs.map((p) => p.clientId).filter((x): x is string => !!x))];
+  const accountIds = [...new Set(ledgers.map((l) => l.cashAccountId).filter((x): x is string => !!x))];
+  const [clients, accounts] = await Promise.all([
+    clientIds.length ? prisma.client.findMany({ where: { id: { in: clientIds } }, select: { id: true, ref: true, name: true }, orderBy: { name: 'asc' } }) : [],
+    accountIds.length ? prisma.cashAccount.findMany({ where: { id: { in: accountIds } }, select: { id: true, ref: true, clientId: true, masked: true, currency: true, provider: true }, orderBy: { ref: 'asc' } }) : [],
+  ]);
+  const portfolioOf = new Map<string, Set<string>>();
+  for (const l of ledgers) if (l.cashAccountId) portfolioOf.set(l.cashAccountId, (portfolioOf.get(l.cashAccountId) ?? new Set()).add(l.portfolioId));
+  res.json({
+    data: {
+      clients,
+      portfolios: pfs,
+      cashAccounts: accounts.map((a) => ({ ...a, portfolioIds: [...(portfolioOf.get(a.id) ?? [])] })),
+      currencies: [...new Set(ledgers.map((l) => l.currency))].sort(),
+    },
+  });
 });
 
 const explainQuery = z.object({ ledgerId: z.string().trim().min(1).max(36), asOf: dateStr.optional() });
@@ -675,7 +705,7 @@ const importBody = z
   .object({
     ledgerId: z.string().trim().min(1).max(36),
     filename: z.string().trim().min(1).max(200),
-    format: z.enum(['CSV', 'JSON']),
+    format: z.enum(['CSV', 'JSON', 'CAMT053', 'MT940']),
     content: z.string().min(2).max(900_000),
     openingBalance: signedAmount.optional(),
     closingBalance: signedAmount.optional(),
@@ -698,7 +728,7 @@ cashRoutes.get('/statement-imports/:id', ...canView, async (req, res) => {
   res.json({ data: await importDetail(await loadImport(param(req, 'id')), req.user!) });
 });
 
-/** Parses and stages a CSV or JSON statement. Nothing touches the ledger: it must foot, be new, and then a different person commits it. */
+/** Parses and stages a CSV, JSON, CAMT.053 or MT940 statement. Nothing touches the ledger: it must foot, be new, and then a different person commits it. */
 cashRoutes.post('/statement-imports', ...canImport, requireFeature('feature.statement_import'), validateBody(importBody), idempotent('cash.import_stage'), async (req, res) => {
   const b = req.body as z.infer<typeof importBody>;
   const ledger = await loadLedger(b.ledgerId);
@@ -706,6 +736,9 @@ cashRoutes.post('/statement-imports', ...canImport, requireFeature('feature.stat
   if (ledger.status !== 'ACTIVE') throw HttpError.conflict(`Ledger ${ledger.ref} is ${ledger.status.toLowerCase()}; imports are blocked`, 'ledger_not_active');
   const parsed = parseStatement(b.format, b.content, { opening: b.openingBalance ?? null, closing: b.closingBalance ?? null });
   if (parsed.errors.length) throw HttpError.badRequest('The statement could not be read', parsed.errors.slice(0, 50));
+  if (parsed.currency && parsed.currency !== ledger.currency) {
+    throw HttpError.badRequest('Validation failed', [{ path: 'content', message: `The statement is in ${parsed.currency} but ledger ${ledger.ref} is ${ledger.currency}` }]);
+  }
   const opening = parsed.opening!;
   const closing = parsed.closing!;
   const variance = statementVariance(opening, closing, parsed.lines);

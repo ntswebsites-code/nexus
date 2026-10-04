@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, qs, v1 } from '@/ops/api';
+import { api, apiRequest, qs, v1 } from '@/ops/api';
 import { AccessDenied, DataTable, label, m2, PortfolioSelect, ReasonModal, ratioText, Tag, Tile, today, usePortfolios, useSecurities } from '@/ops/rp';
 import { useCan, useSession } from '@/ops/session';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, formatDateTime, Loaded, Modal, optStr, PageHeader, str, useResource } from '@/ops/ui';
@@ -91,7 +91,31 @@ interface Call {
   acknowledgedByName: string | null;
   resolvedByName: string | null;
   resolution: string | null;
+  portfolioId?: string | null;
+  disposition?: Disposition | null;
   current?: MarginView;
+}
+interface Disposition {
+  kind: 'FUNDED' | 'DISPUTE_RESOLVED';
+  outcome: string | null;
+  reason: string | null;
+  proposedBy: string | null;
+  proposedByName: string | null;
+  proposedAt: string | null;
+  priorStatus: string | null;
+  counterpartyEvidenceRef: string | null;
+  houseCalcAmount: string | null;
+  houseCalcNote: string | null;
+  fundingLedgerId: string | null;
+  fundingAmount: string | null;
+  expectationId: string | null;
+  journalId: string | null;
+}
+interface BankLedger {
+  id: string;
+  ref: string;
+  name: string;
+  currency: string;
 }
 interface Pool {
   id: string;
@@ -127,7 +151,7 @@ interface Summary {
 }
 
 type Tab = 'facilities' | 'calls' | 'pools' | 'rules';
-const OPEN = ['ISSUED', 'ACKNOWLEDGED', 'DISPUTED'];
+const OPEN = ['ISSUED', 'ACKNOWLEDGED', 'DISPUTED', 'PENDING_CHECK'];
 
 export default function FinancingPage() {
   const canView = useCan('risk.view');
@@ -462,7 +486,7 @@ function CallModal({ id, onClose, onChanged }: { id: string; onClose: () => void
   const canManage = useCan('financing.manage');
   const canApprove = useCan('financing.approve');
   const res = useResource<Call>(() => api.get<Call>(F(`/calls/${encodeURIComponent(id)}`)), [id]);
-  const [sub, setSub] = useState<null | 'dispute' | 'resolve' | 'waive' | 'cancel'>(null);
+  const [sub, setSub] = useState<null | 'dispute' | 'resolve' | 'waive' | 'cancel' | 'fund' | 'disputeResolve' | 'approveDisp' | 'returnDisp'>(null);
   const done = () => {
     res.reload();
     onChanged();
@@ -474,6 +498,8 @@ function CallModal({ id, onClose, onChanged }: { id: string; onClose: () => void
           {(c) => {
             const open = OPEN.includes(c.status);
             const issuer = c.issuedBy === user.id;
+            const pending = c.status === 'PENDING_CHECK' && !!c.disposition;
+            const proposer = c.disposition?.proposedBy === user.id;
             return (
               <>
                 <h3 style={{ marginTop: 0 }}>{c.ref} · {c.facilityRef} <Tag value={c.status} /> {c.overdue && <Tag value="Overdue" tone="red" />}</h3>
@@ -489,9 +515,28 @@ function CallModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                   {c.resolvedByName && <div><dt>Resolved by</dt><dd>{c.resolvedByName}</dd></div>}
                 </dl>
                 {c.resolution && <p>{c.resolution}</p>}
-                {open && c.current && c.current.state === 'DEFICIT' && <Alert kind="warn">Still in deficit: post collateral or repay about {m2(c.current.callAmount)} to restore the initial ratio, then resolve.</Alert>}
-                {open && canManage && (
+                {c.disposition && (
+                  <Alert kind={pending ? 'warn' : 'info'}>
+                    {pending ? 'Awaiting an independent checker: ' : 'Disposition: '}
+                    {c.disposition.kind === 'FUNDED' ? `funding of ${m2(c.disposition.fundingAmount)} ${c.currency ?? ''}` : `dispute resolution (${(c.disposition.outcome ?? '').toLowerCase().replace(/_/g, ' ')})`} proposed by {c.disposition.proposedByName ?? 'unknown'}. {c.disposition.reason}
+                    {c.disposition.counterpartyEvidenceRef ? ` Counterparty evidence: ${c.disposition.counterpartyEvidenceRef}.` : ''}
+                    {c.disposition.houseCalcAmount ? ` House calculation: ${m2(c.disposition.houseCalcAmount)} (${c.disposition.houseCalcNote ?? ''}).` : ''}
+                    {c.disposition.expectationId ? ' A cash expectation was raised for the funding.' : ''}
+                    {c.disposition.journalId ? ' A cash journal is linked to it.' : ''}
+                  </Alert>
+                )}
+                {open && c.current && !pending && c.current.state === 'DEFICIT' && <Alert kind="warn">Still in deficit: post collateral or repay about {m2(c.current.callAmount)} to restore the initial ratio, then resolve.</Alert>}
+                {pending && (
                   <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+                    {canApprove && !proposer && <button className="ops-btn primary" type="button" onClick={() => setSub('approveDisp')}>Approve disposition</button>}
+                    {(canApprove || proposer) && <button className="ops-btn" type="button" onClick={() => setSub('returnDisp')}>Return disposition</button>}
+                    {canApprove && proposer && <span className="ops-muted">You proposed this, so a different approver must approve it.</span>}
+                  </div>
+                )}
+                {open && !pending && canManage && (
+                  <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
+                    {['ISSUED', 'ACKNOWLEDGED'].includes(c.status) && <button className="ops-btn" type="button" onClick={() => setSub('fund')}>Record funding</button>}
+                    {c.status === 'DISPUTED' && <button className="ops-btn" type="button" onClick={() => setSub('disputeResolve')}>Resolve dispute</button>}
                     {['ISSUED', 'DISPUTED'].includes(c.status) && <ActionButton primary label="Acknowledge" onRun={(k) => api.post(F(`/calls/${c.id}/acknowledge`), {}, { idempotencyKey: k })} onDone={done} />}
                     {['ISSUED', 'ACKNOWLEDGED'].includes(c.status) && <button className="ops-btn" type="button" onClick={() => setSub('dispute')}>Dispute</button>}
                     <button className="ops-btn primary" type="button" onClick={() => setSub('resolve')}>Mark as met</button>
@@ -499,7 +544,7 @@ function CallModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                     {issuer && <button className="ops-btn" type="button" onClick={() => setSub('cancel')}>Cancel (raised in error)</button>}
                   </div>
                 )}
-                {open && !canManage && (
+                {open && !pending && !canManage && (
                   <div className="ops-actions" style={{ marginTop: 14, flexWrap: 'wrap' }}>
                     <button className="ops-btn primary" type="button" disabled title={NEEDS_MANAGE}>Acknowledge</button>
                     <button className="ops-btn" type="button" disabled title={NEEDS_MANAGE}>Dispute</button>
@@ -508,6 +553,43 @@ function CallModal({ id, onClose, onChanged }: { id: string; onClose: () => void
                     <span className="ops-muted">{NEEDS_MANAGE} to act on a margin call.</span>
                   </div>
                 )}
+                {sub === 'fund' && <FundCallModal call={c} onClose={() => setSub(null)} onDone={done} />}
+                {sub === 'disputeResolve' && (
+                  <FormModal
+                    title="Resolve dispute"
+                    subtitle="Records the counterparty evidence and the house calculation, then goes to an independent checker."
+                    submitLabel="Send to checker"
+                    onClose={() => setSub(null)}
+                    onSubmit={(fd, k) =>
+                      api.post(
+                        F(`/calls/${c.id}/disposition`),
+                        { kind: 'DISPUTE_RESOLVED', outcome: str(fd, 'outcome'), reason: str(fd, 'reason'), counterpartyEvidenceRef: str(fd, 'counterpartyEvidenceRef'), houseCalcAmount: str(fd, 'houseCalcAmount').replace(/,/g, ''), houseCalcNote: str(fd, 'houseCalcNote') },
+                        { idempotencyKey: k },
+                      )
+                    }
+                    onDone={done}
+                  >
+                    <FieldGrid>
+                      <Field label="Outcome">
+                        <select className="ops-input" name="outcome" required defaultValue="">
+                          <option value="">Choose</option>
+                          <option value="CALL_STANDS">The call stands</option>
+                          <option value="CALL_WITHDRAWN">The call is withdrawn</option>
+                        </select>
+                      </Field>
+                      <Field label="House-calculated amount"><input className="ops-input" name="houseCalcAmount" inputMode="decimal" required /></Field>
+                      <Field label="Counterparty evidence" hint="Statement, email or valuation reference from the lender" span={2}><input className="ops-input" name="counterpartyEvidenceRef" required minLength={3} maxLength={255} /></Field>
+                      <Field label="House calculation" hint="How the house number was reached" span={2}><textarea className="ops-input" name="houseCalcNote" rows={2} required minLength={5} maxLength={1000} /></Field>
+                      <Field label="Reason" span={2}><textarea className="ops-input" name="reason" rows={2} required minLength={10} maxLength={500} /></Field>
+                    </FieldGrid>
+                  </FormModal>
+                )}
+                {sub === 'approveDisp' && (
+                  <FormModal title="Approve disposition" subtitle="You are the independent checker. Funding links its cash expectation and journal; a dispute resolution applies its outcome." submitLabel="Approve" onClose={() => setSub(null)} onSubmit={(fd, k) => api.post(F(`/calls/${c.id}/disposition/approve`), { note: optStr(fd, 'note') }, { idempotencyKey: k })} onDone={done}>
+                    <Field label="Note (optional)"><input className="ops-input" name="note" maxLength={500} /></Field>
+                  </FormModal>
+                )}
+                {sub === 'returnDisp' && <ReasonModal title="Return disposition" submitLabel="Return" danger onClose={() => setSub(null)} onSubmit={(reason) => api.post(F(`/calls/${c.id}/disposition/return`), { reason })} onDone={done} />}
                 {sub === 'dispute' && <ReasonModal title="Dispute call" submitLabel="Dispute" onClose={() => setSub(null)} onSubmit={(reason) => api.post(F(`/calls/${c.id}/dispute`), { reason })} onDone={done} />}
                 {sub === 'waive' && <ReasonModal title="Waive call" hint="Needs a person other than the issuer; recorded in the audit trail" submitLabel="Waive" danger onClose={() => setSub(null)} onSubmit={(reason) => api.post(F(`/calls/${c.id}/waive`), { reason })} onDone={done} />}
                 {sub === 'cancel' && <ReasonModal title="Cancel call" submitLabel="Cancel call" danger onClose={() => setSub(null)} onSubmit={(reason) => api.post(F(`/calls/${c.id}/cancel`), { reason })} onDone={done} />}
@@ -522,6 +604,43 @@ function CallModal({ id, onClose, onChanged }: { id: string; onClose: () => void
         </Loaded>
       </div>
     </Modal>
+  );
+}
+
+/** Funding of a margin call: raises a cash expectation on the chosen bank ledger and goes to an independent checker. */
+function FundCallModal({ call, onClose, onDone }: { call: Call; onClose: () => void; onDone: () => void }) {
+  const ledgers = useResource<BankLedger[]>(
+    () => apiRequest<{ data: BankLedger[] }>('GET', v1(`/cash/ledgers${qs({ portfolioId: call.portfolioId ?? '', kind: 'BANK', status: 'ACTIVE' })}`)).then((r) => r.data),
+    [call.portfolioId],
+  );
+  const options = (ledgers.state === 'ok' ? ledgers.data : []).filter((l) => !call.currency || l.currency === call.currency);
+  return (
+    <FormModal
+      title="Record funding"
+      subtitle={`Raises a cash expectation (cash out, margin call) on the bank ledger and sends the funding to an independent checker. Called ${call.currency ?? ''} ${m2(call.calledAmount)}.`}
+      submitLabel="Send to checker"
+      onClose={onClose}
+      onSubmit={(fd, k) => api.post(F(`/calls/${call.id}/disposition`), { kind: 'FUNDED', reason: str(fd, 'reason'), fundingLedgerId: str(fd, 'fundingLedgerId'), fundingAmount: str(fd, 'fundingAmount').replace(/,/g, ''), counterpartyEvidenceRef: optStr(fd, 'counterpartyEvidenceRef') }, { idempotencyKey: k })}
+      onDone={onDone}
+    >
+      <FieldGrid>
+        <Field label="Bank ledger" span={2}>
+          {options.length > 0 ? (
+            <select className="ops-input" name="fundingLedgerId" required defaultValue="">
+              <option value="">Choose</option>
+              {options.map((l) => (
+                <option key={l.id} value={l.id}>{l.ref} {l.name} ({l.currency})</option>
+              ))}
+            </select>
+          ) : (
+            <input className="ops-input" name="fundingLedgerId" required placeholder="Ledger reference, e.g. CLG-1001" maxLength={36} />
+          )}
+        </Field>
+        <Field label="Amount funded"><input className="ops-input" name="fundingAmount" inputMode="decimal" required defaultValue={call.calledAmount} /></Field>
+        <Field label="Lender confirmation (optional)"><input className="ops-input" name="counterpartyEvidenceRef" maxLength={255} /></Field>
+        <Field label="Reason" span={2}><textarea className="ops-input" name="reason" rows={2} required minLength={10} maxLength={500} /></Field>
+      </FieldGrid>
+    </FormModal>
   );
 }
 

@@ -3,7 +3,7 @@ import { prisma } from '../../lib/prisma';
 import { HttpError } from '../../lib/errors';
 import { SYSTEM_ACTOR_ID, SYSTEM_NAME } from '../../lib/system';
 import { cashCloseGates } from '../opsctl/opsctl.gates';
-import { AGED_DAYS, availability, AVAIL_VERSION, coverageProblems, daysBetween, EFFECTIVE, LIVE_RESERVATION, signed, UNPOSTED } from './cash.engine';
+import { AGED_DAYS, availability, tieOut, AVAIL_VERSION, coverageProblems, daysBetween, EFFECTIVE, LIVE_RESERVATION, signed, UNPOSTED } from './cash.engine';
 
 const D = Prisma.Decimal;
 type Dec = Prisma.Decimal;
@@ -76,8 +76,11 @@ export async function ledgerAvailability(ledger: LedgerRow, db: Db = prisma) {
   return { posted, reserved, ...availability(posted, reserved, ledger.minBuffer) };
 }
 
-export async function balances(f: { portfolioId?: string; currency?: string; asOf: Date }) {
-  const ledgers = await prisma.cashLedger.findMany({ where: { kind: 'BANK', ...(f.portfolioId ? { portfolioId: f.portfolioId } : {}), ...(f.currency ? { currency: f.currency } : {}) }, orderBy: [{ portfolioId: 'asc' }, { ref: 'asc' }] });
+export async function balances(f: { portfolioId?: string; portfolioIds?: string[]; cashAccountId?: string; currency?: string; asOf: Date }) {
+  const ledgers = await prisma.cashLedger.findMany({
+    where: { kind: 'BANK', ...(f.portfolioIds ? { portfolioId: { in: f.portfolioIds } } : f.portfolioId ? { portfolioId: f.portfolioId } : {}), ...(f.cashAccountId ? { cashAccountId: f.cashAccountId } : {}), ...(f.currency ? { currency: f.currency } : {}) },
+    orderBy: [{ portfolioId: 'asc' }, { ref: 'asc' }],
+  });
   const ids = ledgers.map((l) => l.id);
   const [posted, reserved, expected, pf] = await Promise.all([
     postedByLedger(ids, f.asOf),
@@ -100,6 +103,7 @@ export async function balances(f: { portfolioId?: string; currency?: string; asO
     portfolioId: l.portfolioId,
     portfolioRef: pf.get(l.portfolioId)?.ref ?? null,
     portfolioName: pf.get(l.portfolioId)?.name ?? null,
+    cashAccountId: l.cashAccountId,
     currency: l.currency,
     status: l.status,
     posted: p.toFixed(2),
@@ -128,15 +132,33 @@ export async function balances(f: { portfolioId?: string; currency?: string; asO
   };
 }
 
-/** The exact lines behind a ledger's posted and reserved figures; contributions sum to the tile values. */
+/**
+ * The exact lines behind a ledger's available figure (FR-CASH-010). Every contribution carries its signed effect on
+ * available cash: posted journal lines (+), holds (-), pending withdrawals that are reserved (-) and the minimum-buffer
+ * policy line (-). They sum to `rawAvailable` to the minor unit, and `available = max(0, rawAvailable)`.
+ * Withdrawals still awaiting approval are listed separately: they do not touch availability until they post.
+ */
 export async function explainLedger(ledger: LedgerRow, asOf: Date) {
-  const [lines, reservations] = await Promise.all([
+  const [lines, reservations, pendingJournalLines] = await Promise.all([
     prisma.cashJournalLine.findMany({ where: effectiveLines([ledger.id], asOf), include: { journal: true }, orderBy: [{ journal: { entryDate: 'asc' } }, { journal: { createdAt: 'asc' } }, { lineNo: 'asc' }], take: 2000 }),
     prisma.cashReservation.findMany({ where: { ledgerId: ledger.id, ...liveReservationWhere(startOfDay(new Date())) }, orderBy: { createdAt: 'asc' } }),
+    prisma.cashJournalLine.findMany({ where: { ledgerId: ledger.id, journal: { status: { in: UNPOSTED }, purpose: 'CLIENT_WITHDRAWAL' } }, include: { journal: true }, take: 200 }),
   ]);
   const posted = lines.reduce((s, l) => s.add(signed(l)), ZERO);
   const reserved = reservations.reduce((s, r) => s.add(r.amount.sub(r.consumed)), ZERO);
   const a = availability(posted, reserved, ledger.minBuffer);
+  const rawAvailable = posted.sub(reserved).sub(ledger.minBuffer);
+  const remaining = (r: (typeof reservations)[number]) => r.amount.sub(r.consumed);
+  const holds = reservations.filter((r) => r.purpose !== 'WITHDRAWAL');
+  const reservedWithdrawals = reservations.filter((r) => r.purpose === 'WITHDRAWAL');
+  const pendingApproval = pendingJournalLines.filter((l) => l.credit.gt(0)).map((l) => ({ journalId: l.journalId, ref: l.journal.ref, status: l.journal.status, entryDate: isoDay(l.journal.entryDate), description: l.journal.description, amount: l.credit.sub(l.debit).toFixed(2), inAvailability: false }));
+  const contributions = [
+    ...lines.map((l) => ({ kind: 'JOURNAL', ref: l.journal.ref, label: l.journal.description, effect: signed(l).toFixed(2) })),
+    ...holds.map((r) => ({ kind: 'HOLD', ref: r.ref, label: `${r.source} (${r.purpose.toLowerCase().replace(/_/g, ' ')})`, effect: remaining(r).neg().toFixed(2) })),
+    ...reservedWithdrawals.map((r) => ({ kind: 'PENDING_WITHDRAWAL', ref: r.ref, label: `${r.source} (pending withdrawal)`, effect: remaining(r).neg().toFixed(2) })),
+    ...(ledger.minBuffer.gt(0) ? [{ kind: 'POLICY', ref: 'MIN_BUFFER', label: 'Minimum cash buffer kept back by policy', effect: ledger.minBuffer.neg().toFixed(2) }] : []),
+  ];
+  const sum = contributions.reduce((t, c) => t.add(new D(c.effect)), ZERO);
   return {
     ledgerId: ledger.id,
     ref: ledger.ref,
@@ -151,7 +173,17 @@ export async function explainLedger(ledger: LedgerRow, asOf: Date) {
     available: a.available.toFixed(2),
     withdrawable: a.withdrawable.toFixed(2),
     journalLines: lines.map((l) => ({ journalId: l.journalId, ref: l.journal.ref, entryDate: isoDay(l.journal.entryDate), status: l.journal.status, description: l.journal.description, signed: signed(l).toFixed(2) })),
-    reservations: reservations.map((r) => ({ id: r.id, ref: r.ref, source: r.source, purpose: r.purpose, remaining: r.amount.sub(r.consumed).toFixed(2) })),
+    reservations: reservations.map((r) => ({ id: r.id, ref: r.ref, source: r.source, purpose: r.purpose, remaining: remaining(r).toFixed(2) })),
+    holds: holds.map((r) => ({ id: r.id, ref: r.ref, source: r.source, purpose: r.purpose, remaining: remaining(r).toFixed(2), requiredDate: isoDay(r.requiredDate), expiresOn: isoDay(r.expiresOn) })),
+    pendingWithdrawals: {
+      reserved: reservedWithdrawals.map((r) => ({ id: r.id, ref: r.ref, source: r.source, remaining: remaining(r).toFixed(2), requiredDate: isoDay(r.requiredDate), inAvailability: true })),
+      awaitingApproval: pendingApproval,
+    },
+    policyLines: [{ key: 'MIN_BUFFER', label: 'Minimum cash buffer', amount: ledger.minBuffer.toFixed(2) }],
+    contributions,
+    contributionSum: sum.toFixed(2),
+    rawAvailable: rawAvailable.toFixed(2),
+    ties: sum.eq(rawAvailable) && (rawAvailable.gt(0) ? rawAvailable : ZERO).eq(a.available),
   };
 }
 
@@ -405,7 +437,7 @@ export async function loadClose(id: string): Promise<CloseRow> {
 // ---------------------------------------------------------------- close pre-check
 
 export interface PrecheckItem {
-  key: 'STATEMENT_COVERAGE' | 'BALANCE_VARIANCE' | 'SUSPENSE' | 'AGED_ITEMS' | 'UNPOSTED_JOURNALS' | 'CHECKER_APPROVAL' | 'NAV_RELEASED' | 'RECON_SIGNOFF' | 'RECON_MATERIAL';
+  key: 'STATEMENT_COVERAGE' | 'BALANCE_VARIANCE' | 'SUBLEDGER_GL' | 'SUSPENSE' | 'AGED_ITEMS' | 'UNPOSTED_JOURNALS' | 'CHECKER_APPROVAL' | 'NAV_RELEASED' | 'RECON_SIGNOFF' | 'RECON_MATERIAL';
   label: string;
   ok: boolean;
   blockers: string[];
@@ -463,6 +495,7 @@ export async function closePrecheck(portfolioId: string, periodEnd: Date, close:
   const items: PrecheckItem[] = [
     { key: 'STATEMENT_COVERAGE', label: 'Statements cover the period for every bank ledger', ok: !coverage.length, blockers: capped(coverage), detail: coverage.length ? plural(coverage.length, 'coverage problem') : `${plural(bank.length, 'bank ledger')} covered to ${isoDay(periodEnd)}` },
     { key: 'BALANCE_VARIANCE', label: 'Statement balance agrees with the ledger', ok: !variance.length, blockers: variance, detail: variance.length ? plural(variance.length, 'ledger') + ' out of tolerance' : 'Within tolerance' },
+    await subledgerGlItem(portfolioId, periodEnd, bank, balance),
     { key: 'SUSPENSE', label: 'No suspense balance', ok: !susp.length, blockers: susp, detail: susp.length ? plural(susp.length, 'suspense ledger') + ' not clear' : 'Suspense is clear' },
     { key: 'AGED_ITEMS', label: `No open items older than ${AGED_DAYS} days`, ok: !aged.length, blockers: capped(aged), detail: aged.length ? plural(aged.length, 'aged item') : 'No aged unmatched lines or overdue expectations' },
     { key: 'UNPOSTED_JOURNALS', label: 'All journals to the period end are posted', ok: !unp.length, blockers: capped(unp), detail: unp.length ? plural(unp.length, 'unposted journal') : 'No draft or pending journals' },
@@ -478,4 +511,41 @@ export async function closePrecheck(portfolioId: string, periodEnd: Date, close:
   items.push(...(await cashCloseGates(portfolioId, periodEnd)));
   const blockers = items.flatMap((i) => i.blockers);
   return { items, blockers, canClose: blockers.length === 0 };
+}
+
+// ---------------------------------------------------------------- sub-ledger to general ledger tie-out (FR-CASH-018)
+
+/**
+ * The bank cash sub-ledgers must agree with the general ledger's "Cash at bank" account (1000) at the period end, per
+ * currency, within the sum of the ledgers' tolerances. A portfolio without a general ledger has nothing to tie out. The
+ * policy `cash_gl_tieout` = false switches the gate off.
+ */
+export async function subledgerGlItem(portfolioId: string, periodEnd: Date, bank: LedgerRow[], balance: Map<string, Dec>): Promise<PrecheckItem> {
+  const label = 'Cash sub-ledger agrees with the general ledger cash account';
+  const key = 'SUBLEDGER_GL' as const;
+  const policy = await prisma.policy.findUnique({ where: { key: 'cash_gl_tieout' } });
+  if (policy?.value === false) return { key, label, ok: true, blockers: [], detail: 'Switched off by policy' };
+  const chart = await prisma.accAccount.count({ where: { portfolioId } });
+  if (!chart) return { key, label, ok: true, blockers: [], detail: 'No general ledger for this portfolio yet; nothing to tie out' };
+  const account = await prisma.accAccount.findUnique({ where: { portfolioId_code: { portfolioId, code: '1000' } } });
+  const sub = new Map<string, { amount: Dec; tolerance: Dec }>();
+  for (const l of bank) {
+    const e = sub.get(l.currency) ?? { amount: ZERO, tolerance: ZERO };
+    sub.set(l.currency, { amount: e.amount.add(balance.get(l.id) ?? ZERO), tolerance: e.tolerance.add(l.tolerance) });
+  }
+  const gl = new Map<string, Dec>();
+  if (account) {
+    const currencies = await prisma.accJournal.groupBy({ by: ['currency'], where: { portfolioId, status: { in: ['POSTED', 'REVERSED'] }, entryDate: { lte: periodEnd } } });
+    for (const c of currencies) {
+      const g = await prisma.accJournalLine.aggregate({ where: { accountId: account.id, journal: { portfolioId, currency: c.currency, status: { in: ['POSTED', 'REVERSED'] }, entryDate: { lte: periodEnd } } }, _sum: { debit: true, credit: true } });
+      gl.set(c.currency, (g._sum.debit ?? ZERO).sub(g._sum.credit ?? ZERO));
+    }
+  }
+  const blockers: string[] = [];
+  for (const ccy of [...new Set([...sub.keys(), ...gl.keys()])].sort()) {
+    const s = sub.get(ccy) ?? { amount: ZERO, tolerance: ZERO };
+    const t = tieOut(s.amount, gl.get(ccy) ?? ZERO, s.tolerance);
+    if (!t.ok) blockers.push(`${ccy}: cash sub-ledger ${s.amount.toFixed(2)} vs general ledger ${account ? `account 1000 ${(gl.get(ccy) ?? ZERO).toFixed(2)}` : 'with no Cash at bank account (1000)'}, difference ${t.difference.toFixed(2)} (tolerance ${s.tolerance.toFixed(2)}); post or correct the journals on the side that is behind`);
+  }
+  return { key, label, ok: !blockers.length, blockers, detail: blockers.length ? plural(blockers.length, 'currency') + ' do not tie' : 'Sub-ledger and general ledger agree' };
 }

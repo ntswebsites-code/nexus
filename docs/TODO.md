@@ -103,3 +103,4 @@ No browser testing (typecheck, builds and API scripts only) · long tasks on the
 | Pkg | Scope | State |
 |---|---|---|
 | S1 | Operations controls: operations.task.manage, control-task self-completion (BR-063), hand-off notifications (FR-OPS-010), chart click-through (FR-OPS-013), XLSX export (FR-OPS-011), corporate-action stages (FR-OPS-015), in-app reason dialogs, Idempotency-Key on Start/Complete | [x] built (see ADMIN-REAL-PAGES.md, Package S1) |
+| S2 | Reconciliation and cash depth: BR-065 population gate, accept candidate match, counterpart_imports pipeline, CAMT.053/MT940/MT535, sub-ledger-to-GL close gate, cash context bar and explain, tab aria and sort, margin disposition with checker | [x] built (see ADMIN-REAL-PAGES.md, Package S2) |

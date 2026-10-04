@@ -84,6 +84,7 @@ export interface Allowed {
   query: boolean;
   escalate: boolean;
   attachEvidence: boolean;
+  acceptCandidate?: boolean;
 }
 
 export interface BreakEvent {
@@ -298,3 +299,36 @@ export const TOLERANCE_FIELDS: { key: 'price' | 'cash' | 'holdingsPct' | 'positi
   { key: 'settleDays', label: 'Settlement grace (days)', families: ['SETTLEMENT_FAILS'], hint: 'Days after expected settlement before a fail.' },
   { key: 'caCash', label: 'Entitlement cash (±)', families: ['CORP_ACTIONS'], hint: 'Absolute net cash, event currency.' },
 ];
+
+
+/** One received counterparty batch (FR-REC-017): a manual upload or a connector pull, through the same pipeline. */
+export interface CounterpartImport {
+  id: string;
+  ref: string;
+  source: 'MANUAL' | 'CONNECTOR';
+  connector: string | null;
+  feed: 'POSITIONS' | 'CORP_ACTIONS' | 'STATEMENT';
+  counterparty: { id: string; ref?: string; name?: string };
+  accountRef: string;
+  asOfDate: string;
+  filename: string;
+  format: string;
+  recordCount: number;
+  sha256: string;
+  status: 'RECEIVED' | 'SUPERSEDED';
+  note: string | null;
+  createdByName: string | null;
+  createdAt: string;
+}
+
+/** An open break on the other side of the same trade that could be the same trade (FR-REC-006). */
+export interface BreakCandidate {
+  id: string;
+  ref: string;
+  kind: string;
+  label: string;
+  severity: string;
+  status: string;
+  score: number;
+  reasons: string[];
+}

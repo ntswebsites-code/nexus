@@ -14,7 +14,7 @@ const ZERO = new D(0);
 const HUNDRED = new D(100);
 
 export const FACILITY_TYPES = ['MARGIN_LOAN', 'REPO', 'SEC_LENDING', 'OVERDRAFT'] as const;
-export const OPEN_CALL = ['ISSUED', 'ACKNOWLEDGED', 'DISPUTED'];
+export const OPEN_CALL = ['ISSUED', 'ACKNOWLEDGED', 'DISPUTED', 'PENDING_CHECK'];
 /// Coverage within this multiple of maintenance is a warning.
 export const WARN_BUFFER = new D('1.10');
 
@@ -154,4 +154,25 @@ export function termsProblems(t: FacilityTerms): string[] {
   if (t.initialRatio.lt(t.maintenanceRatio)) p.push('The initial ratio must be at or above the maintenance ratio');
   if (t.limitAmount.lte(0)) p.push('The facility limit must be positive');
   return p;
+}
+
+/**
+ * Margin disposition (FR-FIN-002, FR-FIN-004, BR-070). A maker proposes how an open call ends and an independent checker
+ * approves it. FUNDED needs the call to be issued or acknowledged; DISPUTE_RESOLVED needs it to be disputed, and records
+ * the counterparty's evidence and the house calculation.
+ */
+export const DISPOSITION_KINDS = ['FUNDED', 'DISPUTE_RESOLVED'] as const;
+export const DISPUTE_OUTCOMES = ['CALL_STANDS', 'CALL_WITHDRAWN'] as const;
+export const DISPOSITION_FROM: Record<(typeof DISPOSITION_KINDS)[number], string[]> = { FUNDED: ['ISSUED', 'ACKNOWLEDGED'], DISPUTE_RESOLVED: ['DISPUTED'] };
+
+export function dispositionProblems(kind: (typeof DISPOSITION_KINDS)[number], status: string, input: { counterpartyEvidenceRef?: string | null; houseCalcAmount?: unknown; houseCalcNote?: string | null; outcome?: string | null; fundingLedgerId?: string | null }): string[] {
+  const out: string[] = [];
+  if (!DISPOSITION_FROM[kind].includes(status)) out.push(`A ${kind === 'FUNDED' ? 'funding' : 'dispute resolution'} needs a call that is ${DISPOSITION_FROM[kind].join(' or ').toLowerCase()}, not ${status.toLowerCase()}`);
+  if (kind === 'DISPUTE_RESOLVED') {
+    if (!input.counterpartyEvidenceRef) out.push('counterpartyEvidenceRef: record the counterparty evidence (statement, email or valuation reference)');
+    if (input.houseCalcAmount === undefined || input.houseCalcAmount === null || input.houseCalcAmount === '') out.push('houseCalcAmount: record the house-calculated call amount');
+    if (!input.houseCalcNote) out.push('houseCalcNote: explain the house calculation');
+    if (!input.outcome) out.push('outcome: CALL_STANDS or CALL_WITHDRAWN');
+  } else if (!input.fundingLedgerId) out.push('fundingLedgerId: choose the bank ledger the cash leaves from');
+  return out;
 }

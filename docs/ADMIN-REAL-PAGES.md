@@ -1502,3 +1502,19 @@ Migration `20261201100000_ops_controls` (additive): `ops_tasks.is_control`; `cor
 - Block, Cancel and Reopen use an in-app reason dialog (no `window.prompt`); Start, Complete, Block, Cancel, Reopen, Refresh send an Idempotency-Key.
 - Tests: `tests/frontend/admin-web/a/operations.test.tsx`, `corporate-actions.test.tsx`; API flow `scripts/test-ops-controls.ts` plus stage checks in `test-corporate-actions.ts`.
 - Not done: the stage is derived (an "election open" window is not a separate stored state); instruct does not transmit to a custodian (adapter stub only records the instruction).
+
+
+## Package S2: reconciliation and cash depth
+
+Migration `20261202100000_recon_cash_depth` (additive): table `counterpart_imports`; `recon_breaks.accepted_candidate`; margin-disposition columns on `fin_margin_calls`.
+
+- **BR-065**: a TRADES run needs the counterparty population (executions or the day-end package) per mapped account; without it the run is SOURCE_MISSING and no MISSING_EXTERNAL break is raised. Sign-off readiness lists the missing source.
+- **FR-REC-006**: `GET /recon/breaks/:id/candidates` ranks open breaks on the other side of the same trade; `POST /recon/breaks/:id/accept-candidate` (recon.manage) sends both to the checker with the candidate as evidence. UI: "Accept candidate match".
+- **FR-REC-017**: every manual upload, connector pull (`POST /recon/connector-imports`, custodian-feed adapter; live answers 503) and custodian statement file records a `counterpart_imports` batch (channel, connector, account, file name, format, record count, SHA-256, superseded state). `GET /recon/counterpart-imports`; UI card on Sources and tolerances.
+- **FR-CASH-017**: CAMT.053 and MT940 statement parsers in `POST /cash/statement-imports` (sign normalised, one statement per file, currency checked against the ledger, same footing and duplicate rules); MT535 holdings statements accepted by `POST /recon/custody-positions` (account and date must match).
+- **FR-CASH-018**: close pre-check item `SUBLEDGER_GL` ties bank sub-ledgers to GL account 1000 per currency (skipped when the portfolio has no general ledger; policy `cash_gl_tieout` = false disables).
+- **FR-CASH-009/010**: `GET /cash/context`; balances filter by client and cash account; explain lists holds, pending withdrawals (reserved and awaiting approval) and policy lines whose contributions sum to the figure (`ties`). UI context bar with client, portfolio, cash account, currency, as of.
+- **FR-CASH-019**: complete ARIA tabs (roving tab stop, arrows, tabpanel), sortable headers with `aria-sort`, search and "No records" on all six cash tables.
+- **FR-FIN-002/004, BR-070**: `POST /financing/calls/:id/disposition` (FUNDED or DISPUTE_RESOLVED; step-up; reason; evidence and house calculation for disputes) then `/disposition/approve` by a different financing.approve holder, or `/disposition/return`. Funding raises a MARGIN_CALL cash expectation on proposal and links a system cash journal on approval (needs a CLEARING ledger; posting it settles the expectation). Coverage-restored `/resolve` stays as the system-verified path.
+- Tests: `tests/frontend/admin-web/a/recon-cash-depth.test.tsx`, `tests/frontend/admin/b/financing-disposition.test.tsx`; API flow `scripts/test-recon-cash-depth.ts`.
+- Not done: live broker/counterparty API connector (adapter stays a NotConfigured stub); "reusable proceeds" are not modelled in explain; counterpart_imports for cash bank statements (they keep `cash_statement_imports`).

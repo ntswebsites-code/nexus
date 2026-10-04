@@ -183,7 +183,7 @@ const tradeLabel = (t: { side: string; quantity: Dec; ticker: string; price: Dec
  * `FX_PRICE_BUFFER_PCT` of the internal price is allowed for rate rounding; with no rate it is an attribute break.
  * Everything left on either side is a break.
  */
-export function matchTrades(exts: ExtTrade[], ints: IntFill[], priceTol: Dec, fx?: FxLookup): TradeOutcome {
+export function matchTrades(exts: ExtTrade[], ints: IntFill[], priceTol: Dec, fx?: FxLookup, opts: { suppressMissingExternal?: boolean } = {}): TradeOutcome {
   const out: TradeOutcome = { matched: [], detected: [], exceptionExts: [] };
   const freeInts = new Set(ints.map((i) => i.id));
   const byId = new Map(ints.map((i) => [i.id, i]));
@@ -312,7 +312,8 @@ export function matchTrades(exts: ExtTrade[], ints: IntFill[], priceTol: Dec, fx
     });
     out.exceptionExts.push(e);
   }
-  for (const id of freeInts) {
+  // BR-065: an internal fill cannot be called "not confirmed" while the counterparty population is incomplete.
+  for (const id of opts.suppressMissingExternal ? [] : freeInts) {
     const i = byId.get(id)!;
     out.detected.push({
       itemKey: `FILL:${i.id}`,
@@ -351,6 +352,14 @@ export function compareCount(packageCount: number, received: number): { differen
   if (packageCount === received) return null;
   const pct = pctDiff(new D(received), new D(packageCount));
   return { difference: packageCount - received, pct, severity: maxSeverity('HIGH', pct ? severityForPct(pct) : 'HIGH') };
+}
+
+/**
+ * BR-065: the independent counterparty population (executions or the day-end package) must have been received before a
+ * difference may be classified as a break. Pure rule shared by the run and the sign-off readiness.
+ */
+export function populationReceived(executionsReceived: number, dayEndPackageReceived: boolean): boolean {
+  return executionsReceived > 0 || dayEndPackageReceived;
 }
 
 /** Stable JSON used to tell whether a re-run found the same difference again. */
@@ -572,3 +581,53 @@ export function matchCorpActions(internal: IntEntitlement[], custody: CustodyNot
   }
   return out;
 }
+
+// ---------------------------------------------------------------- candidate matches (FR-REC-006)
+
+export interface CandidateSide {
+  ticker: string;
+  side: string;
+  quantity: Dec;
+  price: Dec | null;
+}
+export interface CandidateScore {
+  score: number;
+  reasons: string[];
+}
+
+/**
+ * How well a break on one side of a trade reconciliation lines up with a break on the other side (a custodian trade the
+ * book does not have against an internal fill the custodian did not confirm). The security must be the same; side,
+ * quantity and price add to the score. Below `MIN_CANDIDATE_SCORE` it is not offered.
+ */
+export const MIN_CANDIDATE_SCORE = 70;
+export function scoreCandidate(target: CandidateSide, other: CandidateSide): CandidateScore | null {
+  if (norm(target.ticker) !== norm(other.ticker)) return null;
+  let score = 50;
+  const reasons = ['Same security'];
+  if (norm(target.side) === norm(other.side)) {
+    score += 20;
+    reasons.push('Same side');
+  }
+  if (target.quantity.equals(other.quantity)) {
+    score += 20;
+    reasons.push('Same quantity');
+  } else {
+    const p = pctDiff(target.quantity, other.quantity);
+    if (p && p.lte(5)) {
+      score += 10;
+      reasons.push('Quantity within 5%');
+    }
+  }
+  if (target.price && other.price) {
+    const p = pctDiff(target.price, other.price);
+    if (p && p.lte(1)) {
+      score += 10;
+      reasons.push('Price within 1%');
+    }
+  }
+  return score >= MIN_CANDIDATE_SCORE ? { score, reasons } : null;
+}
+
+/** Kinds of break that have a counterpart on the other side. */
+export const CANDIDATE_KINDS: Record<string, string> = { MISSING_INTERNAL: 'MISSING_EXTERNAL', MISSING_EXTERNAL: 'MISSING_INTERNAL' };

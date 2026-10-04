@@ -58,7 +58,7 @@ export const valuationView = (v: PoolValuation | null) =>
   };
 
 export async function callViews(rows: CallRow[]) {
-  const usr = await names(rows.flatMap((c) => [c.issuedBy, c.acknowledgedBy, c.resolvedBy]));
+  const usr = await names(rows.flatMap((c) => [c.issuedBy, c.acknowledgedBy, c.resolvedBy, c.dispositionBy]));
   const fac = rows.length ? await prisma.finFacility.findMany({ where: { id: { in: [...new Set(rows.map((c) => c.facilityId))] } } }) : [];
   const fm = new Map(fac.map((f) => [f.id, f]));
   const now = Date.now();
@@ -68,6 +68,7 @@ export async function callViews(rows: CallRow[]) {
     facilityId: c.facilityId,
     facilityRef: fm.get(c.facilityId)?.ref ?? null,
     facilityName: fm.get(c.facilityId)?.name ?? null,
+    portfolioId: fm.get(c.facilityId)?.portfolioId ?? null,
     lender: fm.get(c.facilityId)?.lender ?? null,
     currency: fm.get(c.facilityId)?.currency ?? null,
     status: c.status,
@@ -85,6 +86,24 @@ export async function callViews(rows: CallRow[]) {
     resolvedByName: c.resolvedBy ? (usr.get(c.resolvedBy) ?? null) : null,
     resolvedAt: iso(c.resolvedAt),
     resolution: c.resolution,
+    disposition: c.dispositionKind
+      ? {
+          kind: c.dispositionKind,
+          outcome: c.dispositionOutcome,
+          reason: c.dispositionReason,
+          proposedBy: c.dispositionBy,
+          proposedByName: c.dispositionBy ? (usr.get(c.dispositionBy) ?? null) : null,
+          proposedAt: iso(c.dispositionAt),
+          priorStatus: c.priorStatus,
+          counterpartyEvidenceRef: c.counterpartyEvidenceRef,
+          houseCalcAmount: f2(c.houseCalcAmount),
+          houseCalcNote: c.houseCalcNote,
+          fundingLedgerId: c.fundingLedgerId,
+          fundingAmount: f2(c.fundingAmount),
+          expectationId: c.expectationId,
+          journalId: c.journalId,
+        }
+      : null,
     version: c.version,
     createdAt: c.createdAt.toISOString(),
   }));

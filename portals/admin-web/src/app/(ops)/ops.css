@@ -248,3 +248,5 @@ textarea.ops-input { height: auto; min-height: 90px; padding: 8px 10px; resize: 
   .ops-search-btn { min-width: 0; }
   .ops-user-copy { display: none; }
 }
+.ops-sortbtn { background: none; border: 0; padding: 0; font: inherit; font-weight: inherit; color: inherit; cursor: pointer; text-align: inherit; }
+.ops-sortbtn:hover, .ops-sortbtn:focus-visible { text-decoration: underline; }

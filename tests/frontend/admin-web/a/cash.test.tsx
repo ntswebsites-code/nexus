@@ -15,6 +15,7 @@ const close = { id: 'cl-1', portfolioId: PF.id, portfolioName: PF.name, periodEn
 const base = () => ({
   'GET /api/v1/portfolios': D([PF]),
   'GET /api/v1/cash/balances': D(balances),
+  'GET /api/v1/cash/context': D({ clients: [], portfolios: [], cashAccounts: [], currencies: ['USD'] }),
   'GET /api/v1/cash/ledgers': D([ledger]),
   'GET /api/v1/cash/journals': D([journal], { total: 1, summary: { byStatus: { POSTED: 1 }, drafts: 0, pendingApproval: 0, posted: 1 } }),
   'GET /api/v1/cash/reservations': D([reservation], { total: 1, summary: { active: 1, remaining: '40000.00' } }),
@@ -27,7 +28,7 @@ type M = ReturnType<typeof mountPage>;
 const openTab = async (user: M['user'], name: string) => user.click(await screen.findByRole('tab', { name }));
 const pickPortfolio = async (user: M['user']) => {
   await screen.findByText(`${PF.name} (${PF.ref})`, { selector: 'option' });
-  await user.selectOptions(screen.getAllByRole('combobox')[0], PF.id);
+  await user.selectOptions(screen.getByLabelText('Portfolio'), PF.id);
 };
 const decimals = (el: HTMLElement) => within(el).getAllByRole('textbox').filter((e) => e.getAttribute('inputmode') === 'decimal');
 

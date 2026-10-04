@@ -439,7 +439,7 @@ async function main() {
     const wl = await ops.get(`${OP}/workload`);
     check('workload: owners, areas, 8 day buckets for tasks and cash', wl.status === 200 && Array.isArray(wl.body.data.byOwner) && wl.body.data.dueByDay.length === 8 && wl.body.data.cashByDay.length === 8 && typeof wl.body.data.openTasks === 'number', wl.body);
     const tcsv = (await ops.get(`${OP}/tasks?filter=all&format=csv`)) as Res & { raw: Buffer };
-    check('runbook CSV export', tcsv.status === 200 && /text\/csv/.test(tcsv.headers.get('content-type') ?? '') && tcsv.raw.toString('utf8').startsWith('ref,area,title'));
+    check('runbook CSV export', tcsv.status === 200 && /text\/csv/.test(tcsv.headers.get('content-type') ?? '') && /^"?ref"?,"?area"?,"?title/.test(tcsv.raw.toString('utf8')));
     const panels = await pm.get('/api/v1/dashboard/panels');
     check('Command Centre panels: performance, allocation and scenario sections present', panels.status === 200 && 'performance' in panels.body.data && 'allocation' in panels.body.data && 'scenario' in panels.body.data, panels.body);
     if (Array.isArray(panels.body?.data?.allocation)) {

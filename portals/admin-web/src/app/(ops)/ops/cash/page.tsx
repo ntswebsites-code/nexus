@@ -13,6 +13,7 @@ import {
   type Balances,
   type CashJournalList,
   type CloseDetail,
+  type CashContext,
   type CloseRow,
   type ExpectationRow,
   type Explain,
@@ -22,7 +23,8 @@ import {
   type ReservationRow,
 } from '@/ops/cash';
 import { CashJournalForm } from '@/ops/CashJournalForm';
-import { TabBar } from '@/ops/recon/common';
+import { TabBar, tabPanelProps } from '@/ops/recon/common';
+import { Sorted } from '@/ops/sorted';
 import { useCan } from '@/ops/session';
 import type { PortfolioSummary } from '@/ops/types';
 import { ActionButton, Alert, Card, Empty, Field, FieldGrid, FormModal, formatDate, Loaded, Modal, PageHeader, str, optStr, useAction, useResource } from '@/ops/ui';
@@ -36,8 +38,17 @@ export default function CashPage() {
   const canView = useCan('cash.view');
   const [tab, setTab] = useState<Tab>('balances');
   const [entity, setEntity] = useState('');
+  const [clientId, setClientId] = useState('');
+  const [accountId, setAccountId] = useState('');
+  const [currency, setCurrency] = useState('');
+  const [asOf, setAsOf] = useState(today());
   const portfolios = useResource<PortfolioSummary[]>(() => api.get<PortfolioSummary[]>(v1('/portfolios')), []);
-  const list = portfolios.state === 'ok' ? portfolios.data : [];
+  const context = useResource<CashContext>(() => api.get<CashContext>(v1('/cash/context')), []);
+  const ctx = context.state === 'ok' ? context.data : null;
+  const all = portfolios.state === 'ok' ? portfolios.data : [];
+  // The client narrows the portfolio list; the portfolio and the client narrow the cash-account list (FR-CASH-009).
+  const list = clientId ? all.filter((p) => p.clientId === clientId) : all;
+  const accounts = (ctx?.cashAccounts ?? []).filter((a) => (!clientId || a.clientId === clientId) && (!entity || a.portfolioIds.includes(entity)));
 
   // Notification links arrive as /ops/cash?journal=<id>, ?import=<id> or ?close=<id>.
   useEffect(() => {
@@ -64,10 +75,39 @@ export default function CashPage() {
         subtitle="Cash ownership, reservations and forecasts. Balances are derived from posted journals, never edited; statements are evidence, committed by a checker."
       />
       <Card>
-        <div className="ops-filters">
+        <div className="ops-filters" role="group" aria-label="Cash context">
+          {ctx && ctx.clients.length > 0 && (
+            <Field label="Client">
+              <select
+                className="ops-input"
+                value={clientId}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  setClientId(id);
+                  setAccountId('');
+                  const mine = all.filter((p) => p.clientId === id);
+                  if (id && !mine.some((p) => p.id === entity)) setEntity(mine.length === 1 ? mine[0]!.id : '');
+                }}
+              >
+                <option value="">All clients</option>
+                {ctx.clients.map((cl) => (
+                  <option key={cl.id} value={cl.id}>
+                    {cl.name} ({cl.ref})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
           <Field label="Portfolio">
-            <select className="ops-input" value={entity} onChange={(e) => setEntity(e.target.value)}>
-              <option value="">{tab === 'close' ? 'All portfolios' : 'All portfolios'}</option>
+            <select
+              className="ops-input"
+              value={entity}
+              onChange={(e) => {
+                setEntity(e.target.value);
+                setAccountId('');
+              }}
+            >
+              <option value="">All portfolios</option>
               {list.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.name} ({p.ref})
@@ -75,9 +115,38 @@ export default function CashPage() {
               ))}
             </select>
           </Field>
+          {ctx && ctx.cashAccounts.length > 0 && (
+            <Field label="Cash account">
+              <select className="ops-input" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+                <option value="">All cash accounts</option>
+                {accounts.map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.ref} · {a.masked} ({a.currency})
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          {ctx && ctx.currencies.length > 1 && (
+            <Field label="Currency">
+              <select className="ops-input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                <option value="">All currencies</option>
+                {ctx.currencies.map((cc) => (
+                  <option key={cc} value={cc}>
+                    {cc}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          )}
+          <Field label="As of" hint="Balances are rebuilt to this date; reservations and expectations are current">
+            <input className="ops-input" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
+          </Field>
         </div>
       </Card>
       <TabBar
+        idPrefix="cash"
+        label="Cash sections"
         tabs={[
           { key: 'balances', label: 'Balances' },
           { key: 'journals', label: 'Cash ledger' },
@@ -89,12 +158,14 @@ export default function CashPage() {
         value={tab}
         onChange={setTab}
       />
-      {tab === 'balances' && <BalancesTab entity={entity} />}
-      {tab === 'journals' && <JournalsTab entity={entity} portfolios={list} />}
-      {tab === 'reservations' && <ReservationsTab entity={entity} />}
-      {tab === 'expected' && <ExpectedTab entity={entity} />}
-      {tab === 'imports' && <ImportsTab entity={entity} />}
-      {tab === 'close' && <CloseTab entity={entity} portfolios={list} />}
+      <div {...tabPanelProps('cash', tab)}>
+        {tab === 'balances' && <BalancesTab entity={entity} clientId={clientId} cashAccountId={accountId} currency={currency} asOf={asOf} />}
+        {tab === 'journals' && <JournalsTab entity={entity} portfolios={list} />}
+        {tab === 'reservations' && <ReservationsTab entity={entity} />}
+        {tab === 'expected' && <ExpectedTab entity={entity} />}
+        {tab === 'imports' && <ImportsTab entity={entity} />}
+        {tab === 'close' && <CloseTab entity={entity} portfolios={list} />}
+      </div>
     </>
   );
 }
@@ -104,12 +175,11 @@ const useLedgers = (entity: string, kind?: string) =>
 
 // ================================================================ balances
 
-function BalancesTab({ entity }: { entity: string }) {
+function BalancesTab({ entity, clientId, cashAccountId, currency, asOf }: { entity: string; clientId: string; cashAccountId: string; currency: string; asOf: string }) {
   const canSetUp = useCan('cash.journal.approve');
-  const [asOf, setAsOf] = useState(today());
   const [explain, setExplain] = useState<string | null>(null);
   const [setup, setSetup] = useState(false);
-  const res = useResource<Balances>(() => api.get<Balances>(v1(`/cash/balances${qs({ portfolioId: entity, asOf })}`)), [entity, asOf]);
+  const res = useResource<Balances>(() => api.get<Balances>(v1(`/cash/balances${qs({ portfolioId: entity, clientId, cashAccountId, currency, asOf })}`)), [entity, clientId, cashAccountId, currency, asOf]);
   return (
     <>
       <Card
@@ -122,11 +192,6 @@ function BalancesTab({ entity }: { entity: string }) {
           ) : undefined
         }
       >
-        <div className="ops-filters">
-          <Field label="As of" hint="Posted cash is rebuilt to this date; reservations and expectations are current">
-            <input className="ops-input" type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} />
-          </Field>
-        </div>
         <Loaded res={res} what="balances">
           {(b) =>
             b.ledgers.length === 0 ? (
@@ -136,22 +201,24 @@ function BalancesTab({ entity }: { entity: string }) {
                 <p className="ops-muted">
                   Available = posted − reserved − minimum buffer ({b.calculation}). {b.note}
                 </p>
-                <div className="ops-table-wrap">
+                <Sorted rows={b.ledgers} what="ledgers" getters={{ name: (l) => l.name, portfolio: (l) => l.portfolioName, posted: (l) => Number(l.posted), reserved: (l) => Number(l.reserved), buffer: (l) => Number(l.minBuffer), available: (l) => Number(l.available), expected: (l) => Number(l.expectedNet) }} searchText={(l) => `${l.name} ${l.ref} ${l.portfolioName ?? ''} ${l.currency}`}>
+{(rows, th) => (
+<div className="ops-table-wrap">
                   <table className="ops-table">
                     <thead>
                       <tr>
-                        <th>Ledger</th>
-                        <th>Portfolio</th>
-                        <th className="r">Posted</th>
-                        <th className="r">Reserved</th>
-                        <th className="r">Buffer</th>
-                        <th className="r">Available</th>
-                        <th className="r">Expected net</th>
+                        {th('name', 'Ledger')}
+                        {th('portfolio', 'Portfolio')}
+                        {th('posted', 'Posted', 'r')}
+                        {th('reserved', 'Reserved', 'r')}
+                        {th('buffer', 'Buffer', 'r')}
+                        {th('available', 'Available', 'r')}
+                        {th('expected', 'Expected net', 'r')}
                         <th />
                       </tr>
                     </thead>
                     <tbody>
-                      {b.ledgers.map((l) => (
+                      {rows.map((l) => (
                         <tr key={l.ledgerId}>
                           <td>
                             <strong>{l.name}</strong>
@@ -177,6 +244,8 @@ function BalancesTab({ entity }: { entity: string }) {
                     </tbody>
                   </table>
                 </div>
+)}
+</Sorted>
                 {b.totals.length > 1 && (
                   <p className="ops-muted">
                     {b.totals.map((t) => `${t.portfolioName ?? ''} ${t.currency}: posted ${money2(t.posted)}, available ${money2(t.available)}`).join(' · ')}
@@ -217,6 +286,12 @@ function ExplainModal({ ledgerId, asOf, onClose }: { ledgerId: string; asOf: str
               <p>
                 Posted {money2(x.posted)} − reserved {money2(x.reserved)} − buffer {money2(x.minBuffer)} = <strong>available {money2(x.available)}</strong>
               </p>
+              {x.contributions && (
+                <p className="ops-muted" role="status">
+                  {x.contributions.length} line{x.contributions.length === 1 ? '' : 's'} sum to {money2(x.rawAvailable ?? x.contributionSum)}
+                  {x.ties === false ? ' and do NOT tie to the available figure' : ', which is the figure above before it is floored at zero'}.
+                </p>
+              )}
               <h3>Posted journal lines</h3>
               {x.journalLines.length === 0 ? (
                 <Empty>No posted lines.</Empty>
@@ -255,6 +330,56 @@ function ExplainModal({ ledgerId, asOf, onClose }: { ledgerId: string; asOf: str
                     </li>
                   ))}
                 </ul>
+              )}
+              {x.holds && (
+                <>
+                  <h3>Holds</h3>
+                  {x.holds.length === 0 ? (
+                    <Empty>No holds.</Empty>
+                  ) : (
+                    <ul>
+                      {x.holds.map((h) => (
+                        <li key={h.id}>
+                          {h.ref} · {h.source} · {label(h.purpose)}: −{money2(h.remaining)}
+                          {h.expiresOn ? ` (expires ${formatDate(h.expiresOn)})` : ''}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+              {x.pendingWithdrawals && (
+                <>
+                  <h3>Pending withdrawals</h3>
+                  {x.pendingWithdrawals.reserved.length === 0 && x.pendingWithdrawals.awaitingApproval.length === 0 ? (
+                    <Empty>No pending withdrawals.</Empty>
+                  ) : (
+                    <ul>
+                      {x.pendingWithdrawals.reserved.map((w) => (
+                        <li key={w.id}>
+                          {w.ref} · {w.source}: −{money2(w.remaining)} reserved
+                        </li>
+                      ))}
+                      {x.pendingWithdrawals.awaitingApproval.map((w) => (
+                        <li key={w.journalId}>
+                          {w.ref} · {w.description}: {money2(w.amount)} awaiting approval (not yet in available cash)
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </>
+              )}
+              {x.policyLines && x.policyLines.length > 0 && (
+                <>
+                  <h3>Policy lines</h3>
+                  <ul>
+                    {x.policyLines.map((p) => (
+                      <li key={p.key}>
+                        {p.label}: −{money2(p.amount)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
             </>
           )}
@@ -312,21 +437,23 @@ function JournalsTab({ entity, portfolios }: { entity: string; portfolios: Portf
               {l.data.length === 0 ? (
                 <Empty>No journals match.</Empty>
               ) : (
-                <div className="ops-table-wrap">
+                <Sorted rows={l.data} what="journals" getters={{ ref: (j) => j.ref, source: (j) => j.sourceRef ?? j.purpose, portfolio: (j) => j.portfolioName, date: (j) => j.entryDate, amount: (j) => Number(j.totalDebit), status: (j) => j.status, maker: (j) => j.makerName }} searchText={(j) => `${j.ref} ${j.sourceRef ?? ''} ${j.purpose} ${j.description} ${j.status} ${j.makerName ?? ''}`}>
+{(rows, th) => (
+<div className="ops-table-wrap">
                   <table className="ops-table">
                     <thead>
                       <tr>
-                        <th>Journal</th>
-                        <th>Source / purpose</th>
-                        <th>Portfolio</th>
-                        <th>Value date</th>
-                        <th className="r">Amount</th>
-                        <th>Status</th>
-                        <th>Maker / checker</th>
+                        {th('ref', 'Journal')}
+                        {th('source', 'Source / purpose')}
+                        {th('portfolio', 'Portfolio')}
+                        {th('date', 'Value date')}
+                        {th('amount', 'Amount', 'r')}
+                        {th('status', 'Status')}
+                        {th('maker', 'Maker / checker')}
                       </tr>
                     </thead>
                     <tbody>
-                      {l.data.map((j) => (
+                      {rows.map((j) => (
                         <tr key={j.id} className="clickable" onClick={() => router.push(`/ops/cash/journals/${encodeURIComponent(j.id)}`)}>
                           <td>
                             <strong>{j.ref}</strong>
@@ -353,6 +480,8 @@ function JournalsTab({ entity, portfolios }: { entity: string; portfolios: Portf
                     </tbody>
                   </table>
                 </div>
+)}
+</Sorted>
               )}
               <div className="ops-actions" style={{ marginTop: 12, justifyContent: 'space-between' }}>
                 <span className="ops-muted">{l.total === 0 ? '0 journals' : `${offset + 1}–${Math.min(offset + PAGE, l.total)} of ${l.total}`}</span>
@@ -425,23 +554,25 @@ function ReservationsTab({ entity }: { entity: string }) {
                 <p className="ops-muted">
                   {r.summary.active} live · {money2(r.summary.remaining)} held
                 </p>
-                <div className="ops-table-wrap">
+                <Sorted rows={r.data} what="reservations" getters={{ ref: (x) => x.ref, source: (x) => x.source, ledger: (x) => x.ledgerName, original: (x) => Number(x.amount), consumed: (x) => Number(x.consumed), remaining: (x) => Number(x.remaining), required: (x) => x.requiredDate, status: (x) => x.status }} searchText={(x) => `${x.ref} ${x.source} ${x.purpose} ${x.ledgerName ?? ''} ${x.status}`}>
+{(rows, th) => (
+<div className="ops-table-wrap">
                   <table className="ops-table">
                     <thead>
                       <tr>
-                        <th>Reservation</th>
-                        <th>Source / purpose</th>
-                        <th>Ledger</th>
-                        <th className="r">Original</th>
-                        <th className="r">Consumed</th>
-                        <th className="r">Remaining</th>
-                        <th>Required / expiry</th>
-                        <th>Status</th>
+                        {th('ref', 'Reservation')}
+                        {th('source', 'Source / purpose')}
+                        {th('ledger', 'Ledger')}
+                        {th('original', 'Original', 'r')}
+                        {th('consumed', 'Consumed', 'r')}
+                        {th('remaining', 'Remaining', 'r')}
+                        {th('required', 'Required / expiry')}
+                        {th('status', 'Status')}
                         <th />
                       </tr>
                     </thead>
                     <tbody>
-                      {r.data.map((x) => (
+                      {rows.map((x) => (
                         <tr key={x.id}>
                           <td>
                             <strong>{x.ref}</strong>
@@ -486,6 +617,8 @@ function ReservationsTab({ entity }: { entity: string }) {
                     </tbody>
                   </table>
                 </div>
+)}
+</Sorted>
               </>
             )
           }
@@ -632,21 +765,23 @@ function ExpectedTab({ entity }: { entity: string }) {
                 <p className="ops-muted">
                   {r.summary.open} open · expected net {money2(r.summary.expectedNet)} · {r.summary.due} due
                 </p>
-                <div className="ops-table-wrap">
+                <Sorted rows={r.data} what="expected movements" getters={{ ref: (e) => e.ref, kind: (e) => e.kind, ledger: (e) => e.ledgerName, expected: (e) => e.expectedDate, amount: (e) => Number(e.signedAmount), status: (e) => e.status }} searchText={(e) => `${e.ref} ${e.kind} ${e.source ?? ''} ${e.ledgerName ?? ''} ${e.status}`}>
+{(rows, th) => (
+<div className="ops-table-wrap">
                   <table className="ops-table">
                     <thead>
                       <tr>
-                        <th>Expectation</th>
-                        <th>Kind / source</th>
-                        <th>Ledger</th>
-                        <th>Expected</th>
-                        <th className="r">Amount</th>
-                        <th>Status</th>
+                        {th('ref', 'Expectation')}
+                        {th('kind', 'Kind / source')}
+                        {th('ledger', 'Ledger')}
+                        {th('expected', 'Expected')}
+                        {th('amount', 'Amount', 'r')}
+                        {th('status', 'Status')}
                         <th />
                       </tr>
                     </thead>
                     <tbody>
-                      {r.data.map((e) => (
+                      {rows.map((e) => (
                         <tr key={e.id}>
                           <td>
                             <strong>{e.ref}</strong>
@@ -681,6 +816,8 @@ function ExpectedTab({ entity }: { entity: string }) {
                     </tbody>
                   </table>
                 </div>
+)}
+</Sorted>
               </>
             )
           }
@@ -784,22 +921,24 @@ function ImportsTab({ entity }: { entity: string }) {
             r.data.length === 0 ? (
               <Empty>No statements uploaded.</Empty>
             ) : (
-              <div className="ops-table-wrap">
+              <Sorted rows={r.data} what="statement imports" getters={{ ref: (i) => i.ref, ledger: (i) => i.ledgerName, period: (i) => i.statementFrom, opening: (i) => Number(i.openingBalance), closing: (i) => Number(i.closingBalance), lines: (i) => i.lineCount, status: (i) => i.status, maker: (i) => i.makerName }} searchText={(i) => `${i.ref} ${i.filename} ${i.ledgerName ?? ''} ${i.status}`}>
+{(rows, th) => (
+<div className="ops-table-wrap">
                 <table className="ops-table">
                   <thead>
                     <tr>
-                      <th>Import</th>
-                      <th>Ledger</th>
-                      <th>Period</th>
-                      <th className="r">Opening</th>
-                      <th className="r">Closing</th>
-                      <th className="r">Lines</th>
-                      <th>Status</th>
-                      <th>Maker / checker</th>
+                      {th('ref', 'Import')}
+                      {th('ledger', 'Ledger')}
+                      {th('period', 'Period')}
+                      {th('opening', 'Opening', 'r')}
+                      {th('closing', 'Closing', 'r')}
+                      {th('lines', 'Lines', 'r')}
+                      {th('status', 'Status')}
+                      {th('maker', 'Maker / checker')}
                     </tr>
                   </thead>
                   <tbody>
-                    {r.data.map((i) => (
+                    {rows.map((i) => (
                       <tr key={i.id} className="clickable" onClick={() => router.push(`/ops/cash/imports/${encodeURIComponent(i.id)}`)}>
                         <td>
                           <strong>{i.ref}</strong>
@@ -826,6 +965,8 @@ function ImportsTab({ entity }: { entity: string }) {
                   </tbody>
                 </table>
               </div>
+)}
+</Sorted>
             )
           }
         </Loaded>
@@ -842,7 +983,9 @@ function UploadModal({ entity, onClose, onDone }: { entity: string; onClose: () 
   const [ledgerId, setLedgerId] = useState('');
   const [opening, setOpening] = useState('');
   const [closing, setClosing] = useState('');
-  const isJson = !!file && file.name.toLowerCase().endsWith('.json');
+  const lower = file?.name.toLowerCase() ?? '';
+  const format: 'CSV' | 'JSON' | 'CAMT053' | 'MT940' = lower.endsWith('.json') ? 'JSON' : lower.endsWith('.xml') ? 'CAMT053' : /\.(sta|mt940|940|txt)$/.test(lower) ? 'MT940' : 'CSV';
+  const isJson = format !== 'CSV'; // balances are read from the file
   async function pick(f: File | undefined) {
     setFile(f ? { name: f.name, text: await f.text() } : null);
   }
@@ -851,7 +994,7 @@ function UploadModal({ entity, onClose, onDone }: { entity: string; onClose: () 
     const out = await action.run((key) =>
       api.post<ImportDetail>(
         v1('/cash/statement-imports'),
-        { ledgerId, filename: file.name, format: isJson ? 'JSON' : 'CSV', content: file.text, ...(opening ? { openingBalance: opening.replace(/,/g, '') } : {}), ...(closing ? { closingBalance: closing.replace(/,/g, '') } : {}) },
+        { ledgerId, filename: file.name, format, content: file.text, ...(opening ? { openingBalance: opening.replace(/,/g, '') } : {}), ...(closing ? { closingBalance: closing.replace(/,/g, '') } : {}) },
         { idempotencyKey: key },
       ),
     );
@@ -861,7 +1004,7 @@ function UploadModal({ entity, onClose, onDone }: { entity: string; onClose: () 
     }
   }
   return (
-    <Modal title="Upload external statement" kicker="Cash & Ledgers" subtitle="CSV with a header row (date, amount or credit/debit, reference, description) or JSON { openingBalance, closingBalance, lines }. Positive amounts are cash in." onClose={onClose}>
+    <Modal title="Upload external statement" kicker="Cash & Ledgers" subtitle="ISO 20022 camt.053 (.xml), SWIFT MT940 (.sta, .mt940), CSV with a header row (date, amount or credit/debit, reference, description) or JSON { openingBalance, closingBalance, lines }. Positive amounts are cash in." onClose={onClose}>
       <div className="ops-modal-body">
         <FieldGrid>
           <Field label="Bank ledger" span={2}>
@@ -876,7 +1019,7 @@ function UploadModal({ entity, onClose, onDone }: { entity: string; onClose: () 
             </select>
           </Field>
           <Field label="Statement file" span={2}>
-            <input className="ops-input" type="file" accept=".csv,.json,text/csv,application/json" onChange={(e) => void pick(e.target.files?.[0])} />
+            <input className="ops-input" type="file" accept=".csv,.json,.xml,.sta,.mt940,.txt,text/csv,application/json,text/xml,application/xml" onChange={(e) => void pick(e.target.files?.[0])} />
           </Field>
           <Field label="Opening balance" hint={isJson ? 'Optional: read from the file' : 'Required for CSV'}>
             <input className="ops-input" inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} />
@@ -924,19 +1067,21 @@ function CloseTab({ entity, portfolios }: { entity: string; portfolios: Portfoli
             r.data.length === 0 ? (
               <Empty>No closes yet.</Empty>
             ) : (
-              <div className="ops-table-wrap">
+              <Sorted rows={r.data} what="period closes" getters={{ end: (c) => c.periodEnd, portfolio: (c) => c.portfolioName, status: (c) => c.status, prepared: (c) => c.preparedByName, closed: (c) => c.closedByName }} searchText={(c) => `${c.periodEnd} ${c.portfolioName ?? ''} ${c.status}`}>
+{(rows, th) => (
+<div className="ops-table-wrap">
                 <table className="ops-table">
                   <thead>
                     <tr>
-                      <th>Period end</th>
-                      <th>Portfolio</th>
-                      <th>Status</th>
-                      <th>Prepared / approved</th>
-                      <th>Closed by</th>
+                      {th('end', 'Period end')}
+                      {th('portfolio', 'Portfolio')}
+                      {th('status', 'Status')}
+                      {th('prepared', 'Prepared / approved')}
+                      {th('closed', 'Closed by')}
                     </tr>
                   </thead>
                   <tbody>
-                    {r.data.map((c) => (
+                    {rows.map((c) => (
                       <tr key={c.id} className="clickable" onClick={() => router.push(`/ops/cash/closes/${encodeURIComponent(c.id)}`)}>
                         <td>
                           <strong>{formatDate(c.periodEnd)}</strong>
@@ -954,6 +1099,8 @@ function CloseTab({ entity, portfolios }: { entity: string; portfolios: Portfoli
                   </tbody>
                 </table>
               </div>
+)}
+</Sorted>
             )
           }
         </Loaded>

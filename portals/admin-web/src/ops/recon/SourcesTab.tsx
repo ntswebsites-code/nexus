@@ -4,6 +4,7 @@ import { useState, type FormEvent } from 'react';
 import { api, apiRequest, apiUpload, qs } from '../api';
 import { Alert, Card, DateText, Empty, Field, FieldGrid, Loaded, optStr, str, useAction, useResource, ConfirmDialog } from '../ui';
 import { recon, useCounterparties } from './common';
+import { ImportBatches } from './ImportBatches';
 import { FAMILIES, TOLERANCE_FIELDS, familyLabel, today, yesterday, type EffectiveTolerances, type FeedReceipt, type Tolerance } from './types';
 
 /** What a run of this family on this date would use, and where each value comes from (BR-067). */
@@ -38,7 +39,7 @@ function FeedForm({ kind, onDone }: { kind: FeedKind; onDone: () => void }) {
   const path = kind === 'positions' ? '/custody-positions' : '/custody-ca-notices';
   const help =
     kind === 'positions'
-      ? 'CSV columns: ticker, quantity, isin (optional). One row per security; the file replaces any earlier file for the same account and date.'
+      ? 'CSV columns: ticker, quantity, isin (optional), or a SWIFT MT535 holdings statement. One row per security; the file replaces any earlier file for the same account and date.'
       : 'CSV columns: ticker, ex_date, pay_date, quantity, cash_amount, currency, type (optional), external_ref (optional). Every row must pay on the file date.';
 
   async function submit(e: FormEvent<HTMLFormElement>) {
@@ -90,7 +91,7 @@ function FeedForm({ kind, onDone }: { kind: FeedKind; onDone: () => void }) {
           <input className="ops-input" type="date" name="asOfDate" required defaultValue={yesterday()} max={today()} />
         </Field>
         <Field label="CSV file" hint={help}>
-          <input className="ops-input" type="file" name="file" accept=".csv,text/csv,text/plain" />
+          <input className="ops-input" type="file" name="file" accept=".csv,.txt,.mt535,text/csv,text/plain" />
         </Field>
       </FieldGrid>
       <Field label="Or paste CSV" hint="Used when no file is chosen.">
@@ -195,6 +196,7 @@ export function SourcesTab({ canManage, canSign }: { canManage: boolean; canSign
       <Card title="Custodian corporate-action file">
         {canManage ? <FeedForm kind="ca" onDone={feeds.reload} /> : <Alert kind="info">Uploading source files needs recon.manage.</Alert>}
       </Card>
+      <ImportBatches canManage={canManage} onChanged={feeds.reload} />
       <Card title="Source receipts" actions={<button className="ops-btn small" type="button" onClick={feeds.reload}>Refresh</button>}>
         <Loaded res={feeds} what="source receipts">
           {(rows) =>

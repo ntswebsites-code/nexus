@@ -14,6 +14,7 @@ import {
   compareAmount,
   compareCount,
   matchTrades,
+  populationReceived,
   signature,
   type Detected,
   type ExtTrade,
@@ -106,7 +107,8 @@ async function executionsFor(counterpartyId: string, accountRef: string, date: s
   });
 }
 
-async function detectTrades(input: RunInput, accounts: ScopeAccount[]): Promise<Pick<Detection, 'detected' | 'matchedCount' | 'exceptionExecIds' | 'matchedExecIds'>> {
+async function detectTrades(input: RunInput, accounts: ScopeAccount[]): Promise<Pick<Detection, 'detected' | 'matchedCount' | 'exceptionExecIds' | 'matchedExecIds' | 'missingSources'>> {
+  const missingSources: Detection['missingSources'] = [];
   const tol = new D(input.tolerances.price);
   const detected: Detected[] = [];
   let matchedCount = 0;
@@ -118,8 +120,14 @@ async function detectTrades(input: RunInput, accounts: ScopeAccount[]): Promise<
   for (const [portfolioId, accs] of byPortfolio) {
     const exts: ExtTrade[] = [];
     const extIds = new Map<string, string>(); // tradeRef key -> execution id
+    let incomplete = false;
     for (const a of accs) {
-      for (const e of await executionsFor(a.counterpartyId, a.accountRef, input.asOfDate)) {
+      const received = await executionsFor(a.counterpartyId, a.accountRef, input.asOfDate);
+      if (!populationReceived(received.length, !!(await latestDayEnd(a.counterpartyId, a.accountRef, input.asOfDate)))) {
+        incomplete = true;
+        missingSources.push({ counterpartyRef: a.counterpartyRef, accountRef: a.accountRef, reason: `No executions or day-end package received for ${input.asOfDate}` });
+      }
+      for (const e of received) {
         exts.push({
           id: e.id,
           tradeRef: e.tradeRef,
@@ -168,7 +176,7 @@ async function detectTrades(input: RunInput, accounts: ScopeAccount[]): Promise<
         if (r) rates.set(k, r);
       }
     const fx: FxLookup = (from, to) => rates.get(from + '>' + to) ?? null;
-    const res = matchTrades(exts, ints, tol, fx);
+    const res = matchTrades(exts, ints, tol, fx, { suppressMissingExternal: incomplete });
     matchedCount += res.matched.length;
     detected.push(...res.detected);
     for (const m of res.matched) matchedExecIds.push(m.id);
@@ -177,7 +185,7 @@ async function detectTrades(input: RunInput, accounts: ScopeAccount[]): Promise<
     const cpIds = [...new Set(accs.map((a) => a.counterpartyId))];
     if (cpIds.length === 1) for (const d of res.detected) if (!d.counterpartyId) d.counterpartyId = cpIds[0]!;
   }
-  return { detected, matchedCount, exceptionExecIds, matchedExecIds };
+  return { detected, matchedCount, exceptionExecIds, matchedExecIds, missingSources };
 }
 
 async function internalCash(portfolioId: string, currency: string, date: string): Promise<Dec> {
@@ -279,7 +287,7 @@ export async function detect(input: RunInput): Promise<Detection> {
   }
   if (input.family === 'TRADES') {
     const r = await detectTrades(input, accounts);
-    return { ...r, missingSources: [], unmapped };
+    return { ...r, unmapped };
   }
   const fam =
     input.family === 'POSITIONS_VS_CUSTODY'
@@ -515,6 +523,12 @@ export async function signoffReadiness(family: Family, date: string, counterpart
     for (const a of accounts) {
       const due = events.length ? await prisma.corpActionEntitlement.count({ where: { portfolioId: a.portfolioId, eventId: { in: events.map((e) => e.id) }, status: { not: 'SKIPPED' } } }) : 0;
       if (due && (await receiptMissing(a, date, 'CORP_ACTIONS'))) missing.push({ counterpartyRef: a.counterpartyRef, accountRef: a.accountRef });
+    }
+  } else if (family === 'TRADES') {
+    const { accounts } = await resolveScope({ counterpartyId });
+    for (const a of accounts) {
+      const n = await prisma.counterpartyExecution.count({ where: { counterpartyId: a.counterpartyId, accountRef: a.accountRef, executionAt: { gte: dayStart(date), lt: dayEnd(date) }, status: { not: 'Superseded' } } });
+      if (!populationReceived(n, !!(await latestDayEnd(a.counterpartyId, a.accountRef, date)))) missing.push({ counterpartyRef: a.counterpartyRef, accountRef: a.accountRef });
     }
   } else if (family === 'CASH' || family === 'HOLDINGS' || family === 'DAYEND_COUNT') {
     const { accounts } = await resolveScope({ counterpartyId });
