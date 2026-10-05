@@ -67,7 +67,7 @@ First 5 steps:
 5. Add `tests/frontend/legacy/w4-research-risk-performance.test.ts` and run `legacy-bridge.mjs --check`.
 
 ## 10. Current state of the repo and environments
-- Branch: `feat/original-ui-wiring` @ W3 commit (parent W2 `1ab13f5`)
+- Branch: `feat/original-ui-wiring` @ `ecbfe21` (W3 code; parent W2 `1ab13f5`)
 - Tests: W0–W2 static checks pass; W3 static checks pass; vitest worker timeout possible on combined runs (same as W1/W2)
 - Production (207.180.234.151): untouched
 - Dev environment: not deployed
