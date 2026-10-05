@@ -1,5 +1,5 @@
 # Handoff 03: W2 finished -> next: W3
-Date 2026-10-05 / agent run / branch `feat/original-ui-wiring` / commit (see git log)
+Date 2026-10-05 / agent run / branch `feat/original-ui-wiring` / commit `1ab13f5`
 
 ## 1. What this phase was (one paragraph)
 W2 connected the Whole Portfolio list, IBOR & Positions, and Portfolio Construction pages to the live API. **What you can do now that you could not before W2:** open Portfolios and see real KPIs and portfolio rows (not demo literals), search and filter with saved views, create a portfolio via `POST /portfolios`, open a live portfolio drawer from a row, work IBOR with overview stats and a server-filtered position ledger, queue **Refresh IBOR** and **Reconcile positions**, persist column groups, load historical snapshots by as-of date, run portfolio-lab what-if from the optimiser button (portfolio + active model picker), save a rebalance proposal, and promote it to draft orders. The V56 look is unchanged; only data and actions are live.
@@ -70,7 +70,7 @@ First 5 steps:
 5. Add `tests/frontend/legacy/w3-orders.test.ts` and run `legacy-bridge.mjs --check`.
 
 ## 10. Current state of the repo and environments
-- Branch: `feat/original-ui-wiring` (ahead of origin/dev; W0–W2 commits)
+- Branch: `feat/original-ui-wiring` @ `1ab13f5` (W2 code; parent W1 `d638144`)
 - Tests: W0 5/5, W1 2/2, W2 static checks pass; vitest worker timeout on combined/slow runs
 - Production (207.180.234.151): untouched
 - Dev environment: not deployed
