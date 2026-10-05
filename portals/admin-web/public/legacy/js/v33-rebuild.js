@@ -12,7 +12,7 @@ function hash(s){return [...String(s)].reduce((a,c)=>a+c.charCodeAt(0),0)}
 const market=(window.V33_MARKET_MASTER||[]).map(x=>({...x}));
 let selectedSecurity=market.find(x=>x.ticker==='DLTA')||market[0];
 let orderMain='workstation', secTab='chart', orderRange='3M', chartMode='line';
-const orders=[
+const orders=window.__mxData._v33Orders||(window.__mxData._v33Orders=[
 {id:'ORD-49218',ticker:'DLTA',name:'Delta Corporation',side:'Buy',qty:14000,limit:63.5,state:'Working',filled:5200,broker:'ABC Securities',portfolio:'Growth Mandate',tif:'Day',created:'15:18'},
 {id:'ORD-49217',ticker:'INN',name:'Innscor Africa',side:'Buy',qty:7800,limit:1.12,state:'Awaiting approval',filled:0,broker:'Morgan & Co',portfolio:'USD Growth',tif:'Day',created:'15:05'},
 {id:'ORD-49213',ticker:'CBZ',name:'CBZ Holdings',side:'Sell',qty:20000,limit:8.84,state:'Working',filled:10000,broker:'IH Securities',portfolio:'Balanced Fund',tif:'GTC',created:'14:42'},

@@ -59,6 +59,7 @@ export const manifest: LegacyManifest = {
     "/legacy/js/bridge/admin-80-portfolios.js",
     "/legacy/js/bridge/admin-81-ibor.js",
     "/legacy/js/bridge/admin-82-portfolio-lab.js",
+    "/legacy/js/bridge/admin-90-orders.js",
     "/legacy/js/bridge/admin-99-boot.js",
     "/legacy/js/00-runtime-config.js",
     "/legacy/js/01-inline.js",

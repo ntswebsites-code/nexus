@@ -1,3 +1,3 @@
 # Latest handoff
 
-`docs/handoff/HANDOFF-03-W2.md` — 2026-10-05 — W2 finished, next: **W3** (orders).
+`docs/handoff/HANDOFF-04-W3.md` — 2026-10-05 — W3 finished, next: **W4** (research, risk, performance).
