@@ -43,7 +43,7 @@ describe('NAV runs list', () => {
     expectBody(req, { portfolioId: PF.id, fees: '1200.50' });
     expect(req.body).not.toHaveProperty('accruals');
     expectIdempotencyKey(req);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/nav/n-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/nav/n-9'));
   });
   it('API error on create shows in the dialog', async () => {
     const { user } = mountPage(<NavPage />, { routes: { ...routes(), 'POST /api/v1/nav/runs': fail(409, 'conflict', 'A released NAV exists') } });
@@ -154,7 +154,7 @@ describe('NAV run detail', () => {
   it('Recalculate creates a new version and navigates to it', async () => {
     const { user } = mountPage(<NavRunPage />, { params: { id: 'n-1' }, routes: dr(detail(), { 'POST /api/v1/nav/runs/n-1/recalculate': created({ id: 'n-2' }) }) });
     await user.click(await screen.findByRole('button', { name: 'Recalculate' }));
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/nav/n-2'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/nav/n-2'));
   });
   it('pack preview loads /pack and shows the draft marker', async () => {
     const pack = { generatedAt: '2026-10-01T00:00:00Z', draft: true, title: 'NAV pack', navDate: '2026-10-01', baseCurrency: 'USD', portfolio: { ref: PF.ref, name: PF.name }, fund: null, kpis: { nav: '21635767.69', navPerUnit: null, units: null, priceCoverage: '100.0000', positionCount: 12 }, bridge: [], topPositions: [{ ticker: 'DLTA', name: 'Delta', quantity: '1', price: '1.25', priceDate: '2026-10-01', priceSource: 'VFEX', valueBase: '1.25' }], exceptions: { open: 1, material: 1, total: 1, items: [] }, approvals: { preparedBy: 'Maya Maker', preparedAt: null, reviewedBy: null, reviewedAt: null, releasedBy: null, releasedAt: null }, notes: null };
@@ -172,7 +172,7 @@ describe('NAV run detail', () => {
   });
   it('superseded run links to the latest version', async () => {
     mountPage(<NavRunPage />, { params: { id: 'n-1' }, routes: dr(detail({ status: 'SUPERSEDED', versions: [{ id: 'n-2', ref: 'NAV-00002', version: 2, status: 'DRAFT' }, { id: 'n-1', ref: 'NAV-00001', version: 1, status: 'SUPERSEDED' }] })) });
-    expect(await screen.findByRole('link', { name: /NAV-00002 \(version 2\)/ })).toHaveAttribute('href', '/ops/nav/n-2');
+    expect(await screen.findByRole('link', { name: /NAV-00002 \(version 2\)/ })).toHaveAttribute('href', '/ops-native/nav/n-2');
   });
   it('low price coverage warns that positions are excluded', async () => {
     mountPage(<NavRunPage />, { params: { id: 'n-1' }, routes: dr(detail({ priceCoverage: '80.0000' })) });
@@ -185,7 +185,7 @@ const today = (over: Record<string, unknown> = {}) => ({
   aum: { byCurrency: [{ currency: 'USD', amount: '21635767.69' }], portfolios: 4, positions: 30, cashPct: '8.5', warnings: 0, stalePrices: 2 },
   ordersWorking: { total: 1, awaitingApproval: 1, byStatus: { Approved: 1 } },
   breaks: { open: 8, high: 5, pendingChecker: 1 },
-  approvals: { total: 3, items: [{ key: 'orders', label: 'Orders awaiting approval', count: 2, link: '/ops/orders' }, { key: 'nav', label: 'NAV awaiting release', count: 1, link: '/ops/nav' }, { key: 'cash', label: 'Cash journals', count: 0, link: '/ops/cash' }] },
+  approvals: { total: 3, items: [{ key: 'orders', label: 'Orders awaiting approval', count: 2, link: '/ops-native/orders' }, { key: 'nav', label: 'NAV awaiting release', count: 1, link: '/ops-native/nav' }, { key: 'cash', label: 'Cash journals', count: 0, link: '/ops-native/cash' }] },
   cash: { ledgers: 3, byCurrency: [{ currency: 'USD', posted: '1000.00', reserved: '100.00', available: '900.00' }] },
   nav: { latestReleasedDate: '2026-09-30', latestReleasedRef: 'NAV-1', inProgress: { MAKER_REVIEWED: 1 }, portfoliosReleasedThisWeek: 2, portfolios: 4 },
   risk: { open: 0, acknowledged: 1, unrecorded: 2 },
@@ -222,14 +222,14 @@ describe('Today (command centre)', () => {
   it('tiles navigate to the workspace that owns them', async () => {
     const { user } = mountPage(<CommandPage />, { routes: routes() });
     await user.click((await screen.findByText('Open breaks')).closest('button')!);
-    expect(router.push).toHaveBeenCalledWith('/ops/reconciliation');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/reconciliation');
     await user.click(screen.getByText('Cash available').closest('button')!);
-    expect(router.push).toHaveBeenCalledWith('/ops/cash');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/cash');
   });
   it('approval queue lists items with links; role with no queues sees the empty message', async () => {
     mountPage(<CommandPage />, { routes: routes() });
     expect(await screen.findByText('Orders awaiting approval')).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: 'Open' })[0]).toHaveAttribute('href', '/ops/orders');
+    expect(screen.getAllByRole('link', { name: 'Open' })[0]).toHaveAttribute('href', '/ops-native/orders');
   });
   it('no approval queues', async () => {
     mountPage(<CommandPage />, { routes: routes(today({ approvals: { total: 0, items: [] } })) });

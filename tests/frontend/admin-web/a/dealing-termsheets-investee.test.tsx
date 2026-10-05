@@ -130,7 +130,7 @@ describe('Term sheets list', () => {
     const [r] = await waitFor(() => expectCalled(api, 'POST /api/v1/ops/term-sheets'));
     expectBody(r, { company: 'CO-1', title: 'Seed term sheet', currency: 'USD', investmentAmount: '1000000', valuation: '5000000', equityPercentage: '16.67', keyTerms: ['Board seat', 'Pro-rata rights'] });
     expectIdempotencyKey(r);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/term-sheets/ts-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/term-sheets/ts-9'));
   });
 });
 

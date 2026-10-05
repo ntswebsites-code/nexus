@@ -45,7 +45,7 @@ describe('Order ticket: stop limit, price tolerance, resume draft', () => {
     const drafts = [orderRow({ id: 'd-7', ref: 'ORD-00007', status: 'Draft', side: 'SELL', quantity: '300', orderType: 'STOP_LIMIT' })];
     const { api, user } = mountPage(<NewOrderPage />, { routes: nroutes({ 'GET /api/v1/orders': D(drafts) }) });
     const link = await screen.findByRole('link', { name: 'Resume draft ORD-00007' });
-    expect(link).toHaveAttribute('href', '/ops/orders/d-7');
+    expect(link).toHaveAttribute('href', '/ops-native/orders/d-7');
     expect(screen.getByText(/Sell 300 DLTA, Stop limit/)).toBeInTheDocument();
     const q = api.calls('GET /api/v1/orders')[0]!.query;
     expect(q.get('status')).toBe('Draft,Validated');
@@ -261,7 +261,7 @@ describe('NAV: permissions, history, policy, external NAV', () => {
     expect(within(dlg).getByText('+0.40%')).toBeInTheDocument();
     expect(within(dlg).getAllByText(/Maya Maker \/ Rita Reviewer \/ Chris Checker/).length).toBe(2);
     expect(within(dlg).getByText('Agree (-100.00)')).toBeInTheDocument();
-    expect(within(dlg).getAllByRole('link', { name: 'Pack' })[0]).toHaveAttribute('href', '/ops/nav/n-1');
+    expect(within(dlg).getAllByRole('link', { name: 'Pack' })[0]).toHaveAttribute('href', '/ops-native/nav/n-1');
     expect(api.calls('GET /api/v1/nav/history')[0]!.query.get('limit')).toBe('60');
   });
 

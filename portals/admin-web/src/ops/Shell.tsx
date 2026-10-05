@@ -15,8 +15,8 @@ import { IntegrationsBanner } from './IntegrationsBanner';
 
 export function OpsShell({ children }: { children: ReactNode }) {
   const { user, can } = useSession();
-  const pathname = usePathname() ?? '/ops';
-  const active = (href: string) => (href === '/ops' ? pathname === '/ops' : pathname === href || pathname.startsWith(href + '/'));
+  const pathname = usePathname() ?? '/ops-native';
+  const active = (href: string) => (href === '/ops-native' ? pathname === '/ops-native' : pathname === href || pathname.startsWith(href + '/'));
   const [focus, setFocus] = useState<RoleFocus | null>(null);
   useEffect(() => {
     api.get<RoleFocus>(v1('/shell/me/role-focus')).then(setFocus).catch(() => setFocus(null));

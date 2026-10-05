@@ -5,35 +5,35 @@ import { useRouter } from 'next/navigation';
 
 /** Prototype page id (the old `/#reconciliation` style link) -> native console route. */
 const PAGE_ROUTES: Record<string, string> = {
-  command: '/ops/command',
-  portfolios: '/ops/portfolios',
-  'private-markets': '/ops/private-markets',
-  'portfolio-lab': '/ops/portfolio-lab',
-  orders: '/ops/orders',
-  research: '/ops/research',
-  risk: '/ops/risk',
-  performance: '/ops/performance',
-  clients: '/ops/clients',
-  'investor-services': '/ops/investor-services',
-  onboarding: '/ops/onboarding',
-  reports: '/ops/reports',
-  vault: '/ops/vault',
-  ibor: '/ops/ibor',
-  financing: '/ops/financing',
-  cash: '/ops/cash',
-  operations: '/ops/operations',
-  reconciliations: '/ops/reconciliation',
-  reconciliation: '/ops/reconciliation',
-  'corporate-actions': '/ops/corporate-actions',
-  valuation: '/ops/nav',
-  accounting: '/ops/accounting',
-  regulatory: '/ops/regulatory',
-  data: '/ops/data',
-  'model-governance': '/ops/model-governance',
-  copilot: '/ops/copilot',
-  rbac: '/ops/rbac',
-  settings: '/ops/settings',
-  audit: '/ops/audit',
+  command: '/ops-native/command',
+  portfolios: '/ops-native/portfolios',
+  'private-markets': '/ops-native/private-markets',
+  'portfolio-lab': '/ops-native/portfolio-lab',
+  orders: '/ops-native/orders',
+  research: '/ops-native/research',
+  risk: '/ops-native/risk',
+  performance: '/ops-native/performance',
+  clients: '/ops-native/clients',
+  'investor-services': '/ops-native/investor-services',
+  onboarding: '/ops-native/onboarding',
+  reports: '/ops-native/reports',
+  vault: '/ops-native/vault',
+  ibor: '/ops-native/ibor',
+  financing: '/ops-native/financing',
+  cash: '/ops-native/cash',
+  operations: '/ops-native/operations',
+  reconciliations: '/ops-native/reconciliation',
+  reconciliation: '/ops-native/reconciliation',
+  'corporate-actions': '/ops-native/corporate-actions',
+  valuation: '/ops-native/nav',
+  accounting: '/ops-native/accounting',
+  regulatory: '/ops-native/regulatory',
+  data: '/ops-native/data',
+  'model-governance': '/ops-native/model-governance',
+  copilot: '/ops-native/copilot',
+  rbac: '/ops-native/rbac',
+  settings: '/ops-native/settings',
+  audit: '/ops-native/audit',
 };
 
 /**
@@ -45,7 +45,7 @@ export function LegacyHashRedirect() {
   useEffect(() => {
     const page = window.location.hash.replace(/^#/, '').split(/[/?]/)[0] ?? '';
     const target = PAGE_ROUTES[page];
-    if (target && window.location.pathname === '/ops') router.replace(target);
+    if (target && (window.location.pathname === '/ops-native' || window.location.pathname === '/ops')) router.replace(target);
   }, [router]);
   return null;
 }

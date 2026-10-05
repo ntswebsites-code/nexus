@@ -16,9 +16,9 @@ const bell = (over: Record<string, unknown> = {}) =>
     pageSize: 8,
     total: 3,
     items: [
-      { id: 'n1', type: 'approval', title: 'NAV awaiting review', body: 'Fund A', link: '/ops/nav/abc', readAt: null, createdAt: new Date(Date.now() - 5 * 60_000).toISOString() },
+      { id: 'n1', type: 'approval', title: 'NAV awaiting review', body: 'Fund A', link: '/ops-native/nav/abc', readAt: null, createdAt: new Date(Date.now() - 5 * 60_000).toISOString() },
       { id: 'n2', type: 'break', title: 'Recon break', body: null, link: 'https://evil.example/x', readAt: null, createdAt: new Date(Date.now() - 3 * 3600_000).toISOString() },
-      { id: 'n3', type: 'info', title: 'Old news', body: null, link: '/ops/audit', readAt: '2026-01-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z' },
+      { id: 'n3', type: 'info', title: 'Old news', body: null, link: '/ops-native/audit', readAt: '2026-01-01T00:00:00Z', createdAt: '2026-01-01T00:00:00Z' },
     ],
     ...over,
   });
@@ -59,7 +59,7 @@ describe('shell: session provider states', () => {
 describe('shell: sidebar permission filtering (ADA-028) and mobile toggle (ADB-026)', () => {
   const mount = (perms: string[], routes = {}) => mountPage(<OpsShell><p>page body</p></OpsShell>, { perms, routes });
   it('links the role lacks are marked disabled with a reason; granted links are live', async () => {
-    setRoute('/ops/ibor');
+    setRoute('/ops-native/ibor');
     await mount(['portfolio.view']);
     const nav = screen.getByRole('navigation', { name: 'Operations' });
     const ibor = within(nav).getByRole('link', { name: 'IBOR & Positions' });
@@ -102,11 +102,11 @@ describe('shell: sidebar permission filtering (ADA-028) and mobile toggle (ADB-0
     expect(container.querySelector('.ops-nav-scrim')).toBeNull();
   });
   it('ADB-026: navigating closes the open drawer', async () => {
-    setRoute('/ops');
+    setRoute('/ops-native');
     const { user, container, rerender } = await mount(['portfolio.view']);
     await user.click(screen.getByRole('button', { name: 'Open navigation menu' }));
     expect(container.querySelector('#ops-sidebar')).toHaveClass('open');
-    setRoute('/ops/ibor');
+    setRoute('/ops-native/ibor');
     rerender(<OpsShell><p>page body</p></OpsShell>);
     await waitFor(() => expect(container.querySelector('#ops-sidebar')).not.toHaveClass('open'));
   });
@@ -117,12 +117,12 @@ describe('shell: sidebar permission filtering (ADA-028) and mobile toggle (ADB-0
   it('NAV catalogue: every route is unique and ADB-025 e-sign needs no permission', () => {
     const hrefs = NAV.flatMap((s) => s.items.map((i) => i.href));
     expect(new Set(hrefs).size).toBe(hrefs.length);
-    expect(NAV.flatMap((s) => s.items).find((i) => i.href === '/ops/esign')!.perms).toEqual([]);
+    expect(NAV.flatMap((s) => s.items).find((i) => i.href === '/ops-native/esign')!.perms).toEqual([]);
   });
 });
 
 describe('shell: command palette / search', () => {
-  const hits = raw({ query: 'abc', kinds: 1, hits: [{ kind: 'order', kindLabel: 'Order', id: 'o1', ref: 'ORD-1001', title: 'Buy 100 ABC', status: 'PENDING', href: '/ops/orders/o1' }] });
+  const hits = raw({ query: 'abc', kinds: 1, hits: [{ kind: 'order', kindLabel: 'Order', id: 'o1', ref: 'ORD-1001', title: 'Buy 100 ABC', status: 'PENDING', href: '/ops-native/orders/o1' }] });
   it('Ctrl+K opens, lists permitted pages only, Enter navigates, Escape closes', async () => {
     const { user } = await mountPage(<OpsShell><p>x</p></OpsShell>, { perms: ['portfolio.view'] });
     await user.keyboard('{Control>}k{/Control}');
@@ -131,7 +131,7 @@ describe('shell: command palette / search', () => {
     expect(within(dlg).queryByRole('option', { name: /RBAC & Controls/ })).not.toBeInTheDocument();
     await user.type(within(dlg).getByLabelText('Search'), 'ibor');
     await user.keyboard('{Enter}');
-    expect(router.push).toHaveBeenCalledWith('/ops/ibor');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/ibor');
     expect(screen.queryByRole('dialog', { name: 'Command palette' })).not.toBeInTheDocument();
     await user.keyboard('/');
     expect(await screen.findByRole('dialog', { name: 'Command palette' })).toBeInTheDocument();
@@ -152,7 +152,7 @@ describe('shell: command palette / search', () => {
     expect(req!.query.get('q')).toBe('abc');
     expect(req!.query.get('limit')).toBe('20');
     await user.click(row);
-    expect(router.push).toHaveBeenCalledWith('/ops/orders/o1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/orders/o1');
   });
   it('search errors are shown in the palette; no match message', async () => {
     const { user } = await mountPage(<OpsShell><p>x</p></OpsShell>, { perms: [], routes: { 'GET /api/v1/shell/search': fail(500, 'x', 'Search is down') } });
@@ -166,7 +166,7 @@ describe('shell: command palette / search', () => {
     const input = await screen.findByLabelText('Search');
     await user.type(input, 'notif');
     await user.keyboard('{Enter}');
-    expect(router.push).toHaveBeenCalledWith('/ops/notifications');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/notifications');
   });
 });
 
@@ -187,7 +187,7 @@ describe('shell: notifications bell', () => {
     await user.click(await screen.findByRole('button', { name: /Notifications/ }));
     expect(api.calls('GET /api/v1/notifications')[0]!.query.get('pageSize')).toBe('8');
     await user.click(await screen.findByText('NAV awaiting review'));
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/nav/abc'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/nav/abc'));
     expectCalled(api, 'POST /api/v1/notifications/n1/read');
     // absolute (external) link: marked read, never navigated
     await user.click(await screen.findByRole('button', { name: /Notifications/ }));
@@ -212,7 +212,7 @@ describe('shell: notifications bell', () => {
     expect(await screen.findByText(/Nothing yet/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Mark all read' })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: 'View all and preferences' }));
-    expect(router.push).toHaveBeenCalledWith('/ops/notifications');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/notifications');
   });
   it('API failure shows the error in the dropdown', async () => {
     const { user } = await mountPage(<NotificationBell />, { routes: { 'GET /api/v1/notifications': fail(500, 'x', 'Notifications offline') } });
@@ -237,7 +237,7 @@ describe('shell: user menu', () => {
       routes: { 'PUT /api/v1/shell/me/role-focus': raw({ role: 'ops', permissions: ['operations.view'] }) },
     });
     await user.click(screen.getByRole('button', { name: /Pat Doe/ }));
-    expect(screen.getByRole('menuitem', { name: /Profile, MFA and password/ })).toHaveAttribute('href', '/ops/profile');
+    expect(screen.getByRole('menuitem', { name: /Profile, MFA and password/ })).toHaveAttribute('href', '/ops-native/profile');
     await user.selectOptions(screen.getByLabelText('Role focus'), 'ops');
     const [req] = await waitFor(() => expectCalled(api, 'PUT /api/v1/shell/me/role-focus'));
     expectBody(req!, { role: 'ops' });
@@ -257,31 +257,31 @@ describe('shell: user menu', () => {
 
 describe('shell: breadcrumbs (ADB-004)', () => {
   it('position sub-route is "Position", not raw lowercase; parent is a link; ids unchanged', () => {
-    setRoute('/ops/ibor/position');
+    setRoute('/ops-native/ibor/position');
     const { unmount } = renderWithProviders(<Breadcrumbs />);
-    expect(screen.getByRole('link', { name: 'IBOR & Positions' })).toHaveAttribute('href', '/ops/ibor');
+    expect(screen.getByRole('link', { name: 'IBOR & Positions' })).toHaveAttribute('href', '/ops-native/ibor');
     expect(screen.getByText('Position')).toHaveAttribute('aria-current', 'page');
     expect(screen.queryByText('position')).not.toBeInTheDocument();
     unmount();
-    setRoute('/ops/performance/PRD-1001');
+    setRoute('/ops-native/performance/PRD-1001');
     renderWithProviders(<Breadcrumbs />);
     expect(screen.getByText('PRD-1001')).toBeInTheDocument();
   });
   it('new-order, profile, record pages and unknown routes', () => {
-    setRoute('/ops/orders/new-order');
+    setRoute('/ops-native/orders/new-order');
     const a = renderWithProviders(<Breadcrumbs />);
     expect(screen.getByText('New order')).toBeInTheDocument();
     a.unmount();
-    setRoute('/ops/profile');
+    setRoute('/ops-native/profile');
     const b = renderWithProviders(<Breadcrumbs />);
     expect(screen.getByText('My profile')).toBeInTheDocument();
     b.unmount();
-    setRoute('/ops/record/model-governance/12345678-aaaa');
+    setRoute('/ops-native/record/model-governance/12345678-aaaa');
     const c = renderWithProviders(<Breadcrumbs />);
     expect(screen.getByText('model governance')).toBeInTheDocument();
     expect(screen.getByText('12345678')).toBeInTheDocument();
     c.unmount();
-    setRoute('/ops/mystery');
+    setRoute('/ops-native/mystery');
     renderWithProviders(<Breadcrumbs />);
     expect(screen.getByText('Console')).toBeInTheDocument();
   });

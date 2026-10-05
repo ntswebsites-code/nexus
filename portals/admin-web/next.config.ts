@@ -45,10 +45,13 @@ const nextConfig: NextConfig = {
   async headers() {
     return [{ source: '/:path*', headers: securityHeaders() }];
   },
-  // GAP-021: the native console is the landing page; the V56 prototype workspace now lives at /classic
-  // and keeps only its live-bridged pages (see src/legacy/bridge/admin-01-retired.js).
+  // Original V56 workspace is the landing page; /classic is an alias. Native console demoted to /ops-native.
   async redirects() {
-    return [{ source: '/', destination: '/ops', permanent: false }];
+    return [
+      { source: '/classic', destination: '/', permanent: false },
+      { source: '/ops', destination: '/ops-native', permanent: false },
+      { source: '/ops/:path*', destination: '/ops-native/:path*', permanent: false },
+    ];
   },
 };
 

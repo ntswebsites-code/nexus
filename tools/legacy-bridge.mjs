@@ -23,6 +23,26 @@ import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync,
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+const HOOKS_DIR = path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'tools', 'hooks');
+
+/** Merge package hook files (tools/hooks/*.mjs) into the base DATA_HOOKS map. */
+async function mergePackageHooks(base) {
+  if (!existsSync(HOOKS_DIR)) return base;
+  const merged = { ...base };
+  for (const file of readdirSync(HOOKS_DIR).filter((f) => f.endsWith('.mjs'))) {
+    const mod = await import(pathToFileURL(path.join(HOOKS_DIR, file)).href);
+    const hooks = mod.DATA_HOOKS ?? mod.default;
+    if (!hooks) continue;
+    for (const [portal, files] of Object.entries(hooks)) {
+      merged[portal] = merged[portal] ?? {};
+      for (const [jsFile, entries] of Object.entries(files)) {
+        merged[portal][jsFile] = [...(merged[portal][jsFile] ?? []), ...entries];
+      }
+    }
+  }
+  return merged;
+}
+
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const CORE = path.join(root, 'packages', 'legacy-runtime', 'bridge', 'mx-core.js');
 const BRIDGE_URL = '/legacy/js/bridge/';
@@ -125,7 +145,7 @@ function updateManifest(manifestPath, urls) {
 }
 
 /** Installs the bridge into one portal. Returns the list of files that changed. */
-export function applyBridge(portal, { check = false } = {}) {
+export function applyBridge(portal, { check = false, dataHooks = DATA_HOOKS } = {}) {
   const portalDir = PORTAL_DIRS[portal];
   if (!portalDir) throw new Error(`Unknown legacy portal ${portal}`);
   const pub = path.join(root, portalDir, 'public', 'legacy', 'js');
@@ -156,7 +176,7 @@ export function applyBridge(portal, { check = false } = {}) {
     }
   }
 
-  for (const [file, hooks] of Object.entries(DATA_HOOKS[portal] ?? {})) {
+  for (const [file, hooks] of Object.entries(dataHooks[portal] ?? {})) {
     const target = path.join(pub, file);
     const { out, changed: c } = patchText(file, readFileSync(target, 'utf8'), hooks);
     if (c) {
@@ -178,10 +198,11 @@ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
   const check = args.includes('--check');
   const onlyIdx = args.indexOf('--only');
   const only = onlyIdx >= 0 ? args[onlyIdx + 1] : undefined;
+  const dataHooks = await mergePackageHooks(DATA_HOOKS);
   let dirty = false;
   for (const portal of Object.keys(PORTAL_DIRS)) {
     if (only && only !== portal) continue;
-    const changed = applyBridge(portal, { check });
+    const changed = applyBridge(portal, { check, dataHooks });
     dirty ||= changed.length > 0;
     console.log(`${portal}: ${changed.length ? (check ? 'out of date: ' : 'updated: ') + changed.join(', ') : 'up to date'}`);
   }

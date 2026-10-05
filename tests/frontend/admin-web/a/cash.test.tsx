@@ -132,22 +132,22 @@ describe('Cash and ledgers page', () => {
     const { user } = mountPage(<CashPage />, { routes: base() });
     await openTab(user, 'Cash ledger');
     await user.click(await screen.findByText('CJ-00001'));
-    expect(router.push).toHaveBeenCalledWith('/ops/cash/journals/j-1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/cash/journals/j-1');
     await openTab(user, 'Statement imports');
     await user.click(await screen.findByText('IMP-001'));
-    expect(router.push).toHaveBeenCalledWith('/ops/cash/imports/imp-1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/cash/imports/imp-1');
     await openTab(user, 'Period close');
     await user.click(await screen.findByText('Maya Maker / —'));
-    expect(router.push).toHaveBeenCalledWith('/ops/cash/closes/cl-1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/cash/closes/cl-1');
   });
 
   it('notification deep links redirect to the detail page', async () => {
     mountPage(<CashPage />, { routes: base(), search: 'journal=j%2F9' });
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/ops/cash/journals/j%2F9'));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/ops-native/cash/journals/j%2F9'));
   });
   it('?import= and ?close= deep links redirect too', async () => {
     mountPage(<CashPage />, { routes: base(), search: 'import=i1' });
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/ops/cash/imports/i1'));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/ops-native/cash/imports/i1'));
   });
 
   it('?tab=reservations opens the reservations tab (order ticket -> cash hold link)', async () => {
@@ -277,7 +277,7 @@ describe('Cash and ledgers page', () => {
       const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/cash/statement-imports'));
       expectBody(req, { ledgerId: 'led-1', filename: 'jan.json', format: 'JSON', content });
       expectIdempotencyKey(req);
-      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/cash/imports/imp-9'));
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/cash/imports/imp-9'));
     });
     it('a CSV upload sends typed balances without commas and shows the API error in the dialog', async () => {
       const routes = { ...base(), 'POST /api/v1/cash/statement-imports': fail(422, 'statement_not_footing', 'Statement does not foot') };
@@ -315,7 +315,7 @@ describe('Cash and ledgers page', () => {
       expectBody(req, { portfolioId: PF.id });
       expect((req.body as { periodEnd: string }).periodEnd).toMatch(/^\d{4}-\d{2}-\d{2}$/);
       expectIdempotencyKey(req);
-      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/cash/closes/cl-9'));
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/cash/closes/cl-9'));
     });
     it('hides Prepare without cash.close', async () => {
       const { user } = mountPage(<CashPage />, { perms: without('cash.close'), routes: base() });
@@ -360,7 +360,7 @@ describe('Cash and ledgers page', () => {
       const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/cash/journals'));
       expectBody(req, { portfolioId: PF.id, description: 'Fee correction', purpose: 'MANUAL_CORRECTION', lines: [{ ledgerId: 'led-1', debit: '1500.25' }, { ledgerId: 'led-1', credit: '1500.25' }] });
       expectIdempotencyKey(req);
-      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/cash/journals/j-9'));
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/cash/journals/j-9'));
     });
     it('warns when the portfolio has no ledgers', async () => {
       await openForm({ 'GET /api/v1/cash/ledgers': D([]) });

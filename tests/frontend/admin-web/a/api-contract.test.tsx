@@ -65,7 +65,7 @@ describe('screen-level error states', () => {
   it('a signed-out session redirects to login with the page to return to', async () => {
     const assign = vi.fn();
     const original = window.location;
-    Object.defineProperty(window, 'location', { configurable: true, value: { pathname: '/ops/funds', search: '?x=1', assign } });
+    Object.defineProperty(window, 'location', { configurable: true, value: { pathname: '/ops-native/funds', search: '?x=1', assign } });
     try {
       mockApi({ 'GET /api/auth/me': { status: 401, body: { error: { code: 'unauthenticated', message: 'no' } } } });
       renderWithProviders(<div>secret</div>, { providers: [SessionProvider] });

@@ -84,7 +84,7 @@ describe('Orders blotter', () => {
   });
   it('New order link points at the ticket page', async () => {
     mountPage(<OrdersPage />, { routes: routes() });
-    expect(await screen.findByRole('link', { name: 'New order' })).toHaveAttribute('href', '/ops/orders/new');
+    expect(await screen.findByRole('link', { name: 'New order' })).toHaveAttribute('href', '/ops-native/orders/new');
   });
 });
 
@@ -163,7 +163,7 @@ describe('New order ticket', () => {
     const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/orders'));
     expectBody(req, { portfolioId: PF.id, securityId: SEC.id, side: 'BUY', quantity: '500', orderType: 'MARKET', tif: 'DAY', urgency: 'Normal' });
     expectIdempotencyKey(req);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/orders/o-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/orders/o-9'));
   });
 
   it('Submit needs a rationale; then create -> validate -> submit(rationale) -> open the order', async () => {
@@ -181,7 +181,7 @@ describe('New order ticket', () => {
     const [sub] = await waitFor(() => expectCalled(api, 'POST /api/v1/orders/o-9/submit'));
     expectBody(sub, { rationale: 'Rebalancing' });
     expectIdempotencyKey(sub);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/orders/o-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/orders/o-9'));
   });
 
   it('when the check blocks, the draft is kept, nothing is submitted, and the user is told with a link to the draft', async () => {
@@ -195,7 +195,7 @@ describe('New order ticket', () => {
     await user.type(screen.getByLabelText(/Rationale/), 'Rebalancing');
     await user.click(screen.getByRole('button', { name: 'Submit for approval' }));
     expect(await screen.findByText(/Draft ORD-00009 was saved but not submitted/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open the draft' })).toHaveAttribute('href', '/ops/orders/o-9');
+    expect(screen.getByRole('link', { name: 'Open the draft' })).toHaveAttribute('href', '/ops-native/orders/o-9');
     expectNotCalled(api, 'POST /api/v1/orders/o-9/submit');
     expect(router.push).not.toHaveBeenCalled();
   });
@@ -228,7 +228,7 @@ describe('Order ticket lifecycle', () => {
     expect(await screen.findByText('ORD-00001')).toBeInTheDocument();
     expect(screen.getByText('Growth Portfolio (PF-1001)')).toBeInTheDocument();
     expect(screen.getByText('Maya Maker')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'RSV-007' })).toHaveAttribute('href', expect.stringContaining('/ops/cash?tab=reservations'));
+    expect(screen.getByRole('link', { name: 'RSV-007' })).toHaveAttribute('href', expect.stringContaining('/ops-native/cash?tab=reservations'));
     expect(screen.getByText('LED-001')).toBeInTheDocument();
     expect(screen.getByText(/Awaiting approval/, { selector: '.ops-badge' })).toBeInTheDocument();
   });

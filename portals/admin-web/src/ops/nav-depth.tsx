@@ -140,7 +140,7 @@ export function NavHistoryModal({ portfolioId, onClose }: { portfolioId: string;
                         <td>{formatDate(r.navDate)}</td>
                         <td>{r.portfolioName ?? r.portfolioRef ?? '—'}</td>
                         <td>
-                          <Link href={`/ops/nav/${encodeURIComponent(r.id)}`}>{r.ref}</Link> v{r.version} <NavStatusBadge status={r.status} />
+                          <Link href={`/ops-native/nav/${encodeURIComponent(r.id)}`}>{r.ref}</Link> v{r.version} <NavStatusBadge status={r.status} />
                         </td>
                         <td className="r">{money2(r.nav)}</td>
                         <td className="r">{nav4(r.navPerUnit)}</td>
@@ -154,7 +154,7 @@ export function NavHistoryModal({ portfolioId, onClose }: { portfolioId: string;
                         </td>
                         <td>{r.external ? `${r.external.state} (${signed(r.external.variance)})` : '—'}</td>
                         <td>
-                          <Link href={`/ops/nav/${encodeURIComponent(r.id)}`}>Pack</Link>
+                          <Link href={`/ops-native/nav/${encodeURIComponent(r.id)}`}>Pack</Link>
                         </td>
                       </tr>
                     ))}

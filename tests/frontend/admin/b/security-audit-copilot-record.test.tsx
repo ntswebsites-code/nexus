@@ -99,7 +99,7 @@ describe('Security controls', () => {
 
 // ------------------------------------------------------------------ record
 describe('Record page', () => {
-  const rec = (o: Record<string, unknown> = {}) => raw({ record: { kind: 'order', kindLabel: 'Order', id: 'o1', ref: 'ORD-1001', title: 'Buy 100 ABC', status: 'PENDING', route: '/ops/orders/o1', fields: [{ label: 'Quantity', value: '100' }, { label: 'Created', value: '2026-08-26T10:00:00Z' }], ...o }, history: [{ id: 'a1', at: '2026-08-26T10:00:00Z', action: 'order.created', role: 'Dealer', reason: 'Client request' }] });
+  const rec = (o: Record<string, unknown> = {}) => raw({ record: { kind: 'order', kindLabel: 'Order', id: 'o1', ref: 'ORD-1001', title: 'Buy 100 ABC', status: 'PENDING', route: '/ops-native/orders/o1', fields: [{ label: 'Quantity', value: '100' }, { label: 'Created', value: '2026-08-26T10:00:00Z' }], ...o }, history: [{ id: 'a1', at: '2026-08-26T10:00:00Z', action: 'order.created', role: 'Dealer', reason: 'Client request' }] });
   it('ADB-028(c): shows only the fields the API sends (no internal ids/counters), formats ISO dates, links to the module', async () => {
     setParams({ kind: 'order', id: 'o1' });
     await mountPage(<RecordPage />, { routes: { 'GET /api/v1/shell/record/:kind/:id': rec() } });
@@ -108,13 +108,13 @@ describe('Record page', () => {
     expect(screen.getByText('Quantity')).toBeInTheDocument();
     expect(screen.queryByText(/accounts count/i)).not.toBeInTheDocument();
     expect(screen.queryByText('2026-08-26T10:00:00Z')).not.toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Open in module' })).toHaveAttribute('href', '/ops/orders/o1');
+    expect(screen.getByRole('link', { name: 'Open in module' })).toHaveAttribute('href', '/ops-native/orders/o1');
     expect(screen.getByText('order.created')).toBeInTheDocument();
     expect(screen.getByText('“Client request”')).toBeInTheDocument();
   });
   it('history is omitted for roles without audit.view (API sends null); documents get a Preview button', async () => {
     setParams({ kind: 'document', id: 'd1' });
-    await mountPage(<RecordPage />, { routes: { 'GET /api/v1/shell/record/:kind/:id': raw({ record: { kind: 'document', kindLabel: 'Document', id: 'd1', ref: 'DOC-1', title: 'Mandate.pdf', status: null, route: '/ops/vault', fields: [] }, history: null }) } });
+    await mountPage(<RecordPage />, { routes: { 'GET /api/v1/shell/record/:kind/:id': raw({ record: { kind: 'document', kindLabel: 'Document', id: 'd1', ref: 'DOC-1', title: 'Mandate.pdf', status: null, route: '/ops-native/vault', fields: [] }, history: null }) } });
     expect(await screen.findByRole('button', { name: 'Preview file' })).toBeInTheDocument();
     expect(screen.queryByText('Recent activity')).not.toBeInTheDocument();
   });
@@ -217,7 +217,7 @@ describe('Audit trail', () => {
 });
 
 // ------------------------------------------------------------------ copilot
-const reply = (q: string, o: Record<string, unknown> = {}) => ok({ id: `c-${q}`, question: q, intent: 'positions', answer: 'You hold 12 positions.', table: { columns: ['Ticker', 'Qty'], rows: [['ABC', '100']] }, sources: [{ label: 'IBOR', endpoint: '/ibor/ledger', rows: 12, href: '/ops/ibor', asOf: '2026-08-26T10:00:00Z' }], engine: 'ROUTER', toolCalls: [{ tool: 'positions', permission: null, status: 'OK', rows: 12 }, { tool: 'cash', permission: 'cash.view', status: 'DENIED', rows: 0 }], at: '2026-08-26T10:00:00Z', ...o });
+const reply = (q: string, o: Record<string, unknown> = {}) => ok({ id: `c-${q}`, question: q, intent: 'positions', answer: 'You hold 12 positions.', table: { columns: ['Ticker', 'Qty'], rows: [['ABC', '100']] }, sources: [{ label: 'IBOR', endpoint: '/ibor/ledger', rows: 12, href: '/ops-native/ibor', asOf: '2026-08-26T10:00:00Z' }], engine: 'ROUTER', toolCalls: [{ tool: 'positions', permission: null, status: 'OK', rows: 12 }, { tool: 'cash', permission: 'cash.view', status: 'DENIED', rows: 0 }], at: '2026-08-26T10:00:00Z', ...o });
 const cBase = (o: Record<string, unknown> = {}) => ({
   'GET /api/v1/admin-core/copilot/suggestions': ok({ enabled: true, suggestions: ['What are my biggest positions?'] }),
   'GET /api/v1/admin-core/copilot/history': ok([{ id: 'h1', question: 'Any breaks?', intent: 'breaks', answer: 'x', at: '2026-08-25T10:00:00Z' }]),
@@ -238,7 +238,7 @@ describe('Investment Copilot', () => {
     expectBody(req!, { question: 'abc' });
     expect(await screen.findByText('You hold 12 positions.')).toBeInTheDocument();
     expect(screen.getByText('ABC')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'IBOR' })).toHaveAttribute('href', '/ops/ibor');
+    expect(screen.getByRole('link', { name: 'IBOR' })).toHaveAttribute('href', '/ops-native/ibor');
     expect(screen.getByText(/cash \(denied, needs cash.view\)/)).toBeInTheDocument();
     expect(screen.getByText(/positions \(12 rows\)/)).toBeInTheDocument();
     expect((input as HTMLInputElement).value).toBe('');

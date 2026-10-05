@@ -24,7 +24,7 @@ describe('Funds', () => {
   it('list: empty state, row click opens the fund', async () => {
     const { user } = mountPage(<FundsPage />, { routes: { 'GET /api/v1/ops/funds': D([fund()]) } });
     await user.click(await screen.findByText('Agri Growth Fund I'));
-    expect(router.push).toHaveBeenCalledWith('/ops/funds/f-1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/funds/f-1');
   });
   it('empty list', async () => {
     mountPage(<FundsPage />, { routes: { 'GET /api/v1/ops/funds': D([]) } });
@@ -41,7 +41,7 @@ describe('Funds', () => {
     const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/ops/funds'));
     expectBody(req, { name: 'Income Fund II', shortName: 'IF2', currency: 'USD', vintage: 2026, operatingModel: 'PRIVATE_CAPITAL', portalVisible: true });
     expectIdempotencyKey(req);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/funds/f-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/funds/f-9'));
   });
   it('without funds.manage there is no New fund button', async () => {
     mountPage(<FundsPage />, { perms: without('funds.manage'), routes: { 'GET /api/v1/ops/funds': D([]) } });
@@ -122,7 +122,7 @@ describe('Capital calls list', () => {
     expect(await screen.findByText('CC-00001')).toBeInTheDocument();
     expect(screen.getByText(/250,000.00/)).toBeInTheDocument();
     await user.click(screen.getByText('CC-00001'));
-    expect(router.push).toHaveBeenCalledWith('/ops/capital-calls/cc-1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/capital-calls/cc-1');
   });
   it('status and fund filters are sent to the API; empty state', async () => {
     const { api, user } = mountPage(<CallsPage />, { routes: { 'GET /api/v1/ops/capital-calls': D([]), 'GET /api/v1/ops/funds': D([fund()]) } });
@@ -150,7 +150,7 @@ describe('Capital calls list', () => {
     await user.click(within(d).getByRole('button', { name: 'Save draft' }));
     const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/ops/capital-calls'));
     expectBody(req, { fundId: 'f-1', dueDate: '2026-11-30', purpose: 'Fees', totalAmount: '2500000.00', allocationMethod: 'PRO_RATA' });
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/capital-calls/cc-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/capital-calls/cc-9'));
   });
   it('explicit allocation requires amounts that add up to the total before Save draft is enabled', async () => {
     const f = { ...fund(), commitments: [commitment] };
@@ -297,7 +297,7 @@ describe('Distributions', () => {
     expect(await screen.findByText('DS-00001')).toBeInTheDocument();
     expect(screen.getByText(/1,400,000.00/)).toBeInTheDocument();
     await user.click(screen.getByText('DS-00001'));
-    expect(router.push).toHaveBeenCalledWith('/ops/distributions/d-1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/distributions/d-1');
     await user.selectOptions(screen.getByLabelText('Status'), 'ISSUED');
     await waitFor(() => expect(api.calls('GET /api/v1/ops/distributions').at(-1)!.query.get('status')).toBe('ISSUED'));
   });
@@ -318,7 +318,7 @@ describe('Distributions', () => {
     expect(within(d).getByText('Net to LPs: 900.00')).toBeInTheDocument();
     await user.click(within(d).getByRole('button', { name: 'Save draft' }));
     expectBody((await waitFor(() => expectCalled(api, 'POST /api/v1/ops/distributions')))[0], { fundId: 'f-1', grossAmount: '1000', carryAmount: '100', adjustmentsAmount: '0', type: 'RETURN_OF_CAPITAL', allocationMethod: 'PRO_RATA' });
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/distributions/d-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/distributions/d-9'));
   });
   it('detail: names, net to LPs, SoD on approve, issue confirm, reject/cancel reasons', async () => {
     const r = (d: unknown, extra = {}) => ({ 'GET /api/v1/ops/distributions/d-1': D(d), ...extra });

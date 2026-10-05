@@ -20,7 +20,7 @@ describe('Corporate actions list', () => {
     expect(screen.getByText('CMCL.VX')).toBeInTheDocument();
     expect(screen.getByText('Cash dividend')).toBeInTheDocument();
     await user.click(screen.getByText('CA-00001'));
-    expect(router.push).toHaveBeenCalledWith('/ops/corporate-actions/ca-1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/corporate-actions/ca-1');
   });
   it('ADA-031: a CONFIRMED cash dividend whose record date has passed is listed (so entitlements and Process can be exercised)', async () => {
     mountPage(<CaPage />, { routes: lroutes([ev({ recordDate: '2026-09-02', status: 'CONFIRMED' })]) });
@@ -58,7 +58,7 @@ describe('Corporate actions list', () => {
     const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/corporate-actions/events'));
     expectBody(req, { securityId: 'sec-1', type: 'CASH_DIVIDEND', exDate: '2026-11-01', recordDate: '2026-11-02', payDate: '2026-11-20', rate: '0.05', withholdingPct: '0' });
     expectIdempotencyKey(req);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/corporate-actions/ca-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/corporate-actions/ca-9'));
   });
   it('choosing scrip dividend reveals the election deadline and default option', async () => {
     const { user } = mountPage(<CaPage />, { routes: lroutes([]) });

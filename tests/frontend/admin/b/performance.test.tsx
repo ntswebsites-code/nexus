@@ -88,8 +88,8 @@ describe('Performance page', () => {
     expect(screen.getByText('Linking, trading and timing')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'Contributions' }));
     expect(await screen.findByText('ABC Holdings')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Positions' })).toHaveAttribute('href', expect.stringContaining('/ops/ibor/position?portfolioId=p1&securityId=s1'));
-    expect(screen.getByRole('link', { name: 'Orders' })).toHaveAttribute('href', '/ops/orders?q=ABC');
+    expect(screen.getByRole('link', { name: 'Positions' })).toHaveAttribute('href', expect.stringContaining('/ops-native/ibor/position?portfolioId=p1&securityId=s1'));
+    expect(screen.getByRole('link', { name: 'Orders' })).toHaveAttribute('href', '/ops-native/orders?q=ABC');
   });
   it('attribution tab explains when no benchmark composition exists', async () => {
     const { user } = await mountPage(<PerformancePage />, { routes: base({ 'GET /api/v1/performance/attribution': ok({ ...returns(), benchmark: null, segments: [], totals: {}, contributions: [] }) }) });
@@ -112,7 +112,7 @@ describe('Performance page', () => {
     const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/performance/periods'));
     expectBody(req!, { portfolioId: 'p1', periodStart: '2026-02-01' });
     expectIdempotencyKey(req!);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/performance/per9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/performance/per9'));
   });
   it('prepare errors (e.g. future date) show in the dialog and keep it open', async () => {
     const { user } = await mountPage(<PerformancePage />, { routes: base({ 'POST /api/v1/performance/periods': fail(400, 'validation_error', 'Validation failed', undefined) }) });
@@ -245,7 +245,7 @@ describe('Performance period detail', () => {
     await user.click(screen.getByRole('button', { name: 'Create correction draft' }));
     const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/performance/periods/per1/correct'));
     expectBody(req!, { reason: 'Fee accrual missed' });
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/performance/per2'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/performance/per2'));
   });
   it('superseded shows the read-only notice; locked shows Official label', async () => {
     await go(period({ status: 'SUPERSEDED' }), ['reports.create']);

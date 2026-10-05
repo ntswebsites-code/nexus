@@ -76,7 +76,7 @@ export function SettlementFailsTab({ canManage, stamp, onChanged }: { canManage:
                           <td>{f.counterparty?.name ?? '—'}<span className="ops-sub">{f.account ?? ''}</span></td>
                           <td>{f.portfolio?.name ?? '—'}</td>
                           <td><Tone value={f.severity} /></td>
-                          <td><a href={`/ops/reconciliation?break=${f.id}`}>{f.ref}</a><span className="ops-sub"><Tone value={f.status} />{f.owner ? ` ${f.owner}` : ''}</span></td>
+                          <td><a href={`/ops-native/reconciliation?break=${f.id}`}>{f.ref}</a><span className="ops-sub"><Tone value={f.status} />{f.owner ? ` ${f.owner}` : ''}</span></td>
                         </tr>
                       ))}
                     </tbody>

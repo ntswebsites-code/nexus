@@ -120,14 +120,14 @@ describe('Cash journal detail', () => {
     await user.type(within(d).getByLabelText(/Reason/), 'Posted in error');
     await user.click(within(d).getByRole('button', { name: 'Post reversal' }));
     expectBody((await waitFor(() => expectCalled(api, 'POST /api/v1/cash/journals/j-1/reverse')))[0], { reason: 'Posted in error' });
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/cash/journals/j-2'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/cash/journals/j-2'));
   });
 
   it('closed-period warning, rejected reason and reversal links render', async () => {
     mountPage(<JournalPage />, { params: { id: 'j-1' }, routes: jroutes(jr({ status: 'REJECTED', rejectReason: 'Wrong ledger', periodClosed: true, reversalOfId: 'j-0', reversalOfRef: 'CJ-00001' })) });
     expect(await screen.findByText(/Rejected: Wrong ledger/)).toBeInTheDocument();
     expect(screen.getByText(/Cash for this date is closed/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'CJ-00001' })).toHaveAttribute('href', '/ops/cash/journals/j-0');
+    expect(screen.getByRole('link', { name: 'CJ-00001' })).toHaveAttribute('href', '/ops-native/cash/journals/j-0');
   });
 
   it('not found and server errors show a state, not a crash', async () => {

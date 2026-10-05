@@ -127,7 +127,7 @@ export function NotificationBell() {
               type="button"
               onClick={() => {
                 setOpen(false);
-                router.push('/ops/notifications');
+                router.push('/ops-native/notifications');
               }}
             >
               View all and preferences

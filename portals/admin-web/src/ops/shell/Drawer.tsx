@@ -93,7 +93,7 @@ export function RecordDrawer({ kind, id, onClose }: { kind: string; id: string; 
       onClose={onClose}
       footer={
         <>
-          <Link className="ops-btn" href={`/ops/record/${kind}/${id}`} onClick={onClose}>
+          <Link className="ops-btn" href={`/ops-native/record/${kind}/${id}`} onClick={onClose}>
             Open full record
           </Link>
           {res.state === 'ok' && (

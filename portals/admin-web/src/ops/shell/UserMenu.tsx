@@ -83,10 +83,10 @@ export function UserMenu({ focus, onFocus }: { focus: RoleFocus | null; onFocus:
           )}
           {error && <div className="ops-pop-note ops-error-text">{error}</div>}
           <div className="ops-pop-links">
-            <Link href="/ops/profile" onClick={() => setOpen(false)} role="menuitem">
+            <Link href="/ops-native/profile" onClick={() => setOpen(false)} role="menuitem">
               Profile, MFA and password
             </Link>
-            <Link href="/ops/notifications" onClick={() => setOpen(false)} role="menuitem">
+            <Link href="/ops-native/notifications" onClick={() => setOpen(false)} role="menuitem">
               Notifications and preferences
             </Link>
           </div>

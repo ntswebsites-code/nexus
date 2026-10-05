@@ -116,7 +116,7 @@ function PerformancePanel({ rows }: { rows: PerfRow[] }) {
           {cur?.series && cur.series.length > 1 ? (
             <div style={{ marginTop: 10 }}>
               <LineChart series={cur.series} />
-              <p className="ops-muted" style={{ margin: 0 }}>{cur.name}: solid is the portfolio, dashed the benchmark. Open <Link href="/ops/performance">Performance</Link> for attribution and the official period.</p>
+              <p className="ops-muted" style={{ margin: 0 }}>{cur.name}: solid is the portfolio, dashed the benchmark. Open <Link href="/ops-native/performance">Performance</Link> for attribution and the official period.</p>
             </div>
           ) : (
             <p className="ops-muted">Choose a portfolio with price history to see its curve.</p>
@@ -196,7 +196,7 @@ function ScenarioPanel({ presets }: { presets: ScenarioPreset[] }) {
               </tbody>
             </table>
           </div>
-          <p className="ops-muted" style={{ marginBottom: 0 }}>Run custom shocks in <Link href="/ops/risk">Risk</Link>.</p>
+          <p className="ops-muted" style={{ marginBottom: 0 }}>Run custom shocks in <Link href="/ops-native/risk">Risk</Link>.</p>
         </>
       )}
     </Card>

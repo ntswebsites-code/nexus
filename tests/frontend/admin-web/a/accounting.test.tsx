@@ -38,7 +38,7 @@ describe('Accounting page', () => {
     await user.selectOptions(screen.getByLabelText('Status'), 'POSTED');
     await waitFor(() => expect(api.calls('GET /api/v1/accounting/journals').at(-1)!.query.get('status')).toBe('POSTED'));
     await user.click(await screen.findByText('JE-00001'));
-    expect(router.push).toHaveBeenCalledWith('/ops/accounting/journals/aj-1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/accounting/journals/aj-1');
   });
 
   it('journals empty state and error state', async () => {
@@ -98,7 +98,7 @@ describe('Accounting page', () => {
     expectBody(req, { portfolioId: PF.id });
     expect((req.body as { month: string }).month).toMatch(/^\d{4}-\d{2}$/);
     expectIdempotencyKey(req);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/accounting/periods/p-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/accounting/periods/p-9'));
   });
 
   it('chart of accounts: setup buttons only with accounting.post and an entity; adds standard chart and a new account', async () => {
@@ -131,7 +131,7 @@ describe('Accounting page', () => {
 
   it('notification deep links ?journal= and ?period= redirect to the record', async () => {
     mountPage(<AccountingPage />, { routes: base(), search: 'period=p%201' });
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/ops/accounting/periods/p%201'));
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/ops-native/accounting/periods/p%201'));
   });
 
   describe('new journal form', () => {
@@ -159,7 +159,7 @@ describe('Accounting page', () => {
       const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/accounting/journals'));
       expectBody(req, { portfolioId: PF.id, description: 'Seed capital', lines: [{ accountId: 'a1', debit: '250' }, { accountId: 'a2', credit: '250' }] });
       expectIdempotencyKey(req);
-      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/accounting/journals/aj-9'));
+      await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/accounting/journals/aj-9'));
     });
     it('API validation error is shown in the form and the dialog stays open', async () => {
       const { api, user, dlg } = await open();
@@ -212,7 +212,7 @@ describe('Accounting journal detail', () => {
     await user.type(within(d).getByLabelText(/Reason/), 'Wrong period');
     await user.click(within(d).getByRole('button', { name: 'Post reversal' }));
     expectBody((await waitFor(() => expectCalled(api, 'POST /api/v1/accounting/journals/aj-1/reverse')))[0], { reason: 'Wrong period' });
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/accounting/journals/aj-2'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/accounting/journals/aj-2'));
   });
   it('closed period warning for unposted journals', async () => {
     mountPage(<AJournalPage />, { params: { id: 'aj-1' }, routes: routes(dj({ periodStatus: 'CLOSED' })) });

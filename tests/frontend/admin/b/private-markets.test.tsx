@@ -124,8 +124,8 @@ describe('Private markets: funds and commitments', () => {
     await user.click(await screen.findByText('CMT-1001'));
     const dlg = await screen.findByRole('dialog');
     expect(await within(dlg).findByText('Carrying value (books)')).toBeInTheDocument();
-    expect(within(dlg).getByRole('link', { name: 'JNL-9' })).toHaveAttribute('href', '/ops/accounting/journals/j9');
-    expect(within(dlg).getByRole('link', { name: 'CJ-3' })).toHaveAttribute('href', '/ops/cash/journals/cj3');
+    expect(within(dlg).getByRole('link', { name: 'JNL-9' })).toHaveAttribute('href', '/ops-native/accounting/journals/j9');
+    expect(within(dlg).getByRole('link', { name: 'CJ-3' })).toHaveAttribute('href', '/ops-native/cash/journals/cj3');
     expect(within(dlg).getByText(/60,000.00 return of capital/)).toBeInTheDocument();
     await user.click(within(dlg).getByRole('button', { name: 'Mark paid' }));
     const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/private-markets/cashflows/cf1/pay'));
@@ -232,7 +232,7 @@ describe('Private markets: NAV marks (maker-checker, ADB-012)', () => {
     await openMark(mark(), ['portfolio.view', 'private.mark.approve']);
     const dlg = await screen.findByRole('dialog');
     expect(await within(dlg).findByText(/unrealised gain of 200,000.00/)).toBeInTheDocument();
-    expect(within(dlg).getByRole('link', { name: 'DOC-1007' })).toHaveAttribute('href', '/ops/vault');
+    expect(within(dlg).getByRole('link', { name: 'DOC-1007' })).toHaveAttribute('href', '/ops-native/vault');
   });
   it('reject and return require a reason and post it', async () => {
     const { user, api } = await openMark(mark(), ['portfolio.view', 'private.mark.approve']);

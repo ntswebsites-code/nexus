@@ -40,7 +40,7 @@ describe('Portfolios list', () => {
     expectBody(req, { name: 'Income Fund', baseCurrency: 'ZWG', mandate: { maxSingleNamePct: 12.5 } });
     expect((req.body as { mandate: object }).mandate).not.toHaveProperty('maxSectorPct');
     expectIdempotencyKey(req);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/portfolios/pf-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/portfolios/pf-9'));
   });
   it('New portfolio is hidden without portfolio.manage', async () => {
     mountPage(<PortfoliosPage />, { perms: without('portfolio.manage'), routes: { 'GET /api/v1/portfolios': D([pf]) } });

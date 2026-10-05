@@ -132,7 +132,7 @@ describe('Term sheet extras (GAP-020)', () => {
     await user.type(within(d).getByLabelText('Reason'), 'Change the equity split');
     await user.click(within(d).getByRole('button', { name: 'Create amendment' }));
     expectBody((await waitFor(() => expectCalled(api, 'POST /api/v1/ops/term-sheets/ts-1/amend')))[0], { reason: 'Change the equity split' });
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/term-sheets/ts-2'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/term-sheets/ts-2'));
   });
 
   it('a superseded sheet shows why and lists the version chain', async () => {
@@ -146,7 +146,7 @@ describe('Term sheet extras (GAP-020)', () => {
       }),
     });
     expect(await screen.findByText('Superseded: Equity split changed')).toBeInTheDocument();
-    expect(await screen.findByRole('link', { name: 'v2 TS-002' })).toHaveAttribute('href', '/ops/term-sheets/ts-2');
+    expect(await screen.findByRole('link', { name: 'v2 TS-002' })).toHaveAttribute('href', '/ops-native/term-sheets/ts-2');
   });
 
   it('without term_sheets.approve there is no reject or void', async () => {

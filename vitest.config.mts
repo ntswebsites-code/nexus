@@ -24,7 +24,10 @@ function project(name: string, alias: Record<string, string>) {
       name,
       environment: 'jsdom',
       setupFiles: [r('tests/frontend/setup.ts')],
-      include: [`tests/frontend/${name}/**/*.test.{ts,tsx}`, ...(name === "admin-web" ? ["tests/frontend/admin/**/*.test.{ts,tsx}"] : [])],
+      include: [
+        `tests/frontend/${name}/**/*.test.{ts,tsx}`,
+        ...(name === 'admin-web' ? ['tests/frontend/admin/**/*.test.{ts,tsx}', 'tests/frontend/legacy/**/*.test.{ts,tsx}'] : []),
+      ],
       css: false,
       clearMocks: true,
     },

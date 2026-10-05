@@ -36,6 +36,19 @@ const [req] = expectCalled(api, 'POST /api/v1/ops/funds');
 expectIdempotencyKey(req);
 ```
 
+## Legacy admin harness (`tests/frontend/legacy/`)
+
+W0+ page wiring tests load prototype fragments in jsdom without a browser:
+
+```ts
+import { loadLegacyHarness, expectNoOpsConsoleLink } from '../legacy/_harness';
+
+loadLegacyHarness({ fragment: '06-page-command.html', scripts: ['01-inline.js'], routes: { ... } });
+expectNoOpsConsoleLink();
+```
+
+`loadLegacyHarness` runs `mx-core.js`, portal bridge scripts (from `public/legacy/js/bridge/`), then the listed prototype scripts with `mockApi` fetch. Run `node tools/legacy-bridge.mjs` before legacy tests if bridge sources changed.
+
 ## Conventions
 
 - One file per flow, named after the flow (`create-fund.test.tsx`); put the QA issue id in the `describe`/`it` name where one exists (`QA-123: ...`).

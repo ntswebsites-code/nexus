@@ -2,7 +2,7 @@
 
 import type { ReactNode } from 'react';
 
-/** Types and small pieces shared by Operations Control (`/ops/operations`) and the Command Centre (`/ops/command`). */
+/** Types and small pieces shared by Operations Control (`/ops-native/operations`) and the Command Centre (`/ops-native/command`). */
 
 export interface Dependency {
   key: string;

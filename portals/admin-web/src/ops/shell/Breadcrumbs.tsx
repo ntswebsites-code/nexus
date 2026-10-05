@@ -5,9 +5,9 @@ import { usePathname } from 'next/navigation';
 import { NAV } from './nav';
 
 const SPECIAL: Record<string, string> = {
-  '/ops/profile': 'My profile',
-  '/ops/notifications': 'Notifications',
-  '/ops/security': 'Security controls',
+  '/ops-native/profile': 'My profile',
+  '/ops-native/notifications': 'Notifications',
+  '/ops-native/security': 'Security controls',
 };
 
 /** Readable crumb for a route segment: "position" -> "Position", "new-order" -> "New order"; ids (anything with a digit) stay as written. */
@@ -20,8 +20,8 @@ function segmentLabel(seg: string): string {
 
 /** Breadcrumb trail with a deep link for every level: Operations > Section > Page > Record. */
 export function Breadcrumbs() {
-  const pathname = usePathname() ?? '/ops';
-  const crumbs: { label: string; href?: string }[] = [{ label: 'Operations', href: '/ops' }];
+  const pathname = usePathname() ?? '/ops-native';
+  const crumbs: { label: string; href?: string }[] = [{ label: 'Operations', href: '/ops-native' }];
 
   const record = pathname.match(/^\/ops\/record\/([^/]+)\/([^/]+)/);
   if (record) {
@@ -29,7 +29,7 @@ export function Breadcrumbs() {
   } else {
     let found = false;
     for (const s of NAV) {
-      const item = s.items.find((i) => i.href !== '/ops' && (pathname === i.href || pathname.startsWith(i.href + '/')));
+      const item = s.items.find((i) => i.href !== '/ops-native' && (pathname === i.href || pathname.startsWith(i.href + '/')));
       if (!item) continue;
       found = true;
       crumbs.push({ label: s.section });
@@ -40,7 +40,7 @@ export function Breadcrumbs() {
     }
     if (!found) {
       const special = SPECIAL[pathname];
-      crumbs.push({ label: special ?? (pathname === '/ops' ? 'Overview' : 'Console') });
+      crumbs.push({ label: special ?? (pathname === '/ops-native' ? 'Overview' : 'Console') });
     }
   }
 

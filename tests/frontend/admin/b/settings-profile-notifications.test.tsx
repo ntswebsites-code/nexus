@@ -219,7 +219,7 @@ describe('Profile and security (ADB-027)', () => {
 });
 
 // ------------------------------------------------------------------ notifications
-const note = (id: string, o: Record<string, unknown> = {}) => ({ id, type: 'approval', title: `Item ${id}`, body: 'Body text', link: '/ops/nav/1', readAt: null, createdAt: new Date(Date.now() - 600_000).toISOString(), ...o });
+const note = (id: string, o: Record<string, unknown> = {}) => ({ id, type: 'approval', title: `Item ${id}`, body: 'Body text', link: '/ops-native/nav/1', readAt: null, createdAt: new Date(Date.now() - 600_000).toISOString(), ...o });
 const nPage = (n = 2, o: Record<string, unknown> = {}) => raw({ items: Array.from({ length: n }, (_, i) => note(`n${i + 1}`)), unread: n, page: 1, pageSize: 20, total: n, ...o });
 const prefs = raw({ digest: 'off', types: [{ type: 'approval', label: 'Approvals', critical: false, channels: { in_app: true, email: false } }, { type: 'risk_breach', label: 'Risk breaches', critical: true, channels: { in_app: true, email: true } }] });
 const nBase = (o: Record<string, unknown> = {}) => ({ 'GET /api/v1/notifications': nPage(), 'GET /api/v1/notifications/preferences': prefs, ...o });
@@ -239,7 +239,7 @@ describe('Notifications page', () => {
     const { user, api } = await mountPage(<NotificationsPage />, { routes: nBase({ 'POST /api/v1/notifications/read-all': raw({ ok: true }), 'POST /api/v1/notifications/:id/read': raw({ ok: true }) }) });
     await user.click(await screen.findByText('Item n1'));
     await waitFor(() => expectCalled(api, 'POST /api/v1/notifications/n1/read'));
-    expect(router.push).toHaveBeenCalledWith('/ops/nav/1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/nav/1');
     await user.click(screen.getByRole('button', { name: 'Mark all read' }));
     await waitFor(() => expectCalled(api, 'POST /api/v1/notifications/read-all'));
   });

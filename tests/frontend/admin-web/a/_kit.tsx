@@ -31,7 +31,7 @@ export interface MountOpts {
 }
 
 /** Renders a real page inside the real SessionProvider with the network mocked. */
-export function mountPage(ui: ReactElement, { perms = ALL_PERMS, routes = {}, params = {}, path = '/ops', search = '' }: MountOpts = {}) {
+export function mountPage(ui: ReactElement, { perms = ALL_PERMS, routes = {}, params = {}, path = '/ops-native', search = '' }: MountOpts = {}) {
   setRoute(path, search);
   (navigationMock as { useParams: () => unknown }).useParams = () => params;
   window.history.replaceState({}, '', `${path}${search ? `?${search}` : ''}`);

@@ -105,8 +105,8 @@ export function CommandPalette({ focusPerms }: { focusPerms: string[] | null }) 
         .map((i) => ({ key: `page:${i.href}`, group: 'Pages', label: i.label, hint: s.section, run: () => go(i.href) })),
     );
     const actions: Entry[] = [
-      { key: 'act:profile', group: 'Actions', label: 'Open my profile and security', hint: 'MFA, password, sessions', run: () => go('/ops/profile') },
-      { key: 'act:notifications', group: 'Actions', label: 'Open notifications', run: () => go('/ops/notifications') },
+      { key: 'act:profile', group: 'Actions', label: 'Open my profile and security', hint: 'MFA, password, sessions', run: () => go('/ops-native/profile') },
+      { key: 'act:notifications', group: 'Actions', label: 'Open notifications', run: () => go('/ops-native/notifications') },
       { key: 'act:signout', group: 'Actions', label: 'Sign out', run: () => void signOut() },
     ];
     const match = (e: Entry) => !term || `${e.label} ${e.hint ?? ''}`.toLowerCase().includes(term);

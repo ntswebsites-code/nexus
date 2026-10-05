@@ -179,7 +179,7 @@ describe('IBOR page', () => {
     expect(await screen.findByText(/Could not load the book overview: Book unavailable/)).toBeInTheDocument();
   });
   it('the portfolioId query parameter preselects the portfolio', async () => {
-    window.history.pushState({}, '', '/ops/ibor?portfolioId=p2');
+    window.history.pushState({}, '', '/ops-native/ibor?portfolioId=p2');
     const { api } = await mountPage(<IborPage />, { routes: base() });
     await waitFor(() => expect(api.calls('GET /api/v1/ibor/settlement-ladder').some((r) => r.query.get('portfolioId') === 'p2')).toBe(true));
     window.history.pushState({}, '', '/');
@@ -214,22 +214,22 @@ describe('IBOR position detail', () => {
     reconciliation: [{ id: 'b1', ref: 'BRK-1', label: 'Qty differs by 5', status: 'OPEN', severity: 'HIGH', difference: '5' }],
   };
   it('without ids shows guidance and makes no request', async () => {
-    window.history.pushState({}, '', '/ops/ibor/position');
+    window.history.pushState({}, '', '/ops-native/ibor/position');
     const { api } = await mountPage(<PositionPage />);
     expect(await screen.findByText('Open a position from the IBOR position ledger.')).toBeInTheDocument();
     expect(api.calls('GET /api/v1/ibor/position')).toHaveLength(0);
   });
   it('loads the position by ids, shows tiles, tabs (lots, recon, history), links to orders', async () => {
-    window.history.pushState({}, '', '/ops/ibor/position?portfolioId=p1&securityId=s1&asOf=2026-08-20');
+    window.history.pushState({}, '', '/ops-native/ibor/position?portfolioId=p1&securityId=s1&asOf=2026-08-20');
     const { user, api } = await mountPage(<PositionPage />, { routes: { 'GET /api/v1/ibor/position': ok(detail) } });
     expect(await screen.findByRole('heading', { name: /ABC/ })).toBeInTheDocument();
     const [req] = expectCalled(api, 'GET /api/v1/ibor/position');
     expect(Object.fromEntries(req!.query)).toMatchObject({ portfolioId: 'p1', securityId: 's1', asOf: '2026-08-20' });
     expect(screen.getByText('USD 1,234.50')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: /IBOR & Positions/ })).toHaveAttribute('href', '/ops/ibor?portfolioId=p1');
+    expect(screen.getByRole('link', { name: /IBOR & Positions/ })).toHaveAttribute('href', '/ops-native/ibor?portfolioId=p1');
     await user.click(screen.getByRole('tab', { name: 'Lots & settlement' }));
     expect(await screen.findByText('9,000.5')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'ORD-1001' })).toHaveAttribute('href', '/ops/orders/o1');
+    expect(screen.getByRole('link', { name: 'ORD-1001' })).toHaveAttribute('href', '/ops-native/orders/o1');
     await user.click(screen.getByRole('tab', { name: 'Reconciliation' }));
     expect(await screen.findByText('Qty differs by 5')).toBeInTheDocument();
     await user.click(screen.getByRole('tab', { name: 'History' }));
@@ -237,7 +237,7 @@ describe('IBOR position detail', () => {
     window.history.pushState({}, '', '/');
   });
   it('404 for an unknown position shows Not found', async () => {
-    window.history.pushState({}, '', '/ops/ibor/position?portfolioId=p1&securityId=zz');
+    window.history.pushState({}, '', '/ops-native/ibor/position?portfolioId=p1&securityId=zz');
     await mountPage(<PositionPage />, { routes: { 'GET /api/v1/ibor/position': fail(404, 'not_found', 'No position') } });
     expect(await screen.findByText(/Not found/)).toBeInTheDocument();
     window.history.pushState({}, '', '/');

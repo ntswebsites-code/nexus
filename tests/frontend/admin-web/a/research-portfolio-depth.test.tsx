@@ -112,7 +112,7 @@ describe('FR-PORT-011: create with strategy, risk and evidence file', () => {
     const [req] = await waitFor(() => expectCalled(api, 'POST /api/v1/portfolios'));
     expectBody(req!, { name: 'Income Two', strategy: 'Income', riskProfile: 'LOW', status: 'Setup' });
     expectIdempotencyKey(req!);
-    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops/portfolios/pf-9'));
+    await waitFor(() => expect(router.push).toHaveBeenCalledWith('/ops-native/portfolios/pf-9'));
   });
   it('createPortfolio sends the evidence file with the payload as ONE multipart request; addEvidence sends kind, title and file', async () => {
     const m = mockApi({ 'POST /api/v1/portfolios': raw({ data: { portfolio: { id: 'pf-9' } } }, 201), 'POST /api/v1/portfolios/pf-1/evidence': raw({ data: { documentRef: 'DOC-1' } }, 201) });
@@ -585,9 +585,9 @@ describe('FR-PM-002: investment, diligence case and cashflow scenario records', 
 
 const series = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-07'].map((date, i) => ({ date, value: 1000 + i * 10, flow: i === 2 ? 500 : 0, ret: i * 0.001, cum: i * 0.01, bench: i * 0.004, benchCum: i * 0.004 }));
 const events = [
-  { id: 'j1', kind: 'CASH_FLOW', date: '2026-09-03', label: 'Deposit USD 500.00', ref: 'CJ-00001', href: '/ops/cash?journal=j1' },
-  { id: 'r1', kind: 'REBALANCE', date: '2026-09-04', label: 'Rebalance RBL-00001 (proposed, turnover 7.5%)', ref: 'RBL-00001', href: '/ops/portfolio-lab?rebalance=r1' },
-  { id: 'd1', kind: 'IC_DECISION', date: '2026-09-04', label: 'IC ICD-1001: BUY INN.ZW (approved)', ref: 'ICD-1001', href: '/ops/research?decision=d1' },
+  { id: 'j1', kind: 'CASH_FLOW', date: '2026-09-03', label: 'Deposit USD 500.00', ref: 'CJ-00001', href: '/ops-native/cash?journal=j1' },
+  { id: 'r1', kind: 'REBALANCE', date: '2026-09-04', label: 'Rebalance RBL-00001 (proposed, turnover 7.5%)', ref: 'RBL-00001', href: '/ops-native/portfolio-lab?rebalance=r1' },
+  { id: 'd1', kind: 'IC_DECISION', date: '2026-09-04', label: 'IC ICD-1001: BUY INN.ZW (approved)', ref: 'ICD-1001', href: '/ops-native/research?decision=d1' },
 ];
 
 describe('FR-PERF-006/007: chart event markers and keyboard operation', () => {
@@ -615,7 +615,7 @@ describe('FR-PERF-006/007: chart event markers and keyboard operation', () => {
   it('clicking a marker opens the linked record', async () => {
     const { user } = chart();
     await user.click(await screen.findByTestId('marker-REBALANCE'));
-    expect(router.push).toHaveBeenCalledWith('/ops/portfolio-lab?rebalance=r1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/portfolio-lab?rebalance=r1');
   });
   it('a marker is reachable and operable from the keyboard', async () => {
     chart();
@@ -623,7 +623,7 @@ describe('FR-PERF-006/007: chart event markers and keyboard operation', () => {
     expect(m).toHaveAttribute('tabindex', '0');
     m.focus();
     fireEvent.keyDown(m, { key: 'Enter' });
-    expect(router.push).toHaveBeenCalledWith('/ops/cash?journal=j1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/cash?journal=j1');
   });
   it('arrow keys move the crosshair and the readout; Home and End jump to the ends', async () => {
     const { user } = chart();
@@ -654,7 +654,7 @@ describe('FR-PERF-006/007: chart event markers and keyboard operation', () => {
     expect(within(d).getByText('Day detail: 2026-09-04')).toBeInTheDocument();
     expect(within(d).getByText('Portfolio value')).toBeInTheDocument();
     await user.click(within(d).getByRole('link', { name: 'IC ICD-1001: BUY INN.ZW (approved)' }));
-    expect(router.push).toHaveBeenCalledWith('/ops/research?decision=d1');
+    expect(router.push).toHaveBeenCalledWith('/ops-native/research?decision=d1');
     await user.keyboard('{Escape}');
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
   });

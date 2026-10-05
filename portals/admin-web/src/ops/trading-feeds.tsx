@@ -142,7 +142,7 @@ export function TradingFeedsPage() {
                 <div className="ops-kicker">Corporate-action drafts</div>
                 <strong style={{ fontSize: 22 }}>{o.caDraftsAwaitingConfirmation}</strong>
                 <span className="ops-sub">
-                  <Link href="/ops/corporate-actions">awaiting confirmation</Link>
+                  <Link href="/ops-native/corporate-actions">awaiting confirmation</Link>
                 </span>
               </div>
               <div>
@@ -216,7 +216,7 @@ function LinesTab({ onChanged }: { onChanged: () => void }) {
                         <span className="ops-sub">{l.externalRef}</span>
                       </td>
                       <td>{l.source === 'FIX' ? 'FIX' : 'Contract note'}</td>
-                      <td>{l.orderId ? <Link href={`/ops/orders/${l.orderId}`}>{l.orderRef}</Link> : (l.orderRef ?? '—')}</td>
+                      <td>{l.orderId ? <Link href={`/ops-native/orders/${l.orderId}`}>{l.orderRef}</Link> : (l.orderRef ?? '—')}</td>
                       <td>
                         {l.side} {l.ticker}
                         <span className="ops-sub"><DateText value={l.tradeDate} /></span>
@@ -509,7 +509,7 @@ function SettleTab({ onChanged }: { onChanged: () => void }) {
                         {r.accountRef && <span className="ops-sub">account {r.accountRef}</span>}
                       </td>
                       <td>
-                        <Link href={`/ops/orders/${r.orderId}`}>{r.orderRef}</Link>
+                        <Link href={`/ops-native/orders/${r.orderId}`}>{r.orderRef}</Link>
                       </td>
                       <td>
                         {r.instructionType} {r.side} {formatDecimal(r.quantity, 0)} {r.ticker}
@@ -600,7 +600,7 @@ function CaTab({ onChanged }: { onChanged: () => void }) {
         {(f) => (
           <>
             <p className="ops-sub" style={{ marginTop: 0 }}>
-              Announcements from the <strong>{f.provider}</strong> market-data provider become draft ANNOUNCED events (created by the system). A person confirms each one in <Link href="/ops/corporate-actions">Corporate actions</Link>, and a different person processes it. The same announcement seen again is counted, not re-created; one that matches an event already on file is marked duplicate.
+              Announcements from the <strong>{f.provider}</strong> market-data provider become draft ANNOUNCED events (created by the system). A person confirms each one in <Link href="/ops-native/corporate-actions">Corporate actions</Link>, and a different person processes it. The same announcement seen again is counted, not re-created; one that matches an event already on file is marked duplicate.
               {f.provider === 'public' && ' The public provider has no corporate-action source: enter announcements by hand.'}
             </p>
             {f.runs[0] && (
@@ -636,7 +636,7 @@ function CaTab({ onChanged }: { onChanged: () => void }) {
                         <td>
                           <Pill s={i.status} />
                         </td>
-                        <td>{i.event ? <Link href={`/ops/corporate-actions/${i.event.id}`}>{i.event.ref}</Link> : '—'}{i.event?.status && <span className="ops-sub">{i.event.status.toLowerCase()}</span>}</td>
+                        <td>{i.event ? <Link href={`/ops-native/corporate-actions/${i.event.id}`}>{i.event.ref}</Link> : '—'}{i.event?.status && <span className="ops-sub">{i.event.status.toLowerCase()}</span>}</td>
                         <td className="r">{i.seenCount}</td>
                         <td>{i.reason && <span className="ops-sub">{i.reason}</span>}</td>
                       </tr>
