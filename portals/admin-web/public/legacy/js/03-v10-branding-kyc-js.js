@@ -14,7 +14,7 @@ let onboardingApplicationsV10=[];
 function initialsV10(name){return String(name||'?').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x[0]).join('').toUpperCase()}
 function tagClassV10(v){const s=String(v||'').toLowerCase();return /clear|verified|approved|activation|active|complete/.test(s)?'green':/high|enhanced|overdue|block|mismatch/.test(s)?'red':/review|pending|screening|medium/.test(s)?'amber':'blue'}
 function loadV10(){
- try{const p=JSON.parse(localStorage.getItem('matanho-client-profiles-v10')||'{}');clients.forEach(c=>Object.assign(c,p[c.id]||{}));}catch(e){}
+ try{const p=JSON.parse((window.mx&&window.mx.live&&window.mx.strict('onboarding'))?null:localStorage.getItem('matanho-client-profiles-v10')||'{}');clients.forEach(c=>Object.assign(c,p[c.id]||{}));}catch(e){}
  try{const a=JSON.parse(localStorage.getItem('matanho-onboarding-v10')||'null');onboardingApplicationsV10=Array.isArray(a)&&a.length?a:JSON.parse(JSON.stringify(defaultOnboardingV10));}catch(e){onboardingApplicationsV10=JSON.parse(JSON.stringify(defaultOnboardingV10));}
  platformSettingsV8.letterhead={...defaultBrandV10,...(platformSettingsV8.letterhead||{})};
 }

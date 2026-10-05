@@ -47,3 +47,14 @@ First steps: read `src/ops/commandpanels.tsx`, `operations.tsx`, `shell/*`; impl
 
 ## 10. Current state
 Branch `feat/original-ui-wiring` @ `eeafba4`. Production untouched. Dev deploy: not done.
+
+## 11. Next agent — copy-paste this prompt
+
+> **Handoff rule:** When you complete your phase, write the next `docs/handoff/HANDOFF-*.md`, update `docs/handoff/LATEST.md`, and replace this block with a fresh copy-paste prompt for the following agent. See `docs/handoff/README.md`.
+
+```
+Read docs/handoff/LATEST.md, then docs/handoff/HANDOFF-01-W0.md (especially §9).
+Implement W1 — command (Today), operations, topbar/shell — per §9.
+Own: admin-70-shell.js, admin-71-command.js, admin-72-operations.js, tools/hooks/w1.mjs.
+Deliver: bridges/hooks/tests, legacy-bridge --check, HANDOFF-02-W1.md, LATEST.md update, and §11 prompt for W2.
+```

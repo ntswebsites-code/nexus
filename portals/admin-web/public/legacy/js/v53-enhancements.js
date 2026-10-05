@@ -45,8 +45,8 @@ const sourceDefs53=[
  {id:'bank',name:'Bank cash records',provider:'Relationship banks',channel:'API / CAMT.053 / SFTP',family:'Cash',cadence:'Intraday + EOD',status:'Connected',last:'08:47',sample:'Account,ValueDate,Reference,Debit,Credit,Balance\nUSD-0092,2026-09-01,BANK FEE,1460.00,0,186960.00'},
  {id:'admin',name:'Fund administrator / TA',provider:'Fund administrator',channel:'API / SFTP',family:'NAV / Units',cadence:'EOD / valuation cycle',status:'Connected',last:'08:32',sample:'Fund,ValuationDate,NAV,Units,NAVPerUnit\nGrowth Equity IV,2026-08-31,4460000,1000000,4.4600'}
 ];
-function loadImports53(){try{return JSON.parse(localStorage.getItem('matanho-v53-counterpart-imports')||'[]')}catch(_e){return[]}}
-function saveImports53(a){try{localStorage.setItem('matanho-v53-counterpart-imports',JSON.stringify(a.slice(0,30)))}catch(_e){}}
+function loadImports53(){try{return JSON.parse((window.mx&&window.mx.live&&window.mx.strict('reconciliations'))?[]:localStorage.getItem('matanho-v53-counterpart-imports')||'[]')}catch(_e){return[]}}
+function saveImports53(a){try{(window.mx&&window.mx.live&&window.mx.strict('reconciliations'))void 0:localStorage.setItem('matanho-v53-counterpart-imports',JSON.stringify(a.slice(0,30)))}catch(_e){}}
 function ensureSourceHub53(){let b=$('#v53SourceBackdrop'),m=$('#v53SourceHub');if(!b){b=document.createElement('div');b.id='v53SourceBackdrop';document.body.appendChild(b)}if(!m){m=document.createElement('section');m.id='v53SourceHub';m.setAttribute('role','dialog');m.setAttribute('aria-modal','true');document.body.appendChild(m)}b.onclick=closeSourceHub53;return{b,m}}
 function closeSourceHub53(){const{b,m}=ensureSourceHub53();b.classList.remove('show');m.classList.remove('show')}
 let sourceTab53='connections',pendingFile53=null;

@@ -89,10 +89,7 @@ export const DATA_HOOKS = {
       // Server-derived gates/state override the values the prototype computes locally.
       ['digital:true,applicant:a.applicant||{}}})}', 'digital:true,applicant:a.applicant||{},...(a.v35||{})}})}'],
       // With live data the queue shows real cases only (seed cases are demo content).
-      [
-        'kycCases35=[...dynamic,...seedCases35.filter(x=>!seen.has(x.id))]',
-        'kycCases35=[...dynamic,...(window.mx&&window.mx.live?[]:seedCases35.filter(x=>!seen.has(x.id)))]',
-      ],
+      // (W7: onboardingQueue hook lives in tools/hooks/w7.mjs)
       // Evidence preview streams the encrypted original from the API.
       [
         'stored=await getEvidenceBlob35(e.docKey)',

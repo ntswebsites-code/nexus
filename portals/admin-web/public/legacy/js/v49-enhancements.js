@@ -9,7 +9,7 @@ const initials=s=>String(s||'').split(/\s+/).filter(Boolean).slice(0,2).map(x=>x
 const kycTone=s=>/current/i.test(s)?'good':/enhanced|high|pending/i.test(s)?'risk':'warn';
 let clientTab='clients', activeClientId=(typeof clients!=='undefined'&&clients[0]?.id)||'', clientSearch='', cashState='All';
 let navFund='Balanced Growth Fund';
-const navState={
+const navState=window.__mxData._navState49||(window.__mxData._navState49={
  'Balanced Growth Fund':{ccy:'USD',prev:21.742,market:.132,flows:.020,fees:-.055,draft:21.839,unit:2.4187,units:9.029,coverage:99.8,exception:true,resolved:false,maker:false,released:false,version:4,cutoff:'16:00 CAT'},
  'USD Equity Fund':{ccy:'USD',prev:18.520,market:.118,flows:0,fees:-.022,draft:18.616,unit:1.7634,units:10.557,coverage:100,exception:false,resolved:true,maker:false,released:false,version:3,cutoff:'16:00 CAT'},
  'Liquidity Plus':{ccy:'USD',prev:9.505,market:.021,flows:.050,fees:-.018,draft:9.558,unit:1.0842,units:8.816,coverage:100,exception:false,resolved:true,maker:false,released:false,version:6,cutoff:'15:30 CAT'},

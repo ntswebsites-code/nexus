@@ -39,8 +39,8 @@ const reconCasesV12={
  'REC-66102':{id:'REC-66102',control:'Settlement',item:'USD Equity · ZIM.VX',internal:'T+2 due',external:'Custodian rejected',difference:'US$ 412,000',cause:'SSI mismatch',owner:'N. Dube',age:'1h 08m',state:'Critical',severity:'Red',counterparty:'Stanbic Custody',evidence:['Broker contract note','Custodian rejection','SSI master','Order ORD-260826-014']},
  'REC-66104':{id:'REC-66104',control:'Holdings',item:'Zimbabwe Opportunities · FBC.ZW',internal:'644,000 shares',external:'643,500 shares',difference:'500 shares',cause:'Pending sale allocation',owner:'R. Dube',age:'3m',state:'New',severity:'Low',counterparty:'Custodian',evidence:['IBOR','Allocation ledger','Custodian position file']}
 };
-function saveReconV12(){try{localStorage.setItem('matanho-recon-v12',JSON.stringify(reconCasesV12))}catch(e){}}
-function loadReconV12(){try{Object.assign(reconCasesV12,JSON.parse(localStorage.getItem('matanho-recon-v12')||'{}'))}catch(e){}}
+function saveReconV12(){try{(window.mx&&window.mx.live&&window.mx.strict('reconciliations'))void 0:localStorage.setItem('matanho-recon-v12',JSON.stringify(reconCasesV12))}catch(e){}}
+function loadReconV12(){try{Object.assign(reconCasesV12,JSON.parse((window.mx&&window.mx.live&&window.mx.strict('reconciliations'))?null:localStorage.getItem('matanho-recon-v12')||'{}'))}catch(e){}}
 function reconTagClassV12(c){return /critical|overdue/i.test(c.state)?'red':/investigat|assigned|pending/i.test(c.state)?'amber':/matched|closed/i.test(c.state)?'green':'blue'}
 function renderReconRowsV12(){
  const body=document.querySelector('#page-operations .recon-table tbody');if(!body)return;const q=(document.getElementById('reconSearchV12')?.value||'').toLowerCase(),owner=document.getElementById('reconOwnerV12')?.value||'all',active=document.querySelector('#page-operations .recon-tabs button.active')?.textContent.trim()||'All breaks';

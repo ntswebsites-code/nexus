@@ -71,3 +71,14 @@ First 5 steps:
 - Production (207.180.234.151): untouched per owner instruction
 - Dev environment: not deployed
 - Untracked files from other workstreams remain in working tree (investee-native stash, company-web native screens) — not part of W1
+
+## 11. Next agent — copy-paste this prompt
+
+> **Handoff rule:** When you complete your phase, write the next `docs/handoff/HANDOFF-*.md`, update `docs/handoff/LATEST.md`, and replace this block with a fresh copy-paste prompt for the following agent. See `docs/handoff/README.md`.
+
+```
+Read docs/handoff/LATEST.md, then docs/handoff/HANDOFF-02-W1.md (especially §9).
+Implement W2 — portfolios (`07`), IBOR (`19`), portfolio-lab (`09`) — per §9 and docs/CLEANUP-AGENT-PROMPT §5 W2.
+Own: admin-80-portfolios.js, admin-81-ibor.js, admin-82-portfolio-lab.js, tools/hooks/w2.mjs.
+Deliver: bridges/hooks/tests, legacy-bridge --check, HANDOFF-03-W2.md, LATEST.md update, and §11 prompt for W3.
+```

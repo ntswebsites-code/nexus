@@ -65,34 +65,34 @@ const cashAccounts = window.__mxData&&window.__mxData.cashAccounts||[
   {id:'CCA-9902',legalEntity:'Matanho Managed Funds',client:'Stonebridge Holdings',clientId:'CL-00433',mandate:'Corporate Treasury',portfolio:'Corporate Treasury',ownership:'SEGREGATED',moneyClass:'CLIENT_MONEY',type:'SUSPENSE',provider:'CBZ',masked:'••••9902',currency:'USD',effective:'20 Aug 2026',calendar:'Bank / Africa/Harare',tolerance:'USD-SUSPENSE-01',gl:'USD cash suspense',status:'CLOSING',posted:'5.00',reserved:'0.00',blocked:'5.00',expected:'0.00',available:'0.00',withdrawable:'0.00',recon:'Close blocker',statement:'26 Aug · 12:40',maker:'C. Dube',version:5}
 ];
 
-let cashJournals = [
+let cashJournals = window.__mxData&&window.__mxData.cashJournals||[
   {id:'JRN-260826-031',source:'ORDER-784',purpose:'BUY_SETTLEMENT',valueDate:'26 Aug 2026',posting:'15:02:11',cashLine:'CCA-1001',debit:'0.00',credit:'3,005.00',signed:'-3,005.00',currency:'USD',status:'POSTED',recon:'Suggested 0.98',maker:'C. Dube',checker:'S. Moyo',offsets:[['Investment settlement clearing','3,000.00','0.00'],['Approved transaction charge','5.00','0.00'],['Custodian cash ••••1001','0.00','3,005.00']]},
   {id:'JRN-260826-029',source:'DEP-49021',purpose:'CLIENT_DEPOSIT',valueDate:'26 Aug 2026',posting:'13:14:06',cashLine:'CCA-1001',debit:'480.00',credit:'0.00',signed:'+480.00',currency:'USD',status:'POSTED',recon:'Matched',maker:'L. Chuma',checker:'S. Moyo',offsets:[['Custodian cash ••••1001','480.00','0.00'],['Client cash control','0.00','480.00']]},
   {id:'JRN-260826-024',source:'WD-2088',purpose:'CLIENT_WITHDRAWAL',valueDate:'26 Aug 2026',posting:'11:42:30',cashLine:'CCA-1001',debit:'0.00',credit:'480.00',signed:'-480.00',currency:'USD',status:'POSTED',recon:'Matched',maker:'P. Ncube',checker:'C. Dube',offsets:[['Client withdrawal control','480.00','0.00'],['Custodian cash ••••1001','0.00','480.00']]},
   {id:'JRN-260826-032',source:'FEE-8821',purpose:'EXTERNAL_FEE',valueDate:'26 Aug 2026',posting:'Draft',cashLine:'CCA-1042',debit:'0.00',credit:'6,420.00',signed:'-6,420.00',currency:'USD',status:'PENDING_APPROVAL',recon:'Unmatched external',maker:'C. Dube',checker:'—',offsets:[['Approved fee expense / payable','6,420.00','0.00'],['Bank cash ••••0042','0.00','6,420.00']]}
 ];
 
-let cashReservations = [
+let cashReservations = window.__mxData&&window.__mxData.cashReservations||[
   {id:'RSV-784',source:'ORDER-784',purpose:'BUY_SETTLEMENT',original:'3,000.00',consumed:'0.00',remaining:'3,000.00',currency:'USD',required:'26 Aug',expiry:'28 Aug',status:'ACTIVE',owner:'Dealer / USD Equity'},
   {id:'RSV-772',source:'ORDER-772',purpose:'BUY_SETTLEMENT',original:'184,000.00',consumed:'120,000.00',remaining:'64,000.00',currency:'USD',required:'28 Aug',expiry:'30 Aug',status:'PARTIALLY_CONSUMED',owner:'Dealer / USD Equity'},
   {id:'RSV-760',source:'WD-2088',purpose:'WITHDRAWAL',original:'480.00',consumed:'480.00',remaining:'0.00',currency:'USD',required:'26 Aug',expiry:'26 Aug',status:'CONSUMED',owner:'Client Services'}
 ];
 
-let cashExpectations = [
+let cashExpectations = window.__mxData&&window.__mxData.cashExpectations||[
   {id:'EXP-901',direction:'INFLOW',event:'CLIENT_DEPOSIT',amount:'480.00',currency:'USD',due:'26 Aug',account:'CCA-1001',source:'DEP-49021',reservation:'—',status:'POSTED'},
   {id:'EXP-902',direction:'OUTFLOW',event:'BUY_SETTLEMENT',amount:'3,005.00',currency:'USD',due:'26 Aug',account:'CCA-1001',source:'ORDER-784',reservation:'RSV-784',status:'DUE'},
   {id:'EXP-903',direction:'INFLOW',event:'DIVIDEND',amount:'1,100.00',currency:'USD',due:'29 Aug',account:'CCA-1001',source:'DIV-INN-0826',reservation:'—',status:'EXPECTED'},
   {id:'EXP-904',direction:'OUTFLOW',event:'CLIENT_WITHDRAWAL',amount:'620.00',currency:'USD',due:'30 Aug',account:'CCA-1001',source:'WD-2110',reservation:'Pending',status:'EXPECTED'}
 ];
 
-let statementImports = [
+let statementImports = window.__mxData&&window.__mxData.statementImports||[
   {id:'IMP-260826-18',provider:'Stanbic Custody',account:'CCA-1001 / USD',period:'26 Aug',lines:18,opening:'10,000.00',movement:'-5.00',closing:'9,995.00',checks:'Passed',status:'COMMITTED',file:'stanbic_1001_260826.csv',hash:'a8c4…1d9e',maker:'R. Dube',checker:'S. Moyo'},
   {id:'IMP-260826-19',provider:'Stanbic Bank',account:'CCA-1042 / USD',period:'26 Aug',lines:42,opening:'1,430,508.00',movement:'-12,840.00',closing:'1,417,668.00',checks:'Warnings acknowledged',status:'PENDING_APPROVAL',file:'stanbic_0042_260826.xlsx',hash:'0b51…7ca2',maker:'C. Dube',checker:'—'},
   {id:'IMP-260826-20',provider:'CABS',account:'CCA-1188 / USD',period:'26 Aug',lines:31,opening:'871,702.00',movement:'+10,000.00',closing:'881,702.00',checks:'Passed',status:'VALIDATED',file:'cabs_1188_260826.csv',hash:'7e42…aa19',maker:'S. Moyo',checker:'—'}
 ];
 
 
-let reports = [
+let reports=window.__mxData._reportsInline||(window.__mxData._reportsInline=[
   {name:'Horizon Pension Fund — July Account Report', type:'Client Account', period:'Jul 2026', owner:'L. Chuma', edited:'25 Aug · 16:42', version:'v3', status:'Awaiting approval'},
   {name:'Monthly Compliance Monitoring — August', type:'Compliance', period:'Aug 2026', owner:'C. Dube', edited:'26 Aug · 14:10', version:'v2', status:'Draft'},
   {name:'Investment Committee Pack — 26 August', type:'Investment Committee', period:'26 Aug', owner:'T. Moyo', edited:'26 Aug · 12:32', version:'v5', status:'Published'},
@@ -111,7 +111,7 @@ let documents = window.__mxData&&window.__mxData.documents||[
   {name:'AML Enhanced Review — Stonebridge', type:'compliance', related:'CL-00433', owner:'C. Dube', updated:'26 Aug 2026', version:'v1', access:'Compliance only', status:'Restricted', format:'PDF'}
 ];
 
-const research = [
+const research=window.__mxData._research||(window.__mxData._research=[
   {ticker:'INN.ZW', name:'Innscor Africa', view:'Accumulate', score:'A', target:'+18%', owner:'T. Ncube', review:'30 Sep', tags:['Consumer','Equity']},
   {ticker:'ZIM.VX', name:'Zimplats Holdings', view:'Hold', score:'B+', target:'+8%', owner:'R. Dube', review:'15 Sep', tags:['Mining','VFEX']},
   {ticker:'DLTA.ZW', name:'Delta Corporation', view:'Accumulate', score:'A-', target:'+13%', owner:'T. Ncube', review:'10 Oct', tags:['Consumer','ZSE']},

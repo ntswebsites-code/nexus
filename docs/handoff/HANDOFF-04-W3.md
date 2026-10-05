@@ -72,3 +72,14 @@ First 5 steps:
 - Production (207.180.234.151): untouched
 - Dev environment: not deployed
 - Untracked files from other workstreams remain — not part of W3
+
+## 11. Next agent — copy-paste this prompt
+
+> **Handoff rule:** When you complete your phase, write the next `docs/handoff/HANDOFF-*.md`, update `docs/handoff/LATEST.md`, and replace this block with a fresh copy-paste prompt for the following agent. See `docs/handoff/README.md`.
+
+```
+Read docs/handoff/LATEST.md, then docs/handoff/HANDOFF-04-W3.md (especially §9).
+Implement W4 — research (`11`), risk (`12`), performance (`13`) — per §9 and docs/CLEANUP-AGENT-PROMPT §5 W4.
+Own: admin-91-research.js, admin-92-risk.js, admin-93-performance.js, tools/hooks/w4.mjs.
+Deliver: bridges/hooks/tests, legacy-bridge --check, HANDOFF-05-W4.md, LATEST.md update, and §11 prompt for W5.
+```

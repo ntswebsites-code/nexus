@@ -339,10 +339,12 @@
     var q = Object.assign({ limit: 100 }, filters, append && auditRows.length ? { before: auditRows[auditRows.length - 1].id } : {});
     return mx.get(V1 + '/audit-events?' + qs(q)).then(function (r) {
       auditRows = append ? auditRows.concat(r.data) : r.data;
+      window.__mxAuditRows = auditRows;
+      window.__mxAuditFilters = auditFilters;
       tbody.innerHTML =
         auditRows
           .map(function (e, i) {
-            return '<tr data-mx-audit="' + i + '" style="cursor:pointer"><td>' + when(e.at) + '</td><td>' + mx.esc(e.user) + '</td><td>' + mx.esc(e.role) + '</td><td>' + mx.esc(e.actionLabel) +
+            return '<tr data-mx-audit="' + i + '" data-mx-audit-id="' + mx.esc(e.id) + '" style="cursor:pointer"><td>' + when(e.at) + '</td><td>' + mx.esc(e.user) + '</td><td>' + mx.esc(e.role) + '</td><td>' + mx.esc(e.actionLabel) +
               '</td><td>' + mx.esc(e.objectType + ' · ' + e.objectId) + '</td><td>' + mx.esc(e.previous) + '</td><td>' + mx.esc(e.next) + '</td><td>' + mx.esc(e.reason) + '</td></tr>';
           })
           .join('') +

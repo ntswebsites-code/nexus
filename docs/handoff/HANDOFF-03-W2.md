@@ -75,3 +75,14 @@ First 5 steps:
 - Production (207.180.234.151): untouched
 - Dev environment: not deployed
 - Untracked files from other workstreams remain (investee-native, company-web native, offline scripts) — not part of W2
+
+## 11. Next agent — copy-paste this prompt
+
+> **Handoff rule:** When you complete your phase, write the next `docs/handoff/HANDOFF-*.md`, update `docs/handoff/LATEST.md`, and replace this block with a fresh copy-paste prompt for the following agent. See `docs/handoff/README.md`.
+
+```
+Read docs/handoff/LATEST.md, then docs/handoff/HANDOFF-03-W2.md (especially §9).
+Implement W3 — orders (`10`) — per §9 and docs/CLEANUP-AGENT-PROMPT §5 W3.
+Own: admin-90-orders.js, tools/hooks/w3.mjs.
+Deliver: bridges/hooks/tests, legacy-bridge --check, HANDOFF-04-W3.md, LATEST.md update, and §11 prompt for W4.
+```
