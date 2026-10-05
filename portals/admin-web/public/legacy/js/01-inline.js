@@ -29,7 +29,7 @@ const rolePermissions = window.__mxData&&window.__mxData.rolePermissions||{
   system_admin:['dashboard.view','portfolio.view','orders.view','research.view','research.edit','risk.view','risk.manage','clients.view','clients.edit','onboarding.view','reports.view','reports.create','documents.view','documents.edit','operations.view','valuation.view','audit.view','admin.rbac','admin.settings','cash.view']
 };
 
-const portfolios = [
+const portfolios = window.__mxData&&window.__mxData.portfolios||[
   {name:'Balanced Growth Fund', type:'Balanced Fund', ccy:'USD', aum:'US$ 21.84M', cash:'8.4%', ret:'14.2%', bm:'+2.7%', risk:'Amber', manager:'T. Moyo'},
   {name:'USD Equity Fund', type:'Equity Fund', ccy:'USD', aum:'US$ 18.62M', cash:'4.9%', ret:'17.8%', bm:'+3.4%', risk:'Within', manager:'R. Dube'},
   {name:'Platinum Preservation Fund', type:'Absolute Return', ccy:'USD', aum:'US$ 14.26M', cash:'11.2%', ret:'9.6%', bm:'+1.1%', risk:'Within', manager:'K. Moyo'},
@@ -1209,7 +1209,7 @@ initMarketOrderWorkspace();
 
 
 // === Institutional operating system expansion ===
-const institutionalPositions=[
+const institutionalPositions=window.__mxData&&window.__mxData.institutionalPositions||[
  {id:'POS-DLTA-BGF',ticker:'DLTA.ZW',name:'Delta Corporation',portfolio:'Balanced Growth Fund',asset:'Equity',qty:'1,142,000',settled:'1,142,000',unsettled:'+250,000',local:'ZWG 36.48M',base:'US$ 2.81M',cost:'US$ 2.22M',accrued:'—',available:'1,142,000',state:'Current',source:'Stanbic Custody',lot:'18 tax lots',price:'ZWG 31.94'},
  {id:'POS-INN-BGF',ticker:'INN.ZW',name:'Innscor Africa',portfolio:'Balanced Growth Fund',asset:'Equity',qty:'822,000',settled:'822,000',unsettled:'+95,000',local:'ZWG 15.14M',base:'US$ 1.17M',cost:'US$ 0.91M',accrued:'—',available:'822,000',state:'Current',source:'Stanbic Custody',lot:'11 tax lots',price:'ZWG 18.42'},
  {id:'POS-ZIM-USD',ticker:'ZIM.VX',name:'Zimplats Holdings',portfolio:'USD Equity Fund',asset:'Equity',qty:'674,000',settled:'674,000',unsettled:'+180,000',local:'US$ 1.54M',base:'US$ 1.54M',cost:'US$ 1.39M',accrued:'—',available:'674,000',state:'Review',source:'Custodian / broker',lot:'9 tax lots',price:'US$ 2.29'},
