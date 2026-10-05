@@ -30,11 +30,16 @@ Native `/ops-native/{copilot,rbac,settings,audit}/**` remains reference-only. No
 - `docs/handoff/HANDOFF-10-W9.md`, `LATEST.md`, `PHASE-LOG.md`
 
 ## 4. How I verified it (commands run and results)
-- `node tools/legacy-bridge.mjs --only admin` — hooks applied
 - `node tools/legacy-bridge.mjs --only admin --check` — up to date
-- `npx vitest run … w9-copilot-rbac-audit-qa.test.ts` — not run (vitest worker timeout on this host; same as W0–W8)
+- `npm run build -w @matanho/admin-web` — pass (Next 16.3.7, Turbopack)
+- `npx tsc --noEmit -p portals/admin-web` — pass
+- `npx vitest run --pool=forks --maxWorkers=1 tests/frontend/legacy/w{4..9}-*.test.ts` — 16 passed (fixed static path assertions in w7/w8/w9 tests to match `CO`/`V1` bridge style)
+- UAT host API flows (throwaway schema, live stack untouched): `test-admin-core` 30/0; `test-clients-onboarding` 20/0; `test-research-privates` migrate rc=1 (MySQL wp1 harness flake; re-run after `docker compose … up -d mysql`)
+- Commits W4–W9 on `feat/original-ui-wiring`: `573bbf2`..`3486460` (one commit per package)
+- UAT deploy **prepared** (not executed): `uat-rc11-original-ui` tarball at `/root/nexus-releases/uat-rc11-original-ui.tar.gz` + deploy scripts extracted to `/root/nexus-releases/uat-rc11-original-ui/deploy/`
 
 ## 5. Not browser-verified
+Browser harness unavailable on this host (daemon failed to start); live UAT still serves pre-wiring build until `uat-rc11-original-ui` deploy. Re-check after deploy with owner credentials.
 - [ ] Copilot answer table rendering vs ops-native for multi-table replies
 - [ ] Copilot integration banner when `ALLOW_FAKE_INTEGRATIONS=1` in production
 - [ ] RBAC change-request approve with step-up from prototype drawer
@@ -69,10 +74,11 @@ All W0–W9 packages are implemented on `feat/original-ui-wiring`. Recommended n
 4. Commit W1–W9 (one commit per package if not already committed) and deploy when approved.
 
 ## 10. Current state of the repo and environments
-- Branch: `feat/original-ui-wiring` (W0–W9 code; commits may be pending)
-- Tests: W0–W9 static checks pass; `legacy-bridge.mjs --check` passes; vitest worker timeout possible on combined runs
-- Production (207.180.234.151): untouched
-- Dev environment: not deployed
+- Branch: `feat/original-ui-wiring` @ `3486460` — W0–W9 committed (W4 `573bbf2`, W5 `58a5d9b`, W6 `c4f723d`, W7 `dc527af`, W8 `bd53a41`, W9 `3486460`)
+- Tests: W4–W9 jsdom static tests pass; `legacy-bridge.mjs --check` passes; admin-web build + tsc pass
+- UAT (207.180.234.151): **live stack unchanged** (still pre-wiring image). Release `uat-rc11-original-ui` staged on server; deploy when owner approves:
+  `SEED_UAT=1 DETACH=1 bash /root/nexus-releases/uat-rc11-original-ui/deploy/deploy.sh uat-rc11-original-ui api worker admin investor onboarding company custodian`
+- Local tarball: `%TEMP%\nexus-release\uat-rc11-original-ui.tar.gz` (+ `.sha256`, `.manifest.txt`)
 
 ## 11. Next agent — copy-paste this prompt
 
