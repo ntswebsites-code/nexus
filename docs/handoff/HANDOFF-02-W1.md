@@ -66,7 +66,7 @@ First 5 steps:
 5. Add `tests/frontend/legacy/w2-portfolios-ibor.test.ts` and run `legacy-bridge.mjs --check`.
 
 ## 10. Current state of the repo and environments
-- Branch: `feat/original-ui-wiring` @ `00a5c2c` (parent W0 `eeafba4`)
+- Branch: `feat/original-ui-wiring` @ `e4b88e0` (W1 code `00a5c2c`, parent W0 `eeafba4`)
 - Tests: W0 5/5, W1 2/2 (legacy project, individual runs)
 - Production (207.180.234.151): untouched per owner instruction
 - Dev environment: not deployed
