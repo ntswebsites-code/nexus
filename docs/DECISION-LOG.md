@@ -22,3 +22,5 @@ Only irreversible or data-deleting steps are skipped and logged.
 | D-17 | 2026-10-05 | W0 entry: serve prototype at `/` vs `/classic` only | `/` serves the legacy workspace; `/classic` redirects to `/` (alias). Login `safeNext` already defaults to `/` | Matches CLEANUP-AGENT-PROMPT; reversible via next.config |
 | D-18 | 2026-10-05 | Native console route after demotion | `app/(ops-native)/ops-native/**`; `/ops/*` redirects to `/ops-native/*`. Unlisted profile-drawer link for `admin.settings` only | Reference screens without sidebar pollution |
 | D-19 | 2026-10-05 | Package hook loader for DATA_HOOKS | `tools/legacy-bridge.mjs` merges `tools/hooks/*.mjs` at runtime | Single installer edit point for W1–W8 |
+| D-20 | 2026-10-05 | W1 global search UX in legacy topbar | Enter on `#globalSearch` opens modal with `GET /shell/search` hits (no new palette UI) | Prototype has input only; reuses `mx.modal` |
+| D-21 | 2026-10-05 | W1 operations page DOM targets | Bridge renders into `#v33OpsRunbook` or `#v36OpsRunbook` after v36 build; DATA_HOOKS on `opsTasks` | v36 replaces operations markup at runtime |

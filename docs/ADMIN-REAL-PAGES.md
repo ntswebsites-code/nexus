@@ -915,6 +915,16 @@ E2E_CONFIRM=throwaway-db E2E_API=http://localhost:4181 npx tsx --env-file-if-exi
 - Orders do not yet call the reservation service on submit, cancel or fill (FR-CASH-015); `releaseOrderReservations` is exported for that and the order ticket still reads its own availability.
 - Reversing a settlement journal does not restore a consumed reservation; no CAMT.053 parser; no client/mandate context bar; no holds, pending-withdrawal or reusable-proceeds components in availability; no sub-ledger-to-GL tie-out to the accounting module; cash-account lifecycle stays on the Clients page.
 
+## Legacy V56 UI wiring (original prototype at `/`)
+
+| Page | Legacy bridge | State (2026-10-05) |
+| --- | --- | --- |
+| command (Today) | `admin-71-command.js` | [~] KPIs, investment pack, panels headline; chart tabs partly demo |
+| operations | `admin-72-operations.js` | [~] status, runbook CRUD, calendar; export/close-gates deferred |
+| topbar / shell | `admin-70-shell.js` | [~] search, notifications, role-focus; profile in `admin-60` |
+
+Native reference screens live at `/ops-native` (not linked from sidebar).
+
 ## Wiring, Operations Control and Command Centre
 
 Cross-module wiring plus two pages. Migration `20261012100000_wiring` adds `acc_journals.source_ref` (unique) and the `ops_tasks` table. No new permission codes.

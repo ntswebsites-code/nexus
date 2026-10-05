@@ -114,3 +114,18 @@ S1 operations controls, S2 reconciliation and cash depth, S3 import/export frame
 | S6 | LP portal remainder: presentation currency USD/ZIG applied by the API with as-of FX and transaction-date FX stamps (BR-087/095/152/170/171), stored approved benchmark points with maker-checker (BR-091), account number reveal for SIGNATORY/MANAGER with audit (BR-101), RESTATED status machine (BR-143/094/078), asynchronous report-job states (BR-096), MFA enrolment with backup codes, active sessions and password change in the LP portal and a Security page in the custodian portal (FR-LP-102, FR-AUTH-018), client switcher, KPI formula popovers, Save/Discard/leave warning, server sorts, activity PDF, invitation resend, confirm-account and letter upload; Socket.IO deviation logged as D-12 | [x] built (see ADMIN-REAL-PAGES.md, Package S6) |
 | S7 | Investee and deals: forecast versions immutable once submitted (BR-208), cash roll-forward (BR-209), P&L forecast (BR-263), decision due from notice period (BR-218), compliance health (BR-221), drawdown ledger and tranche over-draw control (BR-229/270/272, FR-CMP-035), resubmission fingerprint (BR-273), 48h SLA queue (BR-230), VC review and RFQ steps, reserved matters maintained by staff (CMP-030), term-sheet countersign advances the deal (BR-212), fund-side reject/void, amendment versioning and template library (GAP-020) | [x] built (see ADMIN-REAL-PAGES.md, Package S7) |
 | S8 | Platform and ops tooling: SQL paging with total on the highest-volume staff lists (NFR-PERF-005), queue depth and age on /health and /metrics (NFR-OPS-007), document retention schedules enforced at upload and in the purge job with an editable Vault tab (FR-DOC-017), Investment pack button (FR-DASH-005), portal flags and demo-mode switch (S26), deploy/reset-uat.sh (12.6) | [x] built (see ADMIN-REAL-PAGES.md, Package S8) |
+
+## 9. Original V56 UI wiring (`feat/original-ui-wiring`, see `docs/handoff/LATEST.md`)
+
+| Pkg | Scope | State |
+|---|---|---|
+| W0 | Entry flip, sidebar restore, `/ops-native`, mx-core, harness | [x] `eeafba4` |
+| W1 | Today/command, operations, topbar/shell | [x] bridges `admin-70..72` |
+| W2 | Portfolios, IBOR, portfolio-lab | [ ] |
+| W3 | Orders | [ ] |
+| W4 | Research, risk, performance | [ ] |
+| W5 | Cash, reconciliations, financing, corporate actions | [ ] |
+| W6 | NAV, accounting, regulatory, reports | [ ] |
+| W7 | Clients/investor-services/onboarding/vault depth | [ ] |
+| W8 | Private markets, data, model governance | [ ] |
+| W9 | Copilot, RBAC/settings completion, QA sweep | [ ] |
