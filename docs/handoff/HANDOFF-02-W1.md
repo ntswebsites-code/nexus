@@ -1,8 +1,8 @@
 # Handoff 02: W1 finished -> next: W2
-Date 2026-10-05 / agent run / branch `feat/original-ui-wiring` / commit (see section 10)
+Date 2026-10-05 / agent run / branch `feat/original-ui-wiring` / commit `00a5c2c`
 
 ## 1. What this phase was (one paragraph)
-W1 wired the Command Centre (Today), Operations Control, and shared topbar shell to the real API through three new bridge scripts. Signed-in staff now see live KPIs, approval counts, runbook tasks, global search, notifications, role-focus persistence, and investment-pack generation in the original V56 UI — without changing any prototype markup or CSS.
+W1 connected the landing experience — Today, Operations, and the top bar — to the live API. **What you can do now that you could not before W1:** sign in at `/`, see real dashboard KPIs and approval counts (not demo numbers), click **Generate investment pack** and get a downloadable report, open Operations and work the runbook (start/complete/block tasks, add tasks, view the calendar), search across records from the top bar, open notifications, and switch role focus with the choice remembered on reload. The look is still the original V56 prototype; only the data and actions are live.
 
 ## 2. What I did (by page or area)
 | Page / area | Wired controls | Endpoints | Bridge file |
@@ -27,8 +27,9 @@ Profile drawer, MFA and sign-out remain in `admin-60-access.js` (unchanged). Nat
 ## 4. How I verified it (commands run and results)
 - `node tools/legacy-bridge.mjs --only admin` — updated manifest + w1 hook
 - `node tools/legacy-bridge.mjs --only admin --check` — up to date
-- `npx vitest run --project admin-web tests/frontend/legacy/w1-command-ops.test.ts` — 2/2 pass
+- `npx vitest run --project admin-web tests/frontend/legacy/w1-command-ops.test.ts` — 2/2 pass (2026-10-05, ~58s)
 - `npx vitest run --project admin-web tests/frontend/legacy/w0-entry.test.ts` — 5/5 pass (run alone; combined run hits vitest worker timeout on this machine)
+- `node tools/legacy-bridge.mjs --only admin --check` — up to date
 - `npm run build -w @matanho/admin-web` — not re-run this session (passed at W0); recommend before merge
 
 ## 5. Not browser-verified
@@ -65,7 +66,7 @@ First 5 steps:
 5. Add `tests/frontend/legacy/w2-portfolios-ibor.test.ts` and run `legacy-bridge.mjs --check`.
 
 ## 10. Current state of the repo and environments
-- Branch: `feat/original-ui-wiring` (W1 commit pending at handoff write; parent W0 `eeafba4`)
+- Branch: `feat/original-ui-wiring` @ `00a5c2c` (parent W0 `eeafba4`)
 - Tests: W0 5/5, W1 2/2 (legacy project, individual runs)
 - Production (207.180.234.151): untouched per owner instruction
 - Dev environment: not deployed
