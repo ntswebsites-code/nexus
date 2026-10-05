@@ -147,6 +147,7 @@
   // ------------------------------------------------------------ task dialogs
 
   function openRequest(r) {
+    if (coLive()) return openRequestCo(r);
     var states = ['Open', 'In progress', 'Waiting on you', 'Closed'];
     mx.modal({
       eyebrow: 'INVESTOR SERVICES · REQUEST',
@@ -418,4 +419,169 @@
       },
     },
   );
+
+  // ------------------------------------------------------------ W7: client-ops depth, SLA policy, summary tiles
+
+  var CO = '/api/v1/client-ops';
+  var serviceSummary = null;
+  var slaPolicies = [];
+
+  function coLive() {
+    return mx.live && mx.can('clients.view');
+  }
+
+  function openRequestCo(r) {
+    var states = ['Open', 'In progress', 'Waiting on you', 'Closed'];
+    mx.modal({
+      eyebrow: 'INVESTOR SERVICES · REQUEST',
+      title: esc(r.id + ' · ' + (r.title || r.client)),
+      subtitle: esc(r.client + ' · ' + slaText(r)),
+      body:
+        '<div class="v34-list">' +
+        row('Detail', r.detail || '', r.type) +
+        '</div><div class="v34-form" style="margin-top:12px">' +
+        '<label class="v34-field"><span>State</span><select class="v34-select" id="mxReqStatus">' +
+        states
+          .map(function (s) {
+            return '<option' + (s === r.status ? ' selected' : '') + '>' + s + '</option>';
+          })
+          .join('') +
+        '</select></label>' +
+        '<label class="v34-field v34-wide"><span>Update visible to the client</span><textarea class="v34-textarea" id="mxReqNote"></textarea></label>' +
+        '<label class="v34-field"><span>SLA due</span><input class="v34-input" type="datetime-local" id="mxReqSla"></label>' +
+        '</div>',
+      actions: mx.can('clients.edit')
+        ? [
+            {
+              label: 'Save update',
+              primary: true,
+              run: function () {
+                var note = field('mxReqNote');
+                var status = field('mxReqStatus');
+                return coRequestWrite(r, { status: status, note: note || undefined, notifyClient: !!note }, 'status').then(function () {
+                  if (note) return coRequestWrite(r, { note: note }, 'note');
+                }).then(function () {
+                  var sla = field('mxReqSla');
+                  if (sla) return coRequestWrite(r, { dueAt: new Date(sla).toISOString(), reason: note || 'Manual SLA reset' }, 'sla');
+                });
+              },
+            },
+          ]
+        : [],
+    });
+  }
+
+  function patchServiceKpis() {
+    var host = document.querySelector('#page-investor-services .v34-kpis');
+    if (!host || !serviceSummary) return;
+    var s = serviceSummary;
+    var tiles = host.querySelectorAll('.v34-kpi');
+    if (tiles[0]) {
+      tiles[0].querySelector('strong').textContent = String(s.open || 0);
+      var sm = tiles[0].querySelector('small');
+      if (sm) sm.textContent = (s.breached || 0) + ' breached · ' + (s.atRisk || 0) + ' at risk';
+    }
+    if (tiles[4]) {
+      tiles[4].querySelector('strong').textContent = String(s.open || 0);
+      var pct = s.slaMetPct != null ? s.slaMetPct + '% within SLA' : 'SLA tracked';
+      tiles[4].querySelector('small').textContent = pct;
+    }
+    if (tiles[5]) {
+      tiles[5].querySelector('strong').textContent = String((s.breached || 0) + (s.atRisk || 0));
+      tiles[5].querySelector('small').textContent = (s.unassigned || 0) + ' unassigned';
+    }
+  }
+
+  function loadServiceDepth() {
+    return Promise.all([
+      mx.get(CO + '/services/summary').then(function (r) {
+        serviceSummary = r;
+        mx.data.serviceSummary = r;
+        patchServiceKpis();
+      }),
+      mx.get(CO + '/services/sla-policies').then(function (r) {
+        slaPolicies = r.data || [];
+      }),
+    ]);
+  }
+
+  var priorRefresh = mx.refreshServices;
+  mx.refreshServices = function () {
+    return (priorRefresh ? priorRefresh() : fetchAll()).then(function () {
+      return loadServiceDepth();
+    });
+  };
+
+  mx.onLoad('clients.view', function () {
+    if (!coLive()) return;
+    return loadServiceDepth().then(function () {
+      var page = document.getElementById('page-investor-services');
+      if (!page || page.querySelector('#v34SlaPolicy')) return;
+      var actions = page.querySelector('.v33-actions');
+      if (actions) {
+        var b = document.createElement('button');
+        b.className = 'v33-btn';
+        b.id = 'v34SlaPolicy';
+        b.textContent = 'SLA policies';
+        b.onclick = function () {
+          mx.openSlaPolicyEditor();
+        };
+        actions.insertBefore(b, actions.firstChild);
+      }
+    });
+  });
+
+  mx.openSlaPolicyEditor = function () {
+    var rows = slaPolicies
+      .map(function (p) {
+        return (
+          '<div class="v34-row"><span><strong>' +
+          esc(p.requestType) +
+          '</strong><small>' +
+          esc(p.priority) +
+          '</small></span><em>' +
+          esc(p.targetHours + 'h') +
+          '</em></div>'
+        );
+      })
+      .join('');
+    mx.modal({
+      eyebrow: 'INVESTOR SERVICES · SLA',
+      title: 'SLA policy editor',
+      subtitle: 'Target hours by request type and priority',
+      body:
+        '<div class="v34-list">' +
+        (rows || '<div class="v34-help">No policies loaded.</div>') +
+        '</div><div class="v34-form" style="margin-top:12px"><label class="v34-field"><span>Request type</span><input class="v34-input" id="mxSlaType" placeholder="Statement / reporting"></label><label class="v34-field"><span>Priority</span><select class="v34-select" id="mxSlaPri"><option>Normal</option><option>High</option><option>Urgent</option></select></label><label class="v34-field"><span>Target hours</span><input class="v34-input" type="number" id="mxSlaHours" min="1" value="24"></label></div>',
+      actions: mx.can('clients.edit')
+        ? [
+            {
+              label: 'Save policy',
+              primary: true,
+              run: function () {
+                return mx
+                  .put(CO + '/services/sla-policies', {
+                    requestType: field('mxSlaType'),
+                    priority: field('mxSlaPri'),
+                    targetHours: Number(field('mxSlaHours')),
+                  })
+                  .then(function () {
+                    mx.toast('SLA policy saved', field('mxSlaType'));
+                    return mx.get(CO + '/services/sla-policies').then(function (r) {
+                      slaPolicies = r.data || [];
+                    });
+                  });
+              },
+            },
+          ]
+        : [],
+    });
+  };
+
+  function coRequestWrite(r, body, path) {
+    return mx.post(CO + '/services/requests/' + encodeURIComponent(r.id) + '/' + path, body).then(function () {
+      mx.toast('Request updated', r.id);
+      return mx.refreshServices();
+    });
+  }
 })();

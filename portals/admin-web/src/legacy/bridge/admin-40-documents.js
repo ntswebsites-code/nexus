@@ -7,7 +7,14 @@
   'use strict';
   var mx = window.mx;
   var V1 = '/api/v1/documents';
+  var CO = '/api/v1/client-ops';
   var records = {};
+  var vaultSummary = null;
+  var vaultDetail = {};
+
+  function vaultLive() {
+    return mx.live && mx.strict('vault');
+  }
 
   function vaultRow(d) {
     records[d.id] = d;
@@ -28,6 +35,28 @@
   mx.onLoad('documents.view', function () {
     return mx.get(V1).then(function (r) {
       mx.data.documents = r.data.map(vaultRow);
+    }).then(function () {
+      if (!vaultLive()) return;
+      return loadVaultDepth().then(function () {
+        patchVaultSummaryTabs();
+        setTimeout(function () {
+          var page = document.getElementById('page-vault');
+          if (!page || page.querySelector('[data-vault-changes]')) return;
+          var head = page.querySelector('.page-head .actions, .v33-actions');
+          if (head) {
+            var b1 = document.createElement('button');
+            b1.className = 'btn secondary';
+            b1.setAttribute('data-vault-changes', '1');
+            b1.textContent = 'Pending changes';
+            var b2 = document.createElement('button');
+            b2.className = 'btn secondary';
+            b2.id = 'v33PmEvidence';
+            b2.textContent = 'PM evidence';
+            head.appendChild(b1);
+            head.appendChild(b2);
+          }
+        }, 900);
+      });
     });
   });
 
@@ -158,9 +187,14 @@
     var result = original.apply(this, args);
     var d = documents[args[0]];
     if (mx.live && d && records[d.id]) {
-      mx.get(V1 + '/' + encodeURIComponent(d.id)).then(function (r) {
-        records[d.id] = r.document;
-        renderAside(r.document);
+      var load = vaultLive()
+        ? mx.get(CO + '/vault/documents/' + encodeURIComponent(d.id))
+        : mx.get(V1 + '/' + encodeURIComponent(d.id));
+      load.then(function (r) {
+        var doc = r.document || r;
+        records[d.id] = doc;
+        renderAside(doc);
+        if (vaultLive()) renderVaultDepth(doc);
       }, mx.fail);
     }
     return result;
@@ -196,5 +230,270 @@
       var d = mx.live && current();
       return !!d && records[d.id].currentVersion > 0;
     } },
+  );
+
+  // ------------------------------------------------------------ W7: vault depth (holds, retention, changes, access log, PM evidence)
+
+  function mapVaultDocRow(d) {
+    return [d.name, d.clientRef || d.client || '—', d.owner || '—', mx.date(d.date, { day: '2-digit', month: 'short', year: 'numeric' }), d.classification, d.status, d.type];
+  }
+
+  function syncVaultPrototype(docs) {
+    window.__mxData = window.__mxData || {};
+    window.__mxData._vaultDocs33 = docs.map(mapVaultDocRow);
+    if (typeof docs !== 'undefined' && typeof renderDocs === 'function') renderDocs();
+  }
+
+  function loadVaultDepth() {
+    return Promise.all([
+      mx.get(CO + '/vault/summary').then(function (r) {
+        vaultSummary = r;
+        mx.data.vaultSummary = r;
+      }),
+      mx.get(CO + '/vault/documents').then(function (r) {
+        var rows = r.data || [];
+        mx.data.vaultRegister = rows;
+        syncVaultPrototype(rows);
+      }),
+    ]);
+  }
+
+  function patchVaultSummaryTabs() {
+    if (!vaultSummary) return;
+    var s = vaultSummary;
+    var host = document.querySelector('#page-vault .stat-grid, #page-vault .folder-stats');
+    if (host) {
+      var stats = host.querySelectorAll('.stat-card, article');
+      if (stats[0]) stats[0].querySelector('strong, b').textContent = String(s.total || 0);
+      if (stats[1]) stats[1].querySelector('strong, b').textContent = String(s.held || 0);
+      if (stats[2]) stats[2].querySelector('strong, b').textContent = String(s.pendingChanges || 0);
+    }
+  }
+
+  function renderVaultDepth(doc) {
+    vaultDetail[doc.id] = doc;
+    var aside = document.querySelector('#documentModal .document-preview-layout aside');
+    if (!aside) return;
+    var box = aside.querySelector('.mx-vault-depth');
+    if (!box) {
+      box = document.createElement('div');
+      box.className = 'mx-vault-depth';
+      aside.appendChild(box);
+    }
+    var holds = (doc.holds || []).filter(function (h) {
+      return !h.releasedAt;
+    });
+    box.innerHTML =
+      '<hr/><strong>Vault controls</strong>' +
+      '<div class="access-chip"><span>Retention · ' +
+      mx.esc(doc.retention || '—') +
+      '</span></div>' +
+      (holds.length ? holds.map(function (h) {
+        return '<div class="access-chip"><span>Hold · ' + mx.esc(h.reason || '') + '</span></div>';
+      }).join('') : '') +
+      (mx.can('documents.edit')
+        ? '<div style="display:grid;gap:6px;margin-top:8px">' +
+          '<button type="button" class="btn secondary" data-mx-vhold="' +
+          doc.id +
+          '">Place legal hold</button>' +
+          (holds[0] ? '<button type="button" class="btn secondary" data-mx-vrelease="' + holds[0].id + '">Release hold</button>' : '') +
+          '<button type="button" class="btn secondary" data-mx-vchange="' +
+          doc.id +
+          '">Propose classification change</button>' +
+          '<button type="button" class="btn secondary" data-mx-vlink="' +
+          doc.id +
+          '">Link client / fund</button>' +
+          '<button type="button" class="btn secondary" data-mx-vaccess="' +
+          doc.id +
+          '">Access log</button>' +
+          '</div>'
+        : '');
+    var holdBtn = box.querySelector('[data-mx-vhold]');
+    if (holdBtn) {
+      holdBtn.onclick = function () {
+        var reason = window.prompt('Reason for legal hold:');
+        if (!reason || reason.trim().length < 5) return;
+        mx.post(CO + '/vault/documents/' + encodeURIComponent(doc.id) + '/hold', { reason: reason.trim() }).then(function () {
+          mx.toast('Legal hold placed', doc.name);
+          return refreshVaultDoc(doc.id);
+        }, mx.fail);
+      };
+    }
+    var rel = box.querySelector('[data-mx-vrelease]');
+    if (rel) {
+      rel.onclick = function () {
+        var note = window.prompt('Release note (checker / step-up may apply):');
+        if (!note) return;
+        mx.post(CO + '/vault/holds/' + encodeURIComponent(rel.getAttribute('data-mx-vrelease')) + '/release', { note: note }).then(function () {
+          mx.toast('Hold released', doc.name);
+          return refreshVaultDoc(doc.id);
+        }, mx.fail);
+      };
+    }
+    var ch = box.querySelector('[data-mx-vchange]');
+    if (ch) {
+      ch.onclick = function () {
+        var to = window.prompt('New classification (Internal / Restricted / Client / Public):', doc.classification || 'Internal');
+        if (!to) return;
+        var reason = window.prompt('Reason for change:') || '';
+        mx.post(CO + '/vault/documents/' + encodeURIComponent(doc.id) + '/changes', { kind: 'CLASSIFICATION', to: to, reason: reason }).then(function () {
+          mx.toast('Change proposed', 'Awaiting checker approval.');
+        }, mx.fail);
+      };
+    }
+    var lk = box.querySelector('[data-mx-vlink]');
+    if (lk) {
+      lk.onclick = function () {
+        var clientId = window.prompt('Client reference (e.g. CL-00418) or leave blank:');
+        var fundId = window.prompt('Fund reference or leave blank:');
+        mx.post(CO + '/vault/documents/' + encodeURIComponent(doc.id) + '/link', {
+          clientId: clientId ? clientId.trim() : null,
+          fundId: fundId ? fundId.trim() : null,
+        }).then(function () {
+          mx.toast('Links updated', doc.name);
+        }, mx.fail);
+      };
+    }
+    var ac = box.querySelector('[data-mx-vaccess]');
+    if (ac) {
+      ac.onclick = function () {
+        mx.get(CO + '/vault/documents/' + encodeURIComponent(doc.id)).then(function (r) {
+          var log = (r.accessLog || r.log || []).slice(0, 12);
+          mx.modal({
+            eyebrow: 'VAULT · ACCESS LOG',
+            title: doc.name,
+            body:
+              '<div class="v34-list">' +
+              log
+                .map(function (e) {
+                  return '<div class="v34-row"><span><strong>' + mx.esc(e.action || e.by) + '</strong><small>' + mx.esc(e.at || '') + '</small></span><em>' + mx.esc(e.ip || '') + '</em></div>';
+                })
+                .join('') +
+              '</div>',
+            actions: [],
+          });
+        }, mx.fail);
+      };
+    }
+  }
+
+  function refreshVaultDoc(id) {
+    return mx.get(CO + '/vault/documents/' + encodeURIComponent(id)).then(function (r) {
+      renderVaultDepth(r);
+      if (records[id]) Object.assign(records[id], r);
+      return r;
+    });
+  }
+
+  mx.intercept(
+    '#v33DocRetention',
+    function () {
+      return mx.get(CO + '/vault/retention-schedules').then(function (r) {
+        var rows = (r.data || [])
+          .map(function (s) {
+            return '<div class="v34-row"><span><strong>' + mx.esc(s.name || s.id) + '</strong></span><em>' + mx.esc(String(s.retentionYears || '') + 'y') + '</em></div>';
+          })
+          .join('');
+        mx.modal({
+          eyebrow: 'VAULT · RETENTION',
+          title: 'Retention schedules',
+          body: '<div class="v34-list">' + rows + '</div><p class="v34-help">Apply schedules to enforce disposal dates (dry-run available in ops-native).</p>',
+          actions: mx.can('documents.edit')
+            ? [
+                {
+                  label: 'Apply schedules',
+                  primary: true,
+                  run: function () {
+                    return mx.post(CO + '/vault/retention-schedules/apply', { dryRun: false }).then(function (res) {
+                      mx.toast('Retention applied', (res.updated || 0) + ' documents updated.');
+                      return loadVaultDepth();
+                    });
+                  },
+                },
+              ]
+            : [],
+        });
+      });
+    },
+    { when: vaultLive },
+  );
+
+  mx.intercept(
+    '#v33VaultChanges, [data-vault-changes]',
+    function () {
+      return mx.get(CO + '/vault/changes', { status: 'PENDING' }).then(function (r) {
+        var rows = r.data || [];
+        mx.modal({
+          eyebrow: 'VAULT · CHANGES',
+          title: 'Pending document changes',
+          wide: true,
+          body:
+            '<div class="v34-list">' +
+            rows
+              .map(function (c) {
+                return (
+                  '<div class="v34-row"><span><strong>' +
+                  mx.esc(c.kind) +
+                  '</strong><small>' +
+                  mx.esc(c.documentName || c.documentId) +
+                  '</small></span><em>' +
+                  (mx.can('documents.edit')
+                    ? '<button type="button" class="v34-btn small" data-mx-vc-approve="' +
+                      c.id +
+                      '">Approve</button> <button type="button" class="v34-btn small" data-mx-vc-reject="' +
+                      c.id +
+                      '">Reject</button>'
+                    : '') +
+                  '</em></div>'
+                );
+              })
+              .join('') +
+            '</div>',
+          actions: [],
+        });
+        mx.$$('[data-mx-vc-approve]').forEach(function (b) {
+          b.onclick = function () {
+            var note = window.prompt('Approval note:') || '';
+            mx.post(CO + '/vault/changes/' + b.getAttribute('data-mx-vc-approve') + '/approve', { note: note }).then(function () {
+              mx.toast('Change approved', 'Applied to document.');
+            }, mx.fail);
+          };
+        });
+        mx.$$('[data-mx-vc-reject]').forEach(function (b) {
+          b.onclick = function () {
+            var note = window.prompt('Rejection reason:') || '';
+            if (!note.trim()) return;
+            mx.post(CO + '/vault/changes/' + b.getAttribute('data-mx-vc-reject') + '/reject', { note: note.trim() }).then(function () {
+              mx.toast('Change rejected', 'Maker notified.');
+            }, mx.fail);
+          };
+        });
+      });
+    },
+    { when: vaultLive },
+  );
+
+  mx.intercept(
+    '#v33PmEvidence, [data-vault-pm-evidence]',
+    function () {
+      return mx.get(CO + '/vault/pm-evidence').then(function (r) {
+        var rows = r.data || [];
+        mx.modal({
+          eyebrow: 'VAULT · PM EVIDENCE',
+          title: 'Private markets valuation evidence',
+          wide: true,
+          body:
+            '<div class="v34-list">' +
+            rows
+              .map(function (e) {
+                return '<div class="v34-row"><span><strong>' + mx.esc(e.name || e.id) + '</strong><small>' + mx.esc(e.fund || '') + '</small></span><em>' + mx.esc(e.status || '') + '</em></div>';
+              })
+              .join('') +
+            '</div>',
+          actions: [],
+        });
+      });
+    },
+    { when: vaultLive },
   );
 })();

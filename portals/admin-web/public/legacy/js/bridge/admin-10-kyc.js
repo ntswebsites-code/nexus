@@ -7,6 +7,7 @@
   'use strict';
   var mx = window.mx;
   var KEY = 'matanho-onboarding-v10';
+  var CO = '/api/v1/client-ops';
 
   function load() {
     return mx.get('/api/v1/kyc/cases/legacy').then(function (r) {
@@ -26,7 +27,8 @@
   function currentCase() {
     var kicker = mx.$('#v35KycDetail .v35-kicker');
     var ref = kicker ? kicker.textContent.split('·')[0].trim() : '';
-    var rec = (mx.data.kyc || []).find(function (x) {
+    var pool = [].concat(mx.data.onboardingQueue || [], mx.data.kyc || []);
+    var rec = pool.find(function (x) {
       return x.id === ref;
     });
     if (!rec) throw new Error('This demo case is not stored on the server.');
@@ -75,6 +77,27 @@
     function () {
       var rec = currentCase();
       var reason = mx.$('#v35DecisionRationale').value.trim();
+      if (live() && rec.caseId) {
+        return loadWorkup(rec).then(function (w) {
+          var pending = (w.assessments || []).find(function (a) {
+            return a.status === 'PROPOSED';
+          });
+          if (pending) {
+            return mx.post(CO + '/onboarding/risk/' + encodeURIComponent(pending.id) + '/approve', { note: reason });
+          }
+          return mx.post(caseUrl(rec, '/decision'), { decision: 'approve', reason: reason }).then(function () {
+            return mx.post(caseUrl(rec, '/activate'));
+          });
+        }).then(function () {
+          mx.toast('KYC approved and activated', rec.name + ' progressed.');
+          return mx.kycRefresh().then(function () {
+            return live() ? loadOnboardingDepth() : null;
+          });
+        }).catch(function (err) {
+          mx.kycRefresh();
+          throw err;
+        });
+      }
       return mx
         .post(caseUrl(rec, '/decision'), { decision: 'approve', reason: reason })
         .then(function () {
@@ -154,7 +177,9 @@
   mx.intercept(
     '#v35KycRefresh',
     function () {
-      return load();
+      return load().then(function () {
+        return live() ? loadOnboardingDepth() : null;
+      });
     },
     { thenNative: true, when: live },
   );
@@ -162,4 +187,185 @@
   mx.intercept('#v35KycPublic, #v35KycNew', function () {
     window.open(mx.portalUrl('onboarding') + '/', '_blank', 'noopener');
   });
+
+  // ------------------------------------------------------------ W7: onboarding queue, workup, risk, triage, assign
+
+  var staff = [];
+  var workupCache = {};
+  var riskFactors = [];
+
+  function mapQueueRow(item) {
+    var stageMap = { Submitted: 0, Screening: 3, ComplianceReview: 5, ClientAction: 1, EnhancedReview: 3, Approved: 6, Activation: 6 };
+    return {
+      id: item.ref,
+      caseId: item.id,
+      name: item.name,
+      type: item.type || 'Applicant',
+      risk: item.risk || 'Pending',
+      owner: item.owner || 'Unassigned',
+      ownerId: item.ownerId,
+      readiness: item.checks ? Math.round((item.checks.done / Math.max(item.checks.total, 1)) * 100) : 50,
+      status: item.stage === 'Approved' || item.stage === 'Activation' ? 'Ready' : 'Action',
+      blockers: item.checks ? item.checks.failed + item.checks.referred : 0,
+      next: item.riskAssessment && item.riskAssessment.status === 'PROPOSED' ? 'Risk approval' : 'Review case',
+      stage: stageMap[item.stage] != null ? stageMap[item.stage] : 0,
+      screen: item.riskAssessment ? item.riskAssessment.rating : 'Review',
+      screenRef: item.ref,
+      screened: item.submittedAt ? mx.date(item.submittedAt) : '—',
+      decision: item.riskAssessment && item.riskAssessment.status === 'APPROVED' ? 'Approved' : 'Pending',
+      mandate: 'Review',
+      identity: 'Review',
+      ownership: 'Review',
+      funds: 'Review',
+      parties: [[item.name, 'Applicant', '100%', 'Submitted']],
+      evidence: [],
+      timeline: [],
+      v35: { riskAssessmentId: item.riskAssessment && item.riskAssessment.id },
+    };
+  }
+
+  function loadOnboardingDepth() {
+    return Promise.all([
+      mx.get(CO + '/onboarding/queue', { open: 'true' }).then(function (r) {
+        mx.data.onboardingQueue = (r.data || []).map(mapQueueRow);
+        mx.data.onboardingSummary = r.summary || {};
+      }),
+      mx.get(CO + '/staff').then(function (r) {
+        staff = r.data || [];
+      }),
+      mx.get(CO + '/onboarding/risk-factors').then(function (r) {
+        riskFactors = r.factors || r.data || [];
+        mx.data.riskFactors = riskFactors;
+      }),
+    ]).then(function () {
+      mx.storagePing(KEY);
+    });
+  }
+
+  mx.onLoad('onboarding.view', function () {
+    if (!live()) return load();
+    return load().then(loadOnboardingDepth);
+  });
+
+  mx.renderKycKpis35 = function () {
+    var s = mx.data.onboardingSummary || {};
+    var q = mx.data.onboardingQueue || [];
+    var open = q.filter(function (x) {
+      return x.status !== 'Ready';
+    }).length;
+    return (
+      '<article class="v35-kpi"><span>Open cases</span><strong>' +
+      open +
+      '</strong><small>Live review queue</small></article>' +
+      '<article class="v35-kpi"><span>Awaiting risk approval</span><strong>' +
+      (s.awaitingRiskApproval || 0) +
+      '</strong><small>Maker-checker</small></article>' +
+      '<article class="v35-kpi"><span>High risk</span><strong>' +
+      ((s.byRisk && s.byRisk.High) || 0) +
+      '</strong><small>Enhanced review</small></article>' +
+      '<article class="v35-kpi"><span>SLA breached</span><strong>' +
+      ((s.bySla && s.bySla.Breached) || 0) +
+      '</strong><small>Exception-led</small></article>'
+    );
+  };
+
+  function caseRef(rec) {
+    return rec.caseId || rec.id;
+  }
+
+  function loadWorkup(rec) {
+    return mx.get(CO + '/onboarding/cases/' + encodeURIComponent(caseRef(rec)) + '/workup').then(function (r) {
+      workupCache[rec.id] = r;
+      return r;
+    });
+  }
+
+  mx.intercept(
+    '#v35AssignOwner, [data-v35-assign-owner]',
+    function () {
+      var rec = currentCase();
+      var opts = staff.map(function (s) {
+        return '<option value="' + mx.esc(s.id) + '">' + mx.esc(s.name) + '</option>';
+      }).join('');
+      mx.modal({
+        eyebrow: 'ONBOARDING · ASSIGN',
+        title: rec.name,
+        body: '<label class="v35-field"><span>Case owner</span><select class="v35-select" id="mxKycAssign">' + opts + '</select></label>',
+        actions: [
+          {
+            label: 'Assign',
+            primary: true,
+            run: function () {
+              var el = document.getElementById('mxKycAssign');
+              return mx.post(CO + '/onboarding/cases/' + encodeURIComponent(caseRef(rec)) + '/assign', { userId: el ? el.value : null }).then(function () {
+                return mx.kycRefresh().then(loadOnboardingDepth);
+              });
+            },
+          },
+        ],
+      });
+    },
+    { when: live },
+  );
+
+  mx.intercept(
+    '[data-v35-triage-run], #v35RunTriage',
+    function () {
+      var rec = currentCase();
+      return mx.post(CO + '/onboarding/cases/' + encodeURIComponent(caseRef(rec)) + '/triage', {}).then(function (r) {
+        mx.toast('AI triage complete', (r.note && r.note.summary) || 'Advisory note stored.');
+        return loadWorkup(rec);
+      });
+    },
+    { when: live },
+  );
+
+  mx.intercept(
+    '#v35ProposeRisk, [data-v35-propose-risk]',
+    function () {
+      var rec = currentCase();
+      var rating = window.prompt('Proposed risk rating (Low / Medium / High):', rec.risk || 'Medium');
+      if (!rating) return;
+      var rationale = window.prompt('Rationale for proposed rating:') || '';
+      return mx.post(CO + '/onboarding/cases/' + encodeURIComponent(caseRef(rec)) + '/risk', { rating: rating, rationale: rationale }).then(function () {
+        mx.toast('Risk proposed', 'Awaiting independent checker approval.');
+        return mx.kycRefresh().then(loadOnboardingDepth);
+      });
+    },
+    { when: live },
+  );
+
+  mx.intercept(
+    '#v35RecordCheck, [data-v35-record-check]',
+    function () {
+      var rec = currentCase();
+      var kind = window.prompt('Check kind (identity / sanctions / pep / source_of_funds):', 'identity');
+      if (!kind) return;
+      var outcome = window.prompt('Outcome (PASS / FAIL / REFER):', 'PASS');
+      if (!outcome) return;
+      return mx.post(CO + '/onboarding/cases/' + encodeURIComponent(caseRef(rec)) + '/checks', { kind: kind, outcome: outcome }).then(function () {
+        mx.toast('Check recorded', kind + ' · ' + outcome);
+        return loadWorkup(rec);
+      });
+    },
+    { when: live },
+  );
+
+  mx.intercept(
+    '#v35RiskFactors, [data-v35-risk-factors]',
+    function () {
+      var rows = riskFactors
+        .map(function (f) {
+          return '<div class="v35-row"><span><strong>' + mx.esc(f.key || f.name) + '</strong></span><em>' + mx.esc(String(f.threshold || f.weight || '')) + '</em></div>';
+        })
+        .join('');
+      mx.modal({
+        eyebrow: 'ONBOARDING · RISK FACTORS',
+        title: 'Configurable risk factors',
+        body: '<div class="v35-list">' + (rows || 'No factors loaded') + '</div>',
+        actions: [],
+      });
+    },
+    { when: live },
+  );
 })();
