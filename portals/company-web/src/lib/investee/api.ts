@@ -8,8 +8,15 @@ import type {
   FinancialReportType,
   FinancialStatementKind,
   CapTableView,
+  ForecastCells,
+  ForecastVersionDetail,
+  ForecastWorkingView,
   ForecastView,
+  GovernanceFullView,
   GovernanceView,
+  TrancheLedger,
+  VaultDownloadUrl,
+  VaultVersions,
   InvesteeApplication,
   InvesteeCompany,
   InvesteeConversation,
@@ -438,6 +445,22 @@ export function createInvesteeApi(liveActions: readonly string[]) {
     getTeam: () => call<InvesteeTeamMember[]>('team.list', 'GET', '/team'),
     getApplication: () => call<InvesteeApplication>('application', 'GET', '/application'),
     getRequests: () => call<{ requisitions: InvesteeRequisition[] }>('requests.list', 'GET', '/procurement'),
+    getRequestsWithTranche: () =>
+      call<{ requisitions: InvesteeRequisition[]; tranche: TrancheLedger }>('requests.list', 'GET', '/procurement'),
+    submitDraftRequest: (ref: string) => call<InvesteeRequisition>('requests.create', 'POST', `/procurement/${id(ref)}/submit`),
+    resubmitRequest: (
+      ref: string,
+      body: {
+        title?: string;
+        description?: string;
+        type?: string;
+        category?: string;
+        currency?: string;
+        amount?: number;
+        needBy?: string;
+        priority?: string;
+      },
+    ) => call<InvesteeRequisition>('requests.create', 'POST', `/procurement/${id(ref)}/resubmit`, { body }),
     createRequest: (body: {
       title: string;
       description?: string;
@@ -455,11 +478,17 @@ export function createInvesteeApi(liveActions: readonly string[]) {
     simulateRound: (body: { amount: number; preMoney: number }) =>
       call<{ pricePerShare: number; issued: number; postMoney: number; shareholders: { name: string; type: string; shares: number; pct: number }[] }>('capTable.save', 'POST', '/cap-table/simulate', { body }),
     getGovernance: () => call<GovernanceView>('governance', 'GET', '/governance'),
+    getGovernanceFull: () => call<GovernanceFullView>('governance', 'GET', '/governance'),
     requestConsent: (body: { title: string; basis: string; due?: string; note?: string }) =>
       call<GovernanceView>('governance.consent', 'POST', '/governance/consents', { body }),
     getForecast: () => call<ForecastView>('forecast', 'GET', '/forecast'),
+    getForecastWorking: () => call<ForecastWorkingView>('forecast', 'GET', '/forecast'),
     saveForecast: (body: { scenario?: string; revenue?: Record<string, number> }) =>
       call<ForecastView>('forecast.save', 'PUT', '/forecast', { body }),
+    saveForecastCells: (body: { scenario?: string; cells: ForecastCells; baseVersion: number }) =>
+      call<ForecastWorkingView>('forecast.save', 'PUT', '/forecast', { body }),
+    submitForecastVersion: () => call<ForecastWorkingView>('forecast.save', 'POST', '/forecast/submit'),
+    getForecastVersion: (versionNo: number) => call<ForecastVersionDetail>('forecast', 'GET', `/forecast/versions/${versionNo}`),
     /** Workspace tools (cap-table transactions, board, signature requests, share links, search, access). */
     workspace: <T>(method: Method, path: string, body?: unknown) => call<T>('workspace', method, path, body === undefined ? {} : { body }),
     /** Authenticated file download for the workspace tools (KPI export). */
@@ -475,6 +504,21 @@ export function createInvesteeApi(liveActions: readonly string[]) {
       form.append('type', 'company');
       return call<WorkspaceDocument>('vault.upload', 'POST', '/vault', { body: form });
     },
+    getVaultDownloadUrl: (documentId: string, opts: { version?: number; inline?: boolean } = {}) => {
+      const q = new URLSearchParams();
+      if (opts.version !== undefined) q.set('version', String(opts.version));
+      if (opts.inline) q.set('inline', '1');
+      const suffix = q.size ? `?${q}` : '';
+      return call<VaultDownloadUrl>('vault', 'GET', `/vault/${id(documentId)}/download-url${suffix}`);
+    },
+    getVaultVersions: (documentId: string) => call<VaultVersions>('vault', 'GET', `/vault/${id(documentId)}/versions`),
+    addVaultVersion: (documentId: string, file: File) => {
+      const form = new FormData();
+      form.append('file', file);
+      return call<VaultVersions>('vault.upload', 'POST', `/vault/${id(documentId)}/versions`, { body: form });
+    },
+    withdrawVaultDocument: (documentId: string, reason: string) =>
+      call<{ id: string; status: string }>('vault.upload', 'POST', `/vault/${id(documentId)}/withdraw`, { body: { reason } }),
   };
 }
 

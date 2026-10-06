@@ -3,17 +3,15 @@ import { fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Wizard } from '@/components/Wizard';
 import { expectBody, expectCalled, expectNotCalled, fail, mockApi, ok, raw, screen, waitFor, within } from '../_helpers';
-import { application, ENTITY_SLOTS, evidenceRow, filledForm, INDIVIDUAL_SLOTS, meta, P, pdf, renderApp, seedSession, SESSION_KEY, SLOTS, stepHeading, storedSession, stubLocation, userAnyFile } from './_support';
+import { resetNavigateHandler, setNavigateHandler } from '@/lib/api';
+import { application, ENTITY_SLOTS, evidenceRow, filledForm, INDIVIDUAL_SLOTS, meta, P, pdf, readinessView, renderApp, seedSession, SESSION_KEY, SLOTS, stepHeading, storedSession, stubLocation, userAnyFile } from './_support';
 
-const realLocation = window.location;
 beforeEach(() => {
   localStorage.clear();
+  resetNavigateHandler();
   window.scrollTo = vi.fn() as never;
 });
-afterEach(() => {
-  Object.defineProperty(window, 'location', { configurable: true, value: realLocation });
-  localStorage.clear();
-});
+afterEach(() => localStorage.clear());
 
 const owner = { name: 'Tendai Moyo', nationality: 'Zimbabwean', id: '', pct: '60' };
 const signatory = { name: 'Chipo Moyo', role: 'CFO', email: 'chipo@acme.test' };
@@ -34,7 +32,9 @@ function backend(over: { app?: Record<string, unknown>; routes?: Record<string, 
       state.app = { ...state.app, evidence: state.app.evidence.map((e) => (e.slot === slot ? evidenceRow(slot, true, { name: file.name, size: file.size }) : e)) };
       return { status: 201, body: { slot, label: SLOTS[slot], name: file.name, size: file.size, mime: file.type, sha256: 'ab'.repeat(32), scanStatus: 'clean' } };
     },
-    [`POST ${P}/applications/:id/submit`]: raw({ ref: 'ONB-100231', status: 'Submitted', screening: 'Queued' }),
+    [`POST ${P}/applications/:id/submit`]: raw({ ref: 'ONB-100231', status: 'Submitted', screening: 'Queued', readiness: { score: 88, riskBand: 'LOW' } }),
+    [`GET ${P}/applications/:id/readiness`]: raw({ readiness: readinessView() }),
+    [`POST ${P}/applications/:id/triage`]: raw({ data: { riskBand: 'LOW', summary: 'No material flags', flags: [], nextSteps: [], model: 'fake-triage-v1', at: '2026-10-05T12:00:00.000Z', advisory: true } }),
     ...over.routes,
   });
   return { api, state };
@@ -73,7 +73,12 @@ describe('onboarding: starting an application', () => {
   });
 
   it('requires a valid email, creates the draft (email, type, name, sendLink), stores the session and opens step 1 prefilled', async () => {
-    const api = mockApi({ [`GET ${P}/onboarding/meta`]: raw(meta), [`POST ${P}/applications`]: ok({}, 201), [`PATCH ${P}/applications/:id`]: raw({ ok: true, savedAt: 'x' }) });
+    const api = mockApi({
+      [`GET ${P}/onboarding/meta`]: raw(meta),
+      [`POST ${P}/applications`]: ok({}, 201),
+      [`PATCH ${P}/applications/:id`]: raw({ ok: true, savedAt: 'x' }),
+      [`GET ${P}/applications/:id/readiness`]: raw({ readiness: readinessView({ score: 15 }) }),
+    });
     api.on(`POST ${P}/applications`, { status: 201, body: { id: 'app-9', token: 'tok-9' } });
     const { user } = renderApp(<Wizard />);
     await screen.findByRole('heading', { name: 'Apply to invest with Matanho' });
@@ -159,11 +164,12 @@ describe('onboarding: resume and boot states', () => {
   });
 
   it('an already submitted application is sent to the status tracker', async () => {
-    const loc = stubLocation();
+    const go = vi.fn();
+    setNavigateHandler(go);
     seedSession();
     backend({ app: { status: 'Submitted', ref: 'ONB-1' } });
     renderApp(<Wizard />);
-    await waitFor(() => expect(loc.replace).toHaveBeenCalledWith('/status'));
+    await waitFor(() => expect(go).toHaveBeenCalledWith('/status'));
   });
 });
 
@@ -481,11 +487,12 @@ describe('onboarding: save, review and submit', () => {
   });
 
   it('if the application was submitted elsewhere (409 on save) the user is sent to the status page', async () => {
-    const loc = stubLocation();
+    const go = vi.fn();
+    setNavigateHandler(go);
     const { api, user } = await openWizard({ app: { form: filledForm } });
     api.on(`PATCH ${P}/applications/:id`, fail(409, 'already_submitted', 'This application has already been submitted'));
     await user.click(screen.getByRole('button', { name: 'Save draft' }));
-    await waitFor(() => expect(loc.replace).toHaveBeenCalledWith('/status'));
+    await waitFor(() => expect(go).toHaveBeenCalledWith('/status'));
   });
 
   it('review summarises what was entered with names, not ids, and counts the uploaded documents', async () => {
@@ -511,7 +518,15 @@ describe('onboarding: save, review and submit', () => {
     expectBody(req, { consent: true, form: { legalName: 'Acme Holdings Ltd', signatureName: 'Chipo Moyo', signatureCapacity: 'CFO' }, owners: [owner], signatories: [signatory], directors: [director] });
     expect(await screen.findByText('ONB-100231')).toHaveClass('ref');
     expect(screen.getByRole('heading', { name: 'Thank you. Your application is with us.' })).toBeInTheDocument();
+    expect(screen.getByTestId('submit-readiness')).toHaveTextContent('Submission readiness: 88% · LOW review risk');
     expect(screen.getByRole('link', { name: 'Track my application' })).toHaveAttribute('href', '/status');
+  });
+
+  it('shows the server readiness panel beside the wizard with score from GET /readiness', async () => {
+    await openWizard({ app: { form: filledForm } });
+    expect(await screen.findByLabelText('Application readiness')).toBeInTheDocument();
+    expect(screen.getByTestId('readiness-score')).toHaveTextContent('72%');
+    expect(screen.getByTestId('readiness-risk')).toHaveTextContent('MEDIUM review risk');
   });
 
   it('double click on Submit sends one request and the button reads "Submitting..."', async () => {

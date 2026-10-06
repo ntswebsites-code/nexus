@@ -114,4 +114,67 @@
     var s = abs >= 1e6 ? (abs / 1e6).toFixed(1) + 'M' : abs >= 1e3 ? Math.round(abs / 1e3) + 'K' : String(Math.round(abs));
     return (v < 0 ? '-' : '') + (currency && currency !== 'USD' ? currency + ' ' : '$') + s;
   };
+
+  /** In-app reason/note dialog (replaces window.prompt for maker-checker and audit trails). */
+  mx.reasonModal = function (o) {
+    var min = o.minLength == null ? 3 : o.minLength;
+    var formId = o.formId || 'mxReasonForm';
+    mx.modal({
+      eyebrow: o.eyebrow || 'WORKSPACE',
+      title: o.title || 'Reason required',
+      subtitle: o.subtitle || '',
+      body:
+        '<form id="' +
+        formId +
+        '"><label class="v34-field wide"><span>' +
+        (o.label || 'Reason') +
+        '</span><textarea class="v34-input" name="reason" rows="' +
+        (o.rows || 3) +
+        '" required minlength="' +
+        min +
+        '"></textarea></label></form>',
+      actions: [
+        { label: o.cancelLabel || 'Cancel', run: function () {} },
+        {
+          label: o.confirmLabel || 'Continue',
+          primary: true,
+          run: function (m) {
+            var reason = String(new FormData(m.querySelector('#' + formId)).get('reason') || '').trim();
+            if (reason.length < min) throw new Error('Give at least ' + min + ' characters');
+            return o.onConfirm(reason, m);
+          },
+        },
+      ],
+    });
+  };
+
+  /** Session download when the API streams CSV/XLSX bytes (not a signed {url} JSON). */
+  mx.streamDownload = function (path, fallbackName) {
+    return fetch(mx.api + path, { credentials: 'include' }).then(function (res) {
+      if (!res.ok) {
+        return res.json().then(
+          function (j) {
+            throw (j && j.error) || { message: 'Export failed' };
+          },
+          function () {
+            throw { message: 'Export failed (' + res.status + ')' };
+          },
+        );
+      }
+      var name = ((res.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/) || [])[1] || fallbackName || 'export';
+      return res.blob().then(function (blob) {
+        var url = URL.createObjectURL(blob);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = name;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(function () {
+          URL.revokeObjectURL(url);
+        }, 500);
+      });
+    });
+  };
 })();

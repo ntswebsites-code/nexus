@@ -16,13 +16,24 @@ export function useIdempotencyKey() {
 
 const headers = (key?: string) => (key ? { 'Idempotency-Key': key } : undefined);
 
+/** Test hook: jsdom cannot spy on `location.assign` reliably. */
+let assignHandler: (href: string) => void = (href) => {
+  window.location.assign(href);
+};
+export function setAssignHandler(fn: (href: string) => void) {
+  assignHandler = fn;
+}
+export function resetAssignHandler() {
+  assignHandler = (href) => window.location.assign(href);
+}
+
 /** A 401 means the session expired or was replaced: send the user to sign in instead of leaving a stale shell on screen. */
 async function guarded<T>(call: () => Promise<T>): Promise<T> {
   try {
     return await call();
   } catch (e) {
     if (e instanceof ApiError && e.status === 401 && e.code === 'unauthorized' && typeof window !== 'undefined' && !window.location.pathname.startsWith('/login')) {
-      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+      assignHandler(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
     }
     throw e;
   }

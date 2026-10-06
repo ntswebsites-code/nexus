@@ -6,12 +6,14 @@ import {
   clearSession,
   loadSession,
   OnboardingApiError,
+  navigateTo,
   saveSession,
   type ApplicationView,
   type EvidenceRow,
   type Meta,
   type Owner,
   type Person,
+  type ReadinessView,
   type SavePayload,
   type Session,
 } from '@/lib/api';
@@ -32,6 +34,7 @@ import {
 } from '@/lib/fields';
 import { Alert, FieldInput, Shell } from './ui';
 import { EvidenceCard } from './EvidenceCard';
+import { ReadinessPanel } from './ReadinessPanel';
 
 const FALLBACK_TYPES = ['Institutional investor', 'Pension / provident fund', 'Corporate treasury', 'Investment company / family office', 'Trust / foundation', 'Fund / collective investment vehicle', 'Individual / HNW'];
 const CONSENT =
@@ -60,6 +63,8 @@ export function Wizard() {
   const [consent, setConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [ref, setRef] = useState<string | null>(null);
+  const [readiness, setReadiness] = useState<ReadinessView | null>(null);
+  const [submitReadiness, setSubmitReadiness] = useState<{ score: number; riskBand: string } | null>(null);
   const dirty = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -94,12 +99,13 @@ export function Wizard() {
         const a = await api.get(s.id, s.token);
         if (!alive) return;
         if (a.status !== 'Draft') {
-          window.location.replace('/status');
+          navigateTo('/status');
           return;
         }
         setSession(s);
         hydrate(a);
         setPhase('wizard');
+        void api.readiness(s.id, s.token).then(setReadiness).catch(() => undefined);
       } catch (e) {
         if (!alive) return;
         if (e instanceof OnboardingApiError && e.status === 404) {
@@ -126,7 +132,7 @@ export function Wizard() {
       return true;
     } catch (e) {
       setSaveState('failed');
-      if (e instanceof OnboardingApiError && e.status === 409) window.location.replace('/status');
+      if (e instanceof OnboardingApiError && e.status === 409) navigateTo('/status');
       return false;
     }
   }, [session, payload]);
@@ -136,6 +142,16 @@ export function Wizard() {
     dirty.current = true;
     setSaveState('dirty');
   }, []);
+
+  const refreshReadiness = useCallback(async () => {
+    if (!session) return;
+    try {
+      const r = await api.readiness(session.id, session.token);
+      setReadiness(r);
+    } catch {
+      /* panel degrades gracefully when readiness is unavailable */
+    }
+  }, [session]);
   useEffect(() => {
     if (phase !== 'wizard' || !dirty.current) return;
     clearTimeout(timer.current);
@@ -229,6 +245,7 @@ export function Wizard() {
       setForm({ ...DEFAULT_FORM, investorType: type, legalName: name, primaryEmail: email });
       dirty.current = true;
       setPhase('wizard');
+      void api.readiness(s.id, s.token).then(setReadiness).catch(() => undefined);
       setBanner({ kind: 'ok', text: `Draft saved. We emailed a private link to ${email} so you can continue on any device.` });
     } catch (e) {
       setBanner({ kind: 'error', text: e instanceof OnboardingApiError ? e.message : 'Could not start the application.' });
@@ -241,6 +258,7 @@ export function Wizard() {
       const a = await api.get(session.id, session.token);
       setEvidence(a.evidence);
       setErrors((e) => ({ ...e, evidence: '' }));
+      await refreshReadiness();
     } catch {
       /* next autosave surfaces connectivity problems */
     }
@@ -260,6 +278,7 @@ export function Wizard() {
     try {
       const r = await api.submit(session.id, session.token, payload());
       setRef(r.ref);
+      if (r.readiness) setSubmitReadiness(r.readiness);
       setPhase('done');
     } catch (err) {
       if (err instanceof OnboardingApiError && err.code === 'incomplete_application') {
@@ -284,6 +303,9 @@ export function Wizard() {
           <p className="muted">Your reference is</p>
           <p className="ref">{ref}</p>
           <p className="muted">A confirmation email is on its way. Our Compliance team reviews every application; they may ask for more information, and you can follow progress at any time.</p>
+          {submitReadiness ? (
+            <p className="muted" data-testid="submit-readiness">Submission readiness: {submitReadiness.score}% · {submitReadiness.riskBand} review risk</p>
+          ) : null}
           <a className="btn accent" href="/status">Track my application</a>
         </section>
       </Shell>
@@ -311,7 +333,7 @@ export function Wizard() {
           <div><span>Decision</span><strong>Human controlled</strong><small>Compliance decides</small></div>
         </div>
       </section>
-      <div className="grid">
+      <div className="grid wizard-grid">
         <nav className="rail" aria-label="Application steps">
           {STEPS.map((s, i) => (
             <button key={s.key} type="button" className={i === step ? 'active' : i < step ? 'done' : ''} aria-current={i === step ? 'step' : undefined} onClick={() => go(i)}>
@@ -433,6 +455,7 @@ export function Wizard() {
             </div>
           </form>
         </section>
+        {session ? <ReadinessPanel session={session} readiness={readiness} onRefresh={refreshReadiness} /> : null}
       </div>
     </Shell>
   );

@@ -18,6 +18,7 @@ Deep detail lives in: `docs/GAP-ANALYSIS.md` (GAP-xxx, WP-x), `docs/ADMIN-REAL-P
 | M8 | Native e-sign, MinIO object storage, public-site market data, custodian file-drop feed | [x] deployed; MinIO switch still on local mode |
 | M9 | Turn live data on for all portals (LP_LIVE_DOMAINS, INVESTEE_LIVE_ACTIONS=all, CUSTODIAN_LIVE, ONBOARDING_LIVE) and run full UAT | [ ] |
 | M10 | Real vendors behind adapters (market data feed, custodian SWIFT/API, KYC, payments, email/SMS, SSO, LLM) | [ ] owner supplies accounts later |
+| M11 | Original V56 admin UI wired to live API (W0–W9 + M13 sweep on `feat/original-ui-wiring`) | [~] built, M13 sweep + export/modal polish complete (HANDOFF-43/44); not deployed to UAT; browser QA deferred |
 
 ## 2. Releases on UAT
 
@@ -117,15 +118,21 @@ S1 operations controls, S2 reconciliation and cash depth, S3 import/export frame
 
 ## 9. Original V56 UI wiring (`feat/original-ui-wiring`, see `docs/handoff/LATEST.md`)
 
+Branch `feat/original-ui-wiring` @ `7cedc0a` — **W0–W9 complete** (2026-10-05). Post-wiring docs in `HANDOFF-11-POST-WIRING.md`. Not merged to `dev`; not deployed to UAT (`uat-rc11-original-ui` staged on server, deploy when owner approves).
+
 | Pkg | Scope | State |
 |---|---|---|
 | W0 | Entry flip, sidebar restore, `/ops-native`, mx-core, harness | [x] `eeafba4` |
-| W1 | Today/command, operations, topbar/shell | [x] bridges `admin-70..72` |
-| W2 | Portfolios, IBOR, portfolio-lab | [ ] |
-| W3 | Orders | [ ] |
-| W4 | Research, risk, performance | [ ] |
-| W5 | Cash, reconciliations, financing, corporate actions | [ ] |
-| W6 | NAV, accounting, regulatory, reports | [ ] |
-| W7 | Clients/investor-services/onboarding/vault depth | [ ] |
-| W8 | Private markets, data, model governance | [ ] |
-| W9 | Copilot, RBAC/settings completion, QA sweep | [ ] |
+| W1 | Today/command, operations, topbar/shell | [x] `00a5c2c` — `admin-70..72` |
+| W2 | Portfolios, IBOR, portfolio-lab | [x] `1ab13f5` — `admin-80..82` |
+| W3 | Orders | [x] `ecbfe21` — `admin-90-orders` |
+| W4 | Research, risk, performance | [x] `573bbf2` — `admin-91..93` |
+| W5 | Cash, reconciliations, financing, corporate actions | [x] `58a5d9b` — `admin-94..97` |
+| W6 | NAV, accounting, regulatory, reports | [x] `c4f723d` — `admin-98`, `admin-100..102` |
+| W7 | Clients/investor-services/onboarding/vault depth | [x] `dc527af` — extended `admin-10/20/30/40` |
+| W8 | Private markets, data, model governance | [x] `bd53a41` — `admin-83..85` |
+| W9 | Copilot, RBAC/settings completion, QA sweep | [x] `3486460` + `7cedc0a` — `admin-86`, `admin-61-access-depth` |
+| Post-wiring | Docs closure (`ADMIN-REAL-PAGES`, `TODO`, `HANDOFF-11`) | [x] uncommitted doc pass |
+| M13 | Admin legacy hardcoded-KPI sweep + post-sweep polish (exports, modals, RBAC) | [x] HANDOFF-39–45 |
+
+**Before merge to `dev`:** owner browser-verify items in `HANDOFF-11-POST-WIRING.md` §5; run UAT deploy of `uat-rc11-original-ui`; decide on `/ops-native` deletion (owner sign-off required).

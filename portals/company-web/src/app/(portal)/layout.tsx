@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import type { ReactNode } from 'react';
-import { InvesteePortal } from '@/components/InvesteePortal';
+import { PortalSwitch } from '@/components/PortalSwitch';
 
 export const metadata: Metadata = {
   title: 'Matanho | Investee Portal',
@@ -13,8 +13,7 @@ export default function InvesteeLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
       <body style={{ margin: 0 }}>
-        <InvesteePortal />
-        <div hidden>{children}</div>
+        <PortalSwitch>{children}</PortalSwitch>
       </body>
     </html>
   );

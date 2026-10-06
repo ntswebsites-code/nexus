@@ -72,6 +72,51 @@
     return mx.live && Array.isArray(mx.data.kyc);
   }
 
+  function onboardingLive() {
+    return mx.live && mx.strict('onboarding');
+  }
+
+  function clearOnboardingKpis() {
+    document.querySelectorAll('#page-onboarding .v33-kpis article strong, #page-onboarding .v35-kpis article strong').forEach(function (el) {
+      el.textContent = '—';
+      el.className = '';
+    });
+    document.querySelectorAll('#page-onboarding .v33-kpis article small, #page-onboarding .v35-kpis article small').forEach(function (el) {
+      el.textContent = 'Loading…';
+    });
+  }
+
+  function patchOnboardingKpis() {
+    var s = mx.data.onboardingSummary || {};
+    var q = mx.data.onboardingQueue || [];
+    var open = q.filter(function (x) {
+      return x.status !== 'Ready';
+    }).length;
+    var ready = q.filter(function (x) {
+      return x.status === 'Ready';
+    }).length;
+    var high = (s.byRisk && s.byRisk.High) || q.filter(function (x) {
+      return x.risk === 'High';
+    }).length;
+    var values = [
+      [open, 'Live review queue'],
+      [ready, 'Hard gates passed'],
+      [high, 'Enhanced review'],
+      [s.evidenceOutstanding || 0, 'Documents requested'],
+      [s.awaitingRiskApproval || 0, 'Maker-checker'],
+      [(s.bySla && s.bySla.Breached) || 0, 'Exception-led'],
+    ];
+    document.querySelectorAll('#page-onboarding .v33-kpis article, #page-onboarding .v35-kpis article').forEach(function (k, i) {
+      if (!values[i]) return;
+      var strong = k.querySelector('strong');
+      var small = k.querySelector('small');
+      if (strong) strong.textContent = String(values[i][0]);
+      if (small) small.textContent = values[i][1];
+    });
+    var host = document.getElementById('v35KycKpis');
+    if (host && typeof mx.renderKycKpis35 === 'function') host.innerHTML = mx.renderKycKpis35();
+  }
+
   mx.intercept(
     '#v35DecisionApprove',
     function () {
@@ -239,11 +284,19 @@
       }),
     ]).then(function () {
       mx.storagePing(KEY);
+      if (onboardingLive()) patchOnboardingKpis();
     });
   }
 
   mx.onLoad('onboarding.view', function () {
+    if (onboardingLive()) clearOnboardingKpis();
     if (!live()) return load();
+    return load().then(loadOnboardingDepth);
+  });
+
+  mx.hydrate('onboarding', function () {
+    if (!onboardingLive()) return Promise.resolve();
+    clearOnboardingKpis();
     return load().then(loadOnboardingDepth);
   });
 
@@ -253,10 +306,16 @@
     var open = q.filter(function (x) {
       return x.status !== 'Ready';
     }).length;
+    var ready = q.filter(function (x) {
+      return x.status === 'Ready';
+    }).length;
     return (
       '<article class="v35-kpi"><span>Open cases</span><strong>' +
       open +
       '</strong><small>Live review queue</small></article>' +
+      '<article class="v35-kpi"><span>Ready to activate</span><strong>' +
+      ready +
+      '</strong><small>Hard gates passed</small></article>' +
       '<article class="v35-kpi"><span>Awaiting risk approval</span><strong>' +
       (s.awaitingRiskApproval || 0) +
       '</strong><small>Maker-checker</small></article>' +
@@ -351,21 +410,97 @@
     { when: live },
   );
 
-  mx.intercept(
-    '#v35RiskFactors, [data-v35-risk-factors]',
-    function () {
-      var rows = riskFactors
-        .map(function (f) {
-          return '<div class="v35-row"><span><strong>' + mx.esc(f.key || f.name) + '</strong></span><em>' + mx.esc(String(f.threshold || f.weight || '')) + '</em></div>';
-        })
-        .join('');
+  function openRiskFactorsModal() {
+    mx.get(CO + '/onboarding/risk-factors').then(function (r) {
+      var factors = r.factors || r.data || riskFactors || [];
+      riskFactors = factors;
+      var canEdit = mx.can('onboarding.approve');
       mx.modal({
         eyebrow: 'ONBOARDING · RISK FACTORS',
         title: 'Configurable risk factors',
-        body: '<div class="v35-list">' + (rows || 'No factors loaded') + '</div>',
-        actions: [],
+        subtitle: canEdit ? 'Changes require step-up MFA' : 'View only',
+        wide: true,
+        body:
+          '<div class="v34-list">' +
+          (factors.length
+            ? factors
+                .map(function (f) {
+                  return (
+                    '<div class="v34-row"><span><strong>' +
+                    mx.esc(f.label || f.key) +
+                    '</strong><small>' +
+                    mx.esc(f.key) +
+                    ' · ' +
+                    (f.enabled ? f.points + ' pts' : 'disabled') +
+                    '</small></span><em>' +
+                    (canEdit
+                      ? '<button type="button" class="v34-btn small" data-mx-rf-edit="' +
+                        mx.esc(f.key) +
+                        '">Edit</button>'
+                      : mx.esc(f.updatedBy || '')) +
+                    '</em></div>'
+                  );
+                })
+                .join('')
+            : '<p class="ops-muted">No factors loaded.</p>') +
+          '</div>',
+        actions: [{ label: 'Close', run: function () {} }],
       });
+      document.querySelectorAll('[data-mx-rf-edit]').forEach(function (btn) {
+        btn.onclick = function () {
+          var key = btn.getAttribute('data-mx-rf-edit');
+          var f = factors.find(function (x) {
+            return x.key === key;
+          });
+          if (!f) return;
+          mx.modal({
+            eyebrow: 'RISK FACTOR',
+            title: f.label || key,
+            body:
+              '<form id="mxRfEdit"><label class="v34-field"><span>Points</span><input class="v34-input" name="points" type="number" min="0" max="100" value="' +
+              mx.esc(String(f.points != null ? f.points : '')) +
+              '"></label><label class="v34-field"><span>Enabled</span><select class="v34-select" name="enabled"><option value="true"' +
+              (f.enabled ? ' selected' : '') +
+              '>Yes</option><option value="false"' +
+              (!f.enabled ? ' selected' : '') +
+              '>No</option></select></label><label class="v34-field"><span>Reason</span><textarea class="v34-input" name="reason" rows="3" required minlength="5"></textarea></label></form>',
+            actions: [
+              { label: 'Cancel', run: function () {} },
+              {
+                label: 'Save factor',
+                primary: true,
+                run: function (m) {
+                  var fd = new FormData(m.querySelector('#mxRfEdit'));
+                  return mx
+                    .put(
+                      CO + '/onboarding/risk-factors/' + encodeURIComponent(key),
+                      {
+                        points: Number(fd.get('points')),
+                        enabled: fd.get('enabled') === 'true',
+                        reason: fd.get('reason'),
+                      },
+                      { stepUp: true },
+                    )
+                    .then(function () {
+                      mx.toast('Risk factor updated', key);
+                      return loadOnboardingDepth().then(openRiskFactorsModal);
+                    });
+                },
+              },
+            ],
+          });
+        };
+      });
+    }, mx.fail);
+  }
+
+  mx.intercept(
+    '#v35RiskFactors, [data-v35-risk-factors]',
+    function () {
+      openRiskFactorsModal();
     },
-    { when: live },
+    { when: function () {
+      return live() && onboardingLive();
+    } },
   );
 })();

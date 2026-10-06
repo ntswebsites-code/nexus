@@ -14,6 +14,19 @@
     return mx.live && mx.strict('copilot');
   }
 
+  function clearCopilotChrome() {
+    var ctx = document.querySelector('#page-copilot .v15-copilot-context');
+    if (ctx) {
+      var strong = ctx.querySelector('strong');
+      var em = ctx.querySelector('em');
+      if (strong) strong.textContent = 'Loading entitlements…';
+      if (em) em.textContent = '—';
+    }
+    document.querySelectorAll('#page-copilot .v15-context-list em').forEach(function (el) {
+      el.textContent = '—';
+    });
+  }
+
   function userInitials() {
     var u = mx.user;
     if (!u) return 'TM';
@@ -43,6 +56,26 @@
     );
   }
 
+  function renderTableHtml(table, caption) {
+    if (!table || !table.columns || !table.columns.length) return '';
+    var head =
+      '<div class="table-wrap" style="margin-top:10px"><table><thead><tr>' +
+      table.columns
+        .map(function (c) {
+          return '<th>' + esc(c) + '</th>';
+        })
+        .join('') +
+      '</tr></thead><tbody>' +
+      (table.rows || [])
+        .map(function (row) {
+          return '<tr>' + row.map(function (cell) { return '<td>' + esc(cell) + '</td>'; }).join('') + '</tr>';
+        })
+        .join('') +
+      '</tbody></table></div>';
+    if (!caption) return head;
+    return '<p style="margin:10px 0 6px;font-weight:600">' + esc(String(caption).replace(/_/g, ' ')) + '</p>' + head;
+  }
+
   function renderAiBubble(reply) {
     var title = reply.intent ? String(reply.intent).replace(/_/g, ' ') : 'Answer';
     var chips = (reply.sources || [])
@@ -50,22 +83,11 @@
         return '<span>' + esc(s.label || s.endpoint || 'Source') + '</span>';
       })
       .join('');
-    var table = '';
-    if (reply.table && reply.table.columns && reply.table.columns.length) {
-      table =
-        '<div class="table-wrap" style="margin-top:10px"><table><thead><tr>' +
-        reply.table.columns
-          .map(function (c) {
-            return '<th>' + esc(c) + '</th>';
-          })
-          .join('') +
-        '</tr></thead><tbody>' +
-        (reply.table.rows || [])
-          .map(function (row) {
-            return '<tr>' + row.map(function (cell) { return '<td>' + esc(cell) + '</td>'; }).join('') + '</tr>';
-          })
-          .join('') +
-        '</tbody></table></div>';
+    var table = renderTableHtml(reply.table);
+    if (reply.extraTables && reply.extraTables.length) {
+      reply.extraTables.forEach(function (t) {
+        table += renderTableHtml({ columns: t.columns, rows: t.rows }, t.title);
+      });
     }
     var engine =
       reply.engine === 'LLM'
@@ -242,6 +264,7 @@
   mx.hydrate('copilot', function () {
     if (!mx.can('dashboard.view')) return Promise.resolve();
     mx.strict('copilot');
+    if (liveCopilot()) clearCopilotChrome();
     return Promise.all([loadSuggestions(), loadHistory(), loadBanner()]).then(function () {
       if (liveCopilot()) resetThread();
     });
@@ -261,15 +284,53 @@
     { when: function () { return liveCopilot(); } },
   );
 
+  function openCopilotFab() {
+    navigate('copilot');
+    setTimeout(function () {
+      var input = document.getElementById('v15CopilotInput');
+      if (input) input.focus();
+    }, 80);
+  }
+
   document.addEventListener(
     'click',
     function (ev) {
+      var fab = ev.target.closest && ev.target.closest('[data-v15-open-copilot]');
+      if (fab && liveCopilot()) {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        openCopilotFab();
+        return;
+      }
+      var prompt = ev.target.closest && ev.target.closest('[data-v15-copilot-prompt]');
+      if (prompt && liveCopilot()) {
+        ev.preventDefault();
+        ev.stopImmediatePropagation();
+        var q = prompt.getAttribute('data-v15-copilot-prompt');
+        navigate('copilot');
+        setTimeout(function () {
+          appendLive(q).catch(mx.fail);
+        }, 80);
+        return;
+      }
       var btn = ev.target.closest && ev.target.closest('[data-v15-copilot-action]');
       if (!btn || !liveCopilot()) return;
       var a = btn.getAttribute('data-v15-copilot-action');
       if (a === 'new') resetThread();
       else if (a === 'history') openHistoryDrawer();
       else if (a === 'sources') openSourcesDrawer();
+    },
+    true,
+  );
+
+  document.addEventListener(
+    'keydown',
+    function (ev) {
+      if (!liveCopilot()) return;
+      if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'j') {
+        ev.preventDefault();
+        openCopilotFab();
+      }
     },
     true,
   );

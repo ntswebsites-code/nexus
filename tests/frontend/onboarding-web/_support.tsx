@@ -98,13 +98,27 @@ export function renderApp(ui: ReactElement, user = userEvent.setup()) {
 }
 
 export function stubLocation(search = '') {
+  const path = !search ? '/' : search.startsWith('/') ? search : `/${search.startsWith('?') ? search : `?${search}`}`;
+  window.history.replaceState(null, '', path);
   const replace = vi.fn();
   const assign = vi.fn();
-  Object.defineProperty(window, 'location', { configurable: true, value: { pathname: '/', search, replace, assign, href: `http://localhost/${search}`, origin: 'http://localhost' } });
   return { replace, assign };
 }
 
 export const pdf = (name = 'doc.pdf', size = 2048) => new File([new Uint8Array(size).fill(0x25)], name, { type: 'application/pdf' });
+
+/** Default readiness payload for GET /applications/:id/readiness mocks. */
+export const readinessView = (over: Record<string, unknown> = {}) => ({
+  score: 72,
+  riskBand: 'MEDIUM' as const,
+  triageRun: false,
+  triage: null,
+  checks: [
+    { name: 'Core profile', state: 'good' as const, detail: 'Legal identity and contact fields', right: '12/13' },
+    { name: 'Evidence', state: 'warn' as const, detail: 'Required supporting documents', right: '7/9' },
+  ],
+  ...over,
+});
 
 /** The nth heading of the active wizard step. */
 export const stepHeading = () => screen.getByRole('heading', { level: 2 });

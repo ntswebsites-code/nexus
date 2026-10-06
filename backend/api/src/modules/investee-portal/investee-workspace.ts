@@ -6,6 +6,7 @@ import { storeFile } from '../../lib/storage';
 import { investedAmount } from './investee.service';
 import type { InvesteeContext } from './investee.context';
 import { INVESTEE_VISIBLE } from '../term-sheets/term-sheets.service';
+import { assertFileContentMatches } from './workspace/vault';
 
 /**
  * Company workspace. Cap table, forecast, governance, requisitions, board, signature requests and share links are
@@ -47,13 +48,30 @@ export {
   updateReservedMatter,
 } from './workspace/compliance';
 export { trancheLedger } from './workspace/drawdown';
+export {
+  addVaultVersion,
+  assertFileContentMatches,
+  vaultDownloadUrl,
+  vaultVersions,
+  vaultWithdrawSchema,
+  withdrawVaultDocument,
+} from './workspace/vault';
 
 export async function vaultDocuments(companyId: string) {
   const docs = await prisma.document.findMany({
-    where: { companyId },
+    where: { companyId, status: { notIn: ['Withdrawn', 'Disposed'] } },
     orderBy: { updatedAt: 'desc' },
     take: 100,
-    select: { id: true, ref: true, name: true, type: true, status: true, createdAt: true, updatedAt: true },
+    select: {
+      id: true,
+      ref: true,
+      name: true,
+      type: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+      versions: { orderBy: { version: 'desc' }, take: 1, select: { version: true } },
+    },
   });
   return docs.map((d) => ({
     id: d.id,
@@ -66,25 +84,8 @@ export async function vaultDocuments(companyId: string) {
     uploadedAt: d.createdAt.toISOString(),
     updatedAt: d.updatedAt.toISOString(),
     status: d.status,
+    version: d.versions[0]?.version ?? 1,
   }));
-}
-
-/** INO-021: the bytes must match the declared type; executables are refused whatever they are called. */
-export function assertFileContentMatches(file: { originalname: string; mimetype: string; buffer: Buffer }) {
-  const b = file.buffer;
-  const starts = (sig: number[]) => b.length >= sig.length && sig.every((v, i) => b[i] === v);
-  const ext = (file.originalname.split('.').pop() ?? '').toLowerCase();
-  const mime = file.mimetype.toLowerCase();
-  if (starts([0x4d, 0x5a]) || starts([0x7f, 0x45, 0x4c, 0x46]) || starts([0x23, 0x21]) || starts([0xca, 0xfe, 0xba, 0xbe])) {
-    throw HttpError.badRequest('This file looks like a program, not a document, and was not stored', [{ path: 'file', message: 'Executable content is not accepted' }]);
-  }
-  const bad = (what: string) =>
-    HttpError.badRequest(`The file content is not a valid ${what}; it does not match its name or type`, [{ path: 'file', message: `Not a valid ${what}` }]);
-  if ((ext === 'pdf' || mime === 'application/pdf') && !b.subarray(0, 1024).includes('%PDF-')) throw bad('PDF');
-  if ((ext === 'png' || mime === 'image/png') && !starts([0x89, 0x50, 0x4e, 0x47])) throw bad('PNG image');
-  if ((ext === 'jpg' || ext === 'jpeg' || mime === 'image/jpeg') && !starts([0xff, 0xd8, 0xff])) throw bad('JPEG image');
-  if (['docx', 'xlsx', 'pptx', 'zip'].includes(ext) && !starts([0x50, 0x4b])) throw bad('Office document');
-  if (['csv', 'txt'].includes(ext) && b.subarray(0, 4096).includes(0)) throw bad('text file');
 }
 
 export async function uploadVaultFile(

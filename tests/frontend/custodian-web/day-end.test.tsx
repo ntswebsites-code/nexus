@@ -1,7 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect } from 'vitest';
+import { resetAssignHandler } from '@/lib/api';
 import DayEndPage from '@/app/(portal)/day-end/page';
 import { expectCalled, expectIdempotencyKey, expectNotCalled, fail, mockApi, raw, screen, waitFor, within } from '../_helpers';
 import { attachFile, dayEnd, renderPortal, shellRoutes, stubLocation } from './_support';
+
+afterEach(() => resetAssignHandler());
 
 const DE = '/api/v1/custodian/day-end';
 const TOTALS = '/api/v1/custodian/control-totals';

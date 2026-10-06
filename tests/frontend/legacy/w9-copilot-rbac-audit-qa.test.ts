@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { focusedNavPages, loadLegacyHarness } from './_harness';
+import { focusedNavPages, loadLegacyHarness, stubLegacyShellGlobals } from './_harness';
+import { ok, raw } from '../_helpers/mockApi';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const bridgeDir = path.join(repoRoot, 'portals/admin-web/src/legacy/bridge');
@@ -30,15 +31,41 @@ describe('W9 copilot, RBAC depth, audit extras, QA sweep', () => {
     expect(copilot).toMatch(/\/copilot\/history/);
     expect(copilot).toMatch(/\/integrations\/banner/);
     expect(copilot).toMatch(/mx\.strict\('copilot'\)/);
+    expect(copilot).toMatch(/data-v15-open-copilot/);
+    expect(copilot).toMatch(/clearCopilotChrome/);
+    expect(copilot).toMatch(/renderTableHtml/);
+    expect(copilot).toMatch(/extraTables/);
 
     const depth = readFileSync(path.join(bridgeDir, 'admin-61-access-depth.js'), 'utf8');
     expect(depth).toMatch(/\/rbac\/requests/);
     expect(depth).toMatch(/\/rbac\/reviews/);
-    expect(depth).toMatch(/\/rbac\/step-up/);
+    expect(depth).toMatch(/\/rbac\/reviews\/.*\/items\/.*\/decide/);
+    expect(depth).toMatch(/\/rbac\/matrix/);
+    expect(depth).toMatch(/data-mx-access-propose/);
     expect(depth).toMatch(/\/settings\/numbering/);
+    expect(depth).toMatch(/\/settings\//);
+    expect(depth).toMatch(/data-mx-settings-platform/);
+    expect(depth).toMatch(/openReviewDetail/);
+    expect(depth).toMatch(/openProposeRoleDrawer/);
+    expect(depth).toMatch(/openPlatformSettingsDrawer/);
     expect(depth).toMatch(/\/retention\/run/);
+    expect(depth).toMatch(/\/ops-health/);
+    expect(depth).toMatch(/\/integrations\/banner/);
+    expect(depth).toMatch(/data-mx-settings-health/);
+    expect(depth).toMatch(/openPlatformHealthDrawer/);
     expect(depth).toMatch(/\/audit\/facets/);
+    expect(depth).toMatch(/clearAuditChrome/);
+    expect(depth).toMatch(/hydrate\('audit'/);
     expect(depth).toMatch(/\/audit\/events\//);
+    expect(depth).toMatch(/clearRbacChrome/);
+    expect(depth).toMatch(/toggleRbacDemoPanels/);
+    expect(depth).toMatch(/Proposal required/);
+    expect(depth).toMatch(/liveRbac/);
+    expect(depth).toMatch(/hydrate\('rbac'/);
+    expect(depth).toMatch(/injectRbacTabs/);
+    expect(depth).toMatch(/USER_DISABLE/);
+    expect(depth).toMatch(/toggleSettingsDemoPanels/);
+    expect(depth).toMatch(/hydrate\('settings'/);
   });
 
   it('w9 DATA_HOOKS bypass copilot demo when live; W0 hooks skip rbac/settings localStorage', () => {
@@ -69,6 +96,113 @@ describe('W9 copilot, RBAC depth, audit extras, QA sweep', () => {
       expect(focusedNavPages().sort()).toEqual(ROLE_FOCUS[role].sort());
       expect(focusScript).toContain(role);
     });
+  });
+
+  it('settings bridge saves admin-core platform setting with reason', async () => {
+    const api = loadLegacyHarness({
+      fragment: '32-page-settings.html',
+      bridges: ['mx-core.js', 'admin-00-common.js', 'admin-61-access-depth.js'],
+      user: {
+        name: 'Platform Admin',
+        email: 'platform@test.local',
+        permissions: ['admin.settings'],
+      },
+      routes: {
+        'GET /api/v1/admin-core/settings': raw({
+          data: [
+            {
+              key: 'notify.email_enabled',
+              category: 'Notifications',
+              label: 'Email notifications',
+              help: 'Send email',
+              type: 'boolean',
+              value: true,
+              version: 1,
+              enforced: true,
+            },
+          ],
+        }),
+        'PUT /api/v1/admin-core/settings/notify.email_enabled': raw({ key: 'notify.email_enabled', value: false }),
+        'GET /api/v1/admin-core/settings/history': raw({ data: [] }),
+        'GET /api/v1/admin-core/integrations/banner': raw({ data: { production: false, fakeAdapters: [], count: 0 } }),
+      },
+    });
+    stubLegacyShellGlobals();
+    document.body.insertAdjacentHTML('beforeend', '<div id="drawerTitle"></div><div id="drawerBody"></div>');
+    const w = window as unknown as {
+      mx: { live: boolean; user: { permissions: string[] }; modal: (o: { actions: { label: string; run: () => unknown }[] }) => void };
+      openDrawer: (o: { body?: string }) => void;
+      closeDrawer: () => void;
+      toast: () => void;
+    };
+    w.mx.live = true;
+    w.mx.user = { permissions: ['admin.settings'] };
+    w.mx.modal = function () {};
+    window.dispatchEvent(new CustomEvent('matanho:legacy-ready'));
+    document.querySelector('[data-mx-settings-platform]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 80));
+    document.querySelector('#drawerBody [data-mx-set-change="Notifications-0"]')?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 40));
+    const form = document.getElementById('mxSetChangeForm') as HTMLFormElement | null;
+    const reason = document.getElementById('mxSetReason') as HTMLTextAreaElement | null;
+    const value = document.getElementById('mxSetValue') as HTMLSelectElement | null;
+    if (value) value.value = 'false';
+    if (reason) reason.value = 'Disable outbound email for maintenance';
+    form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    await new Promise((r) => setTimeout(r, 80));
+    expect(api.calls('PUT /api/v1/admin-core/settings/notify.email_enabled').length).toBe(1);
+  });
+
+  it('settings page shows integrations banner when fake adapters run in production', async () => {
+    loadLegacyHarness({
+      fragment: '32-page-settings.html',
+      bridges: ['mx-core.js', 'admin-00-common.js', 'admin-61-access-depth.js'],
+      user: {
+        name: 'Platform Admin',
+        email: 'platform@test.local',
+        permissions: ['admin.settings'],
+      },
+      routes: {
+        'GET /api/v1/admin-core/settings/history': raw({ data: [] }),
+        'GET /api/v1/admin-core/integrations/banner': raw({
+          data: { production: true, fakeAdapters: ['Market data', 'KYC screening'], count: 2 },
+        }),
+      },
+    });
+    const mx = (window as unknown as { mx: { live: boolean; user: { permissions: string[] }; refresh: (p: string) => Promise<void> } }).mx;
+    mx.live = true;
+    mx.user = { permissions: ['admin.settings'] };
+    window.dispatchEvent(new CustomEvent('matanho:legacy-ready'));
+    await mx.refresh('settings');
+    await new Promise((r) => setTimeout(r, 80));
+    expect(document.getElementById('mxSettingsIntegrationsBanner')?.textContent).toMatch(/Simulated integrations active/);
+    expect(document.getElementById('mxSettingsIntegrationsBanner')?.textContent).toMatch(/Market data/);
+  });
+
+  it('copilot bridge loads integration banner context', async () => {
+    loadLegacyHarness({
+      fragment: '30-page-copilot.html',
+      bridges: ['mx-core.js', 'admin-00-common.js', 'admin-86-copilot.js'],
+      user: {
+        name: 'Analyst',
+        email: 'analyst@test.local',
+        permissions: ['dashboard.view'],
+      },
+      routes: {
+        'GET /api/v1/admin-core/copilot/suggestions': raw({ data: { enabled: true, suggestions: ['Largest positions'] } }),
+        'GET /api/v1/admin-core/copilot/history': raw({ data: [] }),
+        'GET /api/v1/admin-core/integrations/banner': raw({
+          data: { production: true, fakeAdapters: ['Broker FIX'], count: 1 },
+        }),
+      },
+    });
+    const mx = (window as unknown as { mx: { live: boolean; user: { permissions: string[] }; refresh: (p: string) => Promise<void> } }).mx;
+    mx.live = true;
+    mx.user = { permissions: ['dashboard.view'] };
+    window.dispatchEvent(new CustomEvent('matanho:legacy-ready'));
+    await mx.refresh('copilot');
+    await new Promise((r) => setTimeout(r, 80));
+    expect(document.getElementById('mxCopilotBanner')?.textContent).toMatch(/Simulated integrations active/);
   });
 
   it('all 28 page fragments exist and copilot/rbac/settings/audit lack static demo table rows when wired', () => {

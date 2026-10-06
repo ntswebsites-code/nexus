@@ -37,6 +37,7 @@
       mx.data.documents = r.data.map(vaultRow);
     }).then(function () {
       if (!vaultLive()) return;
+      clearVaultKpis();
       return loadVaultDepth().then(function () {
         patchVaultSummaryTabs();
         setTimeout(function () {
@@ -258,6 +259,16 @@
     ]);
   }
 
+  function clearVaultKpis() {
+    document.querySelectorAll('#page-vault .v33-kpis article strong, #page-vault .stat-grid .stat-card strong').forEach(function (el) {
+      el.textContent = '—';
+      el.className = '';
+    });
+    document.querySelectorAll('#page-vault .v33-kpis article small').forEach(function (el) {
+      el.textContent = 'Loading…';
+    });
+  }
+
   function patchVaultSummaryTabs() {
     if (!vaultSummary) return;
     var s = vaultSummary;
@@ -268,6 +279,22 @@
       if (stats[1]) stats[1].querySelector('strong, b').textContent = String(s.held || 0);
       if (stats[2]) stats[2].querySelector('strong, b').textContent = String(s.pendingChanges || 0);
     }
+    var kpis = document.querySelectorAll('#page-vault .v33-kpis article');
+    if (kpis[0]) kpis[0].querySelector('strong').textContent = String(s.total || 0);
+    if (kpis[1]) kpis[1].querySelector('strong').textContent = String(s.held || 0);
+    if (kpis[2]) kpis[2].querySelector('strong').textContent = String(s.pendingChanges || 0);
+    if (kpis[3]) {
+      var restricted = (s.byClassification && (s.byClassification.Restricted || s.byClassification.RESTRICTED)) || 0;
+      kpis[3].querySelector('strong').textContent = String(restricted);
+    }
+    if (kpis[4]) kpis[4].querySelector('strong').textContent = String(s.accessLast7Days || 0);
+    if (kpis[5]) {
+      var review = (s.retention && (s.retention.REVIEW || s.retention.review)) || 0;
+      kpis[5].querySelector('strong').textContent = String(review);
+      kpis[5].querySelector('small').textContent = 'Retention state review';
+    }
+    var pendingBtn = document.querySelector('[data-vault-changes]');
+    if (pendingBtn) pendingBtn.textContent = s.pendingChanges ? 'Pending changes (' + s.pendingChanges + ')' : 'Pending changes';
   }
 
   function renderVaultDepth(doc) {
@@ -473,26 +500,76 @@
     { when: vaultLive },
   );
 
+  function openPmEvidenceModal() {
+    return mx.get(CO + '/vault/pm-evidence').then(function (r) {
+      var rows = r.data || [];
+      mx.modal({
+        eyebrow: 'VAULT · PM EVIDENCE',
+        title: 'Private markets valuation evidence',
+        subtitle: rows.length + ' mark evidence row(s)',
+        wide: true,
+        body:
+          '<div class="v34-list">' +
+          (rows.length
+            ? rows
+                .map(function (e) {
+                  var doc = e.document;
+                  return (
+                    '<div class="v34-row"><span><strong>' +
+                    mx.esc(e.title || e.id) +
+                    '</strong><small>' +
+                    mx.esc(e.fund || '') +
+                    ' · ' +
+                    mx.esc(e.mark || '') +
+                    (doc && doc.name ? ' · ' + mx.esc(doc.name) : ' · no file') +
+                    '</small></span><em>' +
+                    mx.esc(e.markStatus || '') +
+                    (mx.can('documents.edit')
+                      ? ' <button type="button" class="v34-btn small" data-mx-pm-upload="' +
+                        mx.esc(e.id) +
+                        '">' +
+                        (doc && doc.name ? 'Replace file' : 'Upload file') +
+                        '</button>'
+                      : '') +
+                    '</em></div>'
+                  );
+                })
+                .join('')
+            : '<p class="ops-muted">No valuation evidence rows yet.</p>') +
+          '</div>',
+        actions: [{ label: 'Close', run: function () {} }],
+      });
+      mx.$$('[data-mx-pm-upload]').forEach(function (b) {
+        b.onclick = function () {
+          var id = b.getAttribute('data-mx-pm-upload');
+          return pickFile().then(function (f) {
+            if (!f) return;
+            var fd = new FormData();
+            fd.append('file', f, f.name);
+            return mx.post(CO + '/vault/pm-evidence/' + encodeURIComponent(id) + '/file', fd).then(function () {
+              mx.toast('Evidence file attached', f.name);
+              return openPmEvidenceModal();
+            }, mx.fail);
+          });
+        };
+      });
+    });
+  }
+
+  mx.openPmEvidenceModal = openPmEvidenceModal;
+
+  mx.hydrate('vault', function () {
+    if (!vaultLive()) return Promise.resolve();
+    clearVaultKpis();
+    return loadVaultDepth().then(function () {
+      patchVaultSummaryTabs();
+    });
+  });
+
   mx.intercept(
     '#v33PmEvidence, [data-vault-pm-evidence]',
     function () {
-      return mx.get(CO + '/vault/pm-evidence').then(function (r) {
-        var rows = r.data || [];
-        mx.modal({
-          eyebrow: 'VAULT · PM EVIDENCE',
-          title: 'Private markets valuation evidence',
-          wide: true,
-          body:
-            '<div class="v34-list">' +
-            rows
-              .map(function (e) {
-                return '<div class="v34-row"><span><strong>' + mx.esc(e.name || e.id) + '</strong><small>' + mx.esc(e.fund || '') + '</small></span><em>' + mx.esc(e.status || '') + '</em></div>';
-              })
-              .join('') +
-            '</div>',
-          actions: [],
-        });
-      });
+      return openPmEvidenceModal();
     },
     { when: vaultLive },
   );

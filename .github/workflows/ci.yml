@@ -55,6 +55,11 @@ jobs:
           --health-interval=5s --health-timeout=5s --health-retries=20
     env:
       DB_ROOT_URL: mysql://root:ci-root@127.0.0.1:3306
+      LP_LIVE_DOMAINS: all
+      INVESTEE_LIVE_ACTIONS: all
+      CUSTODIAN_LIVE: true
+      ONBOARDING_LIVE: true
+      SEED_DEMO: 1
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

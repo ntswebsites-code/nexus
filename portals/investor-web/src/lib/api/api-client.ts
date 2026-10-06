@@ -68,12 +68,24 @@ export function isLpApiError(err: unknown): err is LpApiError {
 const SESSION_EXPIRED_CODES = new Set(["LP_UNAUTHORIZED", "unauthorized", "mfa_required"])
 
 let redirecting = false
+let redirectHandler: ((href: string) => void) | undefined
 
-function redirectToLogin() {
+export function loginRedirectHref(pathname: string, search = ""): string {
+  return `/login?next=${encodeURIComponent(pathname + search)}`
+}
+
+export function redirectToLogin() {
   if (typeof window === "undefined" || redirecting) return
   redirecting = true
-  const next = window.location.pathname + window.location.search
-  window.location.assign(`/login?next=${encodeURIComponent(next)}`)
+  const href = loginRedirectHref(window.location.pathname, window.location.search)
+  if (redirectHandler) redirectHandler(href)
+  else window.location.assign(href)
+}
+
+/** Vitest hook — jsdom cannot spy on `location.assign`. Pass null to reset. */
+export function setRedirectHandler(handler: ((href: string) => void) | null) {
+  redirectHandler = handler ?? undefined
+  if (!handler) redirecting = false
 }
 
 function safeJson(text: string): unknown {

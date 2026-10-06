@@ -17,6 +17,88 @@
     return mx.live && mx.strict('valuation');
   }
 
+  function toggleNavDemoPanels(live) {
+    document.querySelectorAll('#page-valuation .mx-demo-only').forEach(function (el) {
+      el.style.display = live ? 'none' : '';
+    });
+  }
+
+  function clearNavKpis() {
+    document.querySelectorAll('#page-valuation .v33-kpis .v33-kpi strong').forEach(function (el) {
+      if (el.id !== 'v33NavReleaseState') el.textContent = '—';
+    });
+    document.querySelectorAll('#page-valuation .v33-kpis .v33-kpi small').forEach(function (el) {
+      if (el.id !== 'v33NavReleaseReason') el.textContent = 'Loading…';
+    });
+    var state = document.getElementById('v33NavReleaseState');
+    var reason = document.getElementById('v33NavReleaseReason');
+    if (state) state.textContent = '—';
+    if (reason) reason.textContent = 'Loading…';
+    var lanes = document.getElementById('v33NavLanes');
+    if (lanes) {
+      lanes.querySelectorAll('.v33-lane strong').forEach(function (el) {
+        el.textContent = '—';
+      });
+      lanes.querySelectorAll('.v33-lane small').forEach(function (el) {
+        el.textContent = 'Loading…';
+      });
+    }
+  }
+
+  function patchNavKpis(detail) {
+    if (!detail) return;
+    var kpis = document.querySelectorAll('#page-valuation .v33-kpis .v33-kpi');
+    if (kpis[0]) {
+      kpis[0].querySelector('strong').textContent = money(detail.nav, detail.baseCurrency);
+      kpis[0].querySelector('small').textContent = detail.navDate ? mx.date(detail.navDate) : '—';
+    }
+    if (kpis[1]) {
+      kpis[1].querySelector('strong').textContent = detail.navPerUnit != null ? Number(detail.navPerUnit).toFixed(4) : '—';
+      kpis[1].querySelector('small').textContent = detail.units != null ? (Number(detail.units) / 1e6).toFixed(2) + 'm units' : '—';
+    }
+    if (kpis[2]) {
+      kpis[2].querySelector('strong').textContent = detail.priceCoverage != null ? Number(detail.priceCoverage).toFixed(1) + '%' : '—';
+      var openEx = Number(detail.openMaterialExceptions || 0);
+      kpis[2].querySelector('small').textContent = openEx ? openEx + ' material exception' + (openEx === 1 ? '' : 's') : 'All within tolerance';
+    }
+    if (kpis[3]) {
+      var cashPct = detail.cashReconciledPct != null ? Number(detail.cashReconciledPct) : detail.cashReconciled ? 100 : null;
+      kpis[3].querySelector('strong').textContent = cashPct != null ? cashPct + '%' : '—';
+      kpis[3].querySelector('small').textContent = cashPct === 100 ? 'All banks signed' : 'From cash reconciliation';
+    }
+    if (kpis[4]) {
+      var fees = (detail.bridge || []).find(function (b) {
+        return b.key === 'FEES';
+      });
+      kpis[4].querySelector('strong').textContent = fees ? money(fees.amount, detail.baseCurrency) : '—';
+      kpis[4].querySelector('small').textContent = 'Management + admin';
+    }
+    patchNavLanes(detail);
+  }
+
+  function patchNavLanes(detail) {
+    var host = document.getElementById('v33NavLanes');
+    if (!host || !detail) return;
+    var lanes = host.querySelectorAll('.v33-lane');
+    var openEx = Number(detail.openMaterialExceptions || 0);
+    if (lanes[0]) {
+      lanes[0].querySelector('strong').textContent = detail.ref || '—';
+      lanes[0].querySelector('small').textContent = detail.updatedAt ? 'Updated ' + mx.date(detail.updatedAt) : '—';
+    }
+    if (lanes[1]) {
+      lanes[1].querySelector('strong').textContent = openEx ? 'Conditional' : 'Clear';
+      lanes[1].querySelector('small').textContent = openEx ? 'Pricing break open' : 'Reconciled';
+    }
+    if (lanes[2]) {
+      lanes[2].querySelector('strong').textContent = openEx ? String(openEx) + ' pending' : '0';
+      lanes[2].querySelector('small').textContent = openEx ? 'Evidence required' : 'No overrides';
+    }
+    if (lanes[3]) {
+      lanes[3].querySelector('strong').textContent = detail.status === 'RELEASED' ? 'Released' : 'Not released';
+      lanes[3].querySelector('small').textContent = detail.status === 'RELEASED' ? 'PBOR updated' : 'PBOR unchanged';
+    }
+  }
+
   function money(v, ccy) {
     if (v == null || v === '') return '—';
     var n = Number(v);
@@ -166,6 +248,7 @@
     if (typeof renderNav === 'function') renderNav();
     patchNavExceptions(detail);
     patchNavBridge(detail);
+    if (liveNav()) patchNavKpis(detail);
     var state49 = mapNavState49(detail);
     if (state49 && detail.portfolioName) {
       applyNav49({ [detail.portfolioName]: state49 });
@@ -188,6 +271,7 @@
           }) || list[0];
         if (!pick) {
           currentRun = null;
+          if (liveNav()) clearNavKpis();
           return null;
         }
         return getEnvelope('/api/v1/nav/runs/' + encodeURIComponent(pick.id)).then(function (d) {
@@ -205,6 +289,83 @@
     return currentRun && currentRun.id;
   }
 
+  function openNavInputsModal() {
+    if (!mx.can('valuation.run')) {
+      mx.toast('Access restricted', 'You need valuation.run to edit NAV inputs.', 'error');
+      return;
+    }
+    if (!runId() || !currentRun) {
+      mx.toast('No NAV run', 'Create or open a valuation run first.', 'warn');
+      return;
+    }
+    var d = currentRun;
+    mx.modal({
+      eyebrow: 'NAV · INPUTS',
+      title: 'Edit run inputs · ' + (d.ref || ''),
+      body:
+        '<form id="mxNavInputs"><label class="detail-field"><span>Accruals</span><input class="detail-input" name="accruals" type="number" step="0.0001" min="0" value="' +
+        mx.esc(d.accruals != null ? d.accruals : '') +
+        '"></label><label class="detail-field"><span>Fees (manual)</span><input class="detail-input" name="fees" type="number" step="0.0001" min="0" value="' +
+        mx.esc(d.fees != null ? d.fees : '') +
+        '"></label><label class="detail-field"><span>Fee rate % p.a.</span><input class="detail-input" name="feeRatePct" type="number" step="0.0001" min="0" max="100" value="' +
+        mx.esc(d.feeRatePct != null ? d.feeRatePct : '') +
+        '"></label><label class="detail-field"><span>Liabilities</span><input class="detail-input" name="liabilities" type="number" step="0.0001" min="0" value="' +
+        mx.esc(d.liabilities != null ? d.liabilities : '') +
+        '"></label><label class="detail-field"><span>Units</span><input class="detail-input" name="units" type="number" step="0.000001" min="0" value="' +
+        mx.esc(d.units != null ? d.units : '') +
+        '"></label><label class="detail-field wide"><span>Notes</span><textarea class="detail-input" name="notes" rows="3">' +
+        mx.esc(d.notes || '') +
+        '</textarea></label><p class="ops-muted">Set either manual fees or a fee rate, not both.</p></form>',
+      actions: [
+        { label: 'Cancel', run: function () {} },
+        {
+          label: 'Save inputs',
+          primary: true,
+          run: function (m) {
+            var fd = new FormData(m.querySelector('#mxNavInputs'));
+            var payload = {};
+            ['accruals', 'fees', 'feeRatePct', 'liabilities', 'units'].forEach(function (k) {
+              var v = fd.get(k);
+              if (v !== null && String(v).trim() !== '') payload[k] = String(v).trim();
+            });
+            var notes = fd.get('notes');
+            if (notes !== null) payload.notes = String(notes).trim() || null;
+            if (!Object.keys(payload).length) {
+              mx.toast('Nothing to save', 'Change at least one input.', 'warn');
+              return;
+            }
+            return mx
+              .patch('/api/v1/nav/runs/' + encodeURIComponent(runId()) + '/inputs', payload)
+              .then(function () {
+                mx.toast('NAV inputs saved', (d.ref || 'Run') + ' recalculated from updated inputs.');
+                return loadNav();
+              })
+              .catch(mx.fail);
+          },
+        },
+      ],
+    });
+  }
+
+  function downloadNavPack() {
+    if (!runId()) {
+      mx.toast('No NAV run', 'Create or open a valuation run first.', 'warn');
+      return;
+    }
+    return getEnvelope('/api/v1/nav/runs/' + encodeURIComponent(runId()) + '/pack')
+      .then(function (body) {
+        var pack = body.data || body;
+        var blob = new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' });
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = ((pack.ref || currentRun.ref || 'nav-pack') + '-pack.json').replace(/\s+/g, '-');
+        a.click();
+        URL.revokeObjectURL(a.href);
+        mx.toast('NAV pack downloaded', a.download);
+      })
+      .catch(mx.fail);
+  }
+
   function firstOpenException() {
     if (!currentRun || !currentRun.exceptions) return null;
     return currentRun.exceptions.find(function (e) {
@@ -214,16 +375,26 @@
 
   mx.onLoad('valuation.view', function () {
     if (!document.getElementById('page-valuation')) return Promise.resolve();
+    if (liveNav()) {
+      clearNavKpis();
+      toggleNavDemoPanels(true);
+    }
     return loadNav();
   });
 
   mx.hydrate('valuation', function () {
     if (!liveNav()) return Promise.resolve();
+    clearNavKpis();
+    toggleNavDemoPanels(true);
     return loadNav();
   });
 
   window.addEventListener('matanho:legacy-ready', function () {
+    if (liveNav()) toggleNavDemoPanels(true);
     mx.gate('#v33RunNav', 'valuation.run');
+    mx.gate('#v33NavInputs', 'valuation.run');
+    mx.gate('#v33NavPack', 'valuation.view');
+    mx.gate('#v33NavExternal', 'valuation.run');
     mx.gate('#v33NavMaker', 'valuation.maker');
     mx.gate('#v33NavChecker', 'valuation.release');
     mx.gate('#v49NavRecalc', 'valuation.run');
@@ -345,6 +516,23 @@
     );
 
     mx.intercept(
+      '#v33NavInputs',
+      function () {
+        openNavInputsModal();
+        return false;
+      },
+      { when: liveNav },
+    );
+
+    mx.intercept(
+      '#v33NavPack',
+      function () {
+        return downloadNavPack();
+      },
+      { when: liveNav },
+    );
+
+    mx.intercept(
       '#v33NavHistory',
       function () {
         getEnvelope('/api/v1/nav/history?limit=10').then(function (body) {
@@ -357,6 +545,58 @@
                 .join('\n')
             : 'No prior official NAV runs.';
           mx.modal({ title: 'NAV history', body: '<pre style="white-space:pre-wrap;font-size:11px">' + text + '</pre>' });
+        });
+        return false;
+      },
+      { when: liveNav },
+    );
+
+    mx.intercept(
+      '#v33NavExternal',
+      function () {
+        if (!runId()) {
+          mx.toast('No NAV run', 'Create or open a valuation run first.', 'warn');
+          return false;
+        }
+        var ext = (currentRun && currentRun.external) || {};
+        mx.modal({
+          eyebrow: 'NAV · EXTERNAL FIGURE',
+          title: 'Record external NAV',
+          subtitle: (currentRun.ref || '') + ' · ABOR ' + money(currentRun.nav, currentRun.baseCurrency),
+          body:
+            '<form id="mxNavExternalForm"><label class="detail-field"><span>External NAV</span><input class="detail-input" id="mxNavExtAmount" type="number" step="0.01" min="0" value="' +
+            mx.esc(ext.nav || '') +
+            '"></label><label class="detail-field"><span>Source</span><input class="detail-input" id="mxNavExtSource" value="' +
+            mx.esc(ext.source || 'Administrator') +
+            '"></label><label class="detail-field wide"><span>Note</span><textarea id="mxNavExtNote" rows="3">' +
+            mx.esc(ext.note || '') +
+            '</textarea></label></form>',
+          actions: [
+            { label: 'Cancel', run: function () {} },
+            {
+              label: 'Save external NAV',
+              primary: true,
+              run: function (m) {
+                var amt = Number((m.querySelector('#mxNavExtAmount') || {}).value || 0);
+                var source = ((m.querySelector('#mxNavExtSource') || {}).value || '').trim();
+                if (!(amt > 0) || !source) {
+                  mx.toast('Required fields', 'Enter external NAV and source.', 'warn');
+                  return;
+                }
+                return mx
+                  .put('/api/v1/nav/runs/' + encodeURIComponent(runId()) + '/external-nav', {
+                    externalNav: amt,
+                    source: source,
+                    note: ((m.querySelector('#mxNavExtNote') || {}).value || '').trim() || undefined,
+                  })
+                  .then(function () {
+                    mx.toast('External NAV recorded', currentRun.ref || 'Run');
+                    return loadNav();
+                  })
+                  .catch(mx.fail);
+              },
+            },
+          ],
         });
         return false;
       },

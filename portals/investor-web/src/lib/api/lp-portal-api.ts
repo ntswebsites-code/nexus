@@ -2,7 +2,13 @@ import { apiClient } from "./api-client"
 import { createIdempotencyKey } from "@/lib/lp-portal/format"
 import type { LpDataDomain } from "@/lib/lp-portal/config"
 import { loadLpFlags } from "@/lib/lp-portal/flags"
-import { mockLpPortalApi } from "@/lib/lp-portal/mock-api"
+
+/** Loaded on demand when a domain is not live — keeps the mock store out of the initial production bundle. */
+let mockApiPromise: Promise<typeof import("@/lib/lp-portal/mock-api").mockLpPortalApi> | null = null
+function loadMockLpPortalApi() {
+  if (!mockApiPromise) mockApiPromise = import("@/lib/lp-portal/mock-api").then((m) => m.mockLpPortalApi)
+  return mockApiPromise
+}
 
 // ── Envelopes ──────────────────────────────────────────────────────────
 
@@ -1449,14 +1455,16 @@ export const lpPortalApi = new Proxy(liveLpPortalApi, {
     if (typeof value !== "function") return value
 
     const live = (value as (...args: unknown[]) => unknown).bind(target)
-    const mockFn = (mockLpPortalApi as Record<string, unknown>)[name]
-    const mock = typeof mockFn === "function" ? (mockFn as (...args: unknown[]) => unknown).bind(mockLpPortalApi) : null
     const domain = LP_METHOD_DOMAIN[name]
 
     return async (...args: unknown[]) => {
       const flags = await loadLpFlags()
       const isLive = domain ? flags.lp[domain] === true : true
-      if (!isLive && mock) return mock(...args)
+      if (!isLive) {
+        const mockStore = await loadMockLpPortalApi()
+        const mockFn = (mockStore as Record<string, unknown>)[name]
+        if (typeof mockFn === "function") return (mockFn as (...args: unknown[]) => unknown).apply(mockStore, args)
+      }
       // Normalise count-like fields on the way out, so every screen sees numbers instead of each
       // call site having to remember to coerce. Blobs (downloads) are passed straight through.
       const res = await live(...args)

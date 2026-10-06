@@ -81,6 +81,9 @@ async function main() {
   const parsed = parseStatement('JSON', stmt.json, {});
   check('bank statement fake parses with the cash engine and foots', parsed.errors.length === 0 && statementVariance(parsed.opening!, parsed.closing!, parsed.lines).isZero(), parsed.errors);
   check('bank statement fake emits CAMT.053 XML', stmt.xml.includes('camt.053') && stmt.xml.includes('<Ntry>'));
+  const { isCamtStatement } = await import('../src/modules/custodian/custodian.cash-bridge');
+  const camtParsed = parseStatement('CAMT053', stmt.xml, {});
+  check('custodian CAMT bridge detects XML and parses via cash.engine', isCamtStatement(stmt.xml) && camtParsed.errors.length === 0 && camtParsed.accountRef === 'CLG-1001', camtParsed.errors);
   const code = fakeSsoCode('a@b.co');
   check('fake SSO code round-trips outside production', (await new FakeSso().completeLogin({ code })).email === 'a@b.co');
   check('fake SSO rejects a tampered code', await new FakeSso().completeLogin({ code: `${code}x` }).then(() => false, () => true));

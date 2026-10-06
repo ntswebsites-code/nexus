@@ -353,12 +353,42 @@ export interface InvesteeThread {
 
 export interface WorkspaceDocument {
   id: string;
+  ref?: string;
   fileName?: string;
   name?: string;
   documentType?: string;
   type?: string;
   isSubmitted?: boolean;
   uploadedAt?: string;
+  updatedAt?: string;
+  status?: string;
+  version?: number;
+}
+
+export interface VaultVersionEntry {
+  version: number;
+  fileName: string;
+  size: number | null;
+  mime: string;
+  sha256: string;
+  uploadedById: string | null;
+  uploadedAt: string;
+}
+
+export interface VaultVersions {
+  id: string;
+  ref: string;
+  name: string;
+  version: number;
+  versions: VaultVersionEntry[];
+}
+
+export interface VaultDownloadUrl {
+  url: string;
+  expiresIn: number;
+  name: string;
+  version: number;
+  inline: boolean;
 }
 
 export interface InvesteeApplication {
@@ -380,6 +410,27 @@ export interface InvesteeRequisition {
   estimatedAmount: number;
   needBy: string;
   createdByName: string;
+  createdById?: string;
+  createdAt?: string;
+  note?: string;
+  submittedAt?: string | null;
+  approvedAt?: string | null;
+  rfqSentAt?: string | null;
+  poRef?: string | null;
+  hoursPending?: number | null;
+  slaBreached?: boolean;
+  canResubmit?: boolean;
+}
+
+export interface TrancheLedger {
+  currency: string;
+  source: string;
+  configured: boolean;
+  committed: number;
+  reserved: number;
+  available: number;
+  approvedThisQuarter: number;
+  totalApproved: number;
 }
 
 export interface CapShareholder {
@@ -406,12 +457,74 @@ export interface GovernanceView {
   metrics: { pendingConsents: number; openActions: number };
 }
 
+export interface GovernanceFullView extends GovernanceView {
+  meetings?: unknown[];
+  metrics: GovernanceView['metrics'] & {
+    upcomingMeetings?: number;
+    complianceHealth?: { due: number; onTime: number; ratio: number | null };
+  };
+  reservedMatters: { name: string; detail: string; noticeDays: number }[];
+  calendar: { title: string; due: string; status: string; kind?: string }[];
+}
+
+export const FORECAST_INPUT_METRICS = [
+  'merchantRevenue',
+  'enterpriseRevenue',
+  'otherRevenue',
+  'processingCosts',
+  'supportLosses',
+  'salesMarketing',
+  'productEngineering',
+  'generalAdmin',
+  'operatingCash',
+  'capex',
+  'financing',
+  'openingCash',
+  'minimumCash',
+] as const;
+
+export type ForecastInputMetric = (typeof FORECAST_INPUT_METRICS)[number];
+export type ForecastCells = Partial<Record<ForecastInputMetric, Record<string, number>>>;
+
+export interface ForecastPnlMonth {
+  totalRevenue: number;
+  grossProfit: number;
+  ebitda: number;
+  ebitdaMargin: number;
+  openingCash: number;
+  operatingCash: number;
+  capex: number;
+  financing: number;
+  closingCash: number;
+  minimumCash: number;
+  liquidityHeadroom: number;
+}
+
 export interface ForecastView {
   scenario: string;
-  months: { key: string; label: string; stage: string }[];
+  months: { key: string; label: string; stage: string; locked?: boolean }[];
   actuals: Record<string, number | null>;
   forecast: Record<string, number | null>;
   scenarios: Record<string, { revenue: number; note: string }>;
+}
+
+export interface ForecastWorkingView extends ForecastView {
+  lockedPeriods: string[];
+  activeRevenue: number;
+  workingVersion: number;
+  latestSubmittedVersion: number | null;
+  submittedVersions: { versionNo: number; scenario: string; submittedAt: string; sha256: string }[];
+  cells: ForecastCells;
+  pnl: { firstForecastMonth: string; months: Record<string, ForecastPnlMonth>; annual: ForecastPnlMonth };
+}
+
+export interface ForecastVersionDetail {
+  versionNo: number;
+  scenario: string;
+  submittedAt: string;
+  sha256: string;
+  submittedBy: string;
+  data: { scenario: string; cells: ForecastCells; pnl: ForecastWorkingView['pnl'] };
 }
 
 export interface InvesteeTeamMember {

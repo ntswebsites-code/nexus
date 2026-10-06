@@ -52,6 +52,19 @@ export const RISK_PROFILES = ['LOW', 'MODERATE', 'HIGH'] as const;
 export const EVIDENCE_KINDS = ['MANDATE', 'APPROVAL', 'KYC', 'OTHER'] as const;
 const KPI_CURRENCY = 'USD';
 
+/** Latest LOCKED performance period per portfolio (one query for list KPIs and per-row TWR). */
+async function latestLockedTwrByPortfolio(ids: string[]) {
+  if (!ids.length) return new Map<string, { twrPct: Prisma.Decimal; periodEnd: Date }>();
+  const periods = await prisma.perfPeriod.findMany({
+    where: { portfolioId: { in: ids }, status: 'LOCKED' },
+    orderBy: { periodEnd: 'desc' },
+    select: { portfolioId: true, twrPct: true, periodEnd: true },
+  });
+  const latest = new Map<string, { twrPct: Prisma.Decimal; periodEnd: Date }>();
+  for (const p of periods) if (!latest.has(p.portfolioId)) latest.set(p.portfolioId, p);
+  return latest;
+}
+
 /**
  * FR-PORT-010: KPIs computed from the rows shown. AUM is each portfolio's market value converted to USD at the latest
  * rate (portfolios with no rate are named and left out, never guessed); weighted TWR is the AUM-weighted average of each
@@ -69,9 +82,7 @@ async function summaryKpis(rows: Awaited<ReturnType<typeof getPortfolioSummaries
     else usd.set(r.id, new Prisma.Decimal(r.marketValueBase).mul(rate));
   }
   const total = [...usd.values()].reduce((a, v) => a.add(v), new Prisma.Decimal(0));
-  const periods = ids.length ? await prisma.perfPeriod.findMany({ where: { portfolioId: { in: ids }, status: 'LOCKED' }, orderBy: { periodEnd: 'desc' }, select: { portfolioId: true, twrPct: true, periodEnd: true } }) : [];
-  const latest = new Map<string, (typeof periods)[number]>();
-  for (const p of periods) if (!latest.has(p.portfolioId)) latest.set(p.portfolioId, p);
+  const latest = await latestLockedTwrByPortfolio(ids);
   let wSum = new Prisma.Decimal(0);
   let wTwr = new Prisma.Decimal(0);
   let covered = 0;
@@ -146,7 +157,16 @@ portfolioRoutes.get('/portfolios', ...staff, requirePermission('portfolio.view')
     { q: f.q, type: f.type, currency: f.currency, status: f.status, clientId: f.clientId, managerUserId: f.mine ? req.user!.id : f.managerId, strategy: f.strategy, riskProfile: f.riskProfile },
     { asOf: asOfOf(f.asOf) },
   );
-  res.json({ data: rows, total: rows.length, ...(f.kpis ? { kpis: await summaryKpis(rows) } : {}) });
+  if (f.kpis) {
+    const latest = await latestLockedTwrByPortfolio(rows.map((r) => r.id));
+    const data = rows.map((r) => {
+      const p = latest.get(r.id);
+      return { ...r, latestTwrPct: p ? p.twrPct.toFixed(4) : null, latestTwrPeriodEnd: p ? p.periodEnd.toISOString().slice(0, 10) : null };
+    });
+    res.json({ data, total: data.length, kpis: await summaryKpis(rows) });
+    return;
+  }
+  res.json({ data: rows, total: rows.length });
 });
 
 /** Distinct strategies, risk profiles and managers present on portfolios, for the filter selects. */

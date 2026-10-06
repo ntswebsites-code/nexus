@@ -2,13 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Tracker } from '@/components/Tracker';
 import { ResumePage, ResumePanel } from '@/components/ResumePanel';
 import { expectBody, expectCalled, expectNotCalled, fail, mockApi, raw, screen, waitFor, within } from '../_helpers';
+import { resetNavigateHandler, setNavigateHandler } from '@/lib/api';
 import { application, evidenceRow, meta, P, pdf, renderApp, seedSession, SESSION_KEY, storedSession, stubLocation, userAnyFile } from './_support';
 
-const realLocation = window.location;
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  localStorage.clear();
+  resetNavigateHandler();
+});
 afterEach(() => {
   vi.useRealTimers();
-  Object.defineProperty(window, 'location', { configurable: true, value: realLocation });
   localStorage.clear();
 });
 
@@ -234,7 +236,9 @@ describe('onboarding: resume by email and by link', () => {
   });
 
   it('/resume?link=: nothing is exchanged until the explicit click (mail scanners cannot burn the link); the click stores the session and goes to the wizard', async () => {
-    const loc = stubLocation('?link=one-time-token');
+    stubLocation('?link=one-time-token');
+    const go = vi.fn();
+    setNavigateHandler(go);
     const api = mockApi({ [`POST ${P}/onboarding/resume`]: raw({ id: 'app-3', token: 'tok-3' }) });
     const { user } = renderApp(<ResumePage />);
     const btn = await screen.findByRole('button', { name: 'Continue my application' });
@@ -242,7 +246,7 @@ describe('onboarding: resume by email and by link', () => {
     await user.click(btn);
     const [req] = await waitFor(() => expectCalled(api, `POST ${P}/onboarding/resume`));
     expectBody(req, { link: 'one-time-token' });
-    await waitFor(() => expect(loc.replace).toHaveBeenCalledWith('/'));
+    await waitFor(() => expect(go).toHaveBeenCalledWith('/'));
     expect(storedSession()).toEqual({ id: 'app-3', token: 'tok-3' });
   });
 

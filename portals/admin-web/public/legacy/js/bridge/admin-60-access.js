@@ -126,51 +126,14 @@
   );
 
   // ------------------------------------------------------------ RBAC matrix & users
-
-  mx.wrapGlobal('togglePermissionV8', function (original, args) {
-    var role = args[0], code = args[1], button = args[2];
-    if (!mx.live || role === 'system_admin') return original.apply(this, args);
-    var current = (rolePermissions[role] || []).slice();
-    var i = current.indexOf(code);
-    if (i >= 0) current.splice(i, 1);
-    else current.push(code);
-    return mx.put(V1 + '/roles/' + encodeURIComponent(role) + '/permissions', { permissions: current }).then(function (r) {
-      rolePermissions[role] = r.role.permissions;
-      if (button) button.classList.toggle('on', i < 0);
-      call('applyRBAC', false);
-      call('renderSodV8');
-      toast('Permission updated', roleLabels[role] + ' ' + (i >= 0 ? 'no longer has' : 'now has') + ' ' + code + '. Change recorded in the audit trail.');
-    }, function (e) {
-      mx.fail(e);
-      call('renderRbacMatrix');
-    });
-  });
+  // Live matrix toggles and role assignment are handled in admin-61-access-depth.js
+  // (maker-checker change requests). Demo-only preview uses the prototype originals.
 
   function refreshUsers(data) {
     mx.replace(rbacUsersV8, data);
     call('renderRbacUsersV8');
     call('renderSodV8');
   }
-
-  mx.wrapGlobal('assignUserRoleV8', function (original, args) {
-    if (!mx.live) return original.apply(this, args);
-    var u = rbacUsersV8[args[0]], role = args[1];
-    if (!u || !roleLabels[role]) return;
-    if (String(u.id || '').indexOf('invite:') === 0) {
-      toast('Invitation pending', u.email + ' has not accepted yet. Revoke and re-invite to change the role.', 'warn');
-      return call('renderRbacUsersV8');
-    }
-    if (u.role === 'system_admin' && role !== 'system_admin' && !confirm('Remove this user from the protected System Administrator role?')) return call('renderRbacUsersV8');
-    if (role === 'system_admin' && u.role !== 'system_admin' && !confirm('Assign privileged System Administrator access? This role remains platform-only and has no monetary transaction permissions.')) return call('renderRbacUsersV8');
-    var roles = [role].concat((u.roles || []).filter(function (k) { return k !== u.role && k !== role; }));
-    return mx.put(V1 + '/users/' + encodeURIComponent(u.id) + '/roles', { roles: roles }).then(function (r) {
-      refreshUsers(r.data);
-      toast('User role updated', u.name + ' is now assigned to ' + roleLabels[role] + '.');
-    }, function (e) {
-      mx.fail(e);
-      call('renderRbacUsersV8');
-    });
-  });
 
   mx.wrapGlobal('renderRbacUsersV8', function (original, args) {
     var result = original.apply(this, args);
@@ -289,6 +252,8 @@
   );
 
   // ------------------------------------------------------------ settings
+  // `platformSettingsV8` = workspace UI prefs (density, defaults, letterhead) via PUT /api/v1/admin/settings.
+  // Enforced platform flags (email, retention, feature flags) live in admin-core: use the Platform settings drawer (admin-61).
 
   mx.wrapGlobal('saveSettingsV8', function (original, args) {
     if (!mx.live) return original.apply(this, args);

@@ -27,9 +27,13 @@ filesRoutes.get('/files/:id/download', async (req, res) => {
     throw HttpError.forbidden('This download link is invalid or has expired', 'invalid_signature');
   }
   const { file, data } = await readFileObject(id);
+  const wantInline = req.query.inline === '1';
+  const previewable = /^(application\/pdf|image\/(png|jpe?g|gif|webp)|text\/(plain|csv))/i.test(file.mime);
+  const disposition = wantInline && previewable ? 'inline' : 'attachment';
   res.setHeader('Content-Type', file.mime);
   res.setHeader('Content-Length', String(data.length));
-  res.setHeader('Content-Disposition', `attachment; filename="${file.name.replace(/[^\w.\- ]+/g, '_')}"`);
+  res.setHeader('Content-Disposition', `${disposition}; filename="${file.name.replace(/[^\w.\- ]+/g, '_')}"`);
   res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.end(data);
 });

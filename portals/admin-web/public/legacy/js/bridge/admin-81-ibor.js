@@ -9,6 +9,40 @@
   var refreshTimer = null;
   var COLUMN_GROUPS = ['position', 'settlement', 'valuation', 'cost', 'availability', 'control'];
   var columnGroups = COLUMN_GROUPS.slice();
+  /** Column indices in `.ibor-table` (security/portfolio/asset + actions always visible). */
+  var IBOR_COL_BY_GROUP = {
+    position: [3],
+    settlement: [4, 5],
+    valuation: [6, 7],
+    cost: [8, 9],
+    availability: [10],
+    control: [11],
+  };
+  var IBOR_ALWAYS_COLS = [0, 1, 2, 12];
+
+  function liveIbor() {
+    return mx.live && mx.strict('ibor');
+  }
+
+  function clearIborChrome() {
+    document.querySelectorAll('#page-ibor .platform-control-bar strong').forEach(function (el) {
+      el.textContent = '—';
+      el.className = '';
+    });
+    document.querySelectorAll('#page-ibor .ibor-stat-line strong').forEach(function (el) {
+      el.textContent = '—';
+      el.className = '';
+    });
+    document.querySelectorAll('#page-ibor .ibor-stat-line small').forEach(function (el) {
+      el.textContent = 'Loading…';
+    });
+    var ladder = document.querySelector('#page-ibor .settlement-ladder');
+    if (ladder) ladder.innerHTML = '<div><span>—</span><strong>—</strong><small>Loading…</small></div>';
+    var checklist = document.querySelector('#page-ibor .control-checklist');
+    if (checklist) checklist.innerHTML = '<div><span>…</span><p><strong>Loading book health</strong><small>Fetching controls from IBOR.</small></p></div>';
+    var fc = document.getElementById('iborCount');
+    if (fc) fc.textContent = 'Loading positions…';
+  }
 
   function getEnvelope(path) {
     return fetch(mx.api + path, { credentials: 'include', headers: { Accept: 'application/json' } }).then(function (r) {
@@ -138,6 +172,35 @@
       .join('');
   }
 
+  function applyIborColumnVisibility() {
+    var table = document.querySelector('#page-ibor .ibor-table');
+    if (!table) return;
+    var visible = {};
+    IBOR_ALWAYS_COLS.forEach(function (i) {
+      visible[i] = true;
+    });
+    columnGroups.forEach(function (g) {
+      (IBOR_COL_BY_GROUP[g] || []).forEach(function (i) {
+        visible[i] = true;
+      });
+    });
+    table.querySelectorAll('tr').forEach(function (tr) {
+      for (var i = 0; i < tr.children.length; i++) {
+        tr.children[i].style.display = visible[i] ? '' : 'none';
+      }
+    });
+  }
+
+  function wrapRenderIborColumns() {
+    if (window.__mxIborColsWrapped || typeof window.renderIbor !== 'function') return;
+    window.__mxIborColsWrapped = true;
+    var orig = window.renderIbor;
+    window.renderIbor = function () {
+      orig();
+      if (liveIbor()) applyIborColumnVisibility();
+    };
+  }
+
   function syncIborTable() {
     if (typeof institutionalPositions === 'undefined') return;
     mx.replace(
@@ -145,6 +208,125 @@
       mx.data.institutionalPositions || [],
     );
     if (typeof renderIbor === 'function') renderIbor();
+    else applyIborColumnVisibility();
+    var fc = document.getElementById('iborCount');
+    var n = (mx.data.institutionalPositions || []).length;
+    if (fc) fc.textContent = n + ' position' + (n === 1 ? '' : 's');
+  }
+
+  function portfolioPicker(title, subtitle) {
+    return mx.get('/api/v1/portfolios').then(function (rows) {
+      var list = Array.isArray(rows) ? rows : rows.data || [];
+      if (!list.length) {
+        mx.toast('IBOR', 'No portfolios available.', 'warn');
+        return null;
+      }
+      return new Promise(function (resolve) {
+        mx.modal({
+          eyebrow: 'IBOR',
+          title: title,
+          subtitle: subtitle,
+          body:
+            '<form id="mxIborPick"><label class="v34-field"><span>Portfolio</span><select class="v34-select" name="portfolioId" required>' +
+            list
+              .map(function (p) {
+                return '<option value="' + mx.esc(p.id) + '">' + mx.esc(p.name) + ' (' + mx.esc(p.ref) + ')</option>';
+              })
+              .join('') +
+            '</select></label></form>',
+          actions: [
+            { label: 'Cancel', run: function () { resolve(null); } },
+            {
+              label: 'Continue',
+              primary: true,
+              run: function (m) {
+                resolve(m.querySelector('[name=portfolioId]').value);
+                return false;
+              },
+            },
+          ],
+        });
+      });
+    });
+  }
+
+  function openEventsModal() {
+    var qs = mx.qs({
+      portfolioId: iborFilters.portfolioId || undefined,
+      limit: '50',
+    });
+    return getEnvelope('/api/v1/ibor/events' + qs).then(function (res) {
+      var rows = res.data || res || [];
+      mx.modal({
+        eyebrow: 'IBOR · EVENTS',
+        title: 'Position events',
+        subtitle: (rows.length || 0) + ' recent event(s)',
+        wide: true,
+        body:
+          rows.length
+            ? '<div class="table-wrap"><table class="data-table"><thead><tr><th>Ref</th><th>Type</th><th>Portfolio</th><th>Security</th><th>Qty Δ</th><th>Effective</th></tr></thead><tbody>' +
+              rows
+                .map(function (e) {
+                  return (
+                    '<tr><td>' +
+                    mx.esc(e.ref) +
+                    '</td><td>' +
+                    mx.esc(e.type) +
+                    '</td><td>' +
+                    mx.esc(e.portfolioRef || '—') +
+                    '</td><td>' +
+                    mx.esc(e.ticker || '—') +
+                    '</td><td>' +
+                    mx.esc(e.quantityDelta || '—') +
+                    '</td><td>' +
+                    mx.esc(e.effectiveDate || '—') +
+                    '</td></tr>'
+                  );
+                })
+                .join('') +
+              '</tbody></table></div>'
+            : '<p>No IBOR events returned for this scope.</p>',
+        actions: [{ label: 'Close', primary: true, run: function () {} }],
+      });
+    });
+  }
+
+  function openLotsModal() {
+    return portfolioPicker('Tax lots', 'Lots for a portfolio security book').then(function (pid) {
+      if (!pid) return;
+      return getEnvelope('/api/v1/ibor/lots' + mx.qs({ portfolioId: pid, status: 'OPEN' })).then(function (res) {
+        var rows = (res.data || []).slice(0, 80);
+        mx.modal({
+          eyebrow: 'IBOR · LOTS',
+          title: 'Open tax lots',
+          subtitle: rows.length + ' lot row(s)',
+          wide: true,
+          body:
+            rows.length
+              ? '<div class="table-wrap"><table class="data-table"><thead><tr><th>Security</th><th>Qty</th><th>Cost</th><th>Opened</th><th>Status</th></tr></thead><tbody>' +
+                rows
+                  .map(function (l) {
+                    return (
+                      '<tr><td>' +
+                      mx.esc(l.ticker || l.securityId || '—') +
+                      '</td><td>' +
+                      mx.esc(l.remainingQty || '—') +
+                      '</td><td>' +
+                      mx.esc(l.costRemaining || l.unitCost || '—') +
+                      '</td><td>' +
+                      mx.esc(l.openedOn || '—') +
+                      '</td><td>' +
+                      mx.esc(l.status || 'OPEN') +
+                      '</td></tr>'
+                    );
+                  })
+                  .join('') +
+                '</tbody></table></div>'
+              : '<p>No open lots for this portfolio.</p>',
+          actions: [{ label: 'Close', primary: true, run: function () {} }],
+        });
+      });
+    });
   }
 
   function loadIbor() {
@@ -207,7 +389,10 @@
     return getEnvelope('/api/v1/views?scope=ibor.columns')
       .then(function (views) {
         var g = (views.data && views.data[0] && views.data[0].config && views.data[0].config.groups) || null;
-        if (g && g.length) columnGroups = g;
+        if (g && g.length)
+          columnGroups = g.filter(function (x) {
+            return COLUMN_GROUPS.indexOf(x) >= 0;
+          });
       })
       .catch(function () {
         return undefined;
@@ -216,10 +401,12 @@
 
   mx.hydrate('ibor', function () {
     if (!mx.strict('ibor')) return Promise.resolve();
+    if (liveIbor()) clearIborChrome();
     return loadIbor();
   });
 
   window.addEventListener('matanho:legacy-ready', function () {
+    wrapRenderIborColumns();
     ['iborSearch', 'iborAssetFilter', 'iborStateFilter'].forEach(function (id) {
       var el = document.getElementById(id);
       if (!el) return;
@@ -358,6 +545,7 @@
                   return mx
                     .put('/api/v1/views', { scope: 'ibor.columns', name: 'default', isDefault: true, config: { groups: next } })
                     .then(function () {
+                      applyIborColumnVisibility();
                       mx.toast('Columns saved', next.length + ' group(s)');
                       resolve(true);
                     });
@@ -372,6 +560,22 @@
           return mx.live && mx.strict('ibor');
         },
       },
+    );
+
+    mx.intercept(
+      '[data-action="ibor-events"]',
+      function () {
+        return openEventsModal().catch(mx.fail);
+      },
+      { when: function () { return liveIbor(); } },
+    );
+
+    mx.intercept(
+      '[data-action="ibor-lots"]',
+      function () {
+        return openLotsModal().catch(mx.fail);
+      },
+      { when: function () { return liveIbor(); } },
     );
 
     mx.intercept(

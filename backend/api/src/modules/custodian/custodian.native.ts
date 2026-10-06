@@ -12,6 +12,7 @@ import { validateBody } from '../../middleware/validate';
 import { IntegrationNotConfiguredError, dayFromIso, isoDay, lastWeekdayOnOrBefore } from '../../integrations/common';
 import { custodianFeedMode, getCustodianFeedAdapter } from '../../integrations/custodian-feed';
 import { ingestStatementFile } from '../../integrations/custodian-feed/file-drop';
+import { checkCamtStatement, ingestCamtStatement, isCamtStatement } from './custodian.cash-bridge';
 import { fakeStatementFile } from '../../integrations/custodian-feed/fake';
 import { StatementParseError, parseStatements } from '../../integrations/custodian-feed/parsers';
 import { createInvitation } from '../identity/invitations';
@@ -121,7 +122,7 @@ custodianNativeRoutes.get('/day-end/:id/controls', async (req, res) => {
 const statementSchema = z.object({
   filename: z.string().trim().min(1).max(200),
   content: z.string().min(1).max(1_000_000),
-  format: z.enum(['CSV', 'MT940', 'JSON']).optional(),
+  format: z.enum(['CSV', 'MT940', 'JSON', 'CAMT053']).optional(),
 });
 
 function assertUploadChannel() {
@@ -132,6 +133,7 @@ function assertUploadChannel() {
 
 /** Parses a statement file and checks it against this counterparty: account scope, dates, currencies, locked days. */
 async function checkStatement(counterpartyId: string, accounts: string[], b: z.infer<typeof statementSchema>) {
+  if (isCamtStatement(b.content, b.format)) return checkCamtStatement(counterpartyId, accounts, b.content);
   let statements;
   try {
     statements = parseStatements(b.content, b.format);
@@ -191,38 +193,58 @@ custodianNativeRoutes.post('/statements', requirePermission('custodian.dayend.su
   const b = req.body as z.infer<typeof statementSchema>;
   const checked = await checkStatement(c.id, c.accounts, b);
   if (checked.problems.length) throw new HttpError(422, 'statement_rejected', checked.problems.slice(0, 3).join('; '), { problems: checked.problems, statements: checked.statements });
-  const result = await ingestStatementFile({ counterpartyId: c.id, filename: b.filename, content: b.content, format: b.format, userId: req.user!.id, audit: audit(req), adapter: custodianFeedMode() });
+  const result = isCamtStatement(b.content, b.format)
+    ? await ingestCamtStatement({ counterpartyId: c.id, filename: b.filename, content: b.content, userId: req.user!.id, audit: audit(req), adapter: custodianFeedMode() })
+    : await ingestStatementFile({ counterpartyId: c.id, filename: b.filename, content: b.content, format: b.format, userId: req.user!.id, audit: audit(req), adapter: custodianFeedMode() });
 
-  // Fix each created package's fingerprint to the portal's canonical form so the approval integrity check passes.
-  const refs = result.statements.map((s) => s.dayEndRef).filter((x): x is string => !!x);
+  const camt = isCamtStatement(b.content, b.format);
+  const refs = camt ? [] : result.statements.map((s) => ('dayEndRef' in s ? s.dayEndRef : null)).filter((x): x is string => !!x);
   const packages = refs.length ? await prisma.counterpartyDayEndPackage.findMany({ where: { counterpartyId: c.id, ref: { in: refs }, status: 'Received' } }) : [];
   const approvers = (await prisma.counterpartyUser.findMany({ where: { counterpartyId: c.id, status: 'active', role: 'approver', userId: { not: req.user!.id } }, select: { userId: true } })).map((r) => r.userId);
   await prisma.$transaction(async (tx) => {
-    for (const p of packages) {
-      const sha = await packageHash(p, c.ref);
-      if (sha !== p.sha256) await tx.counterpartyDayEndPackage.update({ where: { id: p.id }, data: { sha256: sha } });
+    if (!camt) {
+      for (const p of packages) {
+        const sha = await packageHash(p, c.ref);
+        if (sha !== p.sha256) await tx.counterpartyDayEndPackage.update({ where: { id: p.id }, data: { sha256: sha } });
+      }
+      await writeAudit(tx, audit(req), {
+        action: 'custodian.statement.uploaded',
+        objectType: 'custodian_feed_file',
+        objectId: result.fileId,
+        after: {
+          counterparty: c.ref,
+          filename: b.filename,
+          format: result.format,
+          mode: custodianFeedMode(),
+          packages: refs,
+          statements: result.statements.map((s) => ({ account: s.accountRef, date: s.statementDate, trades: 'tradesImported' in s ? s.tradesImported : s.trades, holdings: s.holdings })),
+        },
+      });
+      if (refs.length && approvers.length) {
+        await enqueue(tx, 'notify.users', {
+          userIds: approvers,
+          type: 'custodian.dayend.submitted',
+          title: `Statement ${b.filename} produced ${refs.length} day-end package${refs.length === 1 ? '' : 's'} awaiting approval`,
+          body: refs.join(', '),
+        } satisfies NotifyUsersPayload);
+      }
+      await enqueue(tx, 'notify.permission', {
+        permission: 'custodian.review',
+        type: 'custodian.statement.uploaded',
+        title: `${c.name}: statement ${b.filename} uploaded`,
+        body: result.statements.map((s) => `${s.accountRef} ${s.statementDate}`).slice(0, 10).join(', '),
+        link: '/ops/custodian',
+      } satisfies NotifyPermissionPayload);
+    } else {
+      const cashRef = 'cashImportRef' in result ? result.cashImportRef : '';
+      await enqueue(tx, 'notify.permission', {
+        permission: 'cash.journal.approve',
+        type: 'custodian.camt.uploaded',
+        title: `${c.name}: CAMT ${b.filename} staged for cash recon`,
+        body: cashRef,
+        link: '/ops/cash',
+      } satisfies NotifyPermissionPayload);
     }
-    await writeAudit(tx, audit(req), {
-      action: 'custodian.statement.uploaded',
-      objectType: 'custodian_feed_file',
-      objectId: result.fileId,
-      after: { counterparty: c.ref, filename: b.filename, format: result.format, mode: custodianFeedMode(), packages: refs, statements: result.statements.map((s) => ({ account: s.accountRef, date: s.statementDate, trades: s.tradesImported, holdings: s.holdings })) },
-    });
-    if (refs.length && approvers.length) {
-      await enqueue(tx, 'notify.users', {
-        userIds: approvers,
-        type: 'custodian.dayend.submitted',
-        title: `Statement ${b.filename} produced ${refs.length} day-end package${refs.length === 1 ? '' : 's'} awaiting approval`,
-        body: refs.join(', '),
-      } satisfies NotifyUsersPayload);
-    }
-    await enqueue(tx, 'notify.permission', {
-      permission: 'custodian.review',
-      type: 'custodian.statement.uploaded',
-      title: `${c.name}: statement ${b.filename} uploaded`,
-      body: result.statements.map((s) => `${s.accountRef} ${s.statementDate}`).slice(0, 10).join(', '),
-      link: '/ops/custodian',
-    } satisfies NotifyPermissionPayload);
   });
   res.status(201).json({ data: result });
 });
@@ -260,7 +282,7 @@ custodianNativeRoutes.get('/statements', async (_req, res) => {
     if (e instanceof IntegrationNotConfiguredError) adapterError = e.message;
     else throw e;
   }
-  res.json({ mode, formats: ['CSV', 'MT940', 'JSON'], adapterError, files: files.map(fileRow), statements });
+  res.json({ mode, formats: ['CSV', 'MT940', 'JSON', 'CAMT053'], adapterError, files: files.map(fileRow), statements });
 });
 
 custodianNativeRoutes.get('/statements/template/:format', (req, res) => {

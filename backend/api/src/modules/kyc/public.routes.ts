@@ -18,6 +18,7 @@ import { validateBody } from '../../middleware/validate';
 import { uploadFiles, uploadedFiles } from '../../middleware/upload';
 import { EVIDENCE_SLOTS, SLOT_KEYS, V65_SLOT_MAP, requiredSlots, slaDue, type EvidenceSlot } from './constants';
 import { addEvent } from './kyc.service';
+import { applicationReadiness, runDraftTriage } from './readiness';
 import { onboardingExtraRoutes } from './public-extra.routes';
 
 /**
@@ -422,7 +423,21 @@ publicOnboardingRoutes.post('/applications/:id/submit', validateBody(submitSchem
     });
     return { ref, caseRef };
   });
-  res.json({ ref: result.ref, status: 'Submitted', screening: 'Queued' });
+  const readiness = applicationReadiness(app, await evidenceList(app.id));
+  res.json({ ref: result.ref, status: 'Submitted', screening: 'Queued', readiness: { score: readiness.score, riskBand: readiness.riskBand } });
+});
+
+/** SRD 5.C.0: server-computed readiness score and checks for the draft wizard panel. */
+publicOnboardingRoutes.get('/applications/:id/readiness', async (req, res) => {
+  const app = await draftFor(req);
+  res.json({ readiness: applicationReadiness(app, await evidenceList(app.id)) });
+});
+
+/** Advisory AI pre-screen for the applicant draft (fake LLM adapter in dev; never decides the case). */
+publicOnboardingRoutes.post('/applications/:id/triage', async (req, res) => {
+  const app = await draftFor(req);
+  const data = await runDraftTriage(app, await evidenceList(app.id));
+  res.status(201).json({ data });
 });
 
 // Resume links, status tracker, applicant reply and wizard metadata (R4-6).

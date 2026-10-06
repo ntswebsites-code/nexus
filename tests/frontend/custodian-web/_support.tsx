@@ -1,5 +1,6 @@
 import type { ReactElement } from 'react';
 import { vi } from 'vitest';
+import { resetAssignHandler, setAssignHandler } from '@/lib/api';
 import { Shell } from '@/components/Shell';
 import { ok, raw, renderWithProviders, type Routes } from '../_helpers';
 
@@ -29,12 +30,14 @@ export function renderPortal(page: ReactElement) {
   return renderWithProviders(<Shell>{page}</Shell>);
 }
 
-/** Replaces window.location (jsdom cannot navigate); returns the spies. */
+/** Sets pathname/search via history API; returns assign/replace spies wired through setAssignHandler. */
 export function stubLocation(pathname = '/', search = '') {
   const assign = vi.fn();
   const replace = vi.fn();
-  Object.defineProperty(window, 'location', { configurable: true, value: { pathname, search, assign, replace, href: `http://localhost${pathname}${search}` } });
-  return { assign, replace };
+  const path = `${pathname}${search}` || '/';
+  window.history.replaceState(null, '', path);
+  setAssignHandler(assign);
+  return { assign, replace, reset: resetAssignHandler };
 }
 
 export const execution = (over: Record<string, unknown> = {}) => ({

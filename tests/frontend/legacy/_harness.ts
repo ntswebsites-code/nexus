@@ -15,7 +15,7 @@ const legacyJs = path.join(adminRoot, 'public/legacy/js');
 const markupDir = path.join(adminRoot, 'src/legacy/markup');
 
 export interface LegacyHarnessOptions {
-  fragment?: string;
+  fragment?: string | 'none';
   bridges?: string[] | 'all' | 'none';
   scripts?: string[];
   routes?: Record<string, unknown>;
@@ -77,7 +77,9 @@ export function loadLegacyHarness(opts: LegacyHarnessOptions = {}): MockApi {
   });
 
   (window as unknown as { __MATANHO_API__: string }).__MATANHO_API__ = 'http://localhost:4100';
-  document.body.innerHTML = readText(path.join(markupDir, fragment));
+  if (fragment !== 'none') {
+    document.body.innerHTML = readText(path.join(markupDir, fragment));
+  }
 
   for (const f of bridgeFiles(opts.bridges)) runScript(readText(path.join(bridgePub, f)));
   for (const f of opts.scripts ?? []) runScript(readText(path.join(legacyJs, f)));
@@ -101,4 +103,75 @@ export function focusedNavPages(): string[] {
     .filter((el) => !el.classList.contains('hidden-by-rbac'))
     .map((el) => el.getAttribute('data-page')!)
     .filter(Boolean);
+}
+
+/** Minimal prototype globals for shell bridge tests. */
+export function stubLegacyShellGlobals() {
+  const w = window as unknown as Record<string, unknown>;
+  w.state = { role: 'system_admin' };
+  w.roleLabels = { system_admin: 'System Administrator' };
+  w.navigate = (page: string) => {
+    w.__lastNavigate = page;
+  };
+  w.openDrawer = (opts: { title?: string; body?: string }) => {
+    w.__lastDrawer = opts;
+    const body = document.getElementById('drawerBody');
+    const title = document.getElementById('drawerTitle');
+    if (title && opts.title) title.textContent = opts.title;
+    if (body && opts.body) body.innerHTML = opts.body;
+  };
+  w.closeDrawer = () => {
+    w.__lastDrawer = null;
+  };
+  w.v17CloseCommand = () => {
+    const b = document.getElementById('v17CommandBackdrop');
+    b?.classList.remove('show');
+  };
+  w.v17OpenCommand = () => {
+    const b = document.getElementById('v17CommandBackdrop');
+    const i = document.getElementById('v17CommandInput') as HTMLInputElement | null;
+    b?.classList.add('show');
+    if (i) i.value = '';
+    if (typeof w.v17RenderCommands === 'function') (w.v17RenderCommands as (q?: string) => void)('');
+  };
+  w.v17RenderCommands = (q = '') => {
+    const host = document.getElementById('v17CommandList');
+    if (host) host.innerHTML = `<div class="v17-command-item">${q || 'static'}</div>`;
+  };
+}
+
+/** Load shell fragments, run admin boot, dispatch legacy-ready. */
+export async function bootLegacyShell(opts: LegacyHarnessOptions = {}): Promise<MockApi> {
+  const drawer = readText(path.join(markupDir, '38-detaildrawer.html'));
+  const topbar = readText(path.join(markupDir, '05-header-topbar.html'));
+  const sidebar = readText(path.join(markupDir, '03-sidebar.html'));
+  const user = opts.user ?? {
+    name: 'Test Admin',
+    email: 'admin@test.local',
+    permissions: ['dashboard.view', 'operations.view', 'orders.view'],
+  };
+  const api = mockApi({
+    'GET /api/auth/me': raw({ user }),
+    'GET /api/v1/admin/access-context': ok({
+      roles: ['system_admin'],
+      role: 'system_admin',
+      roleLabels: { system_admin: 'System Administrator' },
+      rolePermissions: { system_admin: user.permissions },
+    }),
+    ...(opts.routes ?? {}),
+  });
+  (window as unknown as { __MATANHO_API__: string }).__MATANHO_API__ = 'http://localhost:4100';
+  document.body.innerHTML = sidebar + topbar + drawer;
+  stubLegacyShellGlobals();
+  for (const f of bridgeFiles(opts.bridges ?? ['mx-core.js', 'admin-00-common.js', 'admin-70-shell.js', 'admin-99-boot.js'])) {
+    runScript(readText(path.join(bridgePub, f)));
+  }
+  document.body.insertAdjacentHTML(
+    'beforeend',
+    '<div class="v17-command-backdrop" id="v17CommandBackdrop"><section class="v17-command"><input id="v17CommandInput"><div id="v17CommandList"></div></section></div>',
+  );
+  const ready = (window as unknown as { __matanhoBridgeReady?: Promise<void> }).__matanhoBridgeReady;
+  if (ready) await ready;
+  window.dispatchEvent(new CustomEvent('matanho:legacy-ready'));
+  return api;
 }

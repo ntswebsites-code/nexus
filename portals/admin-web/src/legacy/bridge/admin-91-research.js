@@ -6,6 +6,7 @@
   var mx = window.mx;
   var caseByTicker = {};
   var securities = [];
+  var icDecisions = [];
 
   function getEnvelope(path) {
     return fetch(mx.api + path, { credentials: 'include', headers: { Accept: 'application/json' } }).then(function (r) {
@@ -125,14 +126,105 @@
     };
   }
 
+  function openFilingImportModal() {
+    if (!mx.can('research.edit')) {
+      mx.toast('Access restricted', 'You need research.edit to import issuer filings.', 'error');
+      return;
+    }
+    var ticker = selectedTicker();
+    var c = ticker ? caseForTicker(ticker) : null;
+    if (!c || !c.securityId) {
+      mx.toast('Select issuer', 'Choose a covered security before importing a filing.', 'warn');
+      return;
+    }
+    var today = new Date().toISOString().slice(0, 10);
+    mx.modal({
+      eyebrow: 'RESEARCH · FILING',
+      title: 'Import issuer filing · ' + (ticker || ''),
+      body:
+        '<form id="mxFilingImport"><label class="v34-field"><span>Filing type</span><select class="v34-select" name="filingType" required><option value="ANNUAL_REPORT">Annual report</option><option value="INTERIM_REPORT">Interim report</option><option value="TRADING_UPDATE">Trading update</option><option value="CIRCULAR">Circular</option><option value="PROSPECTUS">Prospectus</option><option value="OTHER">Other</option></select></label><label class="v34-field"><span>Title</span><input class="v34-input" name="title" required minlength="3" placeholder="FY2025 annual report"></label><label class="v34-field"><span>Filed on</span><input class="v34-input" type="date" name="filedOn" required value="' +
+        mx.esc(today) +
+        '"></label><label class="v34-field"><span>Source</span><input class="v34-input" name="source" required minlength="2" value="Issuer website"></label><label class="v34-field"><span>Period (optional)</span><input class="v34-input" name="period" maxlength="16" placeholder="FY2025"></label><label class="v34-field wide"><span>Filing file</span><input class="v34-input" type="file" name="file" required accept=".pdf,.doc,.docx,.xlsx,.xls,.csv,.txt,.png,.jpg"></label></form>',
+      actions: [
+        { label: 'Cancel', run: function () {} },
+        {
+          label: 'Import filing',
+          primary: true,
+          run: function (m) {
+            var form = m.querySelector('#mxFilingImport');
+            var fd = new FormData(form);
+            var file = fd.get('file');
+            if (!file || !file.name) {
+              mx.toast('File required', 'Attach the filing document.', 'warn');
+              return;
+            }
+            var upload = new FormData();
+            upload.append('filingType', fd.get('filingType'));
+            upload.append('title', fd.get('title'));
+            upload.append('filedOn', fd.get('filedOn'));
+            upload.append('source', fd.get('source'));
+            if (fd.get('period')) upload.append('period', fd.get('period'));
+            upload.append('file', file, file.name);
+            return mx
+              .post('/api/v1/research/issuers/' + encodeURIComponent(c.securityId) + '/filings', upload)
+              .then(function () {
+                mx.toast('Filing imported', (fd.get('title') || 'Filing') + ' stored in the issuer vault.');
+                return loadIssuerDepth(ticker);
+              })
+              .catch(mx.fail);
+          },
+        },
+      ],
+    });
+  }
+
+  function clearResearchChrome() {
+    var bar = document.querySelector('#page-research .research-sourcebar-v7');
+    if (bar) {
+      var cells = bar.querySelectorAll('div');
+      [1, 2, 3, 4].forEach(function (i) {
+        if (cells[i]) {
+          var s = cells[i].querySelector('strong');
+          if (s) s.textContent = '—';
+        }
+      });
+    }
+    ['researchAvatar', 'researchCompanyName', 'researchTicker', 'researchSector', 'researchExchange', 'researchSpotPrice', 'researchSpotChange', 'researchTarget', 'researchUpside', 'researchConviction'].forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) el.textContent = '—';
+    });
+    var rec = document.getElementById('researchRecommendation');
+    if (rec) {
+      rec.textContent = '—';
+      rec.className = 'outline-status';
+    }
+    var asOf = document.getElementById('researchSpotAsOf');
+    if (asOf) asOf.textContent = 'Loading coverage…';
+    var thesis = document.getElementById('researchThesisText');
+    if (thesis) thesis.textContent = '';
+  }
+
   function renderSummaryBar(summary) {
     var bar = document.querySelector('#page-research .research-sourcebar-v7');
     if (!bar || !summary) return;
     var cells = bar.querySelectorAll('div');
-    if (cells[1]) cells[1].querySelector('strong').textContent = String(summary.cases ? summary.cases.published : 0) + ' published cases';
-    if (cells[2]) cells[2].querySelector('strong').textContent = String(summary.openDecisions || 0) + ' open';
-    if (cells[3]) cells[3].querySelector('strong').textContent = String(summary.awaitingRatification || 0);
-    if (cells[4]) cells[4].querySelector('strong').textContent = String(summary.awaitingMyVote || summary.openDecisions || 0);
+    var published = summary.cases ? summary.cases.published : 0;
+    var inReview = summary.cases ? (summary.cases.inReview || 0) + (summary.cases.draft || 0) : summary.myOpenCases || 0;
+    if (cells[1]) cells[1].querySelector('strong').textContent = String(published) + ' published';
+    if (cells[2]) cells[2].querySelector('strong').textContent = String(published) + ' loaded';
+    if (cells[3]) {
+      var review = cells[3].querySelector('strong');
+      if (review) {
+        review.textContent = String(inReview);
+        review.className = inReview ? 'attention-text' : '';
+      }
+    }
+    if (cells[4]) {
+      cells[4].setAttribute('data-mx-ic-queue', '1');
+      cells[4].style.cursor = 'pointer';
+      var queue = summary.openDecisions != null ? summary.openDecisions : icDecisions.length;
+      cells[4].querySelector('strong').textContent = String(queue);
+    }
   }
 
   function syncResearchArrays(rows) {
@@ -173,6 +265,22 @@
     });
   }
 
+  function loadIcDecisions() {
+    return getEnvelope('/api/v1/research/decisions?limit=50')
+      .then(function (body) {
+        var rows = body.data || body;
+        icDecisions = rows.filter(function (d) {
+          return d.status === 'PROPOSED' || d.status === 'VOTING';
+        });
+        mx.data.icDecisions = icDecisions;
+        return icDecisions;
+      })
+      .catch(function () {
+        icDecisions = [];
+        return [];
+      });
+  }
+
   function loadResearch() {
     if (!mx.can('research.view')) return Promise.resolve();
     return Promise.all([
@@ -181,6 +289,7 @@
       mx.get('/api/v1/securities?limit=200').catch(function () {
         return [];
       }),
+      loadIcDecisions(),
     ]).then(function (res) {
       var summary = res[0].data || res[0];
       var cases = res[1].data || res[1];
@@ -189,6 +298,213 @@
       mx.data.researchCases = cases;
       renderSummaryBar(summary);
       return hydrateEquityStore(cases);
+    });
+  }
+
+  function isProposer(d) {
+    return mx.user && d.proposerId && mx.user.id === d.proposerId;
+  }
+
+  function openIcQueueDrawer() {
+    if (typeof openDrawer !== 'function') return;
+    openDrawer({
+      eyebrow: 'INVESTMENT COMMITTEE',
+      title: 'IC decision queue',
+      subtitle: icDecisions.length + ' open proposal(s)',
+      body:
+        (icDecisions.length
+          ? '<div class="table-wrap"><table class="institution-table"><thead><tr><th>Ref</th><th>Case</th><th>Action</th><th>Status</th><th></th></tr></thead><tbody>' +
+            icDecisions
+              .map(function (d) {
+            return (
+              '<tr><td><strong>' +
+              mx.esc(d.ref) +
+              '</strong></td><td>' +
+              mx.esc(d.caseRef || d.ticker || '—') +
+              '</td><td>' +
+              mx.esc(d.action) +
+              (d.quantity ? ' · ' + mx.esc(d.quantity) : '') +
+              '</td><td>' +
+              mx.esc(d.status) +
+              '</td><td><button type="button" class="btn secondary" data-mx-ic-decision="' +
+              mx.esc(d.id) +
+              '">Open</button></td></tr>'
+            );
+              })
+              .join('') +
+            '</tbody></table></div>'
+          : '<p class="ops-muted">No open committee decisions.</p>') +
+        (mx.can('research.edit')
+          ? '<div class="form-actions" style="margin-top:12px"><button type="button" class="btn secondary" id="mxIcNewProposal">New proposal</button><button type="button" class="btn secondary" id="mxIcNewMeeting">Schedule meeting</button></div>'
+          : ''),
+    });
+    document.querySelectorAll('[data-mx-ic-decision]').forEach(function (btn) {
+      btn.onclick = function () {
+        var id = btn.getAttribute('data-mx-ic-decision');
+        var d = icDecisions.find(function (x) {
+          return x.id === id;
+        });
+        if (d) openIcDecisionModal(d);
+      };
+    });
+    var np = document.getElementById('mxIcNewProposal');
+    if (np) np.onclick = openIcProposalModal;
+    var nm = document.getElementById('mxIcNewMeeting');
+    if (nm) nm.onclick = openIcMeetingModal;
+  }
+
+  function openIcDecisionModal(d) {
+    var tallyTxt = d.tally ? d.tally.for + ' for · ' + d.tally.against + ' against · ' + d.tally.abstain + ' abstain' : '—';
+    var actions = [];
+    if (d.status === 'PROPOSED' && isProposer(d) && mx.can('research.edit')) {
+      actions.push({
+        label: 'Open voting',
+        primary: true,
+        run: function () {
+          return mx.post('/api/v1/research/decisions/' + encodeURIComponent(d.id) + '/open-voting', {}).then(function () {
+            mx.toast('Voting opened', d.ref + ' is open for committee votes');
+            return loadResearch().then(function () {
+              var fresh = icDecisions.find(function (x) {
+                return x.id === d.id;
+              });
+              if (fresh) openIcDecisionModal(fresh);
+            });
+          });
+        },
+      });
+    }
+    if (d.status === 'VOTING' && mx.can('research.edit')) {
+      ['FOR', 'AGAINST', 'ABSTAIN'].forEach(function (vote) {
+        actions.push({
+          label: 'Vote ' + vote.toLowerCase(),
+          run: function () {
+            return mx
+              .post('/api/v1/research/decisions/' + encodeURIComponent(d.id) + '/vote', { vote: vote })
+              .then(function () {
+                mx.toast('Vote recorded', d.ref + ' · ' + vote);
+                return loadResearch();
+              });
+          },
+        });
+      });
+    }
+    if (d.status === 'VOTING' && mx.can('research.ic.decide') && !isProposer(d)) {
+      actions.push({
+        label: 'Ratify result',
+        primary: true,
+        run: function (m) {
+          if (isProposer(d)) {
+            mx.fail(new Error('The proposer cannot ratify their own decision (maker-checker)'));
+            return;
+          }
+          var note = m.querySelector('[name="note"]');
+          return mx
+            .post(
+              '/api/v1/research/decisions/' + encodeURIComponent(d.id) + '/ratify',
+              { note: note && note.value ? note.value.trim() : undefined },
+              { stepUp: true },
+            )
+            .then(function () {
+              mx.toast('Decision ratified', d.ref + ' outcome recorded');
+              closeDrawer();
+              return loadResearch();
+            });
+        },
+      });
+    }
+    mx.modal({
+      eyebrow: 'IC DECISION',
+      title: d.ref + ' · ' + (d.ticker || d.caseRef || ''),
+      body:
+        '<p><strong>' +
+        mx.esc(d.action) +
+        '</strong>' +
+        (d.quantity ? ' · qty ' + mx.esc(d.quantity) : '') +
+        '</p><p class="ops-muted">' +
+        mx.esc(d.rationale || '') +
+        '</p><p>Status: <strong>' +
+        mx.esc(d.status) +
+        '</strong> · tally: ' +
+        mx.esc(tallyTxt) +
+        (d.projected && d.projected.outcome ? ' · projected ' + mx.esc(d.projected.outcome) : '') +
+        '</p>' +
+        (d.status === 'VOTING' && mx.can('research.ic.decide') && !isProposer(d)
+          ? '<label class="v34-field"><span>Ratification note</span><input class="v34-input" name="note" maxlength="500"></label>'
+          : ''),
+      actions: actions.length ? actions.concat([{ label: 'Close', run: function () {} }]) : [{ label: 'Close', run: function () {} }],
+    });
+  }
+
+  function openIcProposalModal() {
+    var cases = mx.data.researchCases || [];
+    if (!cases.length) {
+      mx.toast('IC proposal', 'Publish a research case before proposing to the committee.', 'warn');
+      return;
+    }
+    mx.modal({
+      eyebrow: 'IC',
+      title: 'New committee proposal',
+      body:
+        '<form id="mxIcProposal"><label class="v34-field"><span>Research case</span><select class="v34-select" name="caseId" required>' +
+        cases
+          .map(function (c) {
+            return '<option value="' + mx.esc(c.id) + '">' + mx.esc(c.ref || c.ticker) + ' · ' + mx.esc(c.title || c.securityName || '') + '</option>';
+          })
+          .join('') +
+        '</select></label><label class="v34-field"><span>Action</span><select class="v34-select" name="action"><option>BUY</option><option>SELL</option><option>HOLD</option></select></label><label class="v34-field"><span>Quantity</span><input class="v34-input" name="quantity" inputmode="decimal"></label><label class="v34-field"><span>Rationale</span><textarea class="v34-input" name="rationale" rows="4" required minlength="10"></textarea></label></form>',
+      actions: [
+        { label: 'Cancel', run: function () {} },
+        {
+          label: 'Propose',
+          primary: true,
+          run: function (m) {
+            var fd = new FormData(m.querySelector('#mxIcProposal'));
+            var action = fd.get('action');
+            var body = {
+              caseId: fd.get('caseId'),
+              action: action,
+              rationale: fd.get('rationale'),
+              quantity: action === 'HOLD' ? undefined : fd.get('quantity'),
+            };
+            return mx.post('/api/v1/research/decisions', body).then(function () {
+              mx.toast('Proposal created', 'IC decision saved as PROPOSED');
+              return loadResearch().then(openIcQueueDrawer);
+            });
+          },
+        },
+      ],
+    });
+  }
+
+  function openIcMeetingModal() {
+    var when = new Date(Date.now() + 86400000).toISOString();
+    mx.modal({
+      eyebrow: 'IC',
+      title: 'Schedule committee meeting',
+      body:
+        '<form id="mxIcMeeting"><label class="v34-field"><span>Title</span><input class="v34-input" name="title" required value="Investment Committee"></label><label class="v34-field"><span>Scheduled at (ISO)</span><input class="v34-input" name="scheduledAt" required value="' +
+        mx.esc(when) +
+        '"></label><label class="v34-field"><span>Agenda</span><textarea class="v34-input" name="agenda" rows="3"></textarea></label></form>',
+      actions: [
+        { label: 'Cancel', run: function () {} },
+        {
+          label: 'Schedule',
+          primary: true,
+          run: function (m) {
+            var fd = new FormData(m.querySelector('#mxIcMeeting'));
+            return mx
+              .post('/api/v1/research/meetings', {
+                title: fd.get('title'),
+                scheduledAt: fd.get('scheduledAt'),
+                agenda: fd.get('agenda') || undefined,
+              })
+              .then(function () {
+                mx.toast('Meeting scheduled', 'IC meeting added to the calendar');
+                return loadResearch();
+              });
+          },
+        },
+      ],
     });
   }
 
@@ -313,11 +629,13 @@
   }
 
   mx.onLoad('research.view', function () {
+    if (liveResearch()) clearResearchChrome();
     return loadResearch();
   });
 
   mx.hydrate('research', function () {
     if (!liveResearch()) return Promise.resolve();
+    clearResearchChrome();
     return loadResearch();
   });
 
@@ -325,10 +643,20 @@
     mx.gate('[data-action="new-research"]', 'research.edit');
     mx.gate('#researchSaveModel', 'research.edit');
     mx.gate('#researchSaveNote', 'research.edit');
+    mx.gate('#researchImportFiling', 'research.edit');
 
     mx.intercept('[data-action="new-research"]', function () {
       return openNewCaseModal();
     }, { when: liveResearch });
+
+    mx.intercept(
+      '#researchImportFiling',
+      function () {
+        openFilingImportModal();
+        return false;
+      },
+      { when: liveResearch },
+    );
 
     document.addEventListener(
       'click',
@@ -361,6 +689,11 @@
         }
         var pick = e.target.closest && e.target.closest('[data-equity-ticker]');
         if (pick) loadIssuerDepth(pick.dataset.equityTicker).catch(mx.fail);
+        if (e.target.closest && e.target.closest('[data-mx-ic-queue]')) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          openIcQueueDrawer();
+        }
       },
       true,
     );

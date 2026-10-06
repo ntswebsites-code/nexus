@@ -56,6 +56,29 @@ export interface Meta {
   maxUploadMb: number;
   acceptedFileTypes: string[];
 }
+export interface ReadinessCheck {
+  name: string;
+  state: 'good' | 'warn' | 'neutral';
+  detail: string;
+  right: string;
+}
+
+export interface ReadinessView {
+  score: number;
+  checks: ReadinessCheck[];
+  riskBand: 'Pending' | 'LOW' | 'MEDIUM' | 'HIGH';
+  triageRun: boolean;
+  triage: {
+    riskBand: string;
+    summary: string;
+    flags: string[];
+    nextSteps: string[];
+    model: string;
+    at: string;
+    advisory: true;
+  } | null;
+}
+
 export interface TrackerStatus {
   ref: string | null;
   submitted: boolean;
@@ -108,7 +131,9 @@ export const api = {
     return call<{ slot: string; name: string; size: number; scanStatus: string }>(`/applications/${id}/evidence`, { method: 'POST', body: fd }, token);
   },
   submit: (id: string, token: string, p: SavePayload) =>
-    call<{ ref: string; status: string }>(`/applications/${id}/submit`, { method: 'POST', ...json({ consent: true, ...p }) }, token),
+    call<{ ref: string; status: string; readiness?: { score: number; riskBand: string } }>(`/applications/${id}/submit`, { method: 'POST', ...json({ consent: true, ...p }) }, token),
+  readiness: (id: string, token: string) => call<{ readiness: ReadinessView }>(`/applications/${id}/readiness`, {}, token).then((r) => r.readiness),
+  triage: (id: string, token: string) => call<{ data: NonNullable<ReadinessView['triage']> }>(`/applications/${id}/triage`, { method: 'POST', ...json({}) }, token).then((r) => r.data),
   status: (id: string, token: string) => call<{ status: TrackerStatus }>(`/applications/${id}/status`, {}, token).then((r) => r.status),
   reply: (id: string, token: string, message: string) => call<{ ok: true; duplicate: boolean }>(`/applications/${id}/reply`, { method: 'POST', ...json({ message }) }, token),
   requestResumeLink: (email: string) => call<{ ok: true }>('/onboarding/resume-link', { method: 'POST', ...json({ email }) }),
@@ -143,4 +168,18 @@ export function clearSession() {
   } catch {
     /* ignore */
   }
+}
+
+/** Test hook: jsdom cannot spy on `location.replace`; production uses it for status redirects. */
+let navigateHandler: (href: string) => void = (href) => {
+  window.location.replace(href);
+};
+export function setNavigateHandler(fn: (href: string) => void) {
+  navigateHandler = fn;
+}
+export function resetNavigateHandler() {
+  navigateHandler = (href) => window.location.replace(href);
+}
+export function navigateTo(href: string) {
+  navigateHandler(href);
 }

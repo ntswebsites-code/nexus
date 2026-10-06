@@ -126,17 +126,72 @@
     });
   }
 
+  function sumLedgers(ledgers, key, ccy) {
+    var n = 0;
+    (ledgers || []).forEach(function (l) {
+      if (ccy && l.currency && l.currency !== ccy) return;
+      var v = Number(l[key]);
+      if (!isNaN(v)) n += v;
+    });
+    return n;
+  }
+
+  function updateReservationButton(rows) {
+    var btn = document.querySelector('#page-cash [data-action="view-reservations"]');
+    if (!btn) return;
+    var open = (rows || []).filter(function (r) {
+      return r.status && r.status !== 'RELEASED' && r.status !== 'EXPIRED';
+    }).length;
+    btn.textContent = open + ' reservation' + (open === 1 ? '' : 's');
+  }
+
+  function updateExpectationButton(rows) {
+    var btn = document.querySelector('#page-cash [data-action="view-expectations"]');
+    if (!btn) return;
+    var open = (rows || []).filter(function (r) {
+      return r.status && r.status !== 'CANCELLED' && r.status !== 'SETTLED';
+    }).length;
+    btn.textContent = open + ' movement' + (open === 1 ? '' : 's');
+  }
+
+  function clearCashTiles() {
+    document.querySelectorAll('#page-cash .cash-state-grid article strong').forEach(function (el) {
+      el.textContent = '—';
+    });
+    document.querySelectorAll('#page-cash .cash-state-grid article small').forEach(function (el) {
+      el.textContent = 'Loading…';
+    });
+    var formula = document.querySelectorAll('#page-cash .cash-formula .formula-row b, #page-cash .cash-formula .formula-total strong');
+    formula.forEach(function (el) {
+      el.textContent = '—';
+    });
+    var strip = document.querySelectorAll('#page-cash .ledger-control-strip strong');
+    strip.forEach(function (el) {
+      el.textContent = '—';
+    });
+  }
+
   function updateBalanceTiles(bal) {
     if (!bal || !bal.totals || !bal.totals.length) return;
     var t = bal.totals[0];
     var ccy = t.currency || 'USD';
     var prefix = ccy === 'USD' ? 'US$ ' : ccy + ' ';
+    var ledgers = bal.ledgers || [];
+    var blocked = sumLedgers(ledgers, 'minBuffer', ccy);
+    var withdrawable = sumLedgers(ledgers, 'withdrawable', ccy);
     var grid = document.querySelector('#page-cash .cash-state-grid');
     if (!grid) return;
     var articles = grid.querySelectorAll('article');
     if (articles[0]) articles[0].querySelector('strong').textContent = prefix + money(t.posted, ccy);
-    if (articles[2]) articles[2].querySelector('strong').textContent = prefix + money(t.available, ccy);
-    if (articles[3]) articles[3].querySelector('strong').textContent = prefix + money(t.withdrawable || t.available, ccy);
+    if (articles[1]) articles[1].querySelector('strong').textContent = prefix + money(t.reserved, ccy);
+    if (articles[2]) articles[2].querySelector('strong').textContent = prefix + money(blocked, ccy);
+    if (articles[3]) {
+      var en = Number(t.expectedNet || 0);
+      var sign = en >= 0 ? '+' : '-';
+      articles[3].querySelector('strong').textContent = sign + prefix + money(Math.abs(en), ccy);
+    }
+    if (articles[4]) articles[4].querySelector('strong').textContent = prefix + money(t.available, ccy);
+    if (articles[5]) articles[5].querySelector('strong').textContent = prefix + money(withdrawable || t.available, ccy);
     var formula = document.querySelector('#page-cash .cash-formula');
     if (formula) {
       var rows = formula.querySelectorAll('.formula-row b');
@@ -144,6 +199,17 @@
       if (rows[3]) rows[3].textContent = prefix + money(t.reserved, ccy);
       if (rows[5]) rows[5].textContent = prefix + money(t.available, ccy);
     }
+    var strip = document.querySelector('#page-cash .ledger-control-strip');
+    if (strip) {
+      var cells = strip.querySelectorAll('strong');
+      if (cells[0]) cells[0].textContent = prefix + money(t.posted, ccy);
+      if (cells[3]) cells[3].textContent = prefix + money(t.posted, ccy);
+      if (cells[4]) cells[4].textContent = 'Debits = Credits';
+    }
+    var fresh = document.querySelector('#page-cash .cash-freshness strong');
+    if (fresh && liveCash()) fresh.textContent = 'Ledger current';
+    var freshSmall = document.querySelector('#page-cash .cash-freshness small');
+    if (freshSmall && liveCash()) freshSmall.textContent = 'Balances from posted journals';
   }
 
   function hydrateContext(ctx) {
@@ -229,11 +295,16 @@
       var eBody = parts[4];
       var iBody = parts[5];
       hydrateContext(ctxBody.data || ctxBody);
-      updateBalanceTiles(balBody.data || balBody);
+      var bal = balBody.data || balBody;
+      updateBalanceTiles(bal);
+      var reservationRows = rBody.data || rBody || [];
+      var expectationRows = eBody.data || eBody || [];
+      updateReservationButton(reservationRows);
+      updateExpectationButton(expectationRows);
       journalByRef = {};
       applyStore({
         journals: (jBody.data || jBody || []).map(mapJournal),
-        reservations: (rBody.data || rBody || []).map(mapReservation),
+        reservations: reservationRows.map(mapReservation),
         expectations: (eBody.data || eBody || []).map(mapExpectation),
         imports: (iBody.data || iBody || []).map(mapImport),
       });
@@ -260,6 +331,293 @@
     });
     return r && r.apiId;
   }
+
+  function expectationApiId(ref) {
+    var e = (window.__mxData.cashExpectations || []).find(function (x) {
+      return x.id === ref;
+    });
+    return e && e.apiId;
+  }
+
+  function reasonDrawer(title, minLen) {
+    minLen = minLen || 5;
+    return new Promise(function (resolve) {
+      if (typeof openDrawer !== 'function') {
+        resolve(null);
+        return;
+      }
+      openDrawer({
+        eyebrow: 'REASON REQUIRED',
+        title: title || 'Reason for this change',
+        subtitle: 'Recorded in the audit trail.',
+        body:
+          '<form id="mxReasonForm"><label class="detail-field"><span>Reason</span><textarea id="mxReasonText" required rows="3" style="width:100%"></textarea></label><div class="form-actions"><button type="button" class="btn secondary" id="mxReasonCancel">Cancel</button><button type="submit" class="btn primary">Continue</button></div></form>',
+      });
+      document.getElementById('mxReasonCancel').onclick = function () {
+        closeDrawer();
+        resolve(null);
+      };
+      document.getElementById('mxReasonForm').onsubmit = function (e) {
+        e.preventDefault();
+        var t = document.getElementById('mxReasonText').value.trim();
+        if (t.length < minLen) {
+          mx.toast('Reason required', 'Need at least ' + minLen + ' characters.', 'warn');
+          return;
+        }
+        closeDrawer();
+        resolve(t);
+      };
+    });
+  }
+
+  function resolveBankLedger() {
+    readFiltersFromDom();
+    var portfolioId = filters.portfolioId || (context && context.portfolios && context.portfolios[0] && context.portfolios[0].id);
+    if (!portfolioId) return Promise.reject(new Error('Select a portfolio in the cash context bar.'));
+    return getEnvelope('/api/v1/cash/ledgers' + mx.qs({ portfolioId: portfolioId, kind: 'BANK', status: 'ACTIVE' })).then(function (body) {
+      var rows = body.data || body || [];
+      if (!rows.length) throw new Error('No active bank ledger for this portfolio.');
+      return rows[0];
+    });
+  }
+
+  function patchJournalDrawer(id) {
+    if (!liveCash()) return;
+    var j = (window.__mxData.cashJournals || []).find(function (x) {
+      return x.id === id;
+    });
+    var apiId = journalApiId(id);
+    if (!j || !apiId) return;
+    var actions = document.querySelector('.drawer .form-actions, #drawer .form-actions, .form-actions');
+    if (!actions) return;
+    var html = '';
+    if (j.status === 'DRAFT' && mx.can('cash.journal.create')) {
+      html += '<button type="button" class="btn primary" id="mxJournalSubmit">Submit for approval</button>';
+    }
+    if (j.status === 'PENDING_APPROVAL') {
+      if (mx.can('cash.journal.approve')) {
+        html += '<button type="button" class="btn secondary" id="mxJournalReturn">Return to maker</button>';
+        html += '<button type="button" class="btn secondary" id="mxJournalReject">Reject</button>';
+        html += '<button type="button" class="btn primary" onclick="approveJournal(\'' + id + '\')">Approve & post</button>';
+      }
+    } else if (j.status === 'POSTED') {
+      html += '<button type="button" class="btn secondary" onclick="reverseJournal(\'' + id + '\')">Create reversal</button>';
+    }
+    if (!html) return;
+    actions.innerHTML = html;
+    var submit = document.getElementById('mxJournalSubmit');
+    if (submit) {
+      submit.onclick = function () {
+        mx.post('/api/v1/cash/journals/' + encodeURIComponent(apiId) + '/submit', {})
+          .then(function () {
+            mx.toast('Journal submitted', id + ' routed for independent approval.');
+            if (typeof closeDrawer === 'function') closeDrawer();
+            return loadCash();
+          })
+          .catch(mx.fail);
+      };
+    }
+    var ret = document.getElementById('mxJournalReturn');
+    if (ret) {
+      ret.onclick = function () {
+        reasonDrawer('Reason for returning ' + id + ' to maker').then(function (reason) {
+          if (!reason) return;
+          mx.post('/api/v1/cash/journals/' + encodeURIComponent(apiId) + '/return', { reason: reason })
+            .then(function () {
+              mx.toast('Journal returned', id + ' sent back to the maker.');
+              if (typeof closeDrawer === 'function') closeDrawer();
+              return loadCash();
+            })
+            .catch(mx.fail);
+        });
+      };
+    }
+    var rej = document.getElementById('mxJournalReject');
+    if (rej) {
+      rej.onclick = function () {
+        reasonDrawer('Reason for rejecting ' + id).then(function (reason) {
+          if (!reason) return;
+          mx.post('/api/v1/cash/journals/' + encodeURIComponent(apiId) + '/reject', { reason: reason })
+            .then(function () {
+              mx.toast('Journal rejected', id + ' rejected with audit reason.');
+              if (typeof closeDrawer === 'function') closeDrawer();
+              return loadCash();
+            })
+            .catch(mx.fail);
+        });
+      };
+    }
+  }
+
+  function openNewReservationModal() {
+    if (!mx.can('cash.reservation') && !mx.can('cash.journal.create')) {
+      mx.toast('Permission denied', 'This role cannot reserve client cash.', 'error');
+      return Promise.resolve();
+    }
+    return resolveBankLedger().then(function (ledger) {
+      var today = new Date().toISOString().slice(0, 10);
+      var expiry = new Date();
+      expiry.setDate(expiry.getDate() + 2);
+      return mx.modal({
+        eyebrow: 'CASH CONTROL',
+        title: 'New cash reservation',
+        subtitle: 'Authorisation checks available cash before creating the hold',
+        body:
+          '<form id="mxRsvForm"><label class="detail-field"><span>Source event</span><input class="detail-input" name="source" value="MANUAL"></label><label class="detail-field"><span>Purpose</span><select class="detail-input" name="purpose"><option>BUY_SETTLEMENT</option><option>WITHDRAWAL</option><option>TRANSFER</option></select></label><label class="detail-field"><span>Amount</span><input class="detail-input" name="amount" type="number" min="0.01" step="0.01" required></label><label class="detail-field"><span>Required date</span><input class="detail-input" name="requiredDate" type="date" value="' +
+          today +
+          '"></label><label class="detail-field"><span>Expires</span><input class="detail-input" name="expiresOn" type="date" value="' +
+          expiry.toISOString().slice(0, 10) +
+          '"></label></form><p class="ops-muted">Ledger: ' +
+          mx.esc(ledger.ref || ledger.id) +
+          ' · ' +
+          mx.esc(ledger.currency || '') +
+          '</p>',
+        actions: [
+          { label: 'Cancel', run: function () {} },
+          {
+            label: 'Create reservation',
+            primary: true,
+            run: function (m) {
+              var fd = new FormData(m.querySelector('#mxRsvForm'));
+              var amount = Number(fd.get('amount'));
+              if (!(amount > 0)) throw new Error('Amount must be positive.');
+              return mx
+                .post('/api/v1/cash/reservations', {
+                  ledgerId: ledger.id,
+                  source: fd.get('source') || 'MANUAL',
+                  purpose: fd.get('purpose') || 'BUY_SETTLEMENT',
+                  amount: String(amount),
+                  requiredDate: fd.get('requiredDate') || today,
+                  expiresOn: fd.get('expiresOn') || expiry.toISOString().slice(0, 10),
+                })
+                .then(function () {
+                  mx.toast('Reservation active', 'Cash hold created against available balance.');
+                  if (typeof switchCashTab === 'function') switchCashTab('reservations');
+                  return loadCash();
+                });
+            },
+          },
+        ],
+      });
+    });
+  }
+
+  function openNewExpectationModal() {
+    if (!mx.can('cash.journal.create')) {
+      mx.toast('Permission denied', 'This role cannot create expected movements.', 'error');
+      return;
+    }
+    return resolveBankLedger().then(function (ledger) {
+      return mx.modal({
+        eyebrow: 'CASH CONTROL',
+        title: 'New expected cash movement',
+        subtitle: 'Projection only — does not post to the ledger.',
+        body:
+          '<form id="mxExpectForm"><label class="detail-field"><span>Direction</span><select name="direction" class="v34-input"><option value="IN">Inflow</option><option value="OUT">Outflow</option></select></label><label class="detail-field"><span>Amount</span><input name="amount" class="v34-input" type="number" min="0.01" step="0.01" required></label><label class="detail-field"><span>Expected date</span><input name="expectedDate" class="v34-input" type="date" required value="' +
+          new Date().toISOString().slice(0, 10) +
+          '"></label><label class="detail-field"><span>Source / purpose</span><input name="source" class="v34-input" placeholder="Dividend, subscription, settlement..."></label></form><p class="ops-muted">Ledger: ' +
+          mx.esc(ledger.ref || ledger.id) +
+          ' · ' +
+          mx.esc(ledger.currency || '') +
+          '</p>',
+        actions: [
+          {
+            label: 'Create expectation',
+            primary: true,
+            run: function (m) {
+              var fd = new FormData(m.querySelector('#mxExpectForm'));
+              var amount = Number(fd.get('amount'));
+              if (!(amount > 0)) throw new Error('Amount must be positive.');
+              return mx
+                .post('/api/v1/cash/expectations', {
+                  ledgerId: ledger.id,
+                  direction: fd.get('direction') || 'IN',
+                  kind: 'OTHER',
+                  amount: String(amount),
+                  expectedDate: fd.get('expectedDate'),
+                  source: fd.get('source') || null,
+                })
+                .then(function () {
+                  mx.toast('Expected movement created', 'Forecast saved; balances refresh on reload.');
+                  if (typeof switchCashTab === 'function') switchCashTab('expectations');
+                  return loadCash();
+                });
+            },
+          },
+        ],
+      });
+    });
+  }
+
+  mx.wrapGlobal('openJournalDrawer', function (original, args) {
+    original.apply(this, args);
+    setTimeout(function () {
+      patchJournalDrawer(args[0]);
+    }, 0);
+  });
+
+  mx.wrapGlobal('renderExpectations', function (original) {
+    original.apply(this, arguments);
+    if (!liveCash() || !mx.can('cash.journal.create')) return;
+    document.querySelectorAll('#expectationRows tr').forEach(function (row, i) {
+      var e = (window.__mxData.cashExpectations || [])[i];
+      if (!e || !e.apiId) return;
+      if (e.status === 'POSTED' || e.status === 'CANCELLED') return;
+      if (row.querySelector('[data-mx-cancel-exp]')) return;
+      var td = document.createElement('td');
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'row-action';
+      btn.setAttribute('data-mx-cancel-exp', e.id);
+      btn.textContent = 'Cancel';
+      td.appendChild(btn);
+      row.appendChild(td);
+      btn.onclick = function () {
+        reasonDrawer('Reason for cancelling ' + e.id).then(function (reason) {
+          if (!reason) return;
+          mx.post('/api/v1/cash/expectations/' + encodeURIComponent(e.apiId) + '/cancel', { reason: reason })
+            .then(function () {
+              mx.toast('Expectation cancelled', e.id + ' removed from the forecast.');
+              return loadCash();
+            })
+            .catch(mx.fail);
+        });
+      };
+    });
+  });
+
+  mx.wrapGlobal('saveReservation', function (original) {
+    if (!liveCash()) return original.apply(this, arguments);
+    try {
+      var amount = Number((document.getElementById('rsvAmount') && document.getElementById('rsvAmount').value) || 0);
+      if (!amount || amount <= 0) throw new Error('Amount must be positive.');
+      var purpose = (document.getElementById('rsvPurpose') && document.getElementById('rsvPurpose').value) || 'BUY_SETTLEMENT';
+      var source = (document.getElementById('rsvSource') && document.getElementById('rsvSource').value) || 'MANUAL';
+      var today = new Date().toISOString().slice(0, 10);
+      var expiry = new Date();
+      expiry.setDate(expiry.getDate() + 2);
+      return resolveBankLedger()
+        .then(function (ledger) {
+          return mx.post('/api/v1/cash/reservations', {
+            ledgerId: ledger.id,
+            source: source,
+            purpose: purpose,
+            amount: String(amount),
+            requiredDate: today,
+            expiresOn: expiry.toISOString().slice(0, 10),
+          });
+        })
+        .then(function () {
+          mx.toast('Reservation active', 'Cash hold created against available balance.');
+          if (typeof closeDrawer === 'function') closeDrawer();
+          if (typeof switchCashTab === 'function') switchCashTab('reservations');
+          return loadCash();
+        })
+        .catch(mx.fail);
+    } catch (e) {
+      mx.toast('Reservation blocked', e.message, 'error');
+    }
+  });
 
   function openExplainDrawer() {
     readFiltersFromDom();
@@ -306,11 +664,13 @@
   }
 
   mx.onLoad('cash.view', function () {
+    if (liveCash()) clearCashTiles();
     return loadCash();
   });
 
   mx.hydrate('cash', function () {
     if (!liveCash()) return Promise.resolve();
+    clearCashTiles();
     return loadCash();
   });
 
@@ -476,6 +836,24 @@
         }
       };
     }
+
+    mx.intercept(
+      '[data-action="new-reservation"]',
+      function () {
+        openNewReservationModal().catch(mx.fail);
+        return false;
+      },
+      { when: liveCash },
+    );
+
+    mx.intercept(
+      '[data-action="new-expectation"]',
+      function () {
+        openNewExpectationModal().catch(mx.fail);
+        return false;
+      },
+      { when: liveCash },
+    );
 
     mx.intercept(
       '[data-action="period-close-precheck"]',

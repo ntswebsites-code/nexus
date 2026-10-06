@@ -48,3 +48,8 @@ backend/api/storage/
 *.swp
 
 tools/dashboard/status.json
+
+# Local / generated
+.claude/
+.flow-storage/
+tools/uat/prove-worker.sh

@@ -21,7 +21,7 @@ const checkOk = {
 async function open(extra: Record<string, never> = {}, shell = {}) {
   const api = mockApi({
     ...shellRoutes(shell),
-    [`GET ${ST}`]: raw({ mode: 'file-drop', formats: ['CSV', 'MT940', 'JSON'], adapterError: null, files: [fileRow()], statements: [] }),
+    [`GET ${ST}`]: raw({ mode: 'file-drop', formats: ['CSV', 'MT940', 'JSON', 'CAMT053'], adapterError: null, files: [fileRow()], statements: [] }),
     [`GET ${HOLD}`]: raw({ date: '2026-10-01', items: [holding()] }),
     ...extra,
   });
@@ -117,7 +117,7 @@ describe('custodian statements and holdings', () => {
       expect(req.body).toEqual({ filename: 'stmt.csv', content: 'acct,date\nX,2026-10-01\n', format: 'CSV' });
       expect(await screen.findByText(/The statement is valid \(CSV\)/)).toBeInTheDocument();
       const s = screen.getByText('Closing cash differs from the previous day by more than 20%').closest('tr')!;
-      expect(within(s).getAllByRole('cell').slice(0, 7).map((c) => c.textContent)).toEqual(['CUST-CL-00418', '1 Oct 2026', 'USD', '125,000.50', '2', '980,000.00', '5 (4)']);
+      expect(within(s).getAllByRole('cell').slice(0, 8).map((c) => c.textContent)).toEqual(['CUST-CL-00418', '1 Oct 2026', 'USD', '125,000.50', '2', '980,000.00', '5 (4)', '']);
       expect(screen.getByRole('button', { name: 'Upload validated statement' })).toBeEnabled();
     });
 

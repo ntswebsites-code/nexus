@@ -26,6 +26,12 @@ describe('W0 legacy entry tripwires', () => {
     expect(focusedNavPages().sort()).toEqual(primary.sort());
   });
 
+  it('admin-00-common exposes streamDownload and reasonModal helpers', () => {
+    const js = readFileSync(path.join(repoRoot, 'portals/admin-web/src/legacy/bridge/admin-00-common.js'), 'utf8');
+    expect(js).toMatch(/mx\.streamDownload/);
+    expect(js).toMatch(/mx\.reasonModal/);
+  });
+
   it('mx-core exposes hydrate, gate, strict and list helpers', () => {
     loadLegacyHarness({ fragment: '03-sidebar.html', bridges: ['mx-core.js'] });
     const mx = (window as unknown as { mx: Record<string, unknown> }).mx;
@@ -48,5 +54,26 @@ describe('W0 legacy entry tripwires', () => {
     const boot = readFileSync(path.join(bridgeDir, 'admin-99-boot.js'), 'utf8');
     expect(boot).not.toMatch(/mxOpsLink/);
     expect(existsSync(path.join(bridgeDir, 'admin-01-retired.js'))).toBe(false);
+  });
+
+  it('shell bridge hydrates topbar profile from signed-in user', async () => {
+    const { bootLegacyShell } = await import('./_harness');
+    const { ok, raw } = await import('../_helpers/mockApi');
+    await bootLegacyShell({
+      user: { name: 'Ada Admin', email: 'ada@test.local', permissions: ['dashboard.view', 'operations.view'] },
+      routes: {
+        'GET /api/v1/shell/me/role-focus': raw({ roles: [{ key: 'system_admin', label: 'System Administrator' }], role: null }),
+        'GET /api/v1/dashboard/today': ok({
+          asOf: new Date().toISOString(),
+          approvals: { total: 2, items: [] },
+          ordersWorking: { total: 1, awaitingApproval: 1 },
+        }),
+        'GET /api/v1/operations/status': ok({ asOf: new Date().toISOString(), kpis: { serviceHealth: 'ok' } }),
+        'GET /api/v1/notifications': raw({ items: [], unread: 0 }),
+      },
+    });
+    expect(document.querySelector('.profile-copy strong')?.textContent).toBe('Ada Admin');
+    expect(document.querySelector('.profile-button .avatar')?.textContent).toBe('AA');
+    expect(document.body.textContent).not.toMatch(/Tendai Moyo/);
   });
 });

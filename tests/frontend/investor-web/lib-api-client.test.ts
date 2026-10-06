@@ -12,12 +12,6 @@ async function fresh() {
   return { ...client, ...stepUp };
 }
 
-function stubLocation() {
-  const assign = vi.fn();
-  vi.stubGlobal('location', { pathname: '/lp-portal/documents', search: '?x=1', assign, href: 'http://localhost/lp-portal/documents?x=1' });
-  return assign;
-}
-
 describe('api-client: request shape', () => {
   it('GET is credentialed, no-store, JSON Accept, base URL + /api/v1', async () => {
     const api = mockApi({ [`GET ${API}/session`]: ok({ a: 1 }) });
@@ -137,26 +131,34 @@ describe('api-client: error envelopes', () => {
 });
 
 describe('api-client: session expiry and step-up', () => {
-  it('401 LP_UNAUTHORIZED sends the browser to /login?next=<current page> (once)', async () => {
-    const assign = stubLocation();
+  it('loginRedirectHref encodes pathname and search for the sign-in return URL', async () => {
+    const { loginRedirectHref } = await import('@/lib/api/api-client');
+    expect(loginRedirectHref('/lp-portal/documents', '?x=1')).toBe(`/login?next=${encodeURIComponent('/lp-portal/documents?x=1')}`);
+  });
+
+  it('401 LP_UNAUTHORIZED redirects to login once', async () => {
     mockApi({ [`GET ${API}/session`]: { status: 401, body: { success: false, code: 'LP_UNAUTHORIZED', message: 'Sign in' } } });
-    const { apiClient } = await fresh();
+    const { apiClient, setRedirectHandler } = await fresh();
+    const hrefs: string[] = [];
+    setRedirectHandler((href) => hrefs.push(href));
     await apiClient.get('/lp-portal/session').catch(() => undefined);
     await apiClient.get('/lp-portal/session').catch(() => undefined);
-    expect(assign).toHaveBeenCalledTimes(1);
-    expect(assign).toHaveBeenCalledWith(`/login?next=${encodeURIComponent('/lp-portal/documents?x=1')}`);
+    expect(hrefs).toHaveLength(1);
+    setRedirectHandler(null);
   });
 
   it('authRedirect:false suppresses the redirect; a 401 with another code does not redirect', async () => {
-    const assign = stubLocation();
     mockApi({
       [`GET ${API}/a`]: { status: 401, body: { error: { code: 'unauthorized', message: 'x' } } },
       [`GET ${API}/b`]: { status: 401, body: { error: { code: 'wrong_password', message: 'x' } } },
     });
-    const { apiClient } = await fresh();
+    const { apiClient, setRedirectHandler } = await fresh();
+    const hrefs: string[] = [];
+    setRedirectHandler((href) => hrefs.push(href));
     await apiClient.get('/lp-portal/a', { authRedirect: false }).catch(() => undefined);
     await apiClient.get('/lp-portal/b').catch(() => undefined);
-    expect(assign).not.toHaveBeenCalled();
+    expect(hrefs).toHaveLength(0);
+    setRedirectHandler(null);
   });
 
   it('LP_STEP_UP_REQUIRED opens the dialog, then retries the SAME request with the SAME Idempotency-Key', async () => {

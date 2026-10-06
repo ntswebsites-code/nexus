@@ -1,3 +1,5 @@
+import { DataRoomScreen } from '@/components/native/DataRoomScreen';
+
 export default function Page() {
-  return null;
+  return <DataRoomScreen />;
 }

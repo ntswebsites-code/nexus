@@ -34,6 +34,15 @@
     return [d.label, d.label.split(' ')[0] || 'Data', (d.relations || []).join(' + ') || 'Governed tables', d.latest ? '< 1 day' : '—', 'Risk · PM · Reports', d.rows ? 'Certified' : 'Draft'];
   }
 
+  function clearDataKpis() {
+    document.querySelectorAll('#page-data .v33-kpis .v33-kpi').forEach(function (k) {
+      var s = k.querySelector('strong');
+      var n = k.querySelector('small');
+      if (s) s.textContent = '—';
+      if (n) n.textContent = 'Loading…';
+    });
+  }
+
   function patchDataKpis() {
     var kpis = document.querySelectorAll('#page-data .v33-kpis .v33-kpi');
     if (!kpis.length || !fabricSummary) return;
@@ -43,11 +52,140 @@
       kpis[0].querySelector('small').textContent = (s.sources && s.sources.ERROR ? s.sources.ERROR + ' in error · ' : '') + datasets.length + ' datasets';
     }
     if (kpis[1]) kpis[1].querySelector('strong').textContent = String(datasets.length);
+    if (kpis[2]) {
+      var activeRules = s.activeRules || 1;
+      var passPct = activeRules ? Math.round(((s.rulesPassing || 0) / activeRules) * 100) : 0;
+      kpis[2].querySelector('strong').textContent = passPct + '%';
+      kpis[2].querySelector('small').textContent = (s.failedJobsLast24h || 0) + ' failed jobs (24h)';
+    }
     if (kpis[3]) {
       kpis[3].querySelector('strong').textContent = String(s.openExceptions || 0);
-      kpis[3].querySelector('small').textContent = (s.openBySeverity && s.openBySeverity.HIGH ? '1 blocks reporting' : 'Open quality items');
+      kpis[3].querySelector('small').textContent = (s.openBySeverity && s.openBySeverity.HIGH ? s.openBySeverity.HIGH + ' high severity' : 'Open quality items');
     }
     if (kpis[4]) kpis[4].querySelector('strong').textContent = String(s.jobsLast24h || 0);
+    if (kpis[5]) {
+      kpis[5].querySelector('strong').textContent = String(s.rulesNeverRun || 0);
+      kpis[5].querySelector('small').textContent = (s.rulesFailing || 0) + ' failing · ' + (s.rulesErroring || 0) + ' erroring';
+    }
+  }
+
+  function uploadFileFeed(sourceId, name) {
+    var input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,.txt';
+    input.onchange = function () {
+      var f = input.files && input.files[0];
+      if (!f) return;
+      var fd = new FormData();
+      fd.append('file', f);
+      fetch(mx.api + '/api/v1/data/sources/' + encodeURIComponent(sourceId) + '/upload', {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+      })
+        .then(function (r) {
+          return r.json().then(function (body) {
+            if (!r.ok) throw body;
+            return body;
+          });
+        })
+        .then(function (body) {
+          var d = body.data || body;
+          mx.toast('File staged', (name || 'Feed') + ' · ' + (d.accepted != null ? d.accepted + ' rows accepted' : 'upload complete'));
+          return loadData();
+        })
+        .catch(mx.fail);
+    };
+    input.click();
+  }
+
+  function openSchedulesModal() {
+    return mx.get(V1 + '/schedules').then(function (body) {
+      var rows = body.data || body || [];
+      var cadences = body.cadences || ['DAILY', 'WEEKLY', 'MONTHLY'];
+      mx.modal({
+        eyebrow: 'DATA FABRIC',
+        title: 'Quality rule schedules',
+        subtitle: rows.length + ' configured',
+        wide: true,
+        body:
+          (rows.length
+            ? '<div class="v34-list">' +
+              rows
+                .map(function (s) {
+                  return (
+                    '<div class="v34-row"><span><strong>' +
+                    mx.esc(s.ruleName || s.ruleKey) +
+                    '</strong><small>' +
+                    mx.esc(s.dataset || '') +
+                    ' · ' +
+                    mx.esc(s.cadence) +
+                    ' · next ' +
+                    mx.esc(s.nextRunAt ? mx.date(s.nextRunAt) : '—') +
+                    '</small></span><em>' +
+                    (s.due ? 'Due' : s.enabled ? 'Scheduled' : 'Paused') +
+                    '</em></div>'
+                  );
+                })
+                .join('') +
+              '</div>'
+            : '<p class="ops-muted">No schedules yet. Set a schedule from a quality rule.</p>') +
+          (mx.can('operations.manage')
+            ? '<div class="form-actions" style="margin-top:12px"><button type="button" class="btn secondary" id="mxDataRunDue">Run due now</button></div>'
+            : ''),
+        actions: [{ label: 'Close', run: function () {} }],
+      });
+      var dueBtn = document.getElementById('mxDataRunDue');
+      if (dueBtn) {
+        dueBtn.onclick = function () {
+          mx.post(V1 + '/schedules/run-due', {}).then(function (r) {
+            var d = r.data || r;
+            mx.toast('Schedules executed', (d.ran != null ? d.ran : d.processed || 0) + ' rule(s) ran.');
+            return openSchedulesModal();
+          }, mx.fail);
+        };
+      }
+    });
+  }
+
+  function openAssignExceptionModal(excId) {
+    mx.get('/api/v1/client-ops/staff')
+      .then(function (r) {
+        var people = r.data || [];
+        mx.modal({
+          eyebrow: 'DATA QUALITY',
+          title: 'Assign exception',
+          body:
+            '<form id="mxDataAssign"><label class="v34-field"><span>Owner</span><select class="v34-select" name="ownerId" required>' +
+            people
+              .map(function (p) {
+                return '<option value="' + mx.esc(p.id) + '">' + mx.esc(p.name) + '</option>';
+              })
+              .join('') +
+            '</select></label><label class="v34-field"><span>Due date</span><input class="v34-input" type="date" name="dueOn"></label><label class="v34-field"><span>Note</span><textarea class="v34-input" name="note" rows="2"></textarea></label></form>',
+          actions: [
+            { label: 'Cancel', run: function () {} },
+            {
+              label: 'Assign',
+              primary: true,
+              run: function (m) {
+                var fd = new FormData(m.querySelector('#mxDataAssign'));
+                return mx
+                  .post(V1 + '/exceptions/' + encodeURIComponent(excId) + '/assign', {
+                    ownerId: fd.get('ownerId'),
+                    dueOn: fd.get('dueOn') || undefined,
+                    note: fd.get('note') || undefined,
+                  })
+                  .then(function () {
+                    mx.toast('Exception assigned', excId);
+                    return loadData();
+                  });
+              },
+            },
+          ],
+        });
+      })
+      .catch(mx.fail);
   }
 
   function applyConnections(rows) {
@@ -88,11 +226,19 @@
     mx.$$('[data-data-source]', h).forEach(function (el) {
       el.style.cursor = 'pointer';
       el.onclick = function () {
-        var id = sourceByName[el.getAttribute('data-data-source')];
+        var name = el.getAttribute('data-data-source');
+        var src = sources.find(function (s) {
+          return s.name === name;
+        });
+        var id = sourceByName[name];
         if (!id) return;
+        if (liveData() && src && src.kind === 'FILE_FEED' && mx.can('operations.manage')) {
+          uploadFileFeed(id, name);
+          return;
+        }
         mx.post(V1 + '/sources/' + encodeURIComponent(id) + '/ingest', { mode: 'INCREMENTAL' })
           .then(function () {
-            mx.toast('Ingestion started', el.getAttribute('data-data-source') + ' job queued.');
+            mx.toast('Ingestion started', name + ' job queued.');
             return loadData();
           })
           .catch(mx.fail);
@@ -159,7 +305,7 @@
             tone +
             '">' +
             mx.esc(x.severity) +
-            '</span></td><td><button class="v33-btn" type="button" data-data-exc-act="ack">Acknowledge</button></td></tr>'
+              '</span></td><td><button class="v33-btn" type="button" data-data-exc-act="ack">Acknowledge</button> <button class="v33-btn" type="button" data-data-exc-act="assign">Assign</button> <button class="v33-btn" type="button" data-data-exc-act="resolve">Resolve</button> <button class="v33-btn" type="button" data-data-exc-act="waive">Waive</button></td></tr>'
           );
         })
         .join('') +
@@ -176,7 +322,11 @@
             (r.openExceptions || 0) +
             ' open</small></span><button class="v33-btn" type="button" data-data-rule="' +
             r.id +
-            '">Run</button></div>'
+            '">Run</button> ' +
+            (mx.can('operations.manage')
+              ? '<button class="v33-btn" type="button" data-data-schedule="' + r.id + '">Schedule</button>'
+              : '') +
+            '</div>'
           );
         })
         .join('') +
@@ -186,6 +336,32 @@
         var row = b.closest('[data-data-exc]');
         var id = row && row.getAttribute('data-data-exc');
         if (!id) return;
+        var act = b.getAttribute('data-data-exc-act');
+        if (act === 'assign') {
+          if (!mx.can('operations.manage')) {
+            mx.toast('Permission denied', 'Assign needs operations.manage.', 'error');
+            return;
+          }
+          openAssignExceptionModal(id);
+          return;
+        }
+        if (act === 'resolve' || act === 'waive') {
+          mx.reasonModal({
+            eyebrow: 'DATA QUALITY',
+            title: act === 'resolve' ? 'Resolve exception' : 'Waive exception',
+            subtitle: id,
+            label: act === 'resolve' ? 'Resolution note' : 'Waiver reason',
+            minLength: 5,
+            confirmLabel: act === 'resolve' ? 'Resolve' : 'Waive',
+            onConfirm: function (reason) {
+              return mx.post(V1 + '/exceptions/' + encodeURIComponent(id) + '/' + act, { reason: reason }).then(function () {
+                mx.toast('Exception ' + act + 'd', id);
+                return loadData();
+              });
+            },
+          });
+          return;
+        }
         mx.post(V1 + '/exceptions/' + encodeURIComponent(id) + '/acknowledge', {})
           .then(function () {
             mx.toast('Exception acknowledged', id);
@@ -202,6 +378,36 @@
             return loadData();
           })
           .catch(mx.fail);
+      };
+    });
+    mx.$$('[data-data-schedule]', h).forEach(function (b) {
+      b.onclick = function () {
+        var id = b.getAttribute('data-data-schedule');
+        mx.modal({
+          eyebrow: 'DATA QUALITY',
+          title: 'Set rule schedule',
+          body:
+            '<form id="mxDataSched"><label class="v34-field"><span>Cadence</span><select class="v34-select" name="cadence"><option value="DAILY">Daily</option><option value="WEEKLY">Weekly</option><option value="MONTHLY" selected>Monthly</option></select></label><label class="v34-field"><span><input type="checkbox" name="enabled" checked> Enabled</span></label></form>',
+          actions: [
+            { label: 'Cancel', run: function () {} },
+            {
+              label: 'Save schedule',
+              primary: true,
+              run: function (m) {
+                var fd = new FormData(m.querySelector('#mxDataSched'));
+                return mx
+                  .put(V1 + '/rules/' + encodeURIComponent(id) + '/schedule', {
+                    cadence: fd.get('cadence') || 'MONTHLY',
+                    enabled: !!m.querySelector('[name="enabled"]').checked,
+                  })
+                  .then(function () {
+                    mx.toast('Schedule saved', id);
+                    return loadData();
+                  });
+              },
+            },
+          ],
+        });
       };
     });
   }
@@ -317,22 +523,32 @@
 
   mx.onLoad('operations.view', function () {
     if (!document.getElementById('page-data')) return Promise.resolve();
+    if (liveData()) clearDataKpis();
     return loadData();
   });
 
   mx.hydrate('data', function () {
     if (!liveData()) return Promise.resolve();
+    clearDataKpis();
     return loadData();
   });
 
   window.addEventListener('matanho:legacy-ready', function () {
     mx.gate('#v33SaveConnection', 'operations.manage');
     mx.gate('#v33TestConnection', 'operations.manage');
+    mx.gate('[data-mx-data-schedules]', 'operations.view');
 
     document.addEventListener(
       'click',
       function (e) {
         if (!liveData()) return;
+        var schedBtn = e.target.closest && e.target.closest('[data-mx-data-schedules]');
+        if (schedBtn) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          openSchedulesModal().catch(mx.fail);
+          return;
+        }
         if (e.target.closest && e.target.closest('[data-v33-data-tab]')) {
           setTimeout(function () {
             if (liveData()) mx.renderData();

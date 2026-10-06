@@ -101,6 +101,11 @@ import {
   uploadVaultFile,
   assertFileContentMatches,
   vaultDocuments,
+  addVaultVersion,
+  vaultDownloadUrl,
+  vaultVersions,
+  vaultWithdrawSchema,
+  withdrawVaultDocument,
 } from './investee-workspace';
 import { workspaceRoutes } from './workspace/workspace.routes';
 
@@ -1091,6 +1096,30 @@ investeePortalRoutes.post('/vault', requireProfile('edit_draft'), uploadFiles('f
     investeeAudit(req),
   );
   ok(res, saved, 'Document stored', 201);
+});
+
+investeePortalRoutes.get('/vault/:id/versions', async (req, res) => {
+  ok(res, await vaultVersions(inv(req), param(req, 'id')));
+});
+
+investeePortalRoutes.get('/vault/:id/download-url', async (req, res) => {
+  const version = req.query.version !== undefined ? Number(req.query.version) : undefined;
+  const inline = req.query.inline === '1';
+  ok(
+    res,
+    await vaultDownloadUrl(inv(req), param(req, 'id'), { version, inline }, investeeAudit(req)),
+  );
+});
+
+investeePortalRoutes.post('/vault/:id/versions', requireProfile('edit_draft'), uploadFiles('file'), idempotent('investee.vault.version'), async (req, res) => {
+  const file = uploadedFiles(req)[0];
+  if (!file) throw new HttpError(400, 'bad_request', 'Attach a file');
+  ok(res, await addVaultVersion(inv(req), param(req, 'id'), file, investeeAudit(req)), 'New version stored', 201);
+});
+
+investeePortalRoutes.post('/vault/:id/withdraw', requireProfile('edit_draft'), validateBody(vaultWithdrawSchema), idempotent('investee.vault.withdraw'), async (req, res) => {
+  const body = req.body as z.infer<typeof vaultWithdrawSchema>;
+  ok(res, await withdrawVaultDocument(inv(req), param(req, 'id'), body.reason, investeeAudit(req)), 'Document withdrawn');
 });
 
 investeePortalRoutes.get('/signatures', async (req, res) => {

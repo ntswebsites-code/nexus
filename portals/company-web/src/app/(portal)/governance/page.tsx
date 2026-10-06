@@ -1,3 +1,5 @@
+import { GovernanceScreen } from '@/components/native/GovernanceScreen';
+
 export default function Page() {
-  return null;
+  return <GovernanceScreen />;
 }

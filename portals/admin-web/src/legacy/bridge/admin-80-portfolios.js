@@ -8,6 +8,21 @@
   var managerNames = {};
   var facets = { strategies: [], riskProfiles: [], managers: [] };
 
+  function livePortfolios() {
+    return mx.live && mx.strict('portfolios');
+  }
+
+  function clearPortfolioChrome() {
+    document.querySelectorAll('#page-portfolios .portfolio-summary-grid strong').forEach(function (el) {
+      el.textContent = '—';
+    });
+    document.querySelectorAll('#page-portfolios .portfolio-summary-grid small').forEach(function (el) {
+      el.textContent = 'Loading…';
+    });
+    var fc = document.querySelector('#page-portfolios .filter-count');
+    if (fc) fc.textContent = '— portfolios';
+  }
+
   function getEnvelope(path) {
     return fetch(mx.api + path, { credentials: 'include', headers: { Accept: 'application/json' } }).then(function (r) {
       return r.json();
@@ -29,7 +44,7 @@
       ccy: p.baseCurrency,
       aum: mx.money(p.marketValueBase, p.baseCurrency),
       cash: (p.cashPct != null ? p.cashPct : '0') + '%',
-      ret: '—',
+      ret: p.latestTwrPct != null ? fmtPct(p.latestTwrPct) : '—',
       bm: p.benchmark ? 'vs ' + p.benchmark : '—',
       risk: riskLabel(p),
       manager: (p.managerUserId && managerNames[p.managerUserId]) || '—',
@@ -128,11 +143,13 @@
   }
 
   mx.onLoad('portfolio.view', function () {
+    if (livePortfolios()) clearPortfolioChrome();
     return loadPortfolios();
   });
 
   mx.hydrate('portfolios', function () {
     if (!mx.strict('portfolios')) return Promise.resolve();
+    if (livePortfolios()) clearPortfolioChrome();
     return loadPortfolios();
   });
 
@@ -226,7 +243,7 @@
                   return '<option value="' + mx.esc(s) + '">';
                 })
                 .join('') +
-              '</datalist><label class="v34-field"><span>Risk profile</span><select class="v34-select" name="riskProfile"><option value="">Not set</option><option value="LOW">Low</option><option value="MODERATE">Moderate</option><option value="HIGH">High</option></select></label><label class="v34-field"><span>Status</span><select class="v34-select" name="status"><option value="Setup">Setup</option><option value="Active">Active</option></select></label><label class="v34-field"><span>Benchmark</span><input class="v34-input" name="benchmark"></label></div></form>',
+              '</datalist><label class="v34-field"><span>Risk profile</span><select class="v34-select" name="riskProfile"><option value="">Not set</option><option value="LOW">Low</option><option value="MODERATE">Moderate</option><option value="HIGH">High</option></select></label><label class="v34-field"><span>Status</span><select class="v34-select" name="status"><option value="Setup">Setup</option><option value="Active">Active</option></select></label><label class="v34-field"><span>Benchmark</span><input class="v34-input" name="benchmark"></label><label class="v34-field"><span>Evidence kind</span><select class="v34-select" name="evidenceKind"><option value="MANDATE">Mandate</option><option value="IPS">IPS</option><option value="OTHER">Other</option></select></label><label class="v34-field v34-wide"><span>Mandate evidence (optional)</span><input class="v34-input" type="file" name="evidence" accept=".pdf,.doc,.docx,.png,.jpg,.csv"></label></div></form>',
             actions: [
               {
                 label: 'Cancel',
@@ -247,8 +264,16 @@
                     riskProfile: fd.get('riskProfile') || undefined,
                     status: fd.get('status') || 'Setup',
                     benchmark: fd.get('benchmark') || undefined,
+                    evidenceKind: fd.get('evidenceKind') || 'MANDATE',
                   };
-                  return mx.post('/api/v1/portfolios', body).then(function (snap) {
+                  var evidence = m.querySelector('[name=evidence]') && m.querySelector('[name=evidence]').files[0];
+                  var postBody = body;
+                  if (evidence) {
+                    postBody = new FormData();
+                    postBody.append('payload', JSON.stringify(body));
+                    postBody.append('evidence', evidence, evidence.name);
+                  }
+                  return mx.post('/api/v1/portfolios', postBody).then(function (snap) {
                     mx.toast('Portfolio created', (snap.portfolio && snap.portfolio.ref) || 'Saved');
                     return loadPortfolios().then(function () {
                       resolve(true);

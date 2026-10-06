@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { api, OnboardingApiError, saveSession } from '@/lib/api';
+import { api, navigateTo, OnboardingApiError, saveSession } from '@/lib/api';
 import { Alert, Shell } from './ui';
 
 /** Ask for a magic link by email. The server always answers the same way (no email enumeration). */
@@ -50,7 +50,7 @@ export function ResumePage() {
     try {
       const r = await api.exchangeLink(link);
       saveSession(r);
-      window.location.replace('/');
+      navigateTo('/');
     } catch (e) {
       setError(e instanceof OnboardingApiError ? e.message : 'Could not use this link.');
       setBusy(false);

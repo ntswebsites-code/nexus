@@ -6,7 +6,7 @@ import { Badge, Card, Empty, Field, Loading, Modal, Notice, PageHead } from '@/c
 import { can, useMe } from '@/components/Shell';
 import { custodian, downloadText, errorText, fmtDate, fmtDateTime, fmtNum, fmtQty, useIdempotencyKey, useLoad } from '@/lib/api';
 
-type Format = 'CSV' | 'MT940' | 'JSON';
+type Format = 'CSV' | 'MT940' | 'JSON' | 'CAMT053';
 interface FileRow {
   id: string;
   adapter: string;
@@ -38,7 +38,7 @@ interface Holding {
 interface Check {
   format: string;
   problems: string[];
-  statements: { accountRef: string; statementDate: string; currency: string | null; closingCash: string | null; holdings: number; holdingsMv: string; trades: number; newTrades: number; duplicateTrades: number; warnings: string[] }[];
+  statements: { accountRef: string; statementDate: string; currency: string | null; closingCash: string | null; holdings: number; holdingsMv: string; trades: number; newTrades: number; duplicateTrades: number; warnings: string[]; cashImportLedger?: string; cashImportLines?: number }[];
 }
 
 export default function StatementsPage() {
@@ -88,10 +88,14 @@ export default function StatementsPage() {
     setBusy(true);
     setErr(null);
     try {
-      const r = await custodian.post<{ data: { statements: { tradesImported: number; holdings: number; dayEndRef: string | null }[] } }>('/statements', body(), key.current());
+      const r = await custodian.post<{ data: { format?: string; cashImportRef?: string; statements: { tradesImported?: number; trades?: number; holdings: number; dayEndRef?: string | null }[] } }>('/statements', body(), key.current());
       key.renew();
       const s = r.data.statements;
-      setOk(`Loaded ${s.length} statement${s.length === 1 ? '' : 's'}: ${s.reduce((n, x) => n + x.tradesImported, 0)} new trades, ${s.reduce((n, x) => n + x.holdings, 0)} holdings lines, day-end packages ${s.map((x) => x.dayEndRef).filter(Boolean).join(', ') || 'none'} awaiting approval.`);
+      if (r.data.cashImportRef) {
+        setOk(`CAMT bank statement staged as ${r.data.cashImportRef} for admin cash recon (${s[0]?.cashImportLedger ?? 'mapped ledger'}).`);
+      } else {
+        setOk(`Loaded ${s.length} statement${s.length === 1 ? '' : 's'}: ${s.reduce((n, x) => n + (x.tradesImported ?? x.trades ?? 0), 0)} new trades, ${s.reduce((n, x) => n + x.holdings, 0)} holdings lines, day-end packages ${s.map((x) => x.dayEndRef).filter(Boolean).join(', ') || 'none'} awaiting approval.`);
+      }
       setCheck(null);
       setText('');
       setFilename('');
@@ -117,8 +121,8 @@ export default function StatementsPage() {
     <>
       <PageHead
         title="Statements and holdings"
-        sub={`Upload your custodian statement (CSV, MT940 or JSON). Trades, closing cash and holdings are loaded and a day-end package is created for approval. Statement channel: ${feed.data?.mode ?? '...'}.`}
-        actions={(['CSV', 'MT940', 'JSON'] as Format[]).map((f) => (
+        sub={`Upload your custodian statement (CSV, MT940, JSON or CAMT.053 bank XML). Position feeds create day-end packages; CAMT bank statements stage a cash import for admin recon. Channel: ${feed.data?.mode ?? '...'}.`}
+        actions={(['CSV', 'MT940', 'JSON', 'CAMT053'] as Format[]).map((f) => (
           <button key={f} type="button" className="cx-btn sm" onClick={() => void template(f)}>
             {f} template
           </button>
@@ -132,7 +136,7 @@ export default function StatementsPage() {
         <Card title="Upload a statement">
           <div className="cx-form">
             <Field label="Statement file">
-              <input type="file" accept=".csv,.json,.sta,.mt940,.txt" onChange={(e) => void pick(e.target.files?.[0])} />
+              <input type="file" accept=".csv,.json,.sta,.mt940,.txt,.xml" onChange={(e) => void pick(e.target.files?.[0])} />
             </Field>
             <Field label="Format" hint="Detected from the content when left blank">
               <select value={format} onChange={(e) => setFormat(e.target.value as Format | '')}>
@@ -140,6 +144,7 @@ export default function StatementsPage() {
                 <option>CSV</option>
                 <option>MT940</option>
                 <option>JSON</option>
+                <option>CAMT053</option>
               </select>
             </Field>
           </div>
@@ -174,6 +179,7 @@ export default function StatementsPage() {
                     <th className="num">Holdings</th>
                     <th className="num">Holdings value</th>
                     <th className="num">Trades (new)</th>
+                    <th>Cash import</th>
                     <th>Warnings</th>
                   </tr>
                 </thead>
@@ -189,6 +195,7 @@ export default function StatementsPage() {
                       <td className="num">
                         {s.trades} ({s.newTrades})
                       </td>
+                      <td>{s.cashImportLedger ? `${s.cashImportLedger} (${s.cashImportLines ?? 0} lines)` : ''}</td>
                       <td>{s.warnings.join('; ')}</td>
                     </tr>
                   ))}
