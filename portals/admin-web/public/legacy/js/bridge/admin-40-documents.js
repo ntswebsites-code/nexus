@@ -11,6 +11,8 @@
   var records = {};
   var vaultSummary = null;
   var vaultDetail = {};
+  window.__mxData = window.__mxData || {};
+  if (!window.__mxData._vaultDocs33) window.__mxData._vaultDocs33 = [];
 
   function vaultLive() {
     return mx.live && mx.strict('vault');
@@ -32,10 +34,15 @@
     };
   }
 
-  mx.onLoad('documents.view', function () {
+  function loadVaultDocuments() {
     return mx.get(V1).then(function (r) {
-      mx.data.documents = r.data.map(vaultRow);
-    }).then(function () {
+      mx.data.documents = (r.data || []).map(vaultRow);
+      syncVaultPrototype(mx.data.documents);
+    });
+  }
+
+  mx.onLoad('vault', function () {
+    return loadVaultDocuments().then(function () {
       if (!vaultLive()) return;
       clearVaultKpis();
       return loadVaultDepth().then(function () {
@@ -241,8 +248,9 @@
 
   function syncVaultPrototype(docs) {
     window.__mxData = window.__mxData || {};
-    window.__mxData._vaultDocs33 = docs.map(mapVaultDocRow);
-    if (typeof docs !== 'undefined' && typeof renderDocs === 'function') renderDocs();
+    if (!window.__mxData._vaultDocs33) window.__mxData._vaultDocs33 = [];
+    mx.replace(window.__mxData._vaultDocs33, docs.map(mapVaultDocRow));
+    if (typeof renderDocs === 'function') renderDocs();
   }
 
   function loadVaultDepth() {

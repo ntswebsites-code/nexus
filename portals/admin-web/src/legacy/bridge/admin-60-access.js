@@ -398,4 +398,5 @@
     },
     { when: function () { return mx.live && mx.can('audit.view'); } },
   );
+  window.renderAudit = renderAudit;
 })();

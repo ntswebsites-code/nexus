@@ -7,6 +7,9 @@
   var filters = { status: '', portfolioId: '', securityId: '', q: '' };
   var catalogs = { portfolios: [], securities: [], brokers: [] };
   var apiByRef = {};
+  window.__mxData = window.__mxData || {};
+  if (!window.__mxData._orders) window.__mxData._orders = [];
+  if (!window.__mxData._v33Orders) window.__mxData._v33Orders = [];
 
   function getEnvelope(path) {
     return fetch(mx.api + path, { credentials: 'include', headers: { Accept: 'application/json' } }).then(function (r) {
@@ -530,16 +533,15 @@
 
   function syncTables() {
     var rows = mx.data.orders || [];
-    if (typeof orders !== 'undefined' && Array.isArray(orders)) {
-      mx.replace(orders, rows);
-      if (typeof renderOrders === 'function') renderOrders();
-    }
-    if (window.__mxData && window.__mxData._v33Orders) {
-      mx.replace(window.__mxData._v33Orders, mx.data.v33Orders || rows.map(toProtoV33));
-      if (typeof updateOrderKpis === 'function') updateOrderKpis();
-      if (typeof renderOrdersView === 'function') renderOrdersView();
-      if (typeof orderMain !== 'undefined' && orderMain === 'posttrade') renderLivePostTradeTab();
-    }
+    if (!window.__mxData) window.__mxData = {};
+    if (!window.__mxData._orders) window.__mxData._orders = [];
+    mx.replace(window.__mxData._orders, rows);
+    if (typeof renderOrders === 'function') renderOrders();
+    if (!window.__mxData._v33Orders) window.__mxData._v33Orders = [];
+    mx.replace(window.__mxData._v33Orders, mx.data.v33Orders || rows.map(toProtoV33));
+    if (typeof updateOrderKpis === 'function') updateOrderKpis();
+    if (typeof renderOrdersView === 'function') renderOrdersView();
+    if (typeof orderMain !== 'undefined' && orderMain === 'posttrade') renderLivePostTradeTab();
   }
 
   function renderLivePostTradeTab() {
