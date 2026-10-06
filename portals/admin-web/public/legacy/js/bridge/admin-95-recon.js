@@ -311,7 +311,7 @@
     if (!mx.can('operations.view')) return Promise.resolve();
     return Promise.all([
       getEnvelope('/api/v1/recon/overview'),
-      getEnvelope('/api/v1/recon/breaks?status=NEW&status=ASSIGNED&status=INVESTIGATING&status=PENDING_CHECKER&limit=100'),
+      getEnvelope('/api/v1/recon/breaks?status=NEW,ASSIGNED,INVESTIGATING,PENDING_CHECKER&limit=100'),
     ]).then(function (parts) {
       ensureReconExportButton();
       var overview = parts[0].data || parts[0];
@@ -331,6 +331,13 @@
   function activeBreakRef() {
     var card = document.querySelector('#v33BreakDetail .v33-kicker');
     return card ? card.textContent.split(' · ')[0].trim() : null;
+  }
+
+  function activeBreakFamily() {
+    var card = document.querySelector('#v33BreakDetail .v33-kicker');
+    if (!card) return 'TRADES';
+    var parts = card.textContent.split(' · ');
+    return parts.length > 1 ? parts[1].trim() : 'TRADES';
   }
 
   function postBreakAction(ref, action, body) {
@@ -744,7 +751,7 @@
         if (e.target.closest && e.target.closest('#v33RunRecon')) {
           e.preventDefault();
           e.stopImmediatePropagation();
-          mx.post('/api/v1/recon/runs', { family: 'TRADES', asOfDate: new Date().toISOString().slice(0, 10) })
+          mx.post('/api/v1/recon/runs', { family: activeBreakFamily(), asOfDate: new Date().toISOString().slice(0, 10) })
             .then(function () {
               mx.toast('Reconciliation run started', 'Matching job queued; breaks refresh when complete.');
               return loadRecon();
@@ -755,7 +762,7 @@
         if (e.target.closest && e.target.closest('#v33ReconSignoff')) {
           e.preventDefault();
           e.stopImmediatePropagation();
-          mx.post('/api/v1/recon/signoffs', { asOfDate: new Date().toISOString().slice(0, 10), note: 'Daily sign-off from prototype' })
+          mx.post('/api/v1/recon/signoffs', { family: activeBreakFamily(), asOfDate: new Date().toISOString().slice(0, 10), note: 'Daily sign-off' })
             .then(function () {
               mx.toast('Daily sign-off recorded', 'Reconciliation evidence frozen with checker identity.');
             })
@@ -766,34 +773,28 @@
           var rationale = document.getElementById('v33ReconRationale');
           var note = rationale ? rationale.value.trim() : '';
           if (!note) return;
-          var active = (window.__mxData._reconBreaks33 || []).find(function (b) {
-            return b.state !== 'Closed';
-          });
-          if (!active || !active.apiId) return;
+          var ref = activeBreakRef();
+          if (!ref) return;
           e.preventDefault();
           e.stopImmediatePropagation();
-          mx.post('/api/v1/recon/breaks/' + encodeURIComponent(active.apiId) + '/resolve', {
+          postBreakAction(ref, 'resolve', {
             resolutionNote: note,
             cause: (document.getElementById('v33ReconCause') && document.getElementById('v33ReconCause').value) || 'OTHER',
           })
             .then(function () {
-              mx.toast('Resolution submitted', active.id + ' awaiting independent checker.');
-              return loadRecon();
+              mx.toast('Resolution submitted', ref + ' awaiting independent checker.');
             })
             .catch(mx.fail);
           return;
         }
         if (e.target.closest && e.target.closest('#v33ReconChecker')) {
-          var active2 = (window.__mxData._reconBreaks33 || []).find(function (b) {
-            return b.state === 'Pending checker';
-          });
-          if (!active2 || !active2.apiId) return;
+          var ref2 = activeBreakRef();
+          if (!ref2) return;
           e.preventDefault();
           e.stopImmediatePropagation();
-          mx.post('/api/v1/recon/breaks/' + encodeURIComponent(active2.apiId) + '/approve', {})
+          postBreakAction(ref2, 'approve', {})
             .then(function () {
-              mx.toast('Break closed', active2.id + ' approved by checker.');
-              return loadRecon();
+              mx.toast('Break closed', ref2 + ' approved by checker.');
             })
             .catch(mx.fail);
           return;

@@ -610,5 +610,12 @@
   mx.can = function (code) {
     return !!(mx.user && mx.user.permissions.indexOf(code) >= 0);
   };
+  mx.demoOnly = function (sel) {
+    if (!mx.live) return;
+    var nodes = typeof sel === 'string' ? document.querySelectorAll(sel) : [sel].filter(Boolean);
+    nodes.forEach(function (el) {
+      if (el) el.hidden = true;
+    });
+  };
 })();
 

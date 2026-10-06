@@ -6,8 +6,8 @@ const emptyNull = `${liveOrders}?null:`;
 
 export const DATA_HOOKS = {
   admin: {
-    '01-inline.js': [[`let orders = [`, `let orders=window.__mxData._orders||(window.__mxData._orders=[`]],
-    'v33-rebuild.js': [[`const orders=[`, `const orders=window.__mxData._v33Orders||(window.__mxData._v33Orders=[`]],
+    '01-inline.js': [[`let orders = [`, `let orders=window.__mxData._orders||[`]],
+    'v33-rebuild.js': [[`const orders=[`, `const orders=window.__mxData._v33Orders||[`]],
     'v37-enhancements.js': [
       [
         "JSON.parse(localStorage.getItem('matanho-v37-orders')||'[]')",
@@ -15,17 +15,17 @@ export const DATA_HOOKS = {
       ],
       [
         "localStorage.setItem('matanho-v37-orders'",
-        `${liveOrders}void 0:localStorage.setItem('matanho-v37-orders'`,
+        `${liveOrders}?void 0:localStorage.setItem('matanho-v37-orders'`,
       ],
       [
         "localStorage.removeItem('matanho-v37-order-draft')",
-        `${liveOrders}void 0:localStorage.removeItem('matanho-v37-order-draft')`,
+        `${liveOrders}?void 0:localStorage.removeItem('matanho-v37-order-draft')`,
       ],
     ],
     'v44-enhancements.js': [
       [
         "localStorage.setItem('matanho-v44-order-draft'",
-        `${liveOrders}void 0:localStorage.setItem('matanho-v44-order-draft'`,
+        `${liveOrders}?void 0:localStorage.setItem('matanho-v44-order-draft'`,
       ],
     ],
     'v53-enhancements.js': [
@@ -35,7 +35,7 @@ export const DATA_HOOKS = {
       ],
       [
         "localStorage.setItem('matanho-v53-order-draft'",
-        `${liveOrders}void 0:localStorage.setItem('matanho-v53-order-draft'`,
+        `${liveOrders}?void 0:localStorage.setItem('matanho-v53-order-draft'`,
       ],
       [
         "JSON.parse(localStorage.getItem('matanho-v53-submitted-orders')||'[]')",
@@ -43,13 +43,13 @@ export const DATA_HOOKS = {
       ],
       [
         "localStorage.setItem('matanho-v53-submitted-orders'",
-        `${liveOrders}void 0:localStorage.setItem('matanho-v53-submitted-orders'`,
+        `${liveOrders}?void 0:localStorage.setItem('matanho-v53-submitted-orders'`,
       ],
     ],
     'v56-enhancements.js': [
       [
         "localStorage.setItem('matanho-v56-order-draft'",
-        `${liveOrders}void 0:localStorage.setItem('matanho-v56-order-draft'`,
+        `${liveOrders}?void 0:localStorage.setItem('matanho-v56-order-draft'`,
       ],
       [
         "JSON.parse(localStorage.getItem('matanho-v56-submitted-orders')||'[]')",
@@ -57,7 +57,7 @@ export const DATA_HOOKS = {
       ],
       [
         "localStorage.setItem('matanho-v56-submitted-orders'",
-        `${liveOrders}void 0:localStorage.setItem('matanho-v56-submitted-orders'`,
+        `${liveOrders}?void 0:localStorage.setItem('matanho-v56-submitted-orders'`,
       ],
     ],
   },

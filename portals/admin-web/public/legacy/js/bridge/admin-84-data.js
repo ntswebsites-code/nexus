@@ -12,6 +12,7 @@
   var rules = [];
   var fabricSummary = null;
   var sourceByName = {};
+  var dataTab;
 
   function liveData() {
     return mx.live && mx.strict('data');
@@ -236,7 +237,13 @@
           uploadFileFeed(id, name);
           return;
         }
-        mx.post(V1 + '/sources/' + encodeURIComponent(id) + '/ingest', { mode: 'INCREMENTAL' })
+        mx.post(V1 + '/sources/' + encodeURIComponent(id) + '/ingest', {
+          rowsRead: 0,
+          rowsRejected: 0,
+          status: 'PENDING',
+          error: '',
+          note: 'Manual ingest from Data Fabric',
+        })
           .then(function () {
             mx.toast('Ingestion started', name + ' job queued.');
             return loadData();
@@ -462,7 +469,7 @@
         if (!name) return mx.toast('Connection incomplete', 'Provide a connection name.', 'error');
         mx.post(V1 + '/sources', {
           name: name,
-          kind: kind === 'REST API' ? 'API' : kind === 'SFTP' ? 'SFTP' : kind === 'FIX 4.4' ? 'FIX' : 'FILE',
+          kind: kind === 'REST API' ? 'API' : kind === 'SFTP' ? 'FILE_FEED' : kind === 'FIX 4.4' ? 'API' : 'TABLE',
           system: root.querySelector('#v33ConnEndpoint')?.value || 'endpoint',
           owner: owner,
           cadence: 'DAILY',

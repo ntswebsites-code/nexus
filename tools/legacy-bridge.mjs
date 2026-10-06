@@ -20,10 +20,26 @@
  * `applyBridge` after re-extracting, so hooks survive a fresh extraction.
  */
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-const HOOKS_DIR = path.join(path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'), 'tools', 'hooks');
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+
+function checkJsSyntax(file, source) {
+  const tmp = path.join(ROOT, 'tools', '.bridge-syntax-check.js');
+  writeFileSync(tmp, source, 'utf8');
+  try {
+    execSync(`node --check "${tmp}"`, { stdio: ['ignore', 'pipe', 'pipe'] });
+  } catch (e) {
+    const msg = e.stderr?.toString() || e.message || String(e);
+    throw new Error(`Syntax check failed for ${file}: ${msg}`);
+  } finally {
+    try { rmSync(tmp, { force: true }); } catch {}
+  }
+}
+
+const HOOKS_DIR = path.join(ROOT, 'tools', 'hooks');
 
 /** Merge package hook files (tools/hooks/*.mjs) into the base DATA_HOOKS map. */
 async function mergePackageHooks(base) {
@@ -43,7 +59,7 @@ async function mergePackageHooks(base) {
   return merged;
 }
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = ROOT;
 const CORE = path.join(root, 'packages', 'legacy-runtime', 'bridge', 'mx-core.js');
 const BRIDGE_URL = '/legacy/js/bridge/';
 
@@ -150,14 +166,17 @@ export function applyBridge(portal, { check = false, dataHooks = DATA_HOOKS } = 
   const changed = [];
 
   if (DISABLED.has(portal)) {
-    if (existsSync(path.join(pub, 'bridge'))) {
-      changed.push(path.relative(root, path.join(pub, 'bridge')));
-      if (!check) rmSync(path.join(pub, 'bridge'), { recursive: true, force: true });
+    const bridgeDir = path.join(pub, 'bridge');
+    if (existsSync(bridgeDir)) {
+      changed.push(path.relative(root, bridgeDir));
+      if (!check) rmSync(bridgeDir, { recursive: true, force: true });
     }
-    const { out, changed: mc } = updateManifest(manifestPath, []);
-    if (mc) {
-      changed.push(path.relative(root, manifestPath));
-      if (!check) writeFileSync(manifestPath, out);
+    if (existsSync(manifestPath)) {
+      const { out, changed: mc } = updateManifest(manifestPath, []);
+      if (mc) {
+        changed.push(path.relative(root, manifestPath));
+        if (!check) writeFileSync(manifestPath, out);
+      }
     }
     return changed;
   }
@@ -169,7 +188,16 @@ export function applyBridge(portal, { check = false, dataHooks = DATA_HOOKS } = 
     const same = existsSync(dest) && readFileSync(dest).equals(readFileSync(f.src));
     if (!same) {
       changed.push(path.relative(root, dest));
-      if (!check) copyFileSync(f.src, dest);
+      if (check) {
+        try {
+          checkJsSyntax(dest, readFileSync(f.src, 'utf8'));
+        } catch (e) {
+          console.error(`ERROR: ${e.message}`);
+          process.exitCode = 1;
+        }
+      } else {
+        copyFileSync(f.src, dest);
+      }
     }
   }
 
@@ -178,7 +206,16 @@ export function applyBridge(portal, { check = false, dataHooks = DATA_HOOKS } = 
     const { out, changed: c } = patchText(file, readFileSync(target, 'utf8'), hooks);
     if (c) {
       changed.push(path.relative(root, target));
-      if (!check) writeFileSync(target, out);
+      if (check) {
+        try {
+          checkJsSyntax(target, out);
+        } catch (e) {
+          console.error(`ERROR: ${e.message}`);
+          process.exitCode = 1;
+        }
+      } else {
+        writeFileSync(target, out);
+      }
     }
   }
 

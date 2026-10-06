@@ -730,7 +730,7 @@
         if (!liveCash()) return protoApprove(id);
         var apiId = journalApiId(id);
         if (!apiId) return protoApprove(id);
-        mx.post('/api/v1/cash/journals/' + encodeURIComponent(apiId) + '/approve', {})
+        mx.post('/api/v1/cash/journals/' + encodeURIComponent(apiId) + '/post', {}, { noStepUp: false })
           .then(function () {
             mx.toast('Journal posted', id + ' approved and posted.');
             if (typeof closeDrawer === 'function') closeDrawer();
@@ -746,13 +746,17 @@
         if (!liveCash()) return protoReverse(id);
         var apiId = journalApiId(id);
         if (!apiId) return protoReverse(id);
-        mx.post('/api/v1/cash/journals/' + encodeURIComponent(apiId) + '/reverse', { reason: 'Prototype reversal' })
-          .then(function () {
-            mx.toast('Reversal proposed', 'Reversal journal created and routed for checker.');
-            if (typeof closeDrawer === 'function') closeDrawer();
-            return loadCash();
-          })
-          .catch(mx.fail);
+        mx.reasonModal('Reverse journal', 'State the reason for this reversal.').then(function (reason) {
+          if (!reason) return;
+          return mx.post('/api/v1/cash/journals/' + encodeURIComponent(apiId) + '/reverse', { reason: reason });
+        }).then(function () {
+          mx.toast('Reversal proposed', 'Reversal journal created and routed for checker.');
+          if (typeof closeDrawer === 'function') closeDrawer();
+          return loadCash();
+        }).catch(function (e) {
+          if (e && e.code === 'step_up_cancelled') return;
+          mx.fail(e);
+        });
       };
     }
 
@@ -762,13 +766,17 @@
         if (!liveCash()) return protoRelease(id);
         var apiId = reservationApiId(id);
         if (!apiId) return protoRelease(id);
-        mx.post('/api/v1/cash/reservations/' + encodeURIComponent(apiId) + '/release', { reason: 'Released from prototype' })
-          .then(function () {
-            mx.toast('Reservation released', id + ' remainder released.');
-            if (typeof closeDrawer === 'function') closeDrawer();
-            return loadCash();
-          })
-          .catch(mx.fail);
+        mx.reasonModal('Release reservation', 'Why is this reservation remainder being released?').then(function (reason) {
+          if (!reason) return;
+          return mx.post('/api/v1/cash/reservations/' + encodeURIComponent(apiId) + '/release', { reason: reason });
+        }).then(function () {
+          mx.toast('Reservation released', id + ' remainder released.');
+          if (typeof closeDrawer === 'function') closeDrawer();
+          return loadCash();
+        }).catch(function (e) {
+          if (e && e.code === 'step_up_cancelled') return;
+          mx.fail(e);
+        });
       };
     }
 
@@ -779,24 +787,30 @@
         var apiId = importApiId(id);
         if (!apiId) return protoStmt(id, action);
         var path =
-          action === 'validate'
-            ? '/validate'
-            : action === 'submit'
-              ? '/submit'
-              : action === 'commit'
-                ? '/commit'
-                : action === 'reject'
-                  ? '/reject'
-                  : null;
+          action === 'commit'
+            ? '/commit'
+            : action === 'reject'
+              ? '/reject'
+              : null;
         if (!path) return protoStmt(id, action);
-        var body = action === 'reject' ? { reason: 'Rejected from prototype' } : {};
-        mx.post('/api/v1/cash/statement-imports/' + encodeURIComponent(apiId) + path, body)
-          .then(function () {
-            mx.toast('Import updated', id + ' · ' + action);
-            if (typeof closeDrawer === 'function') closeDrawer();
-            return loadCash();
-          })
-          .catch(mx.fail);
+        var finish = function () {
+          mx.toast('Import updated', id + ' · ' + action);
+          if (typeof closeDrawer === 'function') closeDrawer();
+          return loadCash();
+        };
+        if (path === '/reject') {
+          mx.reasonModal('Reject import', 'Reason for rejecting this statement import.').then(function (reason) {
+            if (!reason) return;
+            return mx.post('/api/v1/cash/statement-imports/' + encodeURIComponent(apiId) + path, { reason: reason });
+          }).then(function () { return finish(); }).catch(function (e) {
+            if (e && e.code === 'step_up_cancelled') return;
+            mx.fail(e);
+          });
+        } else {
+          mx.post('/api/v1/cash/statement-imports/' + encodeURIComponent(apiId) + path, {})
+            .then(function () { return finish(); })
+            .catch(mx.fail);
+        }
       };
     }
 
@@ -821,8 +835,8 @@
               sourceRef: (document.getElementById('newJournalSource') && document.getElementById('newJournalSource').value) || 'MANUAL',
               currency: ccy,
               lines: [
-                { ledgerKind: 'CLEARING', debit: String(amount), credit: '0', memo: 'Debit' },
-                { ledgerKind: 'BANK', debit: '0', credit: String(amount), memo: 'Credit' },
+                { ledgerId: 'CLEARING', debit: String(amount), credit: '0', memo: 'Debit' },
+                { ledgerId: 'BANK', debit: '0', credit: String(amount), memo: 'Credit' },
               ],
             })
             .then(function () {
@@ -869,7 +883,7 @@
             mx.qs({ portfolioId: portfolioId, periodEnd: filters.asOf || new Date().toISOString().slice(0, 10) }),
         )
           .then(function (body) {
-            var items = body.data || body.checklist || body.items || [];
+            var items = (body.data && body.data.items) || body.checklist || body.items || [];
             var blockers = items.filter(function (x) {
               return !x.ok;
             });

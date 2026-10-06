@@ -38,7 +38,7 @@ const portfolios = window.__mxData&&window.__mxData.portfolios||[
   {name:'Zimbabwe Opportunities', type:'Equity / Special Sits', ccy:'ZWG', aum:'US$ 7.87M eq.', cash:'7.1%', ret:'15.9%', bm:'+2.2%', risk:'Within', manager:'R. Dube'}
 ];
 
-let orders=window.__mxData._orders||(window.__mxData._orders=[
+let orders=window.__mxData._orders||[
   {id:'ORD-260826-014', time:'14:52', security:'ZIM.VX', name:'Zimplats Holdings', market:'VFEX', side:'Buy', qty:'180,000', limit:'US$ 2.29', notional:'US$ 412.2k', broker:'IH Securities', portfolio:'USD Equity Fund', status:'Routing', owner:'N. Dube', fill:0, filledQty:'0', avg:'—', control:'Within', approval:'Approved', route:'Email / IH', settlement:'T+2 · 28 Aug', tif:'Day', urgency:'Normal', allocation:'Single portfolio', age:'34m', slippage:'—', decisionPrice:'US$ 2.27', risk:'SSI watch'},
   {id:'ORD-260826-013', time:'14:36', security:'DLTA.ZW', name:'Delta Corporation Limited', market:'ZSE', side:'Buy', qty:'250,000', limit:'ZWG 31.80', notional:'ZWG 7.95M', broker:'Imara Edwards', portfolio:'Balanced Growth Fund', status:'Awaiting approval', owner:'T. Moyo', fill:0, filledQty:'0', avg:'—', control:'Amber', approval:'Investment Director', route:'Not routed', settlement:'T+3 · 31 Aug', tif:'Day', urgency:'Normal', allocation:'Single portfolio', age:'50m', slippage:'—', decisionPrice:'ZWG 31.74', risk:'Issuer 97.2% used'},
   {id:'ORD-260826-012', time:'13:58', security:'INN.ZW', name:'Innscor Africa Limited', market:'ZSE', side:'Buy', qty:'95,000', limit:'ZWG 18.40', notional:'ZWG 1.75M', broker:'FBC Securities', portfolio:'Pension Mandate 04', status:'Approved', owner:'R. Dube', fill:0, filledQty:'0', avg:'—', control:'Within', approval:'Approved', route:'Ready to route', settlement:'T+3 · 31 Aug', tif:'Day', urgency:'Normal', allocation:'Single portfolio', age:'1h 28m', slippage:'—', decisionPrice:'ZWG 18.31', risk:'Within'},
@@ -92,7 +92,7 @@ let statementImports = window.__mxData&&window.__mxData.statementImports||[
 ];
 
 
-let reports=window.__mxData._reportsInline||(window.__mxData._reportsInline=[
+let reports=window.__mxData._reportsInline||[
   {name:'Horizon Pension Fund — July Account Report', type:'Client Account', period:'Jul 2026', owner:'L. Chuma', edited:'25 Aug · 16:42', version:'v3', status:'Awaiting approval'},
   {name:'Monthly Compliance Monitoring — August', type:'Compliance', period:'Aug 2026', owner:'C. Dube', edited:'26 Aug · 14:10', version:'v2', status:'Draft'},
   {name:'Investment Committee Pack — 26 August', type:'Investment Committee', period:'26 Aug', owner:'T. Moyo', edited:'26 Aug · 12:32', version:'v5', status:'Published'},
@@ -111,7 +111,7 @@ let documents = window.__mxData&&window.__mxData.documents||[
   {name:'AML Enhanced Review — Stonebridge', type:'compliance', related:'CL-00433', owner:'C. Dube', updated:'26 Aug 2026', version:'v1', access:'Compliance only', status:'Restricted', format:'PDF'}
 ];
 
-const research=window.__mxData._research||(window.__mxData._research=[
+const research=window.__mxData._research||[
   {ticker:'INN.ZW', name:'Innscor Africa', view:'Accumulate', score:'A', target:'+18%', owner:'T. Ncube', review:'30 Sep', tags:['Consumer','Equity']},
   {ticker:'ZIM.VX', name:'Zimplats Holdings', view:'Hold', score:'B+', target:'+8%', owner:'R. Dube', review:'15 Sep', tags:['Mining','VFEX']},
   {ticker:'DLTA.ZW', name:'Delta Corporation', view:'Accumulate', score:'A-', target:'+13%', owner:'T. Ncube', review:'10 Oct', tags:['Consumer','ZSE']},

@@ -203,7 +203,7 @@
         return null;
       }),
       getEnvelope('/api/v1/financing/facilities'),
-      getEnvelope('/api/v1/financing/calls?status=OPEN&status=ACKNOWLEDGED&status=DISPUTED&limit=50'),
+      getEnvelope('/api/v1/financing/calls?status=OPEN,ACKNOWLEDGED,DISPUTED&limit=50'),
     ]).then(function (parts) {
       var summary = parts[0] && (parts[0].data || parts[0]);
       var facilities = parts[1].data || parts[1] || [];

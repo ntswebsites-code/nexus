@@ -4,7 +4,7 @@ const liveOnboarding = `(window.mx&&window.mx.live&&window.mx.strict('onboarding
 export const DATA_HOOKS = {
   admin: {
     'v33-rebuild.js': [
-      [`const docs=[`, `const docs=window.__mxData._vaultDocs33||(window.__mxData._vaultDocs33=[`],
+      [`const docs=[`, `const docs=window.__mxData._vaultDocs33||[`],
     ],
     'v35-enhancements.js': [
       [

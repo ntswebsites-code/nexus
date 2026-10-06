@@ -36,7 +36,7 @@ document.addEventListener('DOMContentLoaded',()=>setTimeout(initInvestorServices
 
 
 // === V15 replacement-grade institutional workspaces ===
-const v15PrivateAssets=window.__mxData._privateAssets15||(window.__mxData._privateAssets15=[
+const v15PrivateAssets=window.__mxData._privateAssets15||[
  {id:'PE-041',name:'Growth Equity IV',type:'PE fund',vintage:'2023',cost:'US$ 3.80M',nav:'US$ 4.46M',unfunded:'US$ 1.62M',irr:'21.8%',multiple:'1.34×',valuation:'Stale',tone:'amber'},
  {id:'PC-018',name:'Private Credit I',type:'Credit fund',vintage:'2024',cost:'US$ 2.60M',nav:'US$ 2.81M',unfunded:'US$ 0.92M',irr:'14.2%',multiple:'1.12×',valuation:'Current',tone:'green'},
  {id:'RE-007',name:'Eastgate Logistics Park',type:'Direct real estate',vintage:'2022',cost:'US$ 2.10M',nav:'US$ 2.64M',unfunded:'—',irr:'17.6%',multiple:'1.26×',valuation:'Review',tone:'amber'},
@@ -49,7 +49,7 @@ const v15MarginCalls=[
  {id:'MC-8824',cp:'Global Bank A',agreement:'CSA-IRS-02',type:'Initial margin',requested:'US$ 154k',internal:'US$ 154k',diff:'US$ 0',due:'13:30',state:'Ready',tone:'green'},
  {id:'MC-8827',cp:'Broker C',agreement:'GMRA-01',type:'Repo margin',requested:'US$ 42k',internal:'US$ 42k',diff:'US$ 0',due:'15:00',state:'Awaiting checker',tone:'blue'}
 ];
-const v15CorpActions=window.__mxData._v15CorpActions||(window.__mxData._v15CorpActions=[
+const v15CorpActions=window.__mxData._v15CorpActions||[
  {id:'CA-26091',event:'Rights issue',security:'DLTA.ZW',type:'Voluntary',date:'01 Sep · 12:00',entitlement:'1:8 rights',portfolios:'4',state:'Election required',tone:'amber'},
  {id:'CA-26087',event:'Cash / scrip dividend',security:'REGH.ZW',type:'Choice',date:'02 Sep · 17:00',entitlement:'US$ 86k eq.',portfolios:'3',state:'Election required',tone:'amber'},
  {id:'CA-26079',event:'Tender offer',security:'GLOBAL-ETF',type:'Voluntary',date:'03 Sep · 10:00',entitlement:'18,400 shs',portfolios:'2',state:'Review',tone:'blue'},

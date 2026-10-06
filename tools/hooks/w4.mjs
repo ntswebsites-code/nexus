@@ -6,12 +6,12 @@ const livePerf = `(window.mx&&window.mx.live&&window.mx.strict('performance'))`;
 
 export const DATA_HOOKS = {
   admin: {
-    '01-inline.js': [[`const research = [`, `const research=window.__mxData._research||(window.__mxData._research=[`]],
+    '01-inline.js': [[`const research = [`, `const research=window.__mxData._research||[`]],
     '02-v7-institutional-enhancement-js.js': [
-      [`const equityResearchData={`, `const equityResearchData=window.__mxData._equityResearch||(window.__mxData._equityResearch={`],
-      [`const researchNotes={};`, `const researchNotes=window.__mxData._researchNotes||(window.__mxData._researchNotes={});`],
+      [`const equityResearchData={`, `const equityResearchData=window.__mxData._equityResearch||{`],
+      [`const researchNotes={};`, `const researchNotes=window.__mxData._researchNotes||{};`],
     ],
-    'v37-enhancements.js': [[`let riskLimits37=[`, `let riskLimits37=window.__mxData._riskLimits37||(window.__mxData._riskLimits37=[`]],
+    'v37-enhancements.js': [[`let riskLimits37=[`, `let riskLimits37=window.__mxData._riskLimits37||[`]],
     '08-inline.js': [
       [
         'function v17PerfSeries(){const anchors=',

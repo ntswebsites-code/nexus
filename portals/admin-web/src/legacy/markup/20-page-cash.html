@@ -4,28 +4,28 @@
 <div class="page-actions"><button class="btn secondary" data-action="cash-explain"><svg><use href="#i-eye"></use></svg>Explain balance</button><button class="btn secondary" data-action="import-statement" data-permission-action="cash.import"><svg><use href="#i-download"></use></svg>Import statement</button><button class="btn primary" data-action="new-cash-journal" data-permission-action="cash.journal.create"><svg><use href="#i-plus"></use></svg>New journal</button></div>
 </div>
 <div class="cash-context-bar">
-<label><span>Client</span><select id="cashClientContext"><option value="">All clients</option></select></label>
-<label><span>Portfolio</span><select id="cashPortfolioContext"><option value="">All portfolios</option></select></label>
-<label><span>Cash account</span><select id="cashAccountContext"><option value="">All cash accounts</option></select></label>
-<label><span>Currency</span><select id="cashCurrencyContext"><option value="">All currencies</option></select></label>
-<label><span>As of</span><input readonly="" value="—"/></label>
-<div class="cash-freshness"><span class="status-dot green"></span><div><strong>—</strong><small>—</small></div></div>
+<label><span>Client</span><select id="cashClientContext"><option>Horizon Pension Fund</option><option>Cedar Insurance Limited</option><option>National Staff Provident Fund</option></select></label>
+<label><span>Portfolio</span><select id="cashPortfolioContext"><option>Balanced Growth Fund</option><option>USD Equity Fund</option><option>Pension Mandate 04</option></select></label>
+<label><span>Cash account</span><select id="cashAccountContext"><option>CCA-1001 · Custodian ••••1001</option><option>CCA-1042 · Stanbic ••••0042</option><option>CCA-1188 · CABS ••••1188</option></select></label>
+<label><span>Currency</span><select id="cashCurrencyContext"><option>ZWG</option><option>USD</option></select></label>
+<label><span>As of</span><input readonly="" value="26 Aug 2026 · 15:26 CAT"/></label>
+<div class="cash-freshness"><span class="status-dot green"></span><div><strong>Ledger current</strong><small>External statement received 15:12 CAT</small></div></div>
 </div>
 <div class="cash-state-grid">
-<article><span>POSTED_SETTLED</span><strong>—</strong><small>—</small><button data-action="cash-explain">Explain</button></article>
-<article><span>RESERVED</span><strong>—</strong><small>—</small><button data-action="view-reservations">0 reservations</button></article>
-<article><span>BLOCKED / HOLDS</span><strong>—</strong><small>—</small><button data-action="cash-explain">Explain</button></article>
-<article><span>EXPECTED NET</span><strong>—</strong><small>—</small><button data-action="view-expectations">0 movements</button></article>
-<article class="cash-primary"><span>AVAILABLE TRADING CASH</span><strong>—</strong><small>—</small><button data-action="cash-explain">Reproduce number</button></article>
-<article><span>WITHDRAWABLE CASH</span><strong>—</strong><small>—</small><button data-action="cash-explain">Explain</button></article>
+<article><span>POSTED_SETTLED</span><strong>US$ 10,000.00</strong><small>Approved internal cash · externally settled</small><button data-action="cash-explain">Explain</button></article>
+<article><span>RESERVED</span><strong>US$ 3,000.00</strong><small>Approved buy commitment · off-ledger</small><button data-action="view-reservations">3 reservations</button></article>
+<article><span>BLOCKED / HOLDS</span><strong>US$ 0.00</strong><small>Compliance, legal and operational holds</small><button data-action="cash-explain">Explain</button></article>
+<article><span>EXPECTED NET</span><strong>+US$ 480.00</strong><small>Inflows less expected outflows · projection only</small><button data-action="view-expectations">4 movements</button></article>
+<article class="cash-primary"><span>AVAILABLE TRADING CASH</span><strong>US$ 7,000.00</strong><small>Order eligible · rule AVAIL-USD-v4</small><button data-action="cash-explain">Reproduce number</button></article>
+<article><span>WITHDRAWABLE CASH</span><strong>US$ 7,000.00</strong><small>Settled less reservations, holds and buffer</small><button data-action="cash-explain">Explain</button></article>
 </div>
 <div class="cash-formula card">
 <div class="card-head"><div><h2>Available cash proof</h2><p>The trading number is calculated from internal controlled states; the external statement is evidence, not the source of availability.</p></div><span class="tag green">Reproducible</span></div>
-<div class="formula-row"><span>Eligible posted settled cash</span><b>—</b><em>LEDGER</em></div>
-<div class="formula-row positive"><span>+ Reusable cleared proceeds / approved credit</span><b>—</b><em>POLICY</em></div>
-<div class="formula-row negative"><span>− Active reservations</span><b>—</b><em>RSV</em></div>
-<div class="formula-row negative"><span>− Holds / pending withdrawals / minimum buffer</span><b>—</b><em>CONTROL</em></div>
-<div class="formula-total"><span>Diagnostic available</span><strong>—</strong><small>Order eligible = max(0, diagnostic available)</small></div>
+<div class="formula-row"><span>Eligible posted settled cash</span><b>US$ 10,000.00</b><em>LEDGER</em></div>
+<div class="formula-row positive"><span>+ Reusable cleared proceeds / approved credit</span><b>US$ 0.00</b><em>POLICY</em></div>
+<div class="formula-row negative"><span>− Active reservations</span><b>US$ 3,000.00</b><em>RSV-784</em></div>
+<div class="formula-row negative"><span>− Holds / pending withdrawals / minimum buffer</span><b>US$ 0.00</b><em>CONTROL</em></div>
+<div class="formula-total"><span>Diagnostic available</span><strong>US$ 7,000.00</strong><small>Order eligible = max(0, diagnostic available)</small></div>
 </div>
 <div aria-label="Cash control workspaces" class="cash-tabs" role="tablist">
 <button class="active" data-cash-tab="ledger">Cash Ledger</button><button data-cash-tab="reservations">Reservations</button><button data-cash-tab="expectations">Expected Cash</button><button data-cash-tab="imports">Statement Imports</button>
@@ -34,7 +34,7 @@
 <div class="dashboard-grid">
 <article class="card span-12">
 <div class="card-head"><div><h2>Immutable double-entry cash ledger</h2><p>Posted journal lines are immutable; corrections require linked reversal and corrected journals.</p></div><div class="page-actions compact-actions"><button class="btn secondary" data-action="ledger-trace">Trace source</button><button class="btn primary" data-action="new-cash-journal" data-permission-action="cash.journal.create">New controlled journal</button></div></div>
-<div class="ledger-control-strip"><div><span>Opening posted cash</span><strong>—</strong></div><div><span>Posted inflows</span><strong>—</strong></div><div><span>Posted outflows</span><strong>—</strong></div><div><span>Closing posted cash</span><strong>—</strong></div><div><span>Journal integrity</span><strong class="positive-text">—</strong></div></div>
+<div class="ledger-control-strip"><div><span>Opening posted cash</span><strong>US$ 10,000.00</strong></div><div><span>Posted inflows</span><strong>US$ 480.00</strong></div><div><span>Posted outflows</span><strong>US$ 480.00</strong></div><div><span>Closing posted cash</span><strong>US$ 10,000.00</strong></div><div><span>Journal integrity</span><strong class="positive-text">Debits = Credits</strong></div></div>
 <div class="table-wrap"><table class="ledger-table"><thead><tr><th>Journal</th><th>Source event</th><th>Value date</th><th>Posting time</th><th>Cash line</th><th>Debit</th><th>Credit</th><th>Signed cash</th><th>Status</th><th>Recon</th><th>Maker / checker</th><th></th></tr></thead><tbody id="cashLedgerRows"></tbody></table></div>
 </article>
 </div>

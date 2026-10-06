@@ -38,6 +38,8 @@ jobs:
         run: bash tools/uat/check-sh.sh
       - name: UAT harness typecheck
         run: npx tsc --noEmit -p tools/uat/tsconfig.json
+      - name: Legacy bridge syntax check
+        run: node tools/legacy-bridge.mjs --check --only admin
 
   flows:
     # API flow scripts against a disposable MySQL (one fresh schema per script), see tools/uat/run-flows.sh.
