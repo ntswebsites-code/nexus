@@ -12,8 +12,8 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { loadLegacyHarness, stubLegacyShellGlobals } from './_harness';
-import { ok } from '../_helpers/mockApi';
+import { loadLegacyHarness, stubLegacyShellGlobals, bootLegacyShell } from './_harness';
+import { ok, raw } from '../_helpers/mockApi';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const bridgeDir = path.join(repoRoot, 'portals/admin-web/src/legacy/bridge');
@@ -49,30 +49,26 @@ describe('W0 no-demo-data (jsdom)', () => {
     expect(src).toMatch(/mx\.replace\(window\.__mxData\._vaultDocs33/);
   });
 
-  it('orders page loads API orders via bridge hydration', async () => {
+it('orders page loads API orders via bridge hydration', async () => {
     const drawer = readFileSync(path.join(markupDir, '38-detaildrawer.html'), 'utf8');
     const topbar = readFileSync(path.join(markupDir, '05-header-topbar.html'), 'utf8');
     const sidebar = readFileSync(path.join(markupDir, '03-sidebar.html'), 'utf8');
     const pageFragment = readFileSync(path.join(markupDir, '10-page-orders.html'), 'utf8');
 
-    document.body.innerHTML = sidebar + topbar + drawer;
-    stubLegacyShellGlobals();
-
-    const api = loadLegacyHarness({
-      fragment: 'none',
-      bridges: ['mx-core.js', 'admin-00-common.js', 'admin-90-orders.js', 'admin-99-boot.js'],
+    // Use bootLegacyShell which properly awaits bridge readiness
+    const api = await bootLegacyShell({
+      bridges: ['mx-core.js', 'admin-00-common.js', 'admin-70-shell.js', 'admin-90-orders.js', 'admin-99-boot.js'],
       scripts: ['01-inline.js', 'v33-rebuild.js'],
       user: {
         name: 'Dealer',
         email: 'dealer@test.local',
-        permissions: ['orders.view', 'orders.create', 'cash.view'],
+        permissions: ['orders.view', 'orders.create', 'cash.view', 'dashboard.view', 'operations.view'],
       },
       routes: {
-        'GET /api/v1/orders': ok({
-          data: [
-            { id: 'o-1', ref: 'ORD-001012', status: 'PartiallyFilled', security: 'DLTA.ZW', side: 'Buy', quantity: '1000', limitPrice: '1.25', portfolio: 'Balanced Growth', broker: 'IH', owner: 'N. Dube', createdAt: '2026-08-31T10:00:00Z' },
-          ],
-        }),
+        'GET /api/v1/shell/me/role-focus': ok({ focus: 'orders' }),
+        'GET /api/v1/orders': ok([
+          { id: 'o-1', ref: 'ORD-001012', status: 'PartiallyFilled', security: 'DLTA.ZW', side: 'Buy', quantity: '1000', limitPrice: '1.25', portfolio: 'Balanced Growth', broker: 'IH', owner: 'N. Dube', createdAt: '2026-08-31T10:00:00Z' },
+        ]),
         'GET /api/v1/portfolios': ok([]),
         'GET /api/v1/securities': ok([]),
         'GET /api/v1/brokers': ok([]),
@@ -83,7 +79,7 @@ describe('W0 no-demo-data (jsdom)', () => {
           roles: ['dealer'],
           role: 'dealer',
           roleLabels: { dealer: 'Dealer' },
-          rolePermissions: { dealer: ['orders.view', 'orders.create', 'cash.view'] },
+          rolePermissions: { dealer: ['orders.view', 'orders.create', 'cash.view', 'dashboard.view', 'operations.view'] },
         }),
       },
     });
@@ -94,8 +90,8 @@ describe('W0 no-demo-data (jsdom)', () => {
 
     const w = window as unknown as { mx: { live: boolean; user?: { permissions: string[] } }; navigate?: (page: string) => void };
     w.mx.live = true;
-    w.mx.user = { permissions: ['orders.view', 'orders.create', 'cash.view'] };
     w.navigate?.('orders');
+    await Promise.resolve();
     await Promise.resolve();
     expect(api.calls('GET /api/v1/orders').length).toBeGreaterThanOrEqual(1);
     expect(document.body.innerHTML).not.toMatch(/ORD-492\d\d/);
