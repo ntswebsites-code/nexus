@@ -40,8 +40,12 @@
       setText('#gioRisk', String(t.risk.open + (t.risk.unrecorded || 0)));
       setText('#gioRiskNote', t.risk.acknowledged + ' acknowledged');
     }
-    if (t.cash && t.cash.byCurrency && t.cash.byCurrency[0]) {
-      setText('#gioLiquidity', money(t.cash.byCurrency[0].available, t.cash.byCurrency[0].currency));
+    if (t.cash && t.cash.byCurrency && t.cash.byCurrency.length) {
+      var liq =
+        t.cash.byCurrency.map(function (a) {
+          return money(a.available, a.currency);
+        }).join(' · ');
+      setText('#gioLiquidity', liq);
       setText('#gioLiquidityNote', t.cash.ledgers + ' ledger(s)');
     }
     if (t.nav) {
