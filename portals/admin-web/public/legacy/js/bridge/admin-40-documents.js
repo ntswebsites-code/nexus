@@ -41,7 +41,7 @@
     });
   }
 
-  mx.onLoad('vault', function () {
+  mx.onLoad('documents.view', function () {
     return loadVaultDocuments().then(function () {
       if (!vaultLive()) return;
       clearVaultKpis();
