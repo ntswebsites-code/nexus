@@ -1,0 +1,155 @@
+{
+ "ORD-001 create draft": {
+  "status": 201,
+  "ref": "ORD-001015",
+  "state": "Draft",
+  "msg": null
+ },
+ "ORD-002 precheck": {
+  "status": 200,
+  "overall": null
+ },
+ "ORD-004 submit": {
+  "status": 409,
+  "state": null,
+  "msg": "Run the pre-trade check and clear it (not Blocked) before submitting"
+ },
+ "ORD-006 approve": {
+  "status": 404,
+  "state": null,
+  "msg": "Order not found"
+ },
+ "ORD-008 partial fill 1": {
+  "status": 409,
+  "filled": null,
+  "msg": "A fill cannot be recorded on an order that is Draft"
+ },
+ "ORD-008 partial fill 2": {
+  "status": 409,
+  "filled": null,
+  "state": null,
+  "msg": "A fill cannot be recorded on an order that is Draft"
+ },
+ "ORD final state": {
+  "status": 200,
+  "state": "Draft",
+  "fills": 0
+ },
+ "PM summary": {
+  "status": 200,
+  "keys": [
+   "totals",
+   "reportCurrency",
+   "fxMissing",
+   "commitments",
+   "pendingMarks",
+   "staleMarks",
+   "byStrategy",
+   "upcomingCashflows"
+  ]
+ },
+ "PM funds": {
+  "status": 200,
+  "count": 4,
+  "sample": [
+   "PMF-1001:Matanho Private Equity Fund I",
+   "PMF-1002:Highveld Infrastructure Partners",
+   "PMF-1003:Southern Africa Private Credit Fund II"
+  ]
+ },
+ "PM capital calls": {
+  "status": 200,
+  "count": 1
+ },
+ "PM lookthrough": {
+  "status": 200,
+  "rows": null
+ },
+ "FIN facilities": {
+  "status": 200,
+  "count": 2,
+  "sample": [
+   "FAC-1001:Imara margin line:ACTIVE",
+   "FAC-1002:Kopje repo line:ACTIVE"
+  ]
+ },
+ "FIN facility check": {
+  "status": 403,
+  "msg": "You do not have permission to perform this action",
+  "result": [
+   "error",
+   "success",
+   "code",
+   "message"
+  ]
+ },
+ "FIN monitor": {
+  "status": 404,
+  "keys": null
+ },
+ "PER summary": {
+  "status": 200,
+  "keys": [
+   "0",
+   "1",
+   "2",
+   "3",
+   "4",
+   "5"
+  ]
+ },
+ "PER returns": {
+  "status": 400,
+  "rows": null
+ },
+ "PER periods": {
+  "status": 200,
+  "rows": 0
+ },
+ "RSK limits": {
+  "status": 200,
+  "count": 2,
+  "sample": [
+   "LIM-1002:TOP5_PCT:DRAFT",
+   "LIM-1001:SINGLE_NAME_PCT:ACTIVE"
+  ]
+ },
+ "RSK limit create": {
+  "status": 403,
+  "ref": null,
+  "msg": "You do not have permission to perform this action"
+ },
+ "RSK monitor": {
+  "status": 404,
+  "breaches": null
+ },
+ "CA events": {
+  "status": 200,
+  "count": 7,
+  "sample": [
+   "CA-00004:STOCK_SPLIT:ANNOUNCED",
+   "CA-00007:BONUS_ISSUE:ANNOUNCED",
+   "CA-00006:CASH_DIVIDEND:ANNOUNCED"
+  ]
+ },
+ "CA entitlements calculate": {
+  "status": 409,
+  "msg": "The record date 2026-10-27 has not passed; positions are only known once it has"
+ },
+ "ONB draft create": {
+  "status": 201,
+  "draftId": "6e8f0497-6c80-449e-b788-32d90fa36f2e",
+  "tokenIssued": true
+ },
+ "ONB draft persist+edit": {
+  "getStatus": 200,
+  "draftPresent": true,
+  "saveStatus": 401,
+  "msg": "{\"error\":{\"code\":\"unauthorized\",\"message\":\"Authentication required\"},\"success\":false,\"code\":\"unauthorized\",\"message\":\"Au"
+ },
+ "ONB resume after edit": {
+  "status": 200,
+  "contactName": null,
+  "owners": null
+ }
+}

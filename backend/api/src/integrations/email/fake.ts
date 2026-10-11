@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
 import type { EmailAdapter, EmailMessage } from './types';
@@ -9,11 +9,11 @@ import { smtpSend } from './smtp';
  * the message in `integration_inbox` outside production so tests can read invite and reset links.
  */
 export class FakeEmail implements EmailAdapter {
-  async send(m: EmailMessage) {
+  async send(m: EmailMessage, serviceName?: string) {
     let transport: 'smtp' | 'console';
     let messageId = `fake-${randomUUID()}`;
     if (config.smtp) {
-      messageId = (await smtpSend(m)) || messageId;
+      messageId = (await smtpSend(m, serviceName)) || messageId;
       transport = 'smtp';
     } else {
       console.log(`[mail] (console transport) to=${m.to} subject=${JSON.stringify(m.subject)}\n${m.text}`);

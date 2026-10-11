@@ -291,6 +291,12 @@
       .join('&');
   }
 
+  function getEnvelope(path) {
+    return fetch(mx.api + path, { credentials: 'include', headers: { Accept: 'application/json' } }).then(function (r) {
+      return r.json();
+    });
+  }
+
   function when(iso) {
     var d = new Date(iso);
     var t = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -302,8 +308,9 @@
     var tbody = document.querySelector('#page-audit table tbody');
     if (!tbody) return Promise.resolve();
     var q = Object.assign({ limit: 100 }, filters, append && auditRows.length ? { before: auditRows[auditRows.length - 1].id } : {});
-    return mx.get(V1 + '/audit-events?' + qs(q)).then(function (r) {
-      auditRows = append ? auditRows.concat(r.data) : r.data;
+    return getEnvelope(V1 + '/audit-events?' + qs(q)).then(function (r) {
+      var env = (r && r.data) ? r : { data: r };
+      auditRows = append ? auditRows.concat(env.data) : env.data;
       window.__mxAuditRows = auditRows;
       window.__mxAuditFilters = auditFilters;
       tbody.innerHTML =
@@ -313,7 +320,7 @@
               '</td><td>' + mx.esc(e.objectType + ' · ' + e.objectId) + '</td><td>' + mx.esc(e.previous) + '</td><td>' + mx.esc(e.next) + '</td><td>' + mx.esc(e.reason) + '</td></tr>';
           })
           .join('') +
-        (r.nextBefore ? '<tr><td colspan="8"><button type="button" class="text-btn" data-mx-audit-more>Load older events</button></td></tr>' : '') +
+        (env.nextBefore ? '<tr><td colspan="8"><button type="button" class="text-btn" data-mx-audit-more>Load older events</button></td></tr>' : '') +
         (!auditRows.length ? '<tr><td colspan="8">No audit events match these filters.</td></tr>' : '');
       var more = tbody.querySelector('[data-mx-audit-more]');
       if (more) more.onclick = function () { renderAudit(auditFilters, true).catch(mx.fail); };

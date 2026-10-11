@@ -25,7 +25,7 @@ async function main() {
   const { redact } = await import('../src/integrations/core/calls');
   const { NotConfiguredError } = await import('../src/integrations/core/types');
   const { liveStub } = await import('../src/integrations/core/live');
-  const { meta: smsMeta } = await import('../src/integrations/sms/types');
+  const { meta: screeningMeta } = await import('../src/integrations/screening/types');
   const { EICAR, FakeAvScan } = await import('../src/integrations/av-scan/fake');
   const { FakeMarketDataProvider } = await import('../src/integrations/market-data/fake');
   const { FakeScreening } = await import('../src/integrations/screening/fake');
@@ -36,11 +36,11 @@ async function main() {
   console.log('startup rules');
   const allFake = Object.fromEntries(INTEGRATION_NAMES.map((n) => [n, 'fake'])) as Record<(typeof INTEGRATION_NAMES)[number], 'fake' | 'live'>;
   check('fake everywhere is fine outside production', validateIntegrationConfig({ modes: allFake, env: {}, isProduction: false, allowFake: false }).length === 0);
-  const liveSms = validateIntegrationConfig({ modes: { ...allFake, sms: 'live' }, env: {}, isProduction: false, allowFake: false });
-  check('live without credentials refuses to start and names the variables', liveSms.length === 1 && smsMeta.requiredEnv.every((k) => liveSms[0]!.includes(k)), liveSms);
+  const liveNeeding = validateIntegrationConfig({ modes: { ...allFake, screening: 'live' }, env: {}, isProduction: false, allowFake: false });
+  check('live without credentials refuses to start and names the variables', liveNeeding.length === 1 && screeningMeta.requiredEnv.every((k) => liveNeeding[0]!.includes(k)), liveNeeding);
   check(
     'live with credentials passes',
-    validateIntegrationConfig({ modes: { ...allFake, sms: 'live' }, env: { SMS_API_KEY: 'x', SMS_SENDER_ID: 'y' }, isProduction: false, allowFake: false }).length === 0,
+    validateIntegrationConfig({ modes: { ...allFake, screening: 'live' }, env: { SCREENING_API_KEY: 'x' }, isProduction: false, allowFake: false }).length === 0,
   );
   const prod = validateIntegrationConfig({ modes: allFake, env: {}, isProduction: true, allowFake: false });
   check('production refuses fake adapters', prod.some((p) => p.startsWith('INTEGRATION_SCREENING=fake')) && prod.some((p) => p.startsWith('INTEGRATION_PAYMENT=fake')), prod);
@@ -108,13 +108,6 @@ async function main() {
   check('email fake stores the message in the inbox', (mail?.payload as { subject?: string } | undefined)?.subject === `Subject ${tag}`);
   const mailCall = await prisma.integrationCall.findFirst({ where: { adapter: 'email', operation: 'send' }, orderBy: { createdAt: 'desc' } });
   check('email call is logged with the body redacted', mailCall?.status === 'OK' && JSON.stringify(mailCall.request).includes('[redacted]') && !JSON.stringify(mailCall.request).includes('token=abc'));
-
-  const sms = getAdapter('sms');
-  await sms.sendOtp({ to: `+${tag}`, purpose: 'test' });
-  const otp = await prisma.integrationInbox.findFirst({ where: { adapter: 'sms', kind: 'otp' }, orderBy: { createdAt: 'desc' } });
-  const otpCode = (otp?.payload as { code?: string }).code ?? '';
-  check('sms fake keeps the OTP for tests', /^\d{6}$/.test(otpCode));
-  check('sms OTP verifies once', (await sms.verifyOtp({ to: `+${tag}`, code: otpCode })).valid && !(await sms.verifyOtp({ to: `+${tag}`, code: otpCode })).valid);
 
   const pay = getAdapter('payment');
   const first = await pay.instruct({ reference: tag, amount: '10.00', currency: 'USD', beneficiaryName: 'B', beneficiaryAccount: 'ACC-1' });

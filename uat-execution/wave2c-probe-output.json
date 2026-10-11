@@ -1,0 +1,46 @@
+{
+ "RSK limit create": {
+  "status": 201,
+  "ref": "LIM-1003",
+  "msg": null
+ },
+ "RSK limit submit": {
+  "status": 200,
+  "state": "PENDING_APPROVAL",
+  "msg": null
+ },
+ "RSK limit self-approve (segregation)": {
+  "status": 403,
+  "code": "sod_violation"
+ },
+ "RSK limit independent approve": {
+  "status": 409,
+  "state": null,
+  "msg": "LIM-1001 is already ACTIVE for this metric and scope. Retire it first."
+ },
+ "FIN facility check": {
+  "status": 200,
+  "msg": null,
+  "data": "{\"facility\":\"FAC-1001\",\"margin\":{\"drawn\":\"800000.00\",\"counted\":\"1275750.00\",\"coverage\":\"1.5947\",\"state\":\"OK\",\"excess\":\"275750.00\",\"callAmount\":\"0.00\",\"availableToDraw\":\"50500.00\"},\"raised\":false,\"reason\":\"Coverage is abo"
+ },
+ "FIN monitor": {
+  "status": 404,
+  "body": null
+ },
+ "ONB draft create": {
+  "status": 201,
+  "draftId": "2912fec8-0027-4d0c-98c9-7d8702349917",
+  "tokenIssued": true,
+  "entityName": null
+ },
+ "ONB draft read-back": {
+  "status": 200,
+  "entityName": null,
+  "contactName": null
+ },
+ "ONB readiness": {
+  "status": 200,
+  "missing": null,
+  "sample": "{\"readiness\":{\"score\":0,\"checks\":[{\"name\":\"Core application\",\"state\":\"warn\",\"detail\":\"Legal profile incomplete\",\"right\":\"Incomplete\"},{\"name\":\"Beneficial ownership\",\"state\":\"warn\",\"detail\":\"Owner / co"
+ }
+}

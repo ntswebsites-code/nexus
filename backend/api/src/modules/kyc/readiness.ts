@@ -107,22 +107,24 @@ function riskPreview(app: DraftApp, missingEvidence: string[]) {
 
 export function buildTriageInput(app: DraftApp, evidence: EvidenceRow[]): TriageInput {
   const stored = app.formData as Record<string, unknown> | null;
-  const { form, signatories } = applicantFormView(stored);
+  const f = stored ?? {};
+  const { signatories } = applicantFormView(stored);
   const slots = requiredSlots(app.applicantType);
   const have = new Set(evidence.filter((e) => e.name).map((e) => e.slot));
   const missingEvidence = slots.filter((s) => !have.has(s)).map((s) => EVIDENCE_SLOTS[s]);
   const preview = riskPreview(app, missingEvidence);
   const namedOwners = app.owners.filter((o) => o.fullName.trim()).length;
   const namedSignatories = signatories.filter((s) => s.name.trim()).length;
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
   return {
     caseRef: app.ref ?? `DRAFT-${app.id.slice(0, 8)}`,
     applicant: {
-      name: app.legalName ?? form.legalName ?? app.email,
+      name: app.legalName ?? str(f.legalName) ?? app.email,
       type: app.applicantType,
-      country: app.country ?? form.jurisdiction ?? null,
-      pep: app.pep ?? form.pep ?? null,
-      sourceOfFunds: app.sourceOfFunds ?? form.sourceFundsNarrative ?? null,
-      expectedInvestment: app.expectedInvestment?.toNumber() ?? (form.initialInvestment ? Number(form.initialInvestment) : null),
+      country: app.country ?? str(f.jurisdiction) ?? null,
+      pep: app.pep ?? str(f.pep) ?? null,
+      sourceOfFunds: app.sourceOfFunds ?? str(f.sourceFundsNarrative) ?? null,
+      expectedInvestment: app.expectedInvestment?.toNumber() ?? (f.initialInvestment ? Number(f.initialInvestment) : null),
       owners: namedOwners,
     },
     checks: [],
@@ -254,7 +256,7 @@ export async function runDraftTriage(app: DraftApp, evidence: EvidenceRow[]): Pr
   const row: StoredDraftTriage = { ...result, inputSha256, at, advisory: true };
   await prisma.onboardingApplication.update({
     where: { id: app.id },
-    data: { formData: { ...(stored ?? {}), draftTriage: row } as Prisma.InputJsonValue },
+    data: { formData: JSON.parse(JSON.stringify({ ...(stored ?? {}), draftTriage: row })) },
   });
   return { riskBand: row.riskBand, summary: row.summary, flags: row.flags, nextSteps: row.nextSteps, model: row.model, at: row.at, advisory: true };
 }

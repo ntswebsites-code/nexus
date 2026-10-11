@@ -1,0 +1,60 @@
+{
+ "MOD create (author pm)": {
+  "status": 201,
+  "ref": "PMD-1007"
+ },
+ "MOD activate (independent)": {
+  "status": 200,
+  "state": "ACTIVE",
+  "msg": null
+ },
+ "MOD retire": {
+  "status": 400,
+  "state": null,
+  "msg": "Validation failed"
+ },
+ "CON rebalance create": {
+  "status": 201,
+  "ref": "RBL-00002",
+  "msg": null
+ },
+ "CON rebalance promote to orders": {
+  "status": 409,
+  "msg": "RBL-00002 breaches the mandate after the trades: Maximum cash. Adjust the model or threshold and run again.",
+  "created": null,
+  "detail": "{\"error\":{\"code\":\"constraints_failed\",\"message\":\"RBL-00002 breaches the mandate after the trades: Maximum cash. Adjust the model or threshold and run again.\"},\"success\":false,\"code\":\"constraints_faile"
+ },
+ "REG evidence attach": {
+  "status": 201,
+  "msg": null
+ },
+ "REG submit-review": {
+  "status": 200,
+  "msg": null,
+  "state": "IN_REVIEW"
+ },
+ "REG approve after submit-review": {
+  "status": 403,
+  "msg": "The preparer cannot approve their own filing (maker-checker)",
+  "state": null
+ },
+ "RPT catalogue": {
+  "count": 5,
+  "sample": [
+   "CASH:Cash report",
+   "FACT_SHEET:Fund fact sheet",
+   "HOLDINGS:Holdings report",
+   "NAV_PACK:NAV pack",
+   "TRANSACTIONS:Transactions report"
+  ]
+ },
+ "RPT run create": {
+  "status": 201,
+  "ref": "RPT-00001",
+  "msg": null
+ },
+ "RPT distribute": {
+  "status": 403,
+  "msg": "You do not have permission to perform this action"
+ }
+}

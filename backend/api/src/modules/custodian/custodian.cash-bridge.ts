@@ -1,4 +1,4 @@
-import { HttpError } from '../../lib/errors';
+﻿import { HttpError } from '../../lib/errors';
 import { prisma } from '../../lib/prisma';
 import { writeAudit, type AuditContext } from '../../lib/audit';
 import { dayFromIso, isoDay, sha256 } from '../../integrations/common';
@@ -28,7 +28,7 @@ export function isCamtStatement(content: string, format?: string) {
 
 export async function checkCamtStatement(counterpartyId: string, accounts: string[], content: string) {
   const parsed = parseStatement('CAMT053', content, {});
-  const problems = [...parsed.errors];
+  const problems: string[] = parsed.errors.map((e) => e.message);
   const accountRef = parsed.accountRef?.trim() || null;
   if (!accountRef) problems.push('CAMT statement does not identify an account reference');
   else if (!accounts.includes(accountRef)) problems.push(`Account ${accountRef} is not serviced by your organisation`);
@@ -44,7 +44,7 @@ export async function checkCamtStatement(counterpartyId: string, accounts: strin
   const row: CamtCheckRow = {
     accountRef: accountRef ?? '',
     statementDate,
-    currency: parsed.currency,
+    currency: parsed.currency ?? null,
     closingCash: parsed.closing?.toFixed(2) ?? null,
     holdings: 0,
     holdingsMv: '0.00',
@@ -104,7 +104,7 @@ export async function ingestCamtStatement(input: {
         uploadedBy: input.userId,
         accountRef,
         statementDate: dayFromIso(statementDate),
-        currency: parsed.currency,
+        currency: parsed.currency ?? null,
         closingCash: parsed.closing,
         warnings: [`Cash import ${imp.ref} staged for admin recon on ledger ${ledger.ref}`],
       },
@@ -122,7 +122,7 @@ export async function ingestCamtStatement(input: {
       recordCount: parsed.lines.length,
       sha256: digest,
       fileId: file.id,
-      note: `CAMT bank statement → ${imp.ref}`,
+      note: `CAMT bank statement â†’ ${imp.ref}`,
       createdBy: input.userId,
     });
     await writeAudit(tx, input.audit, {
@@ -144,3 +144,4 @@ export async function ingestCamtStatement(input: {
     warnings: [`Cash import ${imp.ref} staged on ledger ${ledger.ref}`],
   };
 }
+

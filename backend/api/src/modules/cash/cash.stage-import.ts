@@ -1,5 +1,6 @@
-import { HttpError } from '../../lib/errors';
+﻿import { HttpError } from '../../lib/errors';
 import { prisma } from '../../lib/prisma';
+import { Prisma } from '@prisma/client';
 import { nextRef } from '../../lib/refs';
 import { writeAudit, type AuditContext } from '../../lib/audit';
 import { notifyPermission } from '../ops/ops.common';
@@ -8,7 +9,7 @@ import { isoDay, loadLedger, type LedgerRow } from './cash.service';
 
 const toDate = (v: string) => new Date(`${v}T00:00:00.000Z`);
 
-/** Counterparty account → portfolio (recon map) → first active bank ledger. */
+/** Counterparty account â†’ portfolio (recon map) â†’ first active bank ledger. */
 export async function resolveBankLedgerForAccount(counterpartyId: string, accountRef: string, db: typeof prisma = prisma): Promise<LedgerRow | null> {
   const map = await db.reconAccountMap.findUnique({ where: { counterpartyId_accountRef: { counterpartyId, accountRef } } });
   if (!map) return null;
@@ -32,7 +33,10 @@ export async function stageStatementImport(input: {
   if (ledger.kind !== 'BANK') throw HttpError.badRequest('Validation failed', [{ path: 'ledgerId', message: 'Statements are imported against a bank ledger' }]);
   if (ledger.status !== 'ACTIVE') throw HttpError.conflict(`Ledger ${ledger.ref} is ${ledger.status.toLowerCase()}; imports are blocked`, 'ledger_not_active');
 
-  const parsed = parseStatement(input.format, input.content, { opening: input.openingBalance ?? null, closing: input.closingBalance ?? null });
+  const parsed = parseStatement(input.format, input.content, {
+    opening: input.openingBalance ? new Prisma.Decimal(input.openingBalance) : null,
+    closing: input.closingBalance ? new Prisma.Decimal(input.closingBalance) : null,
+  });
   if (parsed.errors.length) throw HttpError.badRequest('The statement could not be read', parsed.errors.slice(0, 50));
   if (parsed.currency && parsed.currency !== ledger.currency) {
     throw HttpError.badRequest('Validation failed', [{ path: 'content', message: `The statement is in ${parsed.currency} but ledger ${ledger.ref} is ${ledger.currency}` }]);
@@ -93,3 +97,4 @@ export async function stageStatementImport(input: {
     return imp;
   });
 }
+

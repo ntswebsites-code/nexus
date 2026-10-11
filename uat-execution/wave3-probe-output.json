@@ -1,0 +1,86 @@
+{
+ "CON research cases": {
+  "status": 200,
+  "count": 3,
+  "sample": [
+   "RSC-1003:Delta: defensive compounder, valuation full:IN_REVIEW",
+   "RSC-1002:Zimplats: platinum-cycle exposure on VFEX:PUBLISHED"
+  ]
+ },
+ "CON IC decision (independent)": {
+  "status": 201,
+  "msg": null,
+  "ref": "ICD-1006"
+ },
+ "CON rebalances": {
+  "status": 200,
+  "count": 0
+ },
+ "MOD models": {
+  "status": 200,
+  "count": 3,
+  "sample": [
+   "PMD-1001:Balanced Core:ACTIVE",
+   "PMD-1002:Resources Tilt (draft):DRAFT",
+   "PMD-1003:UAT Wave3 Probe Model:DRAFT"
+  ]
+ },
+ "MOD model create": {
+  "status": 201,
+  "ref": "PMD-1004",
+  "msg": null
+ },
+ "MOD model revise (version)": {
+  "status": 200,
+  "msg": null
+ },
+ "MOD model revise": "see revise",
+ "MOD model approve (independent)": {
+  "status": 403,
+  "msg": "A model must be activated by someone other than its author (maker-checker)",
+  "state": null
+ },
+ "MOD post-activation change (invalidation)": {
+  "status": 200,
+  "msg": null,
+  "state": "DRAFT"
+ },
+ "REG filings": {
+  "status": 200,
+  "count": 4,
+  "sample": [
+   "REG-00004:SECZ:DRAFT",
+   "REG-00002:FIU:DRAFT",
+   "REG-00003:FIU:DRAFT"
+  ]
+ },
+ "REG templates": {
+  "status": 200,
+  "count": 4
+ },
+ "REG populate": {
+  "status": 200,
+  "msg": null
+ },
+ "REG submit-review": {
+  "status": 409,
+  "msg": "Attach at least one piece of evidence before sending for review"
+ },
+ "REG approve (independent)": {
+  "status": 403,
+  "msg": "You do not have permission to perform this action"
+ },
+ "REG export": {
+  "status": 200,
+  "contentType": "object"
+ },
+ "RPT runs": {
+  "status": 200,
+  "count": 0,
+  "sample": []
+ },
+ "RPT catalogue": {
+  "status": 200,
+  "count": 5
+ }
+}

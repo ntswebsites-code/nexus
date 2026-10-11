@@ -1,0 +1,210 @@
+# Development stack for Matanho Nexus (separate from production).
+#
+#   docker compose -f deploy/docker-compose.dev.yml up -d --build
+#
+# This is a completely isolated dev environment with its own database, storage,
+# and ports. It uses nip.io domains for TLS termination via nginx on the host.
+#
+# Deploy: deploy/deploy-dev.sh
+# Rollback: deploy/rollback-dev.sh
+name: matanho-nexus-dev
+
+x-app-env: &app-env
+  env_file: ../.env.dev
+  restart: unless-stopped
+
+x-portal-build: &portal-build
+  context: ..
+  dockerfile: deploy/Dockerfile.portal
+  target: portal
+
+services:
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    env_file: ../.env.dev
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-data-dev:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  migrate:
+    image: matanho-nexus-dev-api:latest
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+      target: api
+    env_file: ../.env.dev
+    environment:
+      SEED_USERS_FILE: /run/secrets/users.json
+      STORAGE_DIR: /data/storage
+    volumes:
+      - ../secrets/users.json:/run/secrets/users.json:ro
+      - file-storage-dev:/data/storage
+    command: ["sh", "-c", "npx prisma migrate deploy --schema prisma/schema.prisma && npx tsx prisma/seed.ts"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app-env
+    image: matanho-nexus-dev-api:latest
+    environment:
+      STORAGE_DIR: /data/storage
+    volumes:
+      - file-storage-dev:/data/storage
+    ports:
+      - "127.0.0.1:14100:4100"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:4100/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Outbox worker: notifications, email, screening stub (SRD 10.2).
+  worker:
+    <<: *app-env
+    image: matanho-nexus-dev-api:latest
+    environment:
+      STORAGE_DIR: /data/storage
+    volumes:
+      - file-storage-dev:/data/storage
+    command: ["node", "dist/worker.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  admin:
+    <<: *app-env
+    image: matanho-nexus-dev-admin:latest
+    build:
+      <<: *portal-build
+      args:
+        PORTAL: admin-web
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://dev.207.180.234.151.nip.io}
+    environment:
+      PORT: "3100"
+    ports:
+      - "127.0.0.1:13100:3100"
+    depends_on: [api]
+
+  investor:
+    <<: *app-env
+    image: matanho-nexus-dev-investor:latest
+    build:
+      <<: *portal-build
+      args:
+        PORTAL: investor-web
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://dev.207.180.234.151.nip.io}
+    environment:
+      PORT: "3101"
+    ports:
+      - "127.0.0.1:13101:3101"
+    depends_on: [api]
+
+  onboarding:
+    <<: *app-env
+    image: matanho-nexus-dev-onboarding:latest
+    build:
+      <<: *portal-build
+      args:
+        PORTAL: onboarding-web
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://dev.207.180.234.151.nip.io}
+    environment:
+      PORT: "3102"
+    ports:
+      - "127.0.0.1:13102:3102"
+    depends_on: [api]
+
+  company:
+    <<: *app-env
+    image: matanho-nexus-dev-company:latest
+    build:
+      <<: *portal-build
+      args:
+        PORTAL: company-web
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://dev.207.180.234.151.nip.io}
+    environment:
+      PORT: "3103"
+    ports:
+      - "127.0.0.1:13103:3103"
+    depends_on: [api]
+
+  custodian:
+    <<: *app-env
+    image: matanho-nexus-dev-custodian:latest
+    build:
+      <<: *portal-build
+      args:
+        PORTAL: custodian-web
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-https://dev.207.180.234.151.nip.io}
+    environment:
+      PORT: "3104"
+    ports:
+      - "127.0.0.1:13104:3104"
+    depends_on: [api]
+
+  # UAT mail capture: the API and worker send to mailpit:1025 on the compose
+  # network (SMTP_HOST=mailpit, SMTP_PORT=1025) and nothing leaves the host.
+  mailpit:
+    image: axllent/mailpit:v1.31.2
+    restart: unless-stopped
+    environment:
+      MP_MAX_MESSAGES: "5000"
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+    ports:
+      - "127.0.0.1:18625:8025"
+
+  # S3-compatible object storage (MinIO) for dev.
+  minio:
+    image: minio/minio@sha256:14cea493d9a34af32f524e538b8346cf79f3321eff8e708c1e2960462bd8936e
+    restart: unless-stopped
+    env_file: ../.env.dev
+    command: ["server", "/data", "--console-address", ":9001"]
+    volumes:
+      - minio-data-dev:/data
+    ports:
+      - "127.0.0.1:19101:9001"
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # One-shot, idempotent: private buckets, versioning on nexus-documents.
+  minio-init:
+    image: minio/mc@sha256:a7fe349ef4bd8521fb8497f55c6042871b2ae640607cf99d9bede5e9bdf11727
+    env_file: ../.env.dev
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -e
+        mc alias set local http://minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null
+        for b in nexus-documents nexus-esign nexus-exports; do mc mb --ignore-existing local/$$b; mc anonymous set none local/$$b >/dev/null; done
+        mc version enable local/nexus-documents
+        cat > /tmp/nexus-app.json <<'POLICY'
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:*"],"Resource":["arn:aws:s3:::nexus-documents","arn:aws:s3:::nexus-documents/*","arn:aws:s3:::nexus-esign","arn:aws:s3:::nexus-esign/*","arn:aws:s3:::nexus-exports","arn:aws:s3:::nexus-exports/*"]}]}
+        POLICY
+        mc admin policy create local nexus-app /tmp/nexus-app.json || true
+        mc admin user add local "$$STORAGE_S3_ACCESS_KEY" "$$STORAGE_S3_SECRET_KEY" || true
+        mc admin policy attach local nexus-app --user "$$STORAGE_S3_ACCESS_KEY" || true
+        mc ls local
+
+volumes:
+  minio-data-dev:
+  mysql-data-dev:
+  # AES-256-GCM encrypted objects (documents, KYC evidence, submissions).
+  file-storage-dev:

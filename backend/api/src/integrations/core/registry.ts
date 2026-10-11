@@ -7,9 +7,6 @@ import type { AdapterBase, AdapterMeta, HealthResult } from './types';
 import { meta as emailMeta, type EmailAdapter } from '../email/types';
 import { FakeEmail } from '../email/fake';
 import { live as emailLive } from '../email/live';
-import { meta as smsMeta, type SmsAdapter } from '../sms/types';
-import { FakeSms } from '../sms/fake';
-import { live as smsLive } from '../sms/live';
 import { meta as screeningMeta, type ScreeningAdapter } from '../screening/types';
 import { FakeScreening } from '../screening/fake';
 import { live as screeningLive } from '../screening/live';
@@ -51,7 +48,6 @@ import { buildBrokerRoutingAdapter } from '../broker-routing/factory';
 
 export interface AdapterMap {
   email: EmailAdapter;
-  sms: SmsAdapter;
   screening: ScreeningAdapter;
   'identity-verification': IdentityVerificationAdapter;
   'market-data': MarketDataAdapter & AdapterBase;
@@ -89,7 +85,6 @@ const CATALOG: { [K in IntegrationName]: Entry<AdapterMap[K]> } = {
     live: emailLive,
     test: (a, ctx) => a.send({ to: ctx.userEmail, subject: '[Matanho Nexus] Integration test', text: 'This is a test message from the integrations screen.' }),
   }),
-  sms: entry<SmsAdapter>({ meta: smsMeta, fake: () => new FakeSms(), live: smsLive, test: (a) => a.sendOtp({ to: '+000000000', purpose: 'integration-test' }) }),
   screening: entry<ScreeningAdapter>({
     meta: screeningMeta,
     fake: () => new FakeScreening(),

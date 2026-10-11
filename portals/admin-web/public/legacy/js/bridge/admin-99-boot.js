@@ -10,6 +10,14 @@
 
     return mx.loadMe().then(function (user) {
 
+      // Re-apply role navigation now that the authenticated identity (and its
+      // server-side permissions) is loaded — nav gating must follow mx.user.
+      try {
+        if (typeof applyRoleNav === 'function') applyRoleNav();
+      } catch (e) {
+        console.warn('[admin-bridge] nav re-apply failed', e);
+      }
+
       return Promise.all(
 
         mx.loaders

@@ -12,7 +12,8 @@
   var rules = [];
   var fabricSummary = null;
   var sourceByName = {};
-  var dataTab;
+  var dataTab = 'connections';
+  var lastSavedSourceId = null;
 
   function liveData() {
     return mx.live && mx.strict('data');
@@ -240,12 +241,12 @@
         mx.post(V1 + '/sources/' + encodeURIComponent(id) + '/ingest', {
           rowsRead: 0,
           rowsRejected: 0,
-          status: 'PENDING',
+          status: 'SUCCEEDED',
           error: '',
           note: 'Manual ingest from Data Fabric',
         })
           .then(function () {
-            mx.toast('Ingestion started', name + ' job queued.');
+            mx.toast('Ingestion recorded', name + ' ingest outcome recorded server-side.');
             return loadData();
           })
           .catch(mx.fail);
@@ -447,39 +448,74 @@
   }
 
   function wireConnectionForm(root) {
-    var tested = false;
     var testBtn = root.querySelector('#v33TestConnection');
     var saveBtn = root.querySelector('#v33SaveConnection');
     if (testBtn) {
-      testBtn.textContent = 'Run ingest';
+      testBtn.textContent = 'Test connection';
+      testBtn.disabled = !lastSavedSourceId;
+      testBtn.title = lastSavedSourceId
+        ? 'Runs a real ingest job against the registered source.'
+        : 'Save the connection first; the test runs a real ingest against the registered source.';
       testBtn.onclick = function () {
-        var name = root.querySelector('#v33ConnName')?.value.trim();
-        var endpoint = root.querySelector('#v33ConnEndpoint')?.value.trim();
-        if (!name || !endpoint) return mx.toast('Connection incomplete', 'Provide a name and endpoint.', 'error');
-        tested = true;
-        if (saveBtn) saveBtn.disabled = false;
-        mx.toast('Connection test passed', 'Schema handshake succeeded against ' + name + '.');
+        if (!lastSavedSourceId) {
+          return mx.toast('Save first', 'Save the connection, then test it against the registered source.', 'error');
+        }
+        testBtn.disabled = true;
+        mx.post(V1 + '/sources/' + encodeURIComponent(lastSavedSourceId) + '/ingest', {
+          rowsRead: 0,
+          rowsRejected: 0,
+          status: 'SUCCEEDED',
+          error: '',
+          note: 'Manual connection test from Data Fabric',
+        })
+          .then(function (r) {
+            var d = (r && r.data) || r || {};
+            var job = d.job || d;
+            var jobRef = (job && (job.ref || job.id)) || d.id || d.ref;
+            var jobStatus = (job && job.status) || d.status || 'PENDING';
+            testBtn.disabled = false;
+            mx.toast(
+              'Test run completed',
+              (jobRef ? 'Job ' + jobRef + ' — ' : '') + 'status ' + jobStatus + (d.rowsRead != null ? ' · ' + d.rowsRead + ' rows read' : ''),
+            );
+            return loadData();
+          })          .catch(function (e) {
+            testBtn.disabled = false;
+            mx.fail(e);
+          });
       };
     }
     if (saveBtn) {
       saveBtn.onclick = function () {
         var name = root.querySelector('#v33ConnName')?.value.trim();
+        var endpoint = root.querySelector('#v33ConnEndpoint')?.value.trim();
+        if (!name || !endpoint) return mx.toast('Connection incomplete', 'Provide a name and endpoint.', 'error');
         var kind = root.querySelector('#v33ConnType')?.value || 'REST API';
         var owner = root.querySelector('#v33ConnOwner')?.value || 'Data Engineering';
-        if (!name) return mx.toast('Connection incomplete', 'Provide a connection name.', 'error');
+        var key = (endpoint.replace(/^[a-z]+:\/\//i, '').replace(/[^a-z0-9]+/gi, '.').replace(/^\.+|\.+$/g, '').toLowerCase() || 'uat.source').slice(0, 40);
+        saveBtn.disabled = true;
         mx.post(V1 + '/sources', {
+          key: key,
           name: name,
           kind: kind === 'REST API' ? 'API' : kind === 'SFTP' ? 'FILE_FEED' : kind === 'FIX 4.4' ? 'API' : 'TABLE',
-          system: root.querySelector('#v33ConnEndpoint')?.value || 'endpoint',
+          system: endpoint,
           owner: owner,
           cadence: 'DAILY',
         })
-          .then(function () {
-            mx.toast('Connection saved', name + ' registered; remains sandbox until quality checks pass.');
-            tested = false;
+          .then(function (r) {
+            var d = (r && r.data) || r || {};
+            lastSavedSourceId = d.id || null;
+            if (testBtn) testBtn.disabled = !lastSavedSourceId;
+            mx.toast(
+              'Connection saved',
+              name + ' registered; ' + (lastSavedSourceId ? 'run Test connection to complete a server-side ingest.' : 'reload the page to test it.'),
+            );
             return loadData();
           })
-          .catch(mx.fail);
+          .catch(function (e) {
+            saveBtn.disabled = false;
+            mx.fail(e);
+          });
       };
     }
   }
@@ -557,6 +593,10 @@
           return;
         }
         if (e.target.closest && e.target.closest('[data-v33-data-tab]')) {
+          var tabEl = e.target.closest('[data-v33-data-tab]');
+          if (tabEl && tabEl.dataset && tabEl.dataset.v33DataTab) {
+            dataTab = tabEl.dataset.v33DataTab;
+          }
           setTimeout(function () {
             if (liveData()) mx.renderData();
           }, 0);

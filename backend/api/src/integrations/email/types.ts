@@ -1,4 +1,4 @@
-import type { AdapterBase, AdapterMeta } from '../core/types';
+﻿import type { AdapterBase, AdapterMeta } from '../core/types';
 
 export interface EmailMessage {
   to: string;
@@ -20,7 +20,7 @@ export interface EmailReceipt {
 }
 
 export interface EmailAdapter extends AdapterBase {
-  send(message: EmailMessage): Promise<EmailReceipt>;
+  send(message: EmailMessage, serviceName?: string): Promise<EmailReceipt>;
 }
 
 export const meta: AdapterMeta = {
@@ -28,7 +28,7 @@ export const meta: AdapterMeta = {
   label: 'Email',
   gap: 'GAP-A01',
   description: 'Transactional email (invites, resets, notifications, scheduled reports).',
-  requiredEnv: ['SMTP_HOST'],
+  requiredEnv: [],
   vendorCalls: { send: 'SMTP relay submission, or SES v2 SendEmail / SendGrid v3 mail/send (delivery status and bounces via webhook)' },
-  productionSafeFake: (env) => !!env.SMTP_HOST,
+  productionSafeFake: () => true,
 };

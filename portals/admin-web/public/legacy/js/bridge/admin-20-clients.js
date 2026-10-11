@@ -1,4 +1,4 @@
-/*
+﻿/*
  * Clients & cash accounts (v43/v49 screens). The prototype's global `clients`
  * and `cashAccounts` arrays read mx.data first (data hooks); creates, profile
  * edits and the cash-account lifecycle go to /api/v1/clients and /cash-accounts.
@@ -9,7 +9,16 @@
 
   mx.onLoad('clients.view', function () {
     return mx.get('/api/v1/clients').then(function (r) {
-      mx.data.clients = r.data;
+      mx.data.clients = r.data || r;
+      // Feed the v49 prototype's global array in place so its renderer shows server data.
+      try {
+        if (typeof clients !== 'undefined' && Array.isArray(clients) && Array.isArray(mx.data.clients)) {
+          mx.replace(clients, mx.data.clients);
+        }
+        if (typeof renderClientsV49 === 'function') renderClientsV49();
+      } catch (e) {
+        /* prototype renderer not ready yet; hydrate() re-renders */
+      }
       // Local profile overrides from the prototype would mask server values.
       try {
         localStorage.removeItem('matanho-client-profiles-v10');
@@ -21,8 +30,15 @@
   mx.onLoad(null, function () {
     if (!mx.can('cash.view') && !mx.can('clients.view')) return;
     return mx.get('/api/v1/cash-accounts').then(function (r) {
-      mx.data.cashAccounts = r.data;
-      mx.storageSet('matanho-cash-accounts-v43', r.data);
+      mx.data.cashAccounts = r.data || r;
+      try {
+        if (typeof cashAccounts !== 'undefined' && Array.isArray(cashAccounts) && Array.isArray(mx.data.cashAccounts)) {
+          mx.replace(cashAccounts, mx.data.cashAccounts);
+        }
+      } catch (e) {
+        /* ignore */
+      }
+      mx.storageSet('matanho-cash-accounts-v43', mx.data.cashAccounts);
     });
   });
 
@@ -149,7 +165,7 @@
       });
       if (s) Object.assign(s, r.account);
       mx.storageSet('matanho-cash-accounts-v43', cashAccounts);
-      mx.toast('Cash account ' + r.account.status.replace('_', ' ').toLowerCase(), id + ' · version ' + r.account.version);
+      mx.toast('Cash account ' + r.account.status.replace('_', ' ').toLowerCase(), id + ' Â· version ' + r.account.version);
       if (typeof window.openCashAccountDrawer === 'function') window.openCashAccountDrawer(id);
     }, mx.fail);
   });
@@ -171,11 +187,11 @@
 
   function clearClientsKpis() {
     document.querySelectorAll('#page-clients .client-kpis article strong, #page-clients .v49-kpis article strong, #page-clients .stat-grid .stat-card strong').forEach(function (el) {
-      el.textContent = '—';
+      el.textContent = 'â€”';
       el.className = '';
     });
     document.querySelectorAll('#page-clients .client-kpis article small, #page-clients .v49-kpis article small').forEach(function (el) {
-      el.textContent = 'Loading…';
+      el.textContent = 'Loadingâ€¦';
     });
   }
 
@@ -204,10 +220,10 @@
   mx.clientsRefresh = function () {
     return Promise.all([
       mx.get('/api/v1/clients').then(function (r) {
-        mx.data.clients = r.data;
+        mx.data.clients = r.data || r;
       }),
       mx.get('/api/v1/cash-accounts').then(function (r) {
-        mx.data.cashAccounts = r.data;
+        mx.data.cashAccounts = r.data || r;
       }),
       loadDepthMeta(),
     ]);
@@ -235,7 +251,7 @@
       var sm0 = tiles[0].querySelector('small');
       if (sm0) {
         var inst = (s.byKyc && s.byKyc.APPROVED) || s.total || 0;
-        sm0.textContent = (s.onHold || 0) + ' on hold · ' + (s.reviewDueIn30Days || 0) + ' reviews due';
+        sm0.textContent = (s.onHold || 0) + ' on hold Â· ' + (s.reviewDueIn30Days || 0) + ' reviews due';
       }
     }
     if (tiles[1]) {
@@ -250,7 +266,7 @@
         var totalCash = accounts.reduce(function (sum, a) {
           return sum + Number(a.balance || a.availableBalance || 0);
         }, 0);
-        t2.textContent = totalCash ? mx.money(totalCash, 'USD') : '—';
+        t2.textContent = totalCash ? mx.money(totalCash, 'USD') : 'â€”';
       }
       var sm2 = tiles[2].querySelector('small');
       if (sm2) sm2.textContent = 'Across bank, broker and custody accounts';
@@ -263,7 +279,7 @@
         t3.className = exc ? 'attention' : '';
       }
       var sm3 = tiles[3].querySelector('small');
-      if (sm3) sm3.textContent = (s.reviewOverdue || 0) + ' overdue reviews · ' + (s.onHold || 0) + ' dealing holds';
+      if (sm3) sm3.textContent = (s.reviewOverdue || 0) + ' overdue reviews Â· ' + (s.onHold || 0) + ' dealing holds';
     }
   }
 
@@ -284,7 +300,7 @@
     box.innerHTML =
       '<h3>Relationship controls</h3><div class="detail-grid compact">' +
       '<div class="detail-field"><span>Dealing hold</span><strong>' +
-      (cl.dealingHold ? 'Active · ' + mx.esc(cl.holdReason || '') : 'None') +
+      (cl.dealingHold ? 'Active Â· ' + mx.esc(cl.holdReason || '') : 'None') +
       '</strong></div><div class="detail-field"><span>Pending changes</span><strong>' +
       (detail.pendingChanges || 0) +
       '</strong></div></div>' +
@@ -356,7 +372,7 @@
           })
           .join('');
         mx.modal({
-          eyebrow: 'CLIENT · RELATIONSHIP OWNER',
+          eyebrow: 'CLIENT Â· RELATIONSHIP OWNER',
           title: c.name,
           body:
             '<label class="detail-field"><span>Owner</span><select class="v34-select" id="mxOwnerPick">' +
@@ -382,7 +398,7 @@
     box.querySelector('[data-mx-review]') &&
       (box.querySelector('[data-mx-review]').onclick = function () {
         mx.modal({
-          eyebrow: 'CLIENT · REVIEW DATE',
+          eyebrow: 'CLIENT Â· REVIEW DATE',
           title: c.name,
           body:
             '<label class="detail-field"><span>Next review</span><input type="date" class="v34-input" id="mxReviewDate"></label>' +
@@ -460,7 +476,7 @@
         inject360Controls(c, detail);
         var hero = document.querySelector('.client-360-hero .hero-status-line');
         if (hero && detail.client && detail.client.nextReviewDate) {
-          hero.lastElementChild.textContent = 'Next review · ' + mx.date(detail.client.nextReviewDate, { day: '2-digit', month: 'short', year: 'numeric' });
+          hero.lastElementChild.textContent = 'Next review Â· ' + mx.date(detail.client.nextReviewDate, { day: '2-digit', month: 'short', year: 'numeric' });
         }
       })
       .catch(mx.fail);
@@ -499,8 +515,8 @@
       btn.style.marginTop = '10px';
       btn.onclick = function () {
         mx.post('/api/v1/cash-accounts/' + encodeURIComponent(id) + '/reveal-identifier', {}).then(function (r) {
-          mx.toast('Identifier revealed', 'Access logged · ' + (r.identifier || r.account && r.account.identifier));
-          btn.textContent = 'Identifier: ' + (r.identifier || (r.account && r.account.identifier) || '—');
+          mx.toast('Identifier revealed', 'Access logged Â· ' + (r.identifier || r.account && r.account.identifier));
+          btn.textContent = 'Identifier: ' + (r.identifier || (r.account && r.account.identifier) || 'â€”');
           btn.disabled = true;
         }, mx.fail);
       };
@@ -576,8 +592,8 @@
       var invites = body.invitations || [];
       mx.modal({
         eyebrow: 'INVESTOR PORTAL',
-        title: 'Portal users · ' + c.name,
-        subtitle: members.length + ' active · ' + invites.length + ' invited',
+        title: 'Portal users Â· ' + c.name,
+        subtitle: members.length + ' active Â· ' + invites.length + ' invited',
         wide: true,
         body:
           '<div class="v34-list">' +
@@ -588,9 +604,9 @@
                 mx.esc(u.name || u.email) +
                 '</strong><small>' +
                 mx.esc(u.email) +
-                ' · ' +
+                ' Â· ' +
                 mx.esc(u.role) +
-                ' · ' +
+                ' Â· ' +
                 mx.esc(u.status) +
                 '</small></span><em>' +
                 (mx.can('clients.edit')
@@ -607,8 +623,8 @@
               return (
                 '<div class="v34-row"><span><strong>' +
                 mx.esc(u.email) +
-                '</strong><small>Invited · expires ' +
-                mx.esc(u.expiresAt ? String(u.expiresAt).slice(0, 10) : '—') +
+                '</strong><small>Invited Â· expires ' +
+                mx.esc(u.expiresAt ? String(u.expiresAt).slice(0, 10) : 'â€”') +
                 '</small></span><em>' +
                 (mx.can('clients.edit')
                   ? '<button type="button" class="v34-btn small" data-mx-inv-revoke="' +
@@ -687,7 +703,7 @@
     return mx.get(CO + '/change-requests', { status: 'PENDING' }).then(function (r) {
       var rows = r.data || [];
       mx.modal({
-        eyebrow: 'CLIENT OPS · PENDING CHANGES',
+        eyebrow: 'CLIENT OPS Â· PENDING CHANGES',
         title: 'Maker-checker queue',
         subtitle: rows.length + ' pending',
         wide: true,
@@ -700,7 +716,7 @@
                 mx.esc(cr.kind) +
                 '</strong><small>' +
                 mx.esc(cr.clientName || cr.clientRef) +
-                ' · ' +
+                ' Â· ' +
                 mx.esc(cr.makerName || '') +
                 '</small></span><em>' +
                 (mx.can('clients.edit')
@@ -738,3 +754,4 @@
     });
   };
 })();
+

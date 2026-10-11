@@ -1,0 +1,70 @@
+{
+  "fixture": "F00",
+  "name": "Environment and baseline",
+  "purpose": "Frozen release, approved policy, role identities and isolated test partitions for the UAT cycle.",
+  "cycle": {
+    "cycleId": "UAT-2026-10-A",
+    "timezone": "Africa/Harare (CAT, UTC+2) - all evidence timestamps recorded in UTC",
+    "startedUtc": "2026-10-11T18:44:35Z",
+    "executionWindow": "Business days 09:00-17:00 CAT"
+  },
+  "freeze": {
+    "branch": "feat/original-ui-wiring",
+    "commit": "730f3cdf320fe05f7c884c477447e3ab04f31854",
+    "commitShort": "730f3cd",
+    "version": "56.1.0",
+    "workingTreeDeltas": "16 modified files (+41/-121), 25 untracked paths - see uat-execution/G01-G06-entry-gates.md",
+    "archiveDigests": {
+      "backend-api-src.tar.gz": "B4041ADD0A7C85880BA2E6583DD70E3472A32A9A7B1F39640BAFDA5BA311FDF4",
+      "portals-source.tar.gz": "A71800669C499B689ED67CC2ED0B2F34270DFBC9ECBD4402C6A1B723A01267AF",
+      "matanho-nexus-dev.tar.gz": "F6FF60BD3FA92D11025259FDBAF71F2CC020F2B712D53FFDDE71C643F0CC271E",
+      "prisma-schema.tar.gz": "DC0ED85E9DCA931CD81A092BB08C61C82EBB09714EB9FCF8F7B0BFA22A5AD273"
+    }
+  },
+  "environment": {
+    "api": "http://localhost:4100/api",
+    "adminPortal": "http://localhost:3100",
+    "investorPortal": "http://localhost:3101",
+    "onboardingPortal": "http://localhost:3102",
+    "companyPortal": "http://localhost:3103",
+    "custodianPortal": "http://localhost:3104",
+    "database": "mysql://127.0.0.1:3306/matanho_nexus (43 migrations applied)",
+    "storage": "local backend",
+    "email": "ZeptoMail SMTP, INTEGRATION_EMAIL=live",
+    "liveFlags": {
+      "LP_LIVE_DOMAINS": "all",
+      "CUSTODIAN_LIVE": "true",
+      "ONBOARDING_LIVE": "true",
+      "INVESTEE_LIVE_ACTIONS": "all",
+      "INTEGRATION_EMAIL": "live"
+    },
+    "platformFlagsVerifiedUtc": "2026-10-11T18:44:35Z"
+  },
+  "performanceTargets": {
+    "approved": false,
+    "approvedBy": null,
+    "p95PageLoadMs": 2000,
+    "p95ApiReadMs": 500,
+    "p95ApiWriteMs": 1000,
+    "concurrentUsers": 25,
+    "note": "PROPOSED values pending business-owner approval (owner-approved targets required before NFR execution - manual 12, F00). Do not treat as accepted criteria until approved."
+  },
+  "recoveryObjectives": {
+    "rpoMinutes": 15,
+    "rtoMinutes": 60,
+    "backupProcedure": "mysqldump matanho_nexus before each journey into uat-execution/backups/",
+    "resetProcedure": "re-run UAT loader with SEED_UAT_CONFIRM=1 SEED_USERS_FILE=secrets/uat-users.json SEED_UAT_RESET=1",
+    "snapshotProcedure": "DB dump + evidence export per journey (EV-E2E-XXX-00)"
+  },
+  "policies": {
+    "mfa_required": false,
+    "notes": "Policy references verified against seeded Policy rows; MFA off for this cycle unless defect requires otherwise."
+  },
+  "partitions": {
+    "buyer": "Investor A = CL-00418 Horizon Pension Fund LP (funds FND-AGFI, FND-AEOF)",
+    "investorB": "Investor B = CL-90001 Kariba Provident Fund",
+    "counterparty": "CP-001 Test Custodian A",
+    "companies": ["PC-101 UAT Payments Company", "PC-102 (second company for isolation tests)"],
+    "note": "Single logical database; isolation enforced by client/fund/counterparty/company scoping, verified by IAM-003/IAM-006 cross-scope denial tests."
+  }
+}

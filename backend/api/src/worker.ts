@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+﻿import type { Prisma } from '@prisma/client';
 import { config } from './config';
 import { prisma } from './lib/prisma';
 import { sendMail } from './lib/mailer';
@@ -77,7 +77,7 @@ const handlers: Record<string, (payload: unknown) => Promise<void>> = {
   'notify.permission': (p) => notifyPermission(p as NotifyPermissionPayload),
   'email.send': async (p) => {
     const e = p as EmailPayload;
-    await sendMail(e.to, e.subject, e.text);
+    await sendMail(e.to, e.subject, e.text, undefined, 'EmailNotificationService');
   },
   'kyc.screening.requested': (p) => runScreening((p as { caseId: string }).caseId),
   'investee.mail': (p) => deliverInvesteeMail(p),

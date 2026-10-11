@@ -1,0 +1,61 @@
+{
+ "J01-1 draft": {
+  "status": 201,
+  "draftId": "71f1483f-472c-4a8d-9b0b-a9b6c06c2b39",
+  "token": true
+ },
+ "J01-2 evidence upload": {
+  "doc1": 201,
+  "doc9": 201,
+  "doc4": 201,
+  "doc10": 201,
+  "doc2": 201,
+  "doc5": 201,
+  "doc3": 201,
+  "doc6": 201,
+  "doc7": 201
+ },
+ "J01-3 submit": {
+  "status": 200,
+  "msg": null,
+  "detail": null,
+  "publicAppId": null,
+  "onboardingRef": "ONB-104837"
+ },
+ "J01-4 staff queue": {
+  "status": 200,
+  "queueCount": 8,
+  "visible": true
+ },
+ "J01-5 KYC case": {
+  "status": 200,
+  "caseCount": 8,
+  "ref": "KYC-1008",
+  "stage": "Screening"
+ },
+ "J01-6 advance to ComplianceReview": {
+  "status": 200,
+  "msg": null
+ },
+ "J01-6 decision approve": {
+  "status": 409,
+  "msg": "The person who prepared this case cannot also decide it",
+  "stage": null
+ },
+ "J01-7 activate": {
+  "status": 409,
+  "msg": "Only approved cases can be activated",
+  "clientId": null,
+  "detail": "{\"error\":{\"code\":\"invalid_transition\",\"message\":\"Only approved cases can be activated\"},\"success\":false,\"code\":\"invalid_transition\",\"message\":\"Only approved cases can be activated\"}"
+ },
+ "J01-8 clients": {
+  "status": 200,
+  "count": 3,
+  "j01Visible": false,
+  "names": [
+   "Horizon Pension Fund LP",
+   "Interrupt Probe Client",
+   "Kariba Provident Fund"
+  ]
+ }
+}

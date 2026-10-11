@@ -134,9 +134,10 @@ function assertUploadChannel() {
 /** Parses a statement file and checks it against this counterparty: account scope, dates, currencies, locked days. */
 async function checkStatement(counterpartyId: string, accounts: string[], b: z.infer<typeof statementSchema>) {
   if (isCamtStatement(b.content, b.format)) return checkCamtStatement(counterpartyId, accounts, b.content);
+  const legacyFormat = b.format && b.format !== 'CAMT053' ? b.format : undefined;
   let statements;
   try {
-    statements = parseStatements(b.content, b.format);
+    statements = parseStatements(b.content, legacyFormat);
   } catch (e) {
     if (e instanceof StatementParseError) throw new HttpError(422, 'statement_rejected', e.message, { problems: e.problems });
     throw e;
@@ -195,7 +196,7 @@ custodianNativeRoutes.post('/statements', requirePermission('custodian.dayend.su
   if (checked.problems.length) throw new HttpError(422, 'statement_rejected', checked.problems.slice(0, 3).join('; '), { problems: checked.problems, statements: checked.statements });
   const result = isCamtStatement(b.content, b.format)
     ? await ingestCamtStatement({ counterpartyId: c.id, filename: b.filename, content: b.content, userId: req.user!.id, audit: audit(req), adapter: custodianFeedMode() })
-    : await ingestStatementFile({ counterpartyId: c.id, filename: b.filename, content: b.content, format: b.format, userId: req.user!.id, audit: audit(req), adapter: custodianFeedMode() });
+    : await ingestStatementFile({ counterpartyId: c.id, filename: b.filename, content: b.content, format: b.format && b.format !== 'CAMT053' ? b.format : undefined, userId: req.user!.id, audit: audit(req), adapter: custodianFeedMode() });
 
   const camt = isCamtStatement(b.content, b.format);
   const refs = camt ? [] : result.statements.map((s) => ('dayEndRef' in s ? s.dayEndRef : null)).filter((x): x is string => !!x);

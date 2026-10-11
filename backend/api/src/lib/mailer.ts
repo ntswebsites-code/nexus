@@ -1,4 +1,4 @@
-import { getEmailAdapter } from '../integrations/email';
+﻿import { getEmailAdapter } from '../integrations/email';
 import type { EmailAttachment } from '../integrations/email/types';
 
 /**
@@ -13,9 +13,9 @@ export function redactSecrets(text: string): string {
 }
 
 /**
- * Sends through the email adapter (INTEGRATION_EMAIL). Fake mode keeps the previous behaviour: SMTP when
- * configured, otherwise the console. Every send is logged to `integration_calls`.
+ * Sends through the email adapter (INTEGRATION_EMAIL). Fake mode keeps the previous behaviour: SMTP when configured, otherwise the console.
+ * Every send is logged to `integration_calls`.
  */
-export async function sendMail(to: string, subject: string, text: string, attachments?: EmailAttachment[]) {
-  await getEmailAdapter().send({ to, subject, text, ...(attachments?.length ? { attachments } : {}) });
+export async function sendMail(to: string, subject: string, text: string, attachments?: EmailAttachment[], serviceName?: string) {
+  await getEmailAdapter().send({ to, subject, text, ...(attachments?.length ? { attachments } : {}) }, serviceName);
 }

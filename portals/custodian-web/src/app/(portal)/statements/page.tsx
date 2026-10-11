@@ -92,7 +92,7 @@ export default function StatementsPage() {
       key.renew();
       const s = r.data.statements;
       if (r.data.cashImportRef) {
-        setOk(`CAMT bank statement staged as ${r.data.cashImportRef} for admin cash recon (${s[0]?.cashImportLedger ?? 'mapped ledger'}).`);
+        setOk(`CAMT bank statement staged as ${r.data.cashImportRef} for admin cash recon (${r.data.cashImportRef}).`);
       } else {
         setOk(`Loaded ${s.length} statement${s.length === 1 ? '' : 's'}: ${s.reduce((n, x) => n + (x.tradesImported ?? x.trades ?? 0), 0)} new trades, ${s.reduce((n, x) => n + x.holdings, 0)} holdings lines, day-end packages ${s.map((x) => x.dayEndRef).filter(Boolean).join(', ') || 'none'} awaiting approval.`);
       }

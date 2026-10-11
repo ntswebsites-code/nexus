@@ -30,8 +30,8 @@
 
   function load() {
     return Promise.all([mx.get(V1 + '/reporting-packs'), mx.get(V1 + '/companies')]).then(function (r) {
-      queue = r[0].data;
-      companies = r[1].data;
+      queue = r[0].data || r[0] || [];
+      companies = r[1].data || r[1] || [];
       renderHub();
     });
   }
@@ -40,6 +40,8 @@
     var page = document.getElementById('page-private-markets');
     var head = page && page.querySelector('.page-head');
     if (!head) return;
+    var safeQueue = Array.isArray(queue) ? queue : [];
+    var safeCompanies = Array.isArray(companies) ? companies : [];
     var hub = document.getElementById('mxCompanyHub');
     if (!hub) {
       hub = document.createElement('section');
@@ -47,13 +49,13 @@
       hub.id = 'mxCompanyHub';
       head.insertAdjacentElement('afterend', hub);
     }
-    var questions = companies.reduce(function (n, c) { return n + c.openQuestions; }, 0);
-    var alerts = companies.reduce(function (n, c) { return n + c.covenantAlerts; }, 0);
+    var questions = safeCompanies.reduce(function (n, c) { return n + (c.openQuestions || 0); }, 0);
+    var alerts = safeCompanies.reduce(function (n, c) { return n + (c.covenantAlerts || 0); }, 0);
     var btn = function (kicker, title, detail, key, warn) {
       return '<button type="button" class="' + (warn ? 'warn' : '') + '" data-mx-company-hub="' + key + '"><span>' + kicker + '</span><strong>' + title + '</strong><small>' + detail + '</small></button>';
     };
     hub.innerHTML =
-      btn('PORTFOLIO COMPANIES', 'Company reporting', queue.length + ' pack' + (queue.length === 1 ? '' : 's') + ' awaiting review', 'queue', queue.length > 0) +
+      btn('PORTFOLIO COMPANIES', 'Company reporting', safeQueue.length + ' pack' + (safeQueue.length === 1 ? '' : 's') + ' awaiting review', 'queue', safeQueue.length > 0) +
       btn('INVESTMENT TEAM', 'Company questions', questions + ' open', 'companies', questions > 0) +
       btn('COVENANTS', 'Covenant watch', alerts ? alerts + ' certificate' + (alerts === 1 ? '' : 's') + ' expiring' : 'All current', 'companies', alerts > 0);
     mx.$$('[data-mx-company-hub]', hub).forEach(function (b) {
@@ -65,7 +67,9 @@
 
   function openOverview() {
     var review = mx.can('research.edit');
-    var q = queue.map(function (p) {
+    var safeQueue = Array.isArray(queue) ? queue : [];
+    var safeCompanies = Array.isArray(companies) ? companies : [];
+    var q = safeQueue.map(function (p) {
       return [
         mx.esc(p.company.name),
         mx.esc(p.label),
@@ -74,7 +78,7 @@
         '<button class="btn secondary" type="button" data-mx-pack="' + p.uuid + '">' + (review ? 'Review' : 'View') + '</button>',
       ];
     });
-    var c = companies.map(function (co) {
+    var c = safeCompanies.map(function (co) {
       var lp = co.latestPeriod;
       return [
         mx.esc(co.name),

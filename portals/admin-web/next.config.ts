@@ -18,7 +18,7 @@ function securityHeaders(extra: { script?: string[]; frame?: string[] } = {}) {
     "default-src 'self'",
     `script-src 'self' 'unsafe-inline'${dev ? " 'unsafe-eval'" : ''} ${(extra.script ?? []).join(' ')}`.trim(),
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    "img-src 'self' data: blob: https://logos.hunter.io https://africanfinancials.com https://images.africanfinancials.com https://businessdaily.co.zw https://ecosure.co.zw https://www.google.com https://gdb.voanews.com https://iol-prod.appspot.com https://*.gstatic.com https://d3e0luujhwn38u.cloudfront.net",
     "font-src 'self' data:",
     `connect-src 'self' ${api}${dev ? ' ws://localhost:* http://localhost:*' : ''} ${(extra.script ?? []).join(' ')}`.trim(),
     `frame-src 'self' blob: data: ${api} ${(extra.frame ?? []).join(' ')}`.trim(),
@@ -56,4 +56,5 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
 

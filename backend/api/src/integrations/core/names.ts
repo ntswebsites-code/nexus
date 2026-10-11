@@ -1,7 +1,6 @@
 /** Adapter names. No imports here: config/env.ts reads this list to build the INTEGRATION_<NAME> flags. */
 export const INTEGRATION_NAMES = [
   'email',
-  'sms',
   'screening',
   'identity-verification',
   'market-data',

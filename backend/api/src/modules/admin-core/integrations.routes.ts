@@ -134,7 +134,7 @@ integrationsRoutes.get('/calls/:id', SETTINGS, async (req, res) => {
 
 const inboxQuery = z.object({ adapter: z.string().trim().max(32).optional(), kind: z.string().trim().max(32).optional(), limit: z.coerce.number().int().min(1).max(100).default(30) });
 
-/** Simulated inbound artefacts (SMS codes, fake emails, payment instructions). Message bodies and codes are hidden in production. */
+/** Simulated inbound artefacts (fake emails, payment instructions). Message bodies and codes are hidden in production. */
 integrationsRoutes.get('/inbox', SETTINGS, validateQuery(inboxQuery), async (req, res) => {
   const f = query<z.infer<typeof inboxQuery>>(req);
   const rows = await prisma.integrationInbox.findMany({

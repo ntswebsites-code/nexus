@@ -425,7 +425,7 @@ export async function emailRun(run: { id: string; ref: string; title: string; sh
   const failed: string[] = [];
   for (const to of recipients) {
     try {
-      await sendMail(to, `Report ${run.ref}: ${run.title}`, `The scheduled report ${run.ref} (${run.title}) is ready.\nSHA-256: ${run.sha256 ?? 'n/a'}\n${attachments ? 'The report is attached.\n' : ''}Open it in Matanho Nexus: ${link}\nYou need to be signed in with the reports.view permission to download it.`, attachments);
+      await sendMail(to, `Report ${run.ref}: ${run.title}`, `The scheduled report ${run.ref} (${run.title}) is ready.\nSHA-256: ${run.sha256 ?? 'n/a'}\n${attachments ? 'The report is attached.\n' : ''}Open it in Matanho Nexus: ${link}\nYou need to be signed in with the reports.view permission to download it.`, attachments, 'EmailNotificationService');
       sent++;
     } catch (e) {
       failed.push(`${to}: ${(e instanceof Error ? e.message : String(e)).slice(0, 60)}`);

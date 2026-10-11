@@ -1,0 +1,28 @@
+{
+ "J01-1 public draft": {
+  "status": 201,
+  "draftId": "6c8a9b1a-2e2e-4e93-933d-ff4326f26637",
+  "token": true
+ },
+ "J01-2 submit": {
+  "status": 400,
+  "msg": "Complete the missing items before submitting",
+  "publicAppId": null
+ },
+ "J01-3 staff queue": {
+  "status": 200,
+  "queueCount": 1,
+  "visible": false
+ },
+ "J01-4 KYC case": {
+  "status": 200,
+  "caseCount": 1,
+  "caseRef": null,
+  "stage": null
+ },
+ "J01-7 clients": {
+  "status": 200,
+  "count": 3,
+  "j01Visible": false
+ }
+}

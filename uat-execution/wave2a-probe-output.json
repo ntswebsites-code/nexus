@@ -1,0 +1,94 @@
+{
+ "NAV create": {
+  "status": 201,
+  "ref": "NAV-00011",
+  "state": "DRAFT"
+ },
+ "NAV recalculate": {
+  "status": 201,
+  "state": "DRAFT",
+  "navPerUnit": "1041.2690",
+  "netAssets": null
+ },
+ "NAV run detail": {
+  "status": 200,
+  "state": "DRAFT",
+  "exceptions": 0
+ },
+ "NAV maker review": {
+  "status": 200,
+  "state": "MAKER_REVIEWED"
+ },
+ "NAV self-release (segregation)": {
+  "status": 403,
+  "code": "segregation_of_duties"
+ },
+ "NAV independent release": {
+  "status": 200,
+  "state": "RELEASED",
+  "navPerUnit": "1041.2690"
+ },
+ "CSH ledgers": {
+  "status": 200,
+  "count": 30,
+  "sample": [
+   "CLG-1001:BANK:ACTIVE",
+   "CLG-1002:CONTROL:ACTIVE",
+   "CLG-1003:CLEARING:ACTIVE"
+  ]
+ },
+ "CSH create journal": {
+  "status": 201,
+  "ref": "CJ-00010",
+  "message": null
+ },
+ "CSH submit": {
+  "status": 200,
+  "state": "PENDING_APPROVAL"
+ },
+ "CSH self-post (segregation)": {
+  "status": 403,
+  "code": "sod_violation"
+ },
+ "CSH independent post": {
+  "status": 200,
+  "state": "POSTED"
+ },
+ "REC statement import stage": {
+  "status": 409,
+  "lines": null,
+  "message": "This file was already imported for this ledger"
+ },
+ "DOC create + original": {
+  "status": 201,
+  "docId": "DOC-3006",
+  "v1sha": "7914fc0358424aa34314196b24da661c614222223aea483c82b59b53f928d509",
+  "computedSha": "7914fc0358424aa34314196b24da661c614222223aea483c82b59b53f928d509",
+  "hashMatch": true,
+  "bytes": 504
+ },
+ "DOC submit": {
+  "status": 200,
+  "state": "In review"
+ },
+ "DOC approve (independent)": {
+  "status": 200,
+  "state": "Approved"
+ },
+ "DOC publish": {
+  "status": 200,
+  "state": "Published"
+ },
+ "DOC download original": {
+  "status": 403,
+  "bytes": 195,
+  "sha256": "7936b42be0a8001adffe5c851a13537fd90ef16545bfd14d3de016a0b8fac78b",
+  "match": false,
+  "magic": "{\"err"
+ },
+ "DOC version replacement": {
+  "status": 200,
+  "v2": 2,
+  "state": "Draft"
+ }
+}

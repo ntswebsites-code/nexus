@@ -53,3 +53,6 @@ tools/dashboard/status.json
 .claude/
 .flow-storage/
 tools/uat/prove-worker.sh
+
+uat-execution/backups/
+

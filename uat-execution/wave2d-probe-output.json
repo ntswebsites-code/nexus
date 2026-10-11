@@ -1,0 +1,55 @@
+{
+ "CST execution submit": {
+  "status": 201,
+  "accepted": null,
+  "rejected": null,
+  "msg": null
+ },
+ "CST duplicate submit (dedupe)": {
+  "status": 409,
+  "accepted": null,
+  "duplicates": null,
+  "msg": "Trade reference already submitted"
+ },
+ "CST executions list": {
+  "status": 200,
+  "count": 6
+ },
+ "PM capital calls": {
+  "status": 200,
+  "count": 1,
+  "sample": [
+   "MC-0001:ISSUED:undefined"
+  ]
+ },
+ "PM commitments": {
+  "status": 404,
+  "count": null
+ },
+ "FIN draw": {
+  "status": 201,
+  "msg": null,
+  "data": "{\"id\":\"e15b2de1-ad11-46e8-9b36-701aaa3dcd02\",\"ref\":\"FAC-1001\",\"name\":\"Imara margin line\",\"type\":\"MARGIN_LOAN\",\"lender\":\"Imara Edwards Securities\",\"portfolioId\":\"fd3f48b4-da53-4a6e-"
+ },
+ "PER returns (PF-1001)": {
+  "status": 200,
+  "rows": null,
+  "sample": null
+ },
+ "OPS health": {
+  "status": 403,
+  "keys": null
+ },
+ "CLI clients": {
+  "status": 200,
+  "count": 3
+ },
+ "POR portfolios": {
+  "status": 200,
+  "count": 6
+ },
+ "AUD auditor export (denial)": {
+  "status": 403,
+  "code": "portal_access_denied"
+ }
+}
