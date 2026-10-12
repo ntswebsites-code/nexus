@@ -238,6 +238,7 @@ Both documents are revision 1.0, dated 6 October 2026.
 | **Module case execution — Wave 2 (P0)** | ✅ Complete (17 modules Pass) | `uat-execution/Wave2-results.md`: NAV/CSH/REC/ORD/DOC/PM/FIN/PER/RSK/CA/CST/ONB/CLI/POR/AUD/OPS/LP lifecycles executed with segregated identities; SoD, dedupe, immutability, signing and business-date controls verified |
 | **Module case execution — Wave 3 (P0)** | ✅ Complete (4/4 modules Pass) | `uat-execution/Wave3-results.md`: CON (IC decision, mandate-gated promotion), MOD (model activation maker-checker + invalidation), REG (filing evidence→review→independent approval), RPT (run + LP distribution) |
 | **Journey execution** | 🔄 16 Pass / 1 Blocked / 1 Partial / 1 destination | `uat-execution/Journeys-results.md`: J01–J18 cores verified with real records; J05 blocked (custodian UI + LP live dealing flag), J13 conditional (sandbox model service), J18 = sign-off destination |
+| **Production deployment** | ✅ Deployed `uat-2026-10-b` (commit `3ebffe0`) | `uat-execution/Production-deployment.md`: first attempt auto-rolled back (hardcoded email relay), fixed (env-driven SMTP, credential purged), re-deployed — smoke 50 pass / 0 fail / 6 skip; **rotate the ZeptoMail key** (see file §Outstanding) |
 | **Defects/Retest/Evidence registers** | � Started | Defects in Wave 1 results file; evidence register live at `uat-execution/evidence-register.md` |
 | **Sign-off** | ⬜ Not started | 8 authorities, all "Not reviewed" |
 
