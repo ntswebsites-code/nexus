@@ -13,6 +13,7 @@
   var fabricSummary = null;
   var sourceByName = {};
   var dataTab = 'connections';
+  var pendingTabRender = false;
   var lastSavedSourceId = null;
 
   function liveData() {
@@ -577,6 +578,13 @@
   });
 
   window.addEventListener('matanho:legacy-ready', function () {
+    // A tab clicked while the module data was still loading is rendered now that the
+    // boot has completed (mx.live flips) - otherwise the click is silently dropped on
+    // slow APIs and the view stays blank.
+    if (pendingTabRender && liveData()) {
+      pendingTabRender = false;
+      mx.renderData();
+    }
     mx.gate('#v33SaveConnection', 'operations.manage');
     mx.gate('#v33TestConnection', 'operations.manage');
     mx.gate('[data-mx-data-schedules]', 'operations.view');
@@ -584,6 +592,21 @@
     document.addEventListener(
       'click',
       function (e) {
+        // Tab selection works even before the module data has finished loading; the
+        // render is deferred to load completion (pendingTabRender) instead of being
+        // silently dropped on slow APIs.
+        if (e.target.closest && e.target.closest('[data-v33-data-tab]')) {
+          var tabEl = e.target.closest('[data-v33-data-tab]');
+          if (tabEl && tabEl.dataset && tabEl.dataset.v33DataTab) {
+            dataTab = tabEl.dataset.v33DataTab;
+          }
+          if (liveData()) {
+            mx.renderData();
+          } else {
+            pendingTabRender = true;
+          }
+          return;
+        }
         if (!liveData()) return;
         var schedBtn = e.target.closest && e.target.closest('[data-mx-data-schedules]');
         if (schedBtn) {
@@ -591,15 +614,6 @@
           e.stopImmediatePropagation();
           openSchedulesModal().catch(mx.fail);
           return;
-        }
-        if (e.target.closest && e.target.closest('[data-v33-data-tab]')) {
-          var tabEl = e.target.closest('[data-v33-data-tab]');
-          if (tabEl && tabEl.dataset && tabEl.dataset.v33DataTab) {
-            dataTab = tabEl.dataset.v33DataTab;
-          }
-          setTimeout(function () {
-            if (liveData()) mx.renderData();
-          }, 0);
         }
       },
       true,
