@@ -21,6 +21,22 @@ export interface AuditEntry {
 
 const GENESIS = '0'.repeat(64);
 
+/**
+ * In-process serialization for the audit tail write. The hash chain must never fork
+ * (SRD 7.13), and a raw `SELECT ... FOR UPDATE` on the tail row deadlocks when many
+ * transactions contend at once (P2010/P2028 under load - 25 concurrent logins took
+ * 36-44s and 500'd). Serialising the tail read+create inside the process removes the
+ * lock contention while keeping the chain strictly sequential. Single API instance
+ * (compose topology); multi-instance deployments would need a distributed lock.
+ */
+let auditTail: Promise<unknown> = Promise.resolve();
+
+function withAuditTail<T>(fn: () => Promise<T>): Promise<T> {
+  const run = auditTail.then(fn, fn);
+  auditTail = run.catch(() => undefined);
+  return run;
+}
+
 function canonical(value: unknown): string {
   return JSON.stringify(value, (_k, v) => {
     if (typeof v === 'bigint') return v.toString();
@@ -42,39 +58,41 @@ function toJson(value: unknown): Prisma.InputJsonValue | undefined {
  * serialise and the chain never forks.
  */
 export async function writeAudit(tx: Prisma.TransactionClient, ctx: AuditContext, entry: AuditEntry) {
-  const tail = await tx.$queryRaw<{ hash: string }[]>`SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1 FOR UPDATE`;
-  const prevHash = tail[0]?.hash ?? GENESIS;
-  const occurredAt = new Date();
-  const before = toJson(entry.before);
-  const after = toJson(entry.after);
-  const body = canonical({
-    occurredAt: occurredAt.toISOString(),
-    actorId: ctx.actorId ?? null,
-    action: entry.action,
-    objectType: entry.objectType,
-    objectId: entry.objectId,
-    before: before ?? null,
-    after: after ?? null,
-    reason: entry.reason ?? null,
-  });
-  const hash = sha256Hex(prevHash + body);
-  await tx.auditEvent.create({
-    data: {
-      occurredAt,
+  await withAuditTail(async () => {
+    const tail = await tx.$queryRaw<{ hash: string }[]>`SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1 FOR UPDATE`;
+    const prevHash = tail[0]?.hash ?? GENESIS;
+    const occurredAt = new Date();
+    const before = toJson(entry.before);
+    const after = toJson(entry.after);
+    const body = canonical({
+      occurredAt: occurredAt.toISOString(),
       actorId: ctx.actorId ?? null,
-      actorRole: ctx.actorRole?.slice(0, 120) ?? null,
-      portal: ctx.portal ?? null,
       action: entry.action,
       objectType: entry.objectType,
       objectId: entry.objectId,
-      before,
-      after,
+      before: before ?? null,
+      after: after ?? null,
       reason: entry.reason ?? null,
-      ip: ctx.ip?.slice(0, 45) ?? null,
-      requestId: ctx.requestId ?? null,
-      prevHash,
-      hash,
-    },
+    });
+    const hash = sha256Hex(prevHash + body);
+    await tx.auditEvent.create({
+      data: {
+        occurredAt,
+        actorId: ctx.actorId ?? null,
+        actorRole: ctx.actorRole?.slice(0, 120) ?? null,
+        portal: ctx.portal ?? null,
+        action: entry.action,
+        objectType: entry.objectType,
+        objectId: entry.objectId,
+        before,
+        after,
+        reason: entry.reason ?? null,
+        ip: ctx.ip?.slice(0, 45) ?? null,
+        requestId: ctx.requestId ?? null,
+        prevHash,
+        hash,
+      },
+    });
   });
 }
 

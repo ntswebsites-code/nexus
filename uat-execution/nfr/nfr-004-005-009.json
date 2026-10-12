@@ -1,0 +1,47 @@
+{
+ "NFR-004 idempotent replay": {
+  "firstStatus": 201,
+  "firstId": "cc64f082-11d9-4733-acdd-747b6c89d61b",
+  "replayStatus": 201,
+  "replayId": "cc64f082-11d9-4733-acdd-747b6c89d61b",
+  "sameRecord": true
+ },
+ "NFR-004 interrupted save": {
+  "beforeCount": 11,
+  "afterCount": 11,
+  "halfWrittenOrDuplicated": false,
+  "newDescriptions": 0
+ },
+ "NFR-005 same record two sessions": {
+  "journalId": "344866b4-ddce-47cb-8d12-fd57a0fbdad6",
+  "aFromA": true,
+  "bFromB": true,
+  "sameVersion": true
+ },
+ "NFR-005 conflicting writes": {
+  "submitA": 200,
+  "submitB": 403,
+  "conflictDetected": false
+ },
+ "NFR-009 currency boundary": {
+  "created": 201,
+  "amounts": [
+   "0.01",
+   "0.00"
+  ],
+  "exactCent": true
+ },
+ "NFR-009 timezone": {
+  "auditTimestamps": [
+   "2026-10-12T07:23:14.670Z",
+   "2026-10-12T07:23:14.558Z",
+   "2026-10-12T07:23:14.434Z"
+  ],
+  "recordedUtc": true,
+  "cycleTimezone": "Africa/Harare (UTC+2, no DST)"
+ },
+ "NFR-009 date boundaries": {
+  "monthEndFilterStatus": 200,
+  "rows": 5
+ }
+}

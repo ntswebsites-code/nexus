@@ -1,0 +1,181 @@
+{
+ "users": 25,
+ "ok": 18,
+ "wallMs": 38738,
+ "readP95Ms": 3415,
+ "samples": [
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 2733,
+   "status": 200,
+   "body": "{\"data\":{\"asOf\":\"2026-10-12T07:56:34.902Z\",\"aum\":{\"byCurrency\":[{\"currency\":\"USD\",\"amount\":\"64190901"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 3331,
+   "status": 200,
+   "body": "{\"data\":[{\"id\":\"fd3f48b4-da53-4a6e-8fe2-151b0a57bfa7\",\"ref\":\"PF-1001\",\"name\":\"Balanced Growth Fund\","
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 1048,
+   "status": 200,
+   "body": "{\"data\":[{\"id\":\"a3007c83-0ebe-4f18-8a6a-9623b74ad331\",\"ref\":\"ORD-001016\",\"portfolio\":{\"id\":\"3fd8aa62"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 712,
+   "status": 200,
+   "body": "{\"data\":[{\"id\":\"CL-00418\",\"uuid\":\"761660be-08b2-45f6-9c2e-2784f04ea48b\",\"name\":\"Horizon Pension Fund"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 600,
+   "status": 200,
+   "body": "{\"data\":{\"asOfDate\":\"2026-10-12\",\"families\":[{\"family\":\"TRADES\",\"label\":\"Trades\",\"runs\":0,\"matched\":"
+  },
+  {
+   "ok": false,
+   "stage": "read",
+   "ms": 409,
+   "status": 403,
+   "body": "{\"error\":{\"code\":\"permission_denied\",\"message\":\"You do not have permission to perform this action\"},"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 3633,
+   "status": 200,
+   "body": "{\"data\":{\"asOf\":\"2026-10-12T07:56:34.403Z\",\"aum\":{\"byCurrency\":[{\"currency\":\"USD\",\"amount\":\"64190901"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 3327,
+   "status": 200,
+   "body": "{\"data\":[{\"id\":\"fd3f48b4-da53-4a6e-8fe2-151b0a57bfa7\",\"ref\":\"PF-1001\",\"name\":\"Balanced Growth Fund\","
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 1124,
+   "status": 200,
+   "body": "{\"data\":[{\"id\":\"a3007c83-0ebe-4f18-8a6a-9623b74ad331\",\"ref\":\"ORD-001016\",\"portfolio\":{\"id\":\"3fd8aa62"
+  },
+  {
+   "ok": false,
+   "stage": "read",
+   "ms": 1054,
+   "status": 403,
+   "body": "{\"error\":{\"code\":\"permission_denied\",\"message\":\"You do not have permission to perform this action\"},"
+  },
+  {
+   "ok": false,
+   "stage": "read",
+   "ms": 567,
+   "status": 403,
+   "body": "{\"error\":{\"code\":\"permission_denied\",\"message\":\"You do not have permission to perform this action\"},"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 1042,
+   "status": 200,
+   "body": "{\"data\":[{\"id\":\"DOC-3007\",\"uuid\":\"5742f60b-8f02-4d5b-86e7-84645e093f2f\",\"name\":\"NAV pack - USD Equit"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 800,
+   "status": 200,
+   "body": "{\"success\":true,\"data\":{\"asOfDate\":\"2026-06-30\",\"valuationStatus\":\"FINAL\",\"presentationCurrency\":\"US"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 1963,
+   "status": 200,
+   "body": "{\"success\":true,\"data\":{\"items\":[{\"id\":\"ddc7c44f-62a0-49e0-b59d-ec4eece99888\",\"name\":\"Q2 2026 Invest"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 1329,
+   "status": 200,
+   "body": "{\"success\":true,\"data\":{\"items\":[{\"id\":\"e61a6dd8-9869-4c1d-931b-7727c8e201e9\",\"title\":\"Q2 2026 inves"
+  },
+  {
+   "ok": false,
+   "stage": "read",
+   "ms": 1151,
+   "status": 404,
+   "body": "{\"success\":false,\"code\":\"LP_NOT_FOUND\",\"message\":\"Endpoint not found\",\"timestamp\":\"2026-10-12T07:56:"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 626,
+   "status": 200,
+   "body": "{\"items\":[{\"id\":\"f878112e-308f-428e-96fd-074e00372b79\",\"ref\":\"CEX-100004\",\"tradeRef\":\"UAT-CUST-EXEC-"
+  },
+  {
+   "ok": false,
+   "stage": "read",
+   "ms": 999,
+   "status": 403,
+   "body": "{\"error\":{\"code\":\"portal_access_denied\",\"message\":\"This account is not authorised to use this portal"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 1171,
+   "status": 200,
+   "body": "{\"success\":true,\"message\":\"OK\",\"data\":{\"hasReceivedInvestment\":true,\"application\":{\"id\":\"0c8b90aa-23"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 653,
+   "status": 200,
+   "body": "{\"success\":true,\"message\":\"OK\",\"data\":[{\"id\":\"a13e7986-4937-41ab-8569-f7395b260d33\",\"portfolioCompan"
+  },
+  {
+   "ok": false,
+   "stage": "read",
+   "ms": 398,
+   "status": 501,
+   "body": "{\"success\":false,\"message\":\"This Investee endpoint is not available in Nexus yet\",\"code\":\"not_implem"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 505,
+   "status": 200,
+   "body": "{\"success\":true,\"message\":\"OK\",\"data\":{\"hasReceivedInvestment\":true,\"application\":{\"id\":\"9356c8c3-b7"
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 765,
+   "status": 200,
+   "body": "{\"data\":{\"asOfDate\":\"2026-10-12\",\"families\":[{\"family\":\"TRADES\",\"label\":\"Trades\",\"runs\":0,\"matched\":"
+  },
+  {
+   "ok": false,
+   "stage": "login",
+   "status": 403
+  },
+  {
+   "ok": true,
+   "stage": "read",
+   "ms": 3415,
+   "status": 200,
+   "body": "{\"data\":{\"asOf\":\"2026-10-12T07:56:33.882Z\",\"aum\":{\"byCurrency\":[{\"currency\":\"USD\",\"amount\":\"64190901"
+  }
+ ]
+}

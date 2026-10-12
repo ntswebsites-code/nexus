@@ -1,0 +1,66 @@
+{
+ "admin": {
+  "1920x1080": {
+   "overflowX": false,
+   "chars": 8154,
+   "actionsVisible": 66,
+   "sample": "Investment OS Institutional platform All workspaces 28 available Today 4 Portfolios Private markets "
+  },
+  "1366x768": {
+   "overflowX": false,
+   "chars": 8154,
+   "actionsVisible": 66,
+   "sample": "Investment OS Institutional platform All workspaces 28 available Today 4 Portfolios Private markets "
+  },
+  "1280x800": {
+   "overflowX": false,
+   "chars": 8094,
+   "actionsVisible": 66,
+   "sample": "Investment OS Institutional platform All workspaces 28 available Today 4 Portfolios Private markets "
+  },
+  "768x1024": {
+   "overflowX": false,
+   "chars": 4353,
+   "actionsVisible": 47,
+   "sample": "Investment OS Institutional platform All workspaces 28 available Today 4 Portfolios Private markets "
+  },
+  "390x844": {
+   "overflowX": false,
+   "chars": 7346,
+   "actionsVisible": 64,
+   "sample": "Investment OS Institutional platform All workspaces 28 available Today 4 Portfolios Private markets "
+  }
+ },
+ "investor": {
+  "1920x1080": {
+   "overflowX": false,
+   "chars": 297,
+   "actionsVisible": 1,
+   "sample": "LP PORTAL Sign in Signed in as uat.sysadmin@nexus.matanho.com, but this account does not have access"
+  },
+  "1366x768": {
+   "overflowX": false,
+   "chars": 297,
+   "actionsVisible": 1,
+   "sample": "LP PORTAL Sign in Signed in as uat.sysadmin@nexus.matanho.com, but this account does not have access"
+  },
+  "1280x800": {
+   "overflowX": false,
+   "chars": 297,
+   "actionsVisible": 1,
+   "sample": "LP PORTAL Sign in Signed in as uat.sysadmin@nexus.matanho.com, but this account does not have access"
+  },
+  "768x1024": {
+   "overflowX": false,
+   "chars": 297,
+   "actionsVisible": 1,
+   "sample": "LP PORTAL Sign in Signed in as uat.sysadmin@nexus.matanho.com, but this account does not have access"
+  },
+  "390x844": {
+   "overflowX": false,
+   "chars": 297,
+   "actionsVisible": 1,
+   "sample": "LP PORTAL Sign in Signed in as uat.sysadmin@nexus.matanho.com, but this account does not have access"
+  }
+ }
+}

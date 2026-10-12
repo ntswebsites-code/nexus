@@ -1,0 +1,67 @@
+{
+ "target": {
+  "pageP95Ms": 2000,
+  "apiReadP95Ms": 500,
+  "concurrentUsers": 25
+ },
+ "apiReadP95Ms": 977,
+ "samples": 60,
+ "perEndpoint": {
+  "/api/v1/dashboard/today": {
+   "n": 6,
+   "p95": 977,
+   "max": 977
+  },
+  "/api/v1/portfolios?kpis=1": {
+   "n": 6,
+   "p95": 450,
+   "max": 450
+  },
+  "/api/v1/orders?limit=100": {
+   "n": 6,
+   "p95": 376,
+   "max": 376
+  },
+  "/api/v1/clients": {
+   "n": 6,
+   "p95": 267,
+   "max": 267
+  },
+  "/api/v1/securities?limit=200": {
+   "n": 6,
+   "p95": 297,
+   "max": 297
+  },
+  "/api/v1/recon/overview": {
+   "n": 6,
+   "p95": 1440,
+   "max": 1440
+  },
+  "/api/v1/cash/journals?limit=50": {
+   "n": 6,
+   "p95": 285,
+   "max": 285
+  },
+  "/api/v1/nav/runs?limit=20": {
+   "n": 6,
+   "p95": 780,
+   "max": 780
+  },
+  "/api/v1/documents": {
+   "n": 6,
+   "p95": 579,
+   "max": 579
+  },
+  "/api/v1/reports/catalogue": {
+   "n": 6,
+   "p95": 382,
+   "max": 382
+  }
+ },
+ "concurrency": {
+  "ok": 14,
+  "of": 25,
+  "wallMs": 7956
+ },
+ "pageLoads": "see nfr-001 browser timing"
+}
