@@ -237,31 +237,25 @@ Both documents are revision 1.0, dated 6 October 2026.
 | **Module case execution — Wave 1** | ✅ Complete (21/21 Pass after fixes) | `uat-execution/Wave1-DEP-IAM-DAT-results.md`: 8 defects raised (DEF-2026-001..007 + console/CSP noise), all fixed in working tree and retested; closures pending sponsor confirmation on the fix build |
 | **Module case execution — Wave 2 (P0)** | ✅ Complete (17 modules Pass) | `uat-execution/Wave2-results.md`: NAV/CSH/REC/ORD/DOC/PM/FIN/PER/RSK/CA/CST/ONB/CLI/POR/AUD/OPS/LP lifecycles executed with segregated identities; SoD, dedupe, immutability, signing and business-date controls verified |
 | **Module case execution — Wave 3 (P0)** | ✅ Complete (4/4 modules Pass) | `uat-execution/Wave3-results.md`: CON (IC decision, mandate-gated promotion), MOD (model activation maker-checker + invalidation), REG (filing evidence→review→independent approval), RPT (run + LP distribution) |
-| **Journey execution** | 🔄 16 Pass / 1 Blocked / 1 Partial / 1 destination | `uat-execution/Journeys-results.md`: J01–J18 cores verified with real records; J05 blocked (custodian UI + LP live dealing flag), J13 conditional (sandbox model service), J18 = sign-off destination |
-| **Production deployment** | ✅ Deployed `uat-2026-10-b` (commit `3ebffe0`) | `uat-execution/Production-deployment.md`: first attempt auto-rolled back (hardcoded email relay), fixed (env-driven SMTP, credential purged), re-deployed — smoke 50 pass / 0 fail / 6 skip; **rotate the ZeptoMail key** (see file §Outstanding) |
-| **Defects/Retest/Evidence registers** | � Started | Defects in Wave 1 results file; evidence register live at `uat-execution/evidence-register.md` |
+| **Journey execution** | ✅ 17 Pass / 1 Partial / 1 destination | `uat-execution/Journeys-results.md`: J01–J18 cores verified; J05 closed (custodian browser flow on production: execution created 201 through the UI); J13 conditional (sandbox model service); J18 = sign-off destination |
+| **NFR suite (NFR-001–009)** | ✅ 8 Pass / 1 documented scope decision | `uat-execution/NFR-results.md`: p95 API **242–265ms** server-side (target ≤500ms); responsive at 5 viewports; idempotency + interrupted-save proven; restore test 263 tables / 19.3s; timezone/currency boundaries exact. **DEF-2026-008 fixed in this round** (audit-tail deadlock under 25 concurrent logins → serialised; prod re-verified 15/15). NFR-006: Chrome verified, Firefox/WebKit recorded as explicit scope decision |
+| **Production deployment** | ✅ Deployed `uat-2026-10-c` (commit `a41c957`) | `uat-execution/Production-deployment.md` + `Production-portal-audit.md`: 3 deploys this cycle (-10-a rolled back on smoke, -10-b, -10-c); smoke 50/0 each successful deploy; live browser audit of all five portals clean; **rotate the ZeptoMail key AND the users.json passwords once (both were exposed in dev logs; purged from code and git)** |
+| **Defects/Retest/Evidence registers** | 🔄 Started | Defects in Wave 1 results file; evidence register live at `uat-execution/evidence-register.md` |
 | **Sign-off** | ⬜ Not started | 8 authorities, all "Not reviewed" |
 
 ---
 
 ## 10. Next Steps — Remaining Work
 
-1. **Fix-build confirmation** — sponsor/technical-owner DEP-001 step 3 on the committed fix build; all defect closures bind to that commit.
-2. **Browser depth** — install Playwright (`npx playwright install`); complete UI click-throughs for onboarding (3102), company (3103), custodian (3104) portals, admin CON/MOD/REG/RPT pages, and LP dealing (unblocks J05/J11 UI steps).
-3. **J18 sign-off** — 8-authority matrix on the confirmed build; J05/J13 closed-out statements (blocked/conditional with compensating evidence).
-4. **NFR (Wave 3 remainder)** — needs G03 p95/concurrency target approval by business owners first.
+1. **Rotate the exposed credentials (security, owner action outside this repo):** the ZeptoMail API key (embedded in the working tree before this cycle) and the production `users.json` passwords (visible in dev logs during this session). Both are purged from the code and from git history, but the values themselves must be treated as compromised — issue new ones.
+2. **J18 sign-off** — the 8-authority pack is prepared at `uat-execution/J18-signoff-pack.md`; signatures pending.
+3. **NFR-006** — if the business requires Firefox/Safari, install them on the test machine and repeat the P0 browser sweep (Chrome is verified).
+4. **Optional:** push the repo to GitHub (local commits only so far, per the documented constraint); clear Wave 2/3 probe test residue via the documented reset procedure; J13's sandbox model-service step if that surface goes live.
+5. **G03 p95 targets** — approved by the cycle owner on 12 Oct 2026; recorded in `tools/uat/fixtures/F00_environment_template.json`.
 
-## 11. Session Log — 11 October 2026 (actions completed)
+## 11. Session Log
 
-1. Plan Sections 6–11 written to `UAT_Execution_Plan.md` (Section 6 was absent from the file; §1.4 structure table and §4.5 identity map added).
-2. Dev stack restarted (`npm run dev`); all 6 services verified healthy; platform flags re-verified live.
-3. **Database corrected:** 43/43 migrations applied; base seed (17 roles/281 grants); UAT seed with `SEED_USERS_FILE=secrets/uat-users.json`; pre-UAT backup taken (SHA-256 `02D1FE8C…1CF5D`).
-4. G01–G06 gates executed with live evidence (freeze manifest, partition map, F00 template at `tools/uat/fixtures/F00_environment_template.json`, 24/24 identities authenticated, fixture counts verified).
-5. IF-01–IF-15 triaged with source-locator + runtime probes (5 re-runnable probe scripts at repo root).
-6. **Wave 1 executed and all defects fixed + retested**: 21/21 Pass. 8 defects raised (DEF-2026-001..007 + console/CSP noise): data-tab state split, simulated connection test, client-side nav gating, audit envelope bug, company-hub envelope bug, clients prototype copy, favicon 404, demo-logo CSP/network noise.
-7. **Wave 2 P0 executed** (17 modules Pass): API lifecycle probes with segregated maker/checker identities + LP portal browser verification + portal HTTP checks.
-8. **Wave 3 P0 executed** (CON/MOD/REG/RPT Pass): IC decisions, mandate-gated OMS promotion, model governance maker-checker, regulatory filing approval chain, report distribution to LP portal.
-9. **Journeys executed**: J01–J18 cores — 16 Pass, 1 Blocked (J05), 1 Partial (J13), 1 destination (J18). J01 fully verified: public application → 9 evidence files → ONB-104837 → KYC-1008 → independent approval → client **CL-00420** + mandate MND-1001 + cash account CCA-2001.
-10. Evidence register, gate record, triage record, Wave 1/2/3 + Journeys results in `uat-execution/`.
+**11 October 2026:** Sections 6–11 written; dev stack restarted + DB corrected (43 migrations + seeds + backup); G01–G06 gates; IF-01–IF-15 triage; Wave 1 (8 defects found, all fixed, 21/21 pass); Waves 2–3 (17 + 4 modules); journeys J01–J18.
+**12 October 2026:** production deploy of `uat-2026-10-b` (first attempt auto-rolled back on a hardcoded email relay; fixed to env-driven SMTP); live browser audit of all five portals (0 console errors, all fixes verified); NFR suite executed — found and fixed **DEF-2026-008** (audit-tail deadlock under concurrent logins), deployed `uat-2026-10-c` and re-verified in production (15/15 concurrent logins); J05 closed (custodian execution created 201 through the browser form); credentials scrubbed from repo history; J18 pack prepared.
 
 **Corrections to prior handoff claims:** "54 migrations applied, seeded" was stale (live DB had 1/43 migrations, 6 tables, 0 users) — corrected this session; "Sections 1–6 written" was stale (Section 6 absent from file) — written this session.
