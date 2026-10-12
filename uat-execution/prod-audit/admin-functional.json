@@ -9,21 +9,14 @@
  },
  {
   "name": "data fabric tabs render distinctly",
-  "ok": true,
-  "detail": {
-   "connections": null,
-   "products": "GOVERNED DATA PRODUCTS",
-   "pipelines": "PIPELINE OPERATIONS",
-   "quality": "QUALITY CONTROL",
-   "lineage": null
-  }
+  "ok": false,
+  "detail": "Error: tabs not distinct: {\"connections\":null,\"products\":null,\"pipelines\":null,\"quality\":null,\"lineage\":null}"
  },
  {
   "name": "connection save performs real server-side create",
   "ok": true,
   "detail": {
-   "form": true,
-   "name": "UAT PROD Audit Connector",
+   "form": false,
    "newPosts": 0,
    "sample": []
   }

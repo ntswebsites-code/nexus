@@ -1,8 +1,9 @@
 {
  "base": "https://nexus.matanho.com",
- "persona": "uat.sysadmin@nexus.matanho.com",
  "email": "uat.sysadmin@nexus.matanho.com",
  "password": "<from /opt/matanho-nexus/secrets/users.json on the production host - never committed>",
+ "persona": "sysadmin",
+ "out": "admin-portal.json",
  "portal": "admin",
  "workspace": "admin",
  "navs": [
@@ -34,6 +35,5 @@
   "rbac",
   "settings",
   "audit"
- ],
- "out": "admin-portal.json"
+ ]
 }

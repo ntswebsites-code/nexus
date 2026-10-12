@@ -1,6 +1,6 @@
 {
  "base": "https://nexus.matanho.com",
- "persona": "uat.sysadmin@nexus.matanho.com",
+ "persona": "sysadmin",
  "steps": [
   {
    "name": "open login page",
@@ -12,7 +12,7 @@
    "ok": true,
    "detail": {
     "email": "uat.sysadmin@nexus.matanho.com",
-    "pass": 23
+    "pass": 15
    }
   },
   {
@@ -38,7 +38,7 @@
    "ok": true,
    "detail": {
     "active": "command",
-    "chars": 507,
+    "chars": 485,
     "errorMark": null,
     "sample": " WHOLE PORTFOLIO · INVESTMENT BOOK OF RECORDWhole PortfolioOne governed view of public and private assets, cash, exposure, performance, risk"
    }
@@ -48,7 +48,7 @@
    "ok": true,
    "detail": {
     "active": "command",
-    "chars": 4388,
+    "chars": 4277,
     "errorMark": null,
     "sample": " PRIVATE MARKETS · FUNDS · DIRECTS · REAL ASSETS · PRIVATE CREDITPrivate MarketsResearch, diligence, commitments, look-through exposure, val"
    }
@@ -57,40 +57,40 @@
    "name": "workspace portfolio-lab",
    "ok": true,
    "detail": {
-    "active": "portfolio-lab",
-    "chars": 974,
+    "active": "command",
+    "chars": 488,
     "errorMark": null,
-    "sample": "VIEWS → TARGETS → CONSTRAINTS → SCENARIOS → IMPLEMENTATION Portfolio Construction Build a target portfolio from investment views, quantify r"
+    "sample": "VIEWS → TARGETS → CONSTRAINTS → SCENARIOS → IMPLEMENTATIONPortfolio ConstructionBuild a target portfolio from investment views, quantify ris"
    }
   },
   {
    "name": "workspace orders",
    "ok": true,
    "detail": {
-    "active": "orders",
-    "chars": 4468,
+    "active": "command",
+    "chars": 536,
     "errorMark": null,
-    "sample": "ANALYSE · DECIDE · EXECUTE Orders & Execution Select a security, analyse price, position, liquidity and research, then execute from one cont"
+    "sample": "INVESTMENT DECISION → EXECUTION → SETTLEMENTOrders & ExecutionWork from one security context. Chart, Position, Orders and Research stay inli"
    }
   },
   {
    "name": "workspace research",
    "ok": true,
    "detail": {
-    "active": "research",
-    "chars": 1087,
+    "active": "command",
+    "chars": 1766,
     "errorMark": null,
-    "sample": "EQUITY INTELLIGENCE · FILINGS · MODELS · IC MEMORY Research & IC Import filing IC pack New investment case Issuer & market intelligence load"
+    "sample": " EQUITY INTELLIGENCE · FILINGS · MODELS · IC MEMORYResearch & ICIssuer research, market context, financial statements, announcements, valuat"
    }
   },
   {
    "name": "workspace risk",
    "ok": true,
    "detail": {
-    "active": "risk",
-    "chars": 4723,
+    "active": "command",
+    "chars": 2440,
     "errorMark": null,
-    "sample": "PORTFOLIO RISK · LIMITS · STRESS · LIQUIDITY · COMPLIANCE Risk & Compliance One decision cockpit for forward risk, liquidity, effective mand"
+    "sample": " PORTFOLIO RISK · LIMITS · STRESS · LIQUIDITY · AMLRisk & ComplianceLimits, stress tests, breaches and compliance cases. Compliance reportNe"
    }
   },
   {
@@ -98,9 +98,9 @@
    "ok": true,
    "detail": {
     "active": "performance",
-    "chars": 1787,
+    "chars": 951,
     "errorMark": null,
-    "sample": "PERFORMANCE BOOK OF RECORD · ATTRIBUTION · OFFICIAL RETURNS Performance Methodology Export attribution Lock official return Portfolio Balanc"
+    "sample": "PERFORMANCE BOOK OF RECORD · ATTRIBUTION · OFFICIAL RETURNS Performance Methodology Export attribution Lock official return Portfolio — Peri"
    }
   },
   {
@@ -268,7 +268,7 @@
    "ok": true,
    "detail": {
     "active": "copilot",
-    "chars": 1365,
+    "chars": 1383,
     "errorMark": null,
     "sample": "NATURAL LANGUAGE · GOVERNED ANALYTICS · EXPLAINABILITY Investment Copilot Conversation history Source permissions New analysis Grounded mode"
    }
@@ -288,7 +288,7 @@
    "ok": true,
    "detail": {
     "active": "settings",
-    "chars": 5203,
+    "chars": 5221,
     "errorMark": null,
     "sample": "PLATFORM SETTINGS · WORKSPACE DEFAULTS · GOVERNANCE Settings Reset defaults Platform settings Numbering Retention Platform health Save setti"
    }
@@ -298,9 +298,9 @@
    "ok": true,
    "detail": {
     "active": "audit",
-    "chars": 12392,
+    "chars": 12353,
     "errorMark": null,
-    "sample": "IMMUTABLE CONTROL HISTORY Audit Trail Filter Export evidence Time User Role Action Object Previous New Reason / approval 02:57:30 UAT System"
+    "sample": "IMMUTABLE CONTROL HISTORY Audit Trail Filter Export evidence Time User Role Action Object Previous New Reason / approval 16:33:32 UAT System"
    }
   }
  ],

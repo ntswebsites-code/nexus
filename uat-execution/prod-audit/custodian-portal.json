@@ -1,6 +1,6 @@
 {
  "base": "https://custodian.nexus.matanho.com",
- "persona": "uat.custodian.submitter@nexus.matanho.com",
+ "persona": "custodian_submitter",
  "steps": [
   {
    "name": "open login page",
@@ -12,7 +12,7 @@
    "ok": true,
    "detail": {
     "email": "uat.custodian.submitter@nexus.matanho.com",
-    "pass": 23
+    "pass": 15
    }
   },
   {
@@ -42,10 +42,6 @@
  "consoleErrors": [],
  "consoleErrorCount": 0,
  "failedRequests": [
-  {
-   "url": "https://api.nexus.matanho.com/api/v1/notifications?pageSize=20",
-   "status": 401
-  },
   {
    "url": "https://api.nexus.matanho.com/api/auth/me",
    "status": 401

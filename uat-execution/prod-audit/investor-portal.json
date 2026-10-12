@@ -1,6 +1,6 @@
 {
  "base": "https://investor.nexus.matanho.com",
- "persona": "uat.lp.a.manager@nexus.matanho.com",
+ "persona": "lp_a_manager",
  "steps": [
   {
    "name": "open login page",
@@ -12,7 +12,7 @@
    "ok": true,
    "detail": {
     "email": "uat.lp.a.manager@nexus.matanho.com",
-    "pass": 23
+    "pass": 15
    }
   },
   {
@@ -25,34 +25,25 @@
    "ok": true,
    "detail": {
     "url": "/lp-portal",
-    "body": "Dashboard\nMy Investments\nPerformance\nAccount Activity\nCapital Calls\nDistributions\nSubscriptions & Redemptions\nStatements & Reports\nDocuments\nRequests\n2\nMessages\n5\nNotices\n2\nSignatures\nMy Organisation\nSettings\nCollapse navigation\n\nLP Portal\n\nHorizon Pension Fund LP\n\nAll Funds\nAs of\nJun 30, 2026\nVALUA"
+    "body": "LP Portal\n\nHorizon Pension Fund LP\n\nAll Funds\n9\nJS\nDashboard\n\nOverview of your investments and accounts\n\nTotal Commitment\n\n$5.00M\n\nPrivate capital funds · 2 investments in view\n\nPaid-In Capital\n\n$3.75M\n\n75.0% of Commitment\n\nUnfunded Commitment\n\n$1.10M\n\n22.0% of Commitment\n\nCurrent NAV\n\n$4.42M\n\n1.66x"
    }
   },
   {
    "name": "page /lp-portal",
-   "ok": true,
-   "detail": {
-    "url": "/lp-portal",
-    "chars": 2472,
-    "errorMark": null,
-    "sample": "Dashboard Overview of your investments and accounts Total Commitment $5.00M Private capital funds · 2 investments in view Paid-In Capital $3.75M 75.0% of Commit"
-   }
+   "ok": false,
+   "detail": "Error: near-empty page: /lp-portal"
   },
   {
    "name": "lp /lp-portal",
-   "ok": true,
-   "detail": {
-    "has": true,
-    "chars": 2472,
-    "sample": "Dashboard Overview of your investments and accounts Total Commitment $5.00M Private capital funds · 2 investments in view Paid-In Capital $3"
-   }
+   "ok": false,
+   "detail": "Error: expected \"Commitment\" not found :: "
   },
   {
    "name": "lp /lp-portal/documents",
    "ok": true,
    "detail": {
     "has": true,
-    "chars": 3843,
+    "chars": 3841,
     "sample": "Document Centre Secure repository for all fund documents and communications. All Documents 26 Statements 6 Capital Calls 4 Distributions 3 F"
    }
   },
@@ -61,7 +52,7 @@
    "ok": true,
    "detail": {
     "has": true,
-    "chars": 1987,
+    "chars": 1796,
     "sample": "Performance Measure long-term value creation and investor returns across your private markets portfolio. Fund / Account All Funds Period Sin"
    }
   },
@@ -88,14 +79,9 @@
    "ok": true,
    "detail": {
     "has": true,
-    "chars": 1640,
+    "chars": 1639,
     "sample": "Document Centre Secure repository for all fund documents and communications. All Documents 26 Statements 6 Capital Calls 4 Distributions 3 F"
    }
-  },
-  {
-   "name": "lp /lp-portal/signatures",
-   "ok": false,
-   "detail": "Error: expected \"Signatures\" not found :: Documents to sign Signature requests addressed to you. Signing is recorded with your identity, time and IP address, and sealed with a tamper"
   },
   {
    "name": "lp /lp-portal/settings",
@@ -113,6 +99,42 @@
   {
    "url": "https://api.nexus.matanho.com/api/auth/me",
    "status": 401
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=T7R2H8cyNnTzyMxW",
+   "status": 404
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=T7R2H8cyNnTzyMxW",
+   "status": 404
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=T7R2H8cyNnTzyMxW",
+   "status": 404
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=6EZaEMdIW8K961m7",
+   "status": 404
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=PKnsgCz34hwjWAvw",
+   "status": 404
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=2wh_x1pYnpFiTExH",
+   "status": 404
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=OT1mJEBkV33gVUD-",
+   "status": 404
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=6EZaEMdIW8K961m7",
+   "status": 404
+  },
+  {
+   "url": "https://investor.nexus.matanho.com/home?_rsc=N8fsWkXgp5aqN-MF",
+   "status": 404
   }
  ]
 }

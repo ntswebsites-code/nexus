@@ -1,6 +1,6 @@
 {
  "base": "https://company.nexus.matanho.com",
- "persona": "uat.investee.101.contributor@nexus.matanho.com",
+ "persona": "investee_101_contributor",
  "steps": [
   {
    "name": "open login page",
@@ -12,7 +12,7 @@
    "ok": true,
    "detail": {
     "email": "uat.investee.101.contributor@nexus.matanho.com",
-    "pass": 23
+    "pass": 15
    }
   },
   {
@@ -25,18 +25,13 @@
    "ok": true,
    "detail": {
     "url": "/",
-    "body": "Investee Portal\nZP\nZambezi Pay Technologies\nMatanho Venture Fund I\nWorkspace\nOverview\nKPI Centre\n6\nReporting Centre\n4\nForecast Model\n1\nInvestment\nTerm Sheet\n0\nCap Table\n2\nGovernance\n0\nSignatures\n0\nCollaboration\nCapital & Procurement Requests\n0\nDocument Vault\n0\nMessages\n0\nAdministration\nTeam & Access"
+    "body": ""
    }
   },
   {
    "name": "page /",
-   "ok": true,
-   "detail": {
-    "url": "/",
-    "chars": 76,
-    "errorMark": null,
-    "sample": "INVESTEE PORTAL Overview Loading live records from your portfolio workspace."
-   }
+   "ok": false,
+   "detail": "Error: near-empty page: /"
   }
  ],
  "consoleErrors": [],

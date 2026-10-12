@@ -1,11 +1,11 @@
 {
  "base": "https://company.nexus.matanho.com",
- "persona": "uat.investee.101.contributor@nexus.matanho.com",
  "email": "uat.investee.101.contributor@nexus.matanho.com",
  "password": "<from /opt/matanho-nexus/secrets/users.json on the production host - never committed>",
+ "persona": "investee_101_contributor",
+ "out": "company-portal.json",
  "portal": "company",
  "pages": [
   "/"
- ],
- "out": "company-portal.json"
+ ]
 }
