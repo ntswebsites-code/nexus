@@ -1,0 +1,118 @@
+{
+ "base": "https://investor.nexus.matanho.com",
+ "persona": "uat.lp.a.manager@nexus.matanho.com",
+ "steps": [
+  {
+   "name": "open login page",
+   "ok": true,
+   "detail": "Sign in | Matanho LP Portal"
+  },
+  {
+   "name": "fill credentials",
+   "ok": true,
+   "detail": {
+    "email": "uat.lp.a.manager@nexus.matanho.com",
+    "pass": 23
+   }
+  },
+  {
+   "name": "submit login",
+   "ok": true,
+   "detail": "/lp-portal"
+  },
+  {
+   "name": "authenticated home",
+   "ok": true,
+   "detail": {
+    "url": "/lp-portal",
+    "body": "Dashboard\nMy Investments\nPerformance\nAccount Activity\nCapital Calls\nDistributions\nSubscriptions & Redemptions\nStatements & Reports\nDocuments\nRequests\n2\nMessages\n5\nNotices\n2\nSignatures\nMy Organisation\nSettings\nCollapse navigation\n\nLP Portal\n\nHorizon Pension Fund LP\n\nAll Funds\nAs of\nJun 30, 2026\nVALUA"
+   }
+  },
+  {
+   "name": "page /lp-portal",
+   "ok": true,
+   "detail": {
+    "url": "/lp-portal",
+    "chars": 2472,
+    "errorMark": null,
+    "sample": "Dashboard Overview of your investments and accounts Total Commitment $5.00M Private capital funds · 2 investments in view Paid-In Capital $3.75M 75.0% of Commit"
+   }
+  },
+  {
+   "name": "lp /lp-portal",
+   "ok": true,
+   "detail": {
+    "has": true,
+    "chars": 2472,
+    "sample": "Dashboard Overview of your investments and accounts Total Commitment $5.00M Private capital funds · 2 investments in view Paid-In Capital $3"
+   }
+  },
+  {
+   "name": "lp /lp-portal/documents",
+   "ok": true,
+   "detail": {
+    "has": true,
+    "chars": 3843,
+    "sample": "Document Centre Secure repository for all fund documents and communications. All Documents 26 Statements 6 Capital Calls 4 Distributions 3 F"
+   }
+  },
+  {
+   "name": "lp /lp-portal/performance",
+   "ok": true,
+   "detail": {
+    "has": true,
+    "chars": 1987,
+    "sample": "Performance Measure long-term value creation and investor returns across your private markets portfolio. Fund / Account All Funds Period Sin"
+   }
+  },
+  {
+   "name": "lp /lp-portal/capital-activity",
+   "ok": true,
+   "detail": {
+    "has": true,
+    "chars": 1856,
+    "sample": "Capital Calls & Distributions View and manage capital calls and distributions across your investments. Capital Calls Distributions Outstandi"
+   }
+  },
+  {
+   "name": "lp /lp-portal/notices",
+   "ok": true,
+   "detail": {
+    "has": true,
+    "chars": 1946,
+    "sample": "Notices Announcements, valuation updates, and actions requiring your attention. All Notices 6 Unread 2 Ack. Required 2 Acknowledged 2 All St"
+   }
+  },
+  {
+   "name": "lp /lp-portal/reports",
+   "ok": true,
+   "detail": {
+    "has": true,
+    "chars": 1640,
+    "sample": "Document Centre Secure repository for all fund documents and communications. All Documents 26 Statements 6 Capital Calls 4 Distributions 3 F"
+   }
+  },
+  {
+   "name": "lp /lp-portal/signatures",
+   "ok": false,
+   "detail": "Error: expected \"Signatures\" not found :: Documents to sign Signature requests addressed to you. Signing is recorded with your identity, time and IP address, and sealed with a tamper"
+  },
+  {
+   "name": "lp /lp-portal/settings",
+   "ok": true,
+   "detail": {
+    "has": true,
+    "chars": 835,
+    "sample": "Settings Notification preferences, security controls, and display defaults for your portal. Discard Save Changes MFA Status Not enabled Mata"
+   }
+  }
+ ],
+ "consoleErrors": [],
+ "consoleErrorCount": 0,
+ "failedRequests": [
+  {
+   "url": "https://api.nexus.matanho.com/api/auth/me",
+   "status": 401
+  }
+ ]
+}

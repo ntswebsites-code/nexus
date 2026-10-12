@@ -1,0 +1,315 @@
+{
+ "base": "https://nexus.matanho.com",
+ "persona": "uat.sysadmin@nexus.matanho.com",
+ "steps": [
+  {
+   "name": "open login page",
+   "ok": true,
+   "detail": "Sign in | Matanho Nexus"
+  },
+  {
+   "name": "fill credentials",
+   "ok": true,
+   "detail": {
+    "email": "uat.sysadmin@nexus.matanho.com",
+    "pass": 23
+   }
+  },
+  {
+   "name": "submit login",
+   "ok": true,
+   "detail": "/"
+  },
+  {
+   "name": "authenticated home",
+   "ok": true,
+   "detail": {
+    "url": "/",
+    "body": "matanho\nLOADING WORKSPACE"
+   }
+  },
+  {
+   "name": "workspace command",
+   "ok": false,
+   "detail": "Error: empty workspace"
+  },
+  {
+   "name": "workspace portfolios",
+   "ok": true,
+   "detail": {
+    "active": "command",
+    "chars": 507,
+    "errorMark": null,
+    "sample": " WHOLE PORTFOLIO · INVESTMENT BOOK OF RECORDWhole PortfolioOne governed view of public and private assets, cash, exposure, performance, risk"
+   }
+  },
+  {
+   "name": "workspace private-markets",
+   "ok": true,
+   "detail": {
+    "active": "command",
+    "chars": 4388,
+    "errorMark": null,
+    "sample": " PRIVATE MARKETS · FUNDS · DIRECTS · REAL ASSETS · PRIVATE CREDITPrivate MarketsResearch, diligence, commitments, look-through exposure, val"
+   }
+  },
+  {
+   "name": "workspace portfolio-lab",
+   "ok": true,
+   "detail": {
+    "active": "portfolio-lab",
+    "chars": 974,
+    "errorMark": null,
+    "sample": "VIEWS → TARGETS → CONSTRAINTS → SCENARIOS → IMPLEMENTATION Portfolio Construction Build a target portfolio from investment views, quantify r"
+   }
+  },
+  {
+   "name": "workspace orders",
+   "ok": true,
+   "detail": {
+    "active": "orders",
+    "chars": 4468,
+    "errorMark": null,
+    "sample": "ANALYSE · DECIDE · EXECUTE Orders & Execution Select a security, analyse price, position, liquidity and research, then execute from one cont"
+   }
+  },
+  {
+   "name": "workspace research",
+   "ok": true,
+   "detail": {
+    "active": "research",
+    "chars": 1087,
+    "errorMark": null,
+    "sample": "EQUITY INTELLIGENCE · FILINGS · MODELS · IC MEMORY Research & IC Import filing IC pack New investment case Issuer & market intelligence load"
+   }
+  },
+  {
+   "name": "workspace risk",
+   "ok": true,
+   "detail": {
+    "active": "risk",
+    "chars": 4723,
+    "errorMark": null,
+    "sample": "PORTFOLIO RISK · LIMITS · STRESS · LIQUIDITY · COMPLIANCE Risk & Compliance One decision cockpit for forward risk, liquidity, effective mand"
+   }
+  },
+  {
+   "name": "workspace performance",
+   "ok": true,
+   "detail": {
+    "active": "performance",
+    "chars": 1787,
+    "errorMark": null,
+    "sample": "PERFORMANCE BOOK OF RECORD · ATTRIBUTION · OFFICIAL RETURNS Performance Methodology Export attribution Lock official return Portfolio Balanc"
+   }
+  },
+  {
+   "name": "workspace clients",
+   "ok": true,
+   "detail": {
+    "active": "clients",
+    "chars": 1285,
+    "errorMark": null,
+    "sample": "CLIENTS · CASH · MANDATES Clients & Cash Accounts + Client + Cash account More Relationships 184 3 live from client master Available cash US"
+   }
+  },
+  {
+   "name": "workspace investor-services",
+   "ok": true,
+   "detail": {
+    "active": "investor-services",
+    "chars": 2392,
+    "errorMark": null,
+    "sample": "RELATIONSHIPS · MONEY · PUBLICATIONS · REQUESTS · PORTAL ACCESS Investor Services Start with the investor or the work item. The service desk"
+   }
+  },
+  {
+   "name": "workspace onboarding",
+   "ok": true,
+   "detail": {
+    "active": "onboarding",
+    "chars": 1542,
+    "errorMark": null,
+    "sample": "APPLICATIONS · KYC · APPROVAL Onboarding & KYC Review only what needs a person: application evidence, exceptions and the final compliance de"
+   }
+  },
+  {
+   "name": "workspace reports",
+   "ok": true,
+   "detail": {
+    "active": "reports",
+    "chars": 1222,
+    "errorMark": null,
+    "sample": "REPORTS · BI · CONTROLLED PUBLICATION · DATE-AWARE ANALYTICS Reports & BI Filter the actual reporting population by date, type, status and o"
+   }
+  },
+  {
+   "name": "workspace vault",
+   "ok": true,
+   "detail": {
+    "active": "vault",
+    "chars": 883,
+    "errorMark": null,
+    "sample": "EVIDENCE · RECORDS · SIGNATURES · RETENTION Documents A controlled document vault for client, investment, operations, regulatory and governa"
+   }
+  },
+  {
+   "name": "workspace ibor",
+   "ok": true,
+   "detail": {
+    "active": "ibor",
+    "chars": 6394,
+    "errorMark": null,
+    "sample": "INVESTMENT BOOK OF RECORD · POSITIONS · LOTS · EXPOSURES IBOR & Positions Historical snapshot Reconcile positions Refresh IBOR As-of 12 Oct "
+   }
+  },
+  {
+   "name": "workspace financing",
+   "ok": true,
+   "detail": {
+    "active": "financing",
+    "chars": 986,
+    "errorMark": null,
+    "sample": "CAPACITY · COLLATERAL · MARGIN · FUNDING Collateral & Financing See available capacity, respond to margin, choose collateral and plan fundin"
+   }
+  },
+  {
+   "name": "workspace cash",
+   "ok": true,
+   "detail": {
+    "active": "cash",
+    "chars": 1393,
+    "errorMark": null,
+    "sample": "CLIENT CASH · IMMUTABLE SUBLEDGER · RESERVATIONS · EXTERNAL EVIDENCE Cash & Ledgers Explain balance Import statement New journal Client Hori"
+   }
+  },
+  {
+   "name": "workspace operations",
+   "ok": true,
+   "detail": {
+    "active": "operations",
+    "chars": 3100,
+    "errorMark": null,
+    "sample": "TODAY'S OPERATING DAY · DEADLINES · DEPENDENCIES · HAND-OFFS Operations Control A responsive control tower for settlement, cash, corporate a"
+   }
+  },
+  {
+   "name": "workspace reconciliations",
+   "ok": true,
+   "detail": {
+    "active": "reconciliations",
+    "chars": 1679,
+    "errorMark": null,
+    "sample": "MATCH WHAT MATTERS Reconciliations Internal books are compared with independently received broker, custodian, bank and administrator records"
+   }
+  },
+  {
+   "name": "workspace corporate-actions",
+   "ok": true,
+   "detail": {
+    "active": "corporate-actions",
+    "chars": 1671,
+    "errorMark": null,
+    "sample": "ENTITLEMENTS · ELECTIONS · INCOME · TAX · POSITION IMPACT Corporate Actions Import notice Project entitlements + New event Open events 7 1 r"
+   }
+  },
+  {
+   "name": "workspace valuation",
+   "ok": true,
+   "detail": {
+    "active": "valuation",
+    "chars": 2106,
+    "errorMark": null,
+    "sample": "VALUATION · NAV · RELEASE NAV & Valuation Preview NAV pack Recalculate FUND Balanced Growth Fund USD Equity Fund Liquidity Plus Zimbabwe Opp"
+   }
+  },
+  {
+   "name": "workspace accounting",
+   "ok": true,
+   "detail": {
+    "active": "accounting",
+    "chars": 1886,
+    "errorMark": null,
+    "sample": "ACCOUNTING BOOK OF RECORD · OFFICIAL RETURNS · PERIOD CLOSE Accounting & Close Accounting report Run close pre-check Close period IBOR Inves"
+   }
+  },
+  {
+   "name": "workspace regulatory",
+   "ok": true,
+   "detail": {
+    "active": "regulatory",
+    "chars": 1547,
+    "errorMark": null,
+    "sample": "POPULATION · VALIDATION · ATTESTATION · FILING · RECEIPT Regulatory Reporting Build regulatory packages from governed source populations, re"
+   }
+  },
+  {
+   "name": "workspace data",
+   "ok": true,
+   "detail": {
+    "active": "data",
+    "chars": 2225,
+    "errorMark": null,
+    "sample": "CONNECT · VALIDATE · GOVERN · PUBLISH Data Fabric & Studio Connect APIs, FIX, SFTP, databases, webhooks and files; then assign schema, quali"
+   }
+  },
+  {
+   "name": "workspace model-governance",
+   "ok": true,
+   "detail": {
+    "active": "model-governance",
+    "chars": 1666,
+    "errorMark": null,
+    "sample": "PURPOSE · DATASET · METHOD · TESTING · VALIDATION · APPROVAL · MONITORING Model Governance Build models as governed assets. The creation wor"
+   }
+  },
+  {
+   "name": "workspace copilot",
+   "ok": true,
+   "detail": {
+    "active": "copilot",
+    "chars": 1365,
+    "errorMark": null,
+    "sample": "NATURAL LANGUAGE · GOVERNED ANALYTICS · EXPLAINABILITY Investment Copilot Conversation history Source permissions New analysis Grounded mode"
+   }
+  },
+  {
+   "name": "workspace rbac",
+   "ok": true,
+   "detail": {
+    "active": "rbac",
+    "chars": 2376,
+    "errorMark": null,
+    "sample": "DYNAMIC RBAC · USER ACCESS · SEGREGATION OF DUTIES RBAC & Controls Preview current role Export access review Propose role change Change requ"
+   }
+  },
+  {
+   "name": "workspace settings",
+   "ok": true,
+   "detail": {
+    "active": "settings",
+    "chars": 5203,
+    "errorMark": null,
+    "sample": "PLATFORM SETTINGS · WORKSPACE DEFAULTS · GOVERNANCE Settings Reset defaults Platform settings Numbering Retention Platform health Save setti"
+   }
+  },
+  {
+   "name": "workspace audit",
+   "ok": true,
+   "detail": {
+    "active": "audit",
+    "chars": 12392,
+    "errorMark": null,
+    "sample": "IMMUTABLE CONTROL HISTORY Audit Trail Filter Export evidence Time User Role Action Object Previous New Reason / approval 02:57:30 UAT System"
+   }
+  }
+ ],
+ "consoleErrors": [],
+ "consoleErrorCount": 0,
+ "failedRequests": [
+  {
+   "url": "https://api.nexus.matanho.com/api/auth/me",
+   "status": 401
+  }
+ ]
+}

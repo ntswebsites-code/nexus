@@ -1,0 +1,34 @@
+{
+ "base": "https://onboarding.nexus.matanho.com",
+ "persona": "public",
+ "steps": [
+  {
+   "name": "open login page",
+   "ok": true,
+   "detail": "Sign in | Matanho Onboarding"
+  },
+  {
+   "name": "login",
+   "ok": true,
+   "detail": "public portal - no credentials needed"
+  },
+  {
+   "name": "page /",
+   "ok": true,
+   "detail": {
+    "url": "/",
+    "chars": 506,
+    "errorMark": null,
+    "sample": "matanho Encrypted submission workflow Institutional investor onboarding INVESTOR / LP APPLICATION Apply to invest with Matanho Start with your email. We save yo"
+   }
+  }
+ ],
+ "consoleErrors": [],
+ "consoleErrorCount": 0,
+ "failedRequests": [
+  {
+   "url": "https://api.nexus.matanho.com/api/auth/me",
+   "status": 401
+  }
+ ]
+}

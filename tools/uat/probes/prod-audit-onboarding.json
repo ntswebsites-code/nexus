@@ -1,0 +1,11 @@
+{
+ "base": "https://onboarding.nexus.matanho.com",
+ "persona": "public",
+ "email": "",
+ "password": "",
+ "portal": "onboarding",
+ "pages": [
+  "/"
+ ],
+ "out": "onboarding-portal.json"
+}

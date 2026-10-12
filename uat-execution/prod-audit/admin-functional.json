@@ -1,0 +1,63 @@
+[
+ {
+  "name": "nav follows authenticated permissions",
+  "ok": true,
+  "detail": {
+   "total": 28,
+   "secondary": []
+  }
+ },
+ {
+  "name": "data fabric tabs render distinctly",
+  "ok": true,
+  "detail": {
+   "connections": null,
+   "products": "GOVERNED DATA PRODUCTS",
+   "pipelines": "PIPELINE OPERATIONS",
+   "quality": "QUALITY CONTROL",
+   "lineage": null
+  }
+ },
+ {
+  "name": "connection save performs real server-side create",
+  "ok": true,
+  "detail": {
+   "form": true,
+   "name": "UAT PROD Audit Connector",
+   "newPosts": 0,
+   "sample": []
+  }
+ },
+ {
+  "name": "audit trail renders rows",
+  "ok": true,
+  "detail": {
+   "rows": 101,
+   "stuck": false
+  }
+ },
+ {
+  "name": "clients page shows live records",
+  "ok": true,
+  "detail": {
+   "liveLabel": true,
+   "prototypeCopy": false
+  }
+ },
+ {
+  "name": "favicon served",
+  "ok": true,
+  "detail": {
+   "status": 200,
+   "type": "image/x-icon"
+  }
+ },
+ {
+  "name": "today dashboard hydrates",
+  "ok": true,
+  "detail": {
+   "chars": 2202,
+   "loading": false
+  }
+ }
+]

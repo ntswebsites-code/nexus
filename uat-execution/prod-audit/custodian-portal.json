@@ -1,0 +1,54 @@
+{
+ "base": "https://custodian.nexus.matanho.com",
+ "persona": "uat.custodian.submitter@nexus.matanho.com",
+ "steps": [
+  {
+   "name": "open login page",
+   "ok": true,
+   "detail": "Sign in | Matanho Custodian Portal"
+  },
+  {
+   "name": "fill credentials",
+   "ok": true,
+   "detail": {
+    "email": "uat.custodian.submitter@nexus.matanho.com",
+    "pass": 23
+   }
+  },
+  {
+   "name": "submit login",
+   "ok": true,
+   "detail": "/"
+  },
+  {
+   "name": "authenticated home",
+   "ok": true,
+   "detail": {
+    "url": "/",
+    "body": "CUSTODIAN PORTAL\nDashboard\nExecutions\nBulk upload\nDay-end\nStatements and holdings\nHistory\nUsers and roles\nNotifications\nSecurity\nCustodian Submitter · Stanbic Custodial Services · submitter\nSign out\nStanbic Custodial Services\n\nReference CP-001. Accounts: CUST-CL-00418. Statement channel: file-drop.\n"
+   }
+  },
+  {
+   "name": "page /",
+   "ok": true,
+   "detail": {
+    "url": "/",
+    "chars": 504,
+    "errorMark": null,
+    "sample": "Stanbic Custodial Services Reference CP-001. Accounts: CUST-CL-00418. Statement channel: file-drop. Submit executions SUBMITTED TODAY 0 RECEIVED 5 MATCHED 0 EXC"
+   }
+  }
+ ],
+ "consoleErrors": [],
+ "consoleErrorCount": 0,
+ "failedRequests": [
+  {
+   "url": "https://api.nexus.matanho.com/api/v1/notifications?pageSize=20",
+   "status": 401
+  },
+  {
+   "url": "https://api.nexus.matanho.com/api/auth/me",
+   "status": 401
+  }
+ ]
+}

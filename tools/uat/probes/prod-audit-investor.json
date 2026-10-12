@@ -1,0 +1,22 @@
+{
+ "base": "https://investor.nexus.matanho.com",
+ "persona": "uat.lp.a.manager@nexus.matanho.com",
+ "email": "uat.lp.a.manager@nexus.matanho.com",
+ "password": "<from /opt/matanho-nexus/secrets/users.json on the production host - never committed>",
+ "portal": "investor",
+ "workspace": "investor",
+ "pages": [
+  "/lp-portal"
+ ],
+ "expects": {
+  "/lp-portal": "Commitment",
+  "/lp-portal/documents": "Documents",
+  "/lp-portal/performance": "Performance",
+  "/lp-portal/capital-activity": "Capital",
+  "/lp-portal/notices": "Notices",
+  "/lp-portal/reports": "Reports",
+  "/lp-portal/signatures": "Signatures",
+  "/lp-portal/settings": "Settings"
+ },
+ "out": "investor-portal.json"
+}
