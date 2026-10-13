@@ -98,20 +98,20 @@
     var high = (s.byRisk && s.byRisk.High) || q.filter(function (x) {
       return x.risk === 'High';
     }).length;
-    var values = [
-      [open, 'Live review queue'],
-      [ready, 'Hard gates passed'],
-      [high, 'Enhanced review'],
-      [s.evidenceOutstanding || 0, 'Documents requested'],
-      [s.awaitingRiskApproval || 0, 'Maker-checker'],
-      [(s.bySla && s.bySla.Breached) || 0, 'Exception-led'],
-    ];
-    document.querySelectorAll('#page-onboarding .v33-kpis article, #page-onboarding .v35-kpis article').forEach(function (k, i) {
-      if (!values[i]) return;
-      var strong = k.querySelector('strong');
-      var small = k.querySelector('small');
-      if (strong) strong.textContent = String(values[i][0]);
-      if (small) small.textContent = values[i][1];
+    var values = {
+      v33OnbKpiOpen: [open, 'Live review queue'],
+      v33OnbKpiReady: [ready, 'Hard gates passed'],
+      v33OnbKpiEdd: [high, 'Enhanced review'],
+      v33OnbKpiEvidence: [s.evidenceOutstanding || 0, 'Documents requested'],
+      v33OnbKpiCycle: [s.awaitingRiskApproval || 0, 'Maker-checker'],
+      v33OnbKpiSla: [(s.bySla && s.bySla.Breached) || 0, 'Exception-led'],
+    };
+    Object.keys(values).forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = String(values[id][0]);
+      var small = el.parentElement && el.parentElement.querySelector('small');
+      if (small) small.textContent = values[id][1];
     });
     var host = document.getElementById('v35KycKpis');
     if (host && typeof mx.renderKycKpis35 === 'function') host.innerHTML = mx.renderKycKpis35();

@@ -277,6 +277,16 @@
     });
   }
 
+  function setVaultKpi(id, value, hint) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    if (hint != null) {
+      var small = el.parentElement && el.parentElement.querySelector('small');
+      if (small) small.textContent = hint;
+    }
+  }
+
   function patchVaultSummaryTabs() {
     if (!vaultSummary) return;
     var s = vaultSummary;
@@ -287,20 +297,12 @@
       if (stats[1]) stats[1].querySelector('strong, b').textContent = String(s.held || 0);
       if (stats[2]) stats[2].querySelector('strong, b').textContent = String(s.pendingChanges || 0);
     }
-    var kpis = document.querySelectorAll('#page-vault .v33-kpis article');
-    if (kpis[0]) kpis[0].querySelector('strong').textContent = String(s.total || 0);
-    if (kpis[1]) kpis[1].querySelector('strong').textContent = String(s.held || 0);
-    if (kpis[2]) kpis[2].querySelector('strong').textContent = String(s.pendingChanges || 0);
-    if (kpis[3]) {
-      var restricted = (s.byClassification && (s.byClassification.Restricted || s.byClassification.RESTRICTED)) || 0;
-      kpis[3].querySelector('strong').textContent = String(restricted);
-    }
-    if (kpis[4]) kpis[4].querySelector('strong').textContent = String(s.accessLast7Days || 0);
-    if (kpis[5]) {
-      var review = (s.retention && (s.retention.REVIEW || s.retention.review)) || 0;
-      kpis[5].querySelector('strong').textContent = String(review);
-      kpis[5].querySelector('small').textContent = 'Retention state review';
-    }
+    setVaultKpi('v33VaultKpiDocs', String(s.total || 0));
+    setVaultKpi('v33VaultKpiSign', String(s.held || 0));
+    setVaultKpi('v33VaultKpiExpiring', String(s.pendingChanges || 0));
+    setVaultKpi('v33VaultKpiRestricted', String((s.byClassification && (s.byClassification.Restricted || s.byClassification.RESTRICTED)) || 0));
+    setVaultKpi('v33VaultKpiPacks', String(s.accessLast7Days || 0));
+    setVaultKpi('v33VaultKpiHolds', String((s.retention && (s.retention.REVIEW || s.retention.review)) || 0), 'Retention state review');
     var pendingBtn = document.querySelector('[data-vault-changes]');
     if (pendingBtn) pendingBtn.textContent = s.pendingChanges ? 'Pending changes (' + s.pendingChanges + ')' : 'Pending changes';
   }

@@ -469,65 +469,49 @@
     }
   }
 
+  function setOrdKpi(id, value, hint) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    if (value != null) el.textContent = value;
+    if (hint != null) {
+      var small = el.parentElement && el.parentElement.querySelector('small');
+      if (small) small.textContent = hint;
+    }
+  }
+
   function renderKpis(summary) {
     if (!summary) return;
     var rows = mx.data.orderRows || [];
-    var w = document.getElementById('v33WorkingCount');
-    var a = document.getElementById('v33ApprovalCount');
-    if (w) w.textContent = String(summary.working != null ? summary.working : 0);
-    if (a) a.textContent = String(summary.awaitingApproval != null ? summary.awaitingApproval : 0);
-    var kpis = document.querySelectorAll('#page-orders .v33-kpis article');
+    setOrdKpi('v33WorkingCount', String(summary.working != null ? summary.working : 0));
+    setOrdKpi('v33ApprovalCount', String(summary.awaitingApproval != null ? summary.awaitingApproval : 0));
     if (liveOrders()) {
-      if (kpis[0]) {
-        var n0 = kpis[0].querySelector('small');
-        if (n0) n0.textContent = marketBreakdown(rows);
-      }
-      if (kpis[1]) {
-        var n1 = kpis[1].querySelector('small');
-        if (n1) n1.textContent = approvalNotionalLabel(rows);
-      }
+      setOrdKpi('v33WorkingCount', null, marketBreakdown(rows));
+      setOrdKpi('v33ApprovalCount', null, approvalNotionalLabel(rows));
       patchOrdersDemoChrome(summary, rows);
     }
-    if (kpis[2]) {
-      var s2 = kpis[2].querySelector('strong');
-      var n2 = kpis[2].querySelector('small');
-      if (s2) s2.textContent = String(summary.filled != null ? summary.filled : '—');
-      if (n2) n2.textContent = 'Filled orders in blotter';
-    }
-    if (kpis[3]) {
-      var s3 = kpis[3].querySelector('strong');
-      var n3 = kpis[3].querySelector('small');
-      if (s3) s3.textContent = summary.slippageBp == null ? '—' : slippageLabel(summary.slippageBp);
-      if (n3) n3.textContent = 'Fill-weighted vs decision price';
-    }
+    setOrdKpi('v33OrdKpiFilled', String(summary.filled != null ? summary.filled : '—'), 'Filled orders in blotter');
+    setOrdKpi('v33OrdKpiShortfall', summary.slippageBp == null ? '—' : slippageLabel(summary.slippageBp), 'Fill-weighted vs decision price');
     if (liveOrders()) {
       var roll = rollupSettlementKpis(summary, mx.data.orderRows);
-      if (kpis[4]) {
-        var s4 = kpis[4].querySelector('strong');
-        var n4 = kpis[4].querySelector('small');
-        if (s4) s4.textContent = roll.readyPct == null ? '—' : roll.readyPct + '%';
-        if (n4) {
-          n4.textContent =
-            roll.awaiting > 0
-              ? roll.awaiting + ' filled awaiting settlement'
-              : roll.readyPct === 100
-                ? 'All fills settled'
-                : 'Settlement progress';
-        }
-      }
-      if (kpis[5]) {
-        var s5 = kpis[5].querySelector('strong');
-        var n5 = kpis[5].querySelector('small');
-        var total = roll.warnings + roll.blocked;
-        if (s5) s5.textContent = total ? total + (total === 1 ? ' warning' : ' warnings') : 'Clear';
-        if (n5) {
-          n5.textContent = roll.blocked
-            ? roll.blocked + ' blocked · ' + roll.warnings + ' review'
-            : roll.warnings
-              ? roll.warnings + ' orders need review'
-              : 'Pre-trade controls within limits';
-        }
-      }
+      setOrdKpi(
+        'v33OrdKpiSettle',
+        roll.readyPct == null ? '—' : roll.readyPct + '%',
+        roll.awaiting > 0
+          ? roll.awaiting + ' filled awaiting settlement'
+          : roll.readyPct === 100
+            ? 'All fills settled'
+            : 'Settlement progress'
+      );
+      var total = roll.warnings + roll.blocked;
+      setOrdKpi(
+        'v33OrdKpiControl',
+        total ? total + (total === 1 ? ' warning' : ' warnings') : 'Clear',
+        roll.blocked
+          ? roll.blocked + ' blocked · ' + roll.warnings + ' review'
+          : roll.warnings
+            ? roll.warnings + ' orders need review'
+            : 'Pre-trade controls within limits'
+      );
     }
   }
 

@@ -26,9 +26,17 @@
     });
   }
 
+  function setReportKpi(id, value, hint) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    if (hint != null) {
+      var small = el.parentElement && el.parentElement.querySelector('small');
+      if (small) small.textContent = hint;
+    }
+  }
+
   function patchReportsKpis(rows, schedules) {
-    var kpis = document.querySelectorAll('#page-reports .v33-kpis .v33-kpi');
-    if (!kpis.length) return;
     rows = rows || [];
     schedules = schedules || [];
     var published = 0;
@@ -46,21 +54,12 @@
     var schedSoon = schedules.filter(function (s) {
       return s.nextRunOn && new Date(s.nextRunOn).getTime() <= week;
     }).length;
-    if (kpis[0]) kpis[0].querySelector('strong').textContent = String(published);
-    if (kpis[1]) kpis[1].querySelector('strong').textContent = String(awaiting);
-    if (kpis[2]) {
-      kpis[2].querySelector('strong').textContent = String(schedules.length);
-      kpis[2].querySelector('small').textContent = schedSoon + ' in next 7 days';
-    }
-    if (kpis[3]) kpis[3].querySelector('strong').textContent = String(client);
-    if (kpis[4]) {
-      kpis[4].querySelector('strong').textContent = String(reg);
-      kpis[4].querySelector('small').textContent = reg ? 'From report library' : 'No regulatory runs';
-    }
-    if (kpis[5]) {
-      kpis[5].querySelector('strong').textContent = '0';
-      kpis[5].querySelector('small').textContent = 'From data quality feed';
-    }
+    setReportKpi('v33RptKpiPublished', String(published));
+    setReportKpi('v33RptKpiAwaiting', String(awaiting));
+    setReportKpi('v33RptKpiScheduled', String(schedules.length), schedSoon + ' in next 7 days');
+    setReportKpi('v33RptKpiClient', String(client));
+    setReportKpi('v33RptKpiReg', String(reg), reg ? 'From report library' : 'No regulatory runs');
+    setReportKpi('v33RptKpiExceptions', '0', 'From data quality feed');
   }
 
   function reportType(name, category) {

@@ -30,22 +30,26 @@
     window.renderConstruction.__mxLabPatched = true;
   }
 
+  var LAB_KPI_IDS = ['v33LabKpiReturn', 'v33LabKpiTE', 'v33LabKpiVar', 'v33LabKpiLiquidity', 'v33LabKpiTurnover', 'v33LabKpiConstraints'];
+
   function clearLabKpis() {
-    document.querySelectorAll('#page-portfolio-lab .v33-kpis article').forEach(function (k) {
-      var s = k.querySelector('strong');
-      var n = k.querySelector('small');
-      if (s) s.textContent = '—';
+    LAB_KPI_IDS.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.textContent = '—';
+      var n = el.parentElement && el.parentElement.querySelector('small');
       if (n) n.textContent = 'Run optimiser';
     });
   }
 
   function setKpi(index, value, hint) {
-    var items = document.querySelectorAll('#page-portfolio-lab .v33-kpis article');
-    if (!items[index]) return;
-    var strong = items[index].querySelector('strong');
-    var small = items[index].querySelector('small');
-    if (strong) strong.textContent = value;
-    if (hint != null && small) small.textContent = hint;
+    var el = document.getElementById(LAB_KPI_IDS[index]);
+    if (!el) return;
+    el.textContent = value;
+    if (hint != null) {
+      var small = el.parentElement && el.parentElement.querySelector('small');
+      if (small) small.textContent = hint;
+    }
   }
 
   function renderPreview(p) {

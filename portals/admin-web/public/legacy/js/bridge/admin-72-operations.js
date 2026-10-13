@@ -351,22 +351,23 @@
 
   function renderStatus(s) {
     if (!s || !s.kpis) return;
-    document.querySelectorAll('.v33-kpi strong, .v36-ops-kpi strong').forEach(function (el, i) {
-      var vals = [
-        s.kpis.dueToday,
-        s.kpis.settlementExposure.length
-          ? s.kpis.settlementExposure
-              .map(function (e) {
-                return mx.money(e.amount, e.currency);
-              })
-              .join(' · ')
-          : '0',
-        s.kpis.cashDeadlines,
-        s.kpis.corporateActions,
-        s.kpis.closeBlockers,
-        s.kpis.serviceHealth === 'ok' ? 'Live' : 'Degraded',
-      ];
-      if (vals[i] != null) el.textContent = vals[i];
+    var vals = [
+      s.kpis.dueToday,
+      s.kpis.settlementExposure.length
+        ? s.kpis.settlementExposure
+            .map(function (e) {
+              return mx.money(e.amount, e.currency);
+            })
+            .join(' · ')
+        : '0',
+      s.kpis.cashDeadlines,
+      s.kpis.corporateActions,
+      s.kpis.closeBlockers,
+      s.kpis.serviceHealth === 'ok' ? 'Live' : 'Degraded',
+    ];
+    ['v33OpsKpiDue', 'v33OpsKpiExposure', 'v33OpsKpiCash', 'v33OpsKpiCa', 'v33OpsKpiClose', 'v33OpsKpiHealth'].forEach(function (id, i) {
+      var el = document.getElementById(id);
+      if (el && vals[i] != null) el.textContent = vals[i];
     });
     mx.badge('operations', s.kpis.dueToday);
     renderCloseGates(s);

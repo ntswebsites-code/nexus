@@ -45,34 +45,36 @@
     }
   }
 
+  function setNavKpi(id, value, hint) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = value;
+    if (hint != null) {
+      var small = el.parentElement && el.parentElement.querySelector('small');
+      if (small) small.textContent = hint;
+    }
+  }
+
   function patchNavKpis(detail) {
     if (!detail) return;
-    var kpis = document.querySelectorAll('#page-valuation .v33-kpis .v33-kpi');
-    if (kpis[0]) {
-      kpis[0].querySelector('strong').textContent = money(detail.nav, detail.baseCurrency);
-      kpis[0].querySelector('small').textContent = detail.navDate ? mx.date(detail.navDate) : '—';
-    }
-    if (kpis[1]) {
-      kpis[1].querySelector('strong').textContent = detail.navPerUnit != null ? Number(detail.navPerUnit).toFixed(4) : '—';
-      kpis[1].querySelector('small').textContent = detail.units != null ? (Number(detail.units) / 1e6).toFixed(2) + 'm units' : '—';
-    }
-    if (kpis[2]) {
-      kpis[2].querySelector('strong').textContent = detail.priceCoverage != null ? Number(detail.priceCoverage).toFixed(1) + '%' : '—';
-      var openEx = Number(detail.openMaterialExceptions || 0);
-      kpis[2].querySelector('small').textContent = openEx ? openEx + ' material exception' + (openEx === 1 ? '' : 's') : 'All within tolerance';
-    }
-    if (kpis[3]) {
-      var cashPct = detail.cashReconciledPct != null ? Number(detail.cashReconciledPct) : detail.cashReconciled ? 100 : null;
-      kpis[3].querySelector('strong').textContent = cashPct != null ? cashPct + '%' : '—';
-      kpis[3].querySelector('small').textContent = cashPct === 100 ? 'All banks signed' : 'From cash reconciliation';
-    }
-    if (kpis[4]) {
-      var fees = (detail.bridge || []).find(function (b) {
-        return b.key === 'FEES';
-      });
-      kpis[4].querySelector('strong').textContent = fees ? money(fees.amount, detail.baseCurrency) : '—';
-      kpis[4].querySelector('small').textContent = 'Management + admin';
-    }
+    setNavKpi('v33NavKpiDraft', money(detail.nav, detail.baseCurrency), detail.navDate ? mx.date(detail.navDate) : '—');
+    setNavKpi(
+      'v33NavKpiUnit',
+      detail.navPerUnit != null ? Number(detail.navPerUnit).toFixed(4) : '—',
+      detail.units != null ? (Number(detail.units) / 1e6).toFixed(2) + 'm units' : '—'
+    );
+    var openEx = Number(detail.openMaterialExceptions || 0);
+    setNavKpi(
+      'v33NavKpiCoverage',
+      detail.priceCoverage != null ? Number(detail.priceCoverage).toFixed(1) + '%' : '—',
+      openEx ? openEx + ' material exception' + (openEx === 1 ? '' : 's') : 'All within tolerance'
+    );
+    var cashPct = detail.cashReconciledPct != null ? Number(detail.cashReconciledPct) : detail.cashReconciled ? 100 : null;
+    setNavKpi('v33NavKpiCash', cashPct != null ? cashPct + '%' : '—', cashPct === 100 ? 'All banks signed' : 'From cash reconciliation');
+    var fees = (detail.bridge || []).find(function (b) {
+      return b.key === 'FEES';
+    });
+    setNavKpi('v33NavKpiFees', fees ? money(fees.amount, detail.baseCurrency) : '—', 'Management + admin');
     patchNavLanes(detail);
   }
 
