@@ -51,8 +51,23 @@ tools/dashboard/status.json
 
 # Local / generated
 .claude/
+.kilo/
 .flow-storage/
 tools/uat/prove-worker.sh
+
+# Local audit / probe scripts
+j05-custodian-audit.mjs
+j05-execution-form.mjs
+j05-execution-submit.mjs
+j05-form-fields.mjs
+nfr-405-409-probe.mjs
+nfr001-investor.mjs
+nfr001-responsive.mjs
+nfr003-anomalies.mjs
+nfr003-concurrency-local.mjs
+nfr003-diagnose.mjs
+nfr003-performance.mjs
+nfr005-conflict.mjs
 
 uat-execution/backups/
 
